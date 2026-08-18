@@ -24,23 +24,6 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
-    /// Source-compatible initializer for older integrations. Provider
-    /// authority is intentionally ignored because stable TCP has no provider
-    /// lifecycle; callers should migrate to the initializer above.
-    @available(*, deprecated, message: "Provider-specific route authority was removed")
-    init(
-        supportedKinds: [CmxAttachTransportKind] = [.tcp, .debugLoopback],
-        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
-        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
-        tailscaleRouteAuthority _: any CmxTailscaleRouteAuthorizing
-    ) {
-        self.init(
-            supportedKinds: supportedKinds,
-            maximumReceiveLength: maximumReceiveLength,
-            connectTimeoutNanoseconds: connectTimeoutNanoseconds
-        )
-    }
-
     public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         try makeTransport(
             for: CmxByteTransportRequest(

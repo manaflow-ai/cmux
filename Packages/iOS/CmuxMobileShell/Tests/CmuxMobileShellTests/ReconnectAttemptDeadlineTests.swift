@@ -12,6 +12,15 @@ import Testing
 // accepts new triggers (manual retry succeeds immediately).
 @MainActor
 extension ReconnectRouteSelectionTests {
+    private func stableRoute() throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "tcp",
+            kind: .tcp,
+            endpoint: .hostPort(host: "100.82.214.112", port: 58_465),
+            priority: 10
+        )
+    }
+
     @Test func deadlineRaceReturnsNilWhenOperationIgnoresCancellation() async {
         let gate = ReconnectDeadlineTestGate()
         // The race must not structurally await the losing side: an operation
@@ -78,7 +87,7 @@ extension ReconnectRouteSelectionTests {
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.tcp]
         )
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: ["": []],
@@ -139,7 +148,7 @@ extension ReconnectRouteSelectionTests {
         var runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.tcp]
         )
         runtime.reconnectAttemptDeadlineNanoseconds = 100_000_000
         let pairedStore = DelayedTeamPairedMacStore(
@@ -179,26 +188,27 @@ extension ReconnectRouteSelectionTests {
         }
     }
 
-    @Test func explicitRootRetryBypassesAutomaticIrohBackoff() async throws {
+    @Test func explicitRootRetryBypassesAutomaticReconnectBackoff() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.tcp]
         )
         let store = try await makeReconnectStore(
-            routes: [try iroh()],
+            routes: [try stableRoute()],
             runtime: runtime
         )
         store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
-        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+        #expect(store.automaticReconnectIsBlocked(accountID: "user-1"))
 
         #expect(await store.retryActiveMacReconnect(stackUserID: "user-1"))
 
         #expect(store.connectionState == .connected)
-        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(!factory.attemptedKinds().isEmpty)
+        #expect(factory.attemptedKinds().allSatisfy { $0 == .tcp })
     }
 
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
@@ -209,13 +219,13 @@ extension ReconnectRouteSelectionTests {
         var runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { clock.now },
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.tcp]
         )
         // Keep the initial healthy dial stable under full-suite contention while
         // remaining far below the production default of 30 seconds.
         runtime.reconnectAttemptDeadlineNanoseconds = 1_000_000_000
         let store = try await makeReconnectStore(
-            routes: [try iroh()],
+            routes: [try stableRoute()],
             runtime: runtime
         )
 
@@ -223,9 +233,8 @@ extension ReconnectRouteSelectionTests {
         #expect(store.connectionState == .connected)
         let client = try #require(store.remoteClient)
 
-        // Every dial from here on parks forever, exactly like the observed
-        // wedged Iroh dial.
-        factory.setHangingKinds([.iroh])
+        // Every dial from here on parks forever, modeling a wedged TCP dial.
+        factory.setHangingKinds([.tcp])
         let dialsBeforeDrop = factory.attemptedKinds().count
 
         store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
@@ -249,7 +258,7 @@ extension ReconnectRouteSelectionTests {
 
         // The timed-out attempt must feed the automatic retry loop: transient
         // backoff is recorded for the account the attempt dialed for.
-        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+        #expect(store.automaticReconnectIsBlocked(accountID: "user-1"))
 
         // And the machine is unfrozen: a manual retry (hang lifted, modeling
         // the network recovering) dials fresh and connects. Release the

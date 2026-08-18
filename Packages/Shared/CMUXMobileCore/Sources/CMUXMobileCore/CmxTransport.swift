@@ -234,7 +234,7 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
     /// records fail closed instead of being handed to a partial replacement.
     public func normalizedForStableTransport() throws -> Self {
         switch kind {
-        case .tcp, .debugLoopback, .websocket:
+        case .tcp, .debugLoopback:
             return self
         case .tailscale:
             guard case .hostPort = endpoint else {
@@ -248,9 +248,35 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             )
         case .iroh:
             throw CmxStableTransportRouteError.nativeTransportUnavailable(.iroh)
+        case .websocket:
+            throw CmxStableTransportRouteError.nativeTransportUnavailable(.websocket)
         }
     }
 
+}
+
+public extension CmxAttachTransportKind {
+    /// Whether this kind is served by the stable host/port transport. The
+    /// legacy value is accepted only at migration boundaries.
+    var isStableTCPCompatible: Bool {
+        self == .tcp || self == .tailscale || self == .debugLoopback
+    }
+}
+
+public extension CmxAttachRoute {
+    /// Whether this route can be normalized to the stable TCP transport.
+    var usesStableTCPTransport: Bool {
+        guard let normalized = try? normalizedForStableTransport() else {
+            return false
+        }
+        guard normalized.kind == .tcp || normalized.kind == .debugLoopback else {
+            return false
+        }
+        if case .hostPort = normalized.endpoint {
+            return true
+        }
+        return false
+    }
 }
 
 public enum CmxAttachTicketError: Error, Equatable, Sendable {

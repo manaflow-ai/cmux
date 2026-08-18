@@ -631,7 +631,7 @@ import Testing
         #expect(frame.hasAuth)
     }
 
-    @Test func admittedIrohRequestCarriesNoStackOrAttachCredential() async throws {
+    @Test func nativeIrohRouteIsRejectedBeforeCredentialsOrDial() async throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "ab", count: 32)
         )
@@ -640,12 +640,11 @@ import Testing
             kind: .iroh,
             endpoint: .peer(identity: identity, pathHints: [])
         )
-        let transport = QueuedCancellationProbeTransport()
         let capture = TransportRequestCapture()
         let stackTokenRequested = AsyncFlag()
         let runtime = TestMobileSyncRuntime(
             transportFactory: IntentRecordingTransportFactory(
-                transport: transport,
+                transport: QueuedCancellationProbeTransport(),
                 capture: capture
             ),
             stackAccessTokenProvider: {
@@ -671,18 +670,16 @@ import Testing
         #expect(!client.usesLocallyAuthorizedTailscaleRoute)
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
 
-        let task = Task { try await client.sendRequest(request) }
-        let sent = try await transport.waitForSentRequestCount(1)
-
-        let frame = try #require(sent.first)
-        #expect(!frame.hasAuth)
-        let didRequestStackToken = await stackTokenRequested.isSet()
-        #expect(!didRequestStackToken)
-        #expect(capture.request()?.expectedPeerDeviceID == ticket.macDeviceID)
-        #expect(capture.request()?.authorizationMode == .transportAdmission)
-        task.cancel()
-        await transport.releaseFirstSend()
-        _ = try? await task.value
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("native Iroh route should not be dialable")
+        } catch MobileShellConnectionError.insecureManualRoute {
+            // Removed native providers fail closed before auth or network I/O.
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(!(await stackTokenRequested.isSet()))
+        #expect(capture.request() == nil)
     }
 
     @Test func exactLegacyTailscaleEvidenceCarriesStackBearer() async throws {

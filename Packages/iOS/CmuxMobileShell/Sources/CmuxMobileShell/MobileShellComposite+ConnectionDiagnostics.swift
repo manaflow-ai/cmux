@@ -66,10 +66,9 @@ extension MobileShellComposite {
 
     /// Failure classes that mean the dialed peer endpoint, not our request,
     /// was bad: the Mac could not be reached on the plan we used. Mirrors the
-    /// transport provider's unreachable classification
-    /// (`CmxIrohRegistryContextProvider`), because an RPC deadline cancels the
-    /// underlying dial before the session pool can classify it, so this owner
-    /// must report equivalent staleness evidence itself. Auth, admission,
+    /// transport's unreachable classification, because an RPC deadline cancels
+    /// the underlying dial before the session actor can classify it, so this
+    /// owner must report equivalent staleness evidence itself. Auth, admission,
     /// policy, and cancellation failures stay out: refetching discovery cannot
     /// repair those.
     static func routeFailureIndicatesStaleDiscovery(

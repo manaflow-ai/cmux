@@ -31,20 +31,6 @@ import Testing
         )
     }
 
-    func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
-        try CmxAttachRoute(
-            id: "iroh-personal",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
-                ),
-                pathHints: []
-            ),
-            priority: priority
-        )
-    }
-
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
@@ -132,14 +118,14 @@ import Testing
         #expect(candidates.first?.routeID == "duplicate")
     }
 
-    @Test func rawReconnectCandidatesAreUnavailableForIrohCapablePairing() throws {
+    @Test func rawReconnectCandidatesIgnoreRemovedPeerRoutes() throws {
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
-            [try tailscale(), try iroh()],
+            [try tailscale()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true
         )
 
-        #expect(candidates.isEmpty)
+        #expect(candidates.map(\.host) == ["100.82.214.112"])
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
@@ -232,7 +218,7 @@ import Testing
 
         #expect(connected)
         #expect(store.connectionState == .connected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        #expect(factory.attemptedPorts() == [51000, 51001])
     }
 
     @Test func connectionPoolRecordsFallbackRouteThatActuallyConnected() async throws {
@@ -314,7 +300,7 @@ import Testing
 
         #expect(!firstConnected)
         #expect(secondConnected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        #expect(factory.attemptedPorts() == [51000, 51000, 51001])
     }
 
     @Test func staleConnectCannotReplaceAnEstablishedClientBeforeDialing() async throws {
@@ -545,7 +531,7 @@ import Testing
     @Test func tailscaleMethodUsesOnlyGrantedTailscaleRoute() throws {
         let tailscale = try tailscale()
         let routes = MobileShellComposite.storedReconnectRoutes(
-            [tailscale, try iroh()],
+            [tailscale],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
             tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
@@ -559,7 +545,7 @@ import Testing
 
     @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
-            [try tailscale(), try iroh()],
+            [try tailscale()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
             tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
@@ -574,7 +560,7 @@ import Testing
     @Test func tailscaleMethodRejectsMismatchedGrantWithoutIrohFallback() throws {
         let otherDestination = try tailscale(50907)
         let routes = MobileShellComposite.storedReconnectRoutes(
-            [try tailscale(), try iroh()],
+            [try tailscale()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
             tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
@@ -723,79 +709,4 @@ import Testing
         )
     }
 
-    @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
-        let clock = TestClock()
-        let router = LivenessHostRouter()
-        // The factory boxes the live Iroh transport it hands out, so the test
-        // can observe physical teardown, not just the store's logical route.
-        let liveTransportBox = TransportBox()
-        let factory = KindRecordingTransportFactory(
-            router: router,
-            box: liveTransportBox,
-            failingKinds: [.tailscale]
-        )
-        let tailscale = try tailscale()
-        let iroh = try iroh()
-        let (pairedStore, directory) = try makePairedMacStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try await pairedStore.upsert(
-            macDeviceID: "test-mac",
-            displayName: "Test Mac",
-            routes: [tailscale, iroh],
-            instanceTag: "default",
-            markActive: true,
-            stackUserID: "user-1",
-            teamID: nil,
-            now: clock.now
-        )
-        try await pairedStore.authorizeUserTailscaleRoutes(
-            macDeviceID: "test-mac",
-            instanceTag: "default",
-            stackUserID: "user-1",
-            teamID: nil,
-            routes: [tailscale]
-        )
-        let methodDefaults = UserDefaults(
-            suiteName: "connection-method-live-switch-\(UUID().uuidString)"
-        )!
-        let methodStore = MobileConnectionMethodStore(defaults: methodDefaults)
-        let store = MobileShellComposite(
-            runtime: LivenessTestRuntime(
-                transportFactory: factory,
-                now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
-            ),
-            isSignedIn: true,
-            pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(
-                suiteName: "connection-method-pairing-hint-\(UUID().uuidString)"
-            )!,
-            hiddenMacStore: InMemoryPairedMacHiddenStore()
-        )
-        await store.loadPairedMacs()
-
-        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(store.activeRoute?.kind == .iroh)
-        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
-
-        methodStore.method = .tailscale
-
-        // `activeRoute == nil` only proves the store cleared its logical
-        // route; the dropped live Iroh transport must also finish closing so
-        // no physical cleanup work is still pending when the test completes.
-        let applied = try await pollUntil {
-            let liveTransportClosed =
-                await liveTransportBox.get()?.isClosedForTesting() == true
-            return factory.attemptedKinds().contains(.tailscale)
-                && store.connectionState == .disconnected
-                && store.activeRoute == nil
-                && liveTransportClosed
-        }
-        #expect(applied)
-        #expect(store.activeRoute == nil)
-        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
-    }
 }

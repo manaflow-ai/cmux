@@ -21,6 +21,21 @@ import Testing
     }
 }
 
+@Test func networkTransportFactoryNormalizesLegacyTailscaleHostRoute() async throws {
+    let route = try CmxAttachRoute(
+        id: "legacy-tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.82.214.112", port: 58465)
+    )
+
+    // Persisted records can still carry the historical label. The route
+    // neutral factory must consume that record directly, without an outer
+    // provider registry rejecting it before normalization.
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+    #expect(try route.normalizedForStableTransport().kind == .tcp)
+    await transport.close()
+}
+
 @Test func networkTransportExchangesBytesOverHostPortRoute() async throws {
     let server = try NetworkEchoServer(response: Data("pong".utf8))
     let port = try await server.start()

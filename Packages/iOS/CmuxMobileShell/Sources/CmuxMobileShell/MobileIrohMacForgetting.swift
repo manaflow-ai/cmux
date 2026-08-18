@@ -1,14 +1,14 @@
 import Foundation
 
-/// Revokes the account-owned iroh bindings for one saved computer.
+/// Revokes the account-owned device records for one saved computer.
 ///
-/// Kept separate from ``MobileIrohMacDiscovering`` so the shell store depends
+/// Kept separate from ``MobileRemoteMacDiscovering`` so the shell store depends
 /// only on the narrow capability it needs. The concrete transport composition
 /// discovers the account's current bindings, matches the target computer by
 /// canonical device id (and exact app-instance tag when known), and revokes
 /// each match through the user-ownership-scoped broker endpoint.
 @MainActor
-public protocol MobileIrohMacForgetting: Sendable {
+public protocol MobileRemoteMacForgetting: Sendable {
     /// Revokes every non-revoked binding for one saved computer.
     ///
     /// - Parameters:
@@ -32,3 +32,7 @@ public protocol MobileIrohMacForgetting: Sendable {
         expectedAccountID: String
     ) async throws
 }
+
+/// Source compatibility for integrations that still use the retired name.
+@available(*, deprecated, renamed: "MobileRemoteMacForgetting")
+public typealias MobileIrohMacForgetting = MobileRemoteMacForgetting

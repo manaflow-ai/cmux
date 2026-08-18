@@ -548,12 +548,3 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         return continuityGeneration
     }
 }
-
-private func waitingKindFailsConnect(_ kind: CmxConnectFailureKind) -> Bool {
-    switch kind {
-    case .connectionRefused, .hostUnreachable, .permissionDenied, .dnsFailed, .secureChannelFailed:
-        return true
-    case .timedOut, .generic:
-        return false
-    }
-}

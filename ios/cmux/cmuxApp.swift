@@ -5,9 +5,6 @@ import Foundation
 import OSLog
 import SwiftUI
 import cmuxFeature
-#if DEBUG
-import CmuxIrohReleaseGateSupport
-#endif
 
 nonisolated private let cmuxAppConnectivityLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
@@ -37,9 +34,21 @@ struct cmuxApp: App {
                 forInfoDictionaryKey: "CMUXCompatibleMacTags"
             ) as? String
         )
-        let iroh = MobileIrohRuntimeComposition(
+
+        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
+        // the simulator and on DEBUG device builds so on-device XCUITests can
+        // attach to an in-runner mock host; release device builds keep only
+        // real transports.
+        #if targetEnvironment(simulator) || DEBUG
+        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tcp]
+        #else
+        let supportedKinds: [CmxAttachTransportKind] = [.tcp]
+        #endif
+
+        let transportComposition = MobileTransportRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
+            supportedKinds: supportedKinds,
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
@@ -54,34 +63,16 @@ struct cmuxApp: App {
                 "Connectivity invalidation disabled: presence service URL unavailable"
             )
         }
-        iroh.configure(
+        transportComposition.configure(
             auth: auth.coordinator,
             connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
         )
 
-        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
-        // the simulator and on DEBUG device builds so on-device XCUITests can
-        // attach to an in-runner mock host; release device builds keep only
-        // real transports.
-        #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tcp]
-#else
-        let supportedKinds: [CmxAttachTransportKind] = [.tcp]
-#endif
-        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
-        let fallbackRegistrations = supportedKinds.map { kind in
-            CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
-        }
-        let registrations = fallbackRegistrations
-        let transportFactory: CmxRouteTransportFactory
-        do {
-            transportFactory = try CmxRouteTransportFactory(registrations)
-        } catch {
-            preconditionFailure("Invalid mobile transport registrations: \(error)")
-        }
-
+        // Keep one factory at the composition boundary. Dispatching through a
+        // kind-keyed registry would reject a persisted `.tailscale` label
+        // before the stable factory can normalize it to `.tcp`.
         let runtime = CMUXMobileRuntime(
-            transportFactory: transportFactory,
+            transportFactory: transportComposition.transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
@@ -91,7 +82,7 @@ struct cmuxApp: App {
         return AppCompositionRoot(
             runtime: runtime,
             auth: auth,
-            iroh: iroh,
+            transportComposition: transportComposition,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -120,21 +111,11 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        Group {
-            #if DEBUG
-            MobileIrohReleaseGateScene(
-                root: mobileRootScene,
-                iroh: Self.root.iroh
-            )
-            #else
-            mobileRootScene
-            #endif
-        }
-        .environment(\.irohSettingsController, Self.root.iroh)
+        Group { mobileRootScene }
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
+                await Self.root.transportComposition.prepareForConnection()
             }
         )
     }
@@ -152,9 +133,6 @@ struct cmuxApp: App {
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog

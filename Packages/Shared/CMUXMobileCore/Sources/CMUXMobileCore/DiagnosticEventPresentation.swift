@@ -309,9 +309,8 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Renders an already-described event as a title followed by labeled fields.
     public func summary(_ described: DescribedEvent) -> String {
-        let visibleFields = described.fields.filter { $0.key != "session" }
-        guard !visibleFields.isEmpty else { return described.name }
-        let details = visibleFields.map { field in
+        guard !described.fields.isEmpty else { return described.name }
+        let details = described.fields.map { field in
             localized(
                 "diagnostics.summary.field",
                 defaultValue: "\(label(for: field.key)): \(field.value)"
@@ -488,17 +487,17 @@ public struct DiagnosticEventPresentation: Sendable {
         case .appFeatureAction:
             localized("diagnostics.event.appFeatureAction", defaultValue: "App feature event")
         case .transportDialPlanBuilt:
-            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Direct dial plan assembled")
+            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Transport dial plan built")
         case .transportPrivateAddressJoin:
-            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private addresses joined broker port")
+            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private address candidate joined")
         case .transportLANDiscovery:
-            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery resolved")
+            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery completed")
         case .transportDialLegSucceeded:
-            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg connected")
+            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg succeeded")
         case .transportDialLegFailed:
             localized("diagnostics.event.transportDialLegFailed", defaultValue: "Direct dial leg failed")
         case .lanPublicationState:
-            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN advertisement state changed")
+            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN publication state changed")
         }
     }
 
@@ -541,6 +540,12 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "editable_focused", value: booleanName(raw))
         case .browserPanelCreateResolved:
             return Field(key: "created", value: booleanName(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "attempt", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "cancellation", value: cancellationReasonName(raw))
+        case .transportCloseReason:
+            return Field(key: "reason", value: remoteCloseReasonName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "state", value: simulatorStreamLifecycleName(raw))
         case .simulatorFrameLifecycle:
@@ -593,6 +598,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "outcome", value: browserFocusOutcomeName(raw))
         case .transportDialPlanBuilt:
             return Field(key: "private_fallback_paths", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "detail_2", value: String(raw))
         case .discoverySucceeded:
             return Field(key: "bindings", value: String(raw))
         case .transportPrivateAddressJoin:
@@ -644,6 +651,14 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "relay_fleet", value: String(raw))
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "session", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "attempt", value: String(raw))
+        case .transportCloseReason:
+            return Field(key: "session", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+            return Field(key: "peer", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent:
             return Field(key: "session", value: String(raw))
@@ -749,6 +764,56 @@ public struct DiagnosticEventPresentation: Sendable {
             "diagnostics.unknown.payload",
             defaultValue: "Unknown value (\(raw))"
         )
+    }
+
+    private func cancellationReasonName(_ raw: Int) -> String {
+        guard let value = DiagnosticCancellationReason(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.cancellation",
+                defaultValue: "Unknown cancellation (\(raw))"
+            )
+        }
+        switch value {
+        case .unknown:
+            return localized("diagnostics.cancellation.unknown", defaultValue: "Unknown cancellation")
+        case .requestCancelled:
+            return localized("diagnostics.cancellation.requestCancelled", defaultValue: "Request cancelled")
+        case .requestTimedOut:
+            return localized("diagnostics.cancellation.requestTimedOut", defaultValue: "Request timed out")
+        case .sessionTeardown:
+            return localized("diagnostics.cancellation.sessionTeardown", defaultValue: "Session torn down")
+        case .sessionDeinitialized:
+            return localized("diagnostics.cancellation.sessionDeinitialized", defaultValue: "Session deinitialized")
+        }
+    }
+
+    private func remoteCloseReasonName(_ raw: Int) -> String {
+        guard let value = DiagnosticRemoteCloseReason(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.closeReason",
+                defaultValue: "Unknown remote reason (\(raw))"
+            )
+        }
+        switch value {
+        case .unknown:
+            return localized("diagnostics.closeReason.unknown", defaultValue: "Unknown remote reason")
+        case .clientClosed:
+            return localized("diagnostics.closeReason.clientClosed", defaultValue: "Client closed")
+        case .serverClosed:
+            return localized("diagnostics.closeReason.serverClosed", defaultValue: "Server closed")
+        case .superseded:
+            return localized("diagnostics.closeReason.superseded", defaultValue: "Superseded session")
+        case .admissionLeaseExpired:
+            return localized("diagnostics.closeReason.admissionLeaseExpired", defaultValue: "Admission lease expired")
+        case .admissionRevalidationFailed:
+            return localized("diagnostics.closeReason.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
+        case .sendQueueOverflow:
+            return localized("diagnostics.closeReason.sendQueueOverflow", defaultValue: "Send queue overflow")
+        case .serverFailure:
+            return localized("diagnostics.closeReason.serverFailure", defaultValue: "Server failure")
+        case .serverCancelled:
+            return localized("diagnostics.closeReason.serverCancelled", defaultValue: "Server cancelled")
+        }
     }
 
     private static let appEventKindsWithValuePayload: Set<DiagnosticAppEventKind> = [
@@ -1350,6 +1415,8 @@ public struct DiagnosticEventPresentation: Sendable {
     private func label(for key: String) -> String {
         switch key {
         case "surface": localized("diagnostics.field.surface", defaultValue: "Surface")
+        case "peer": localized("diagnostics.field.peer", defaultValue: "Peer")
+        case "recovery": localized("diagnostics.field.recovery", defaultValue: "Recovery")
         case "transport": localized("diagnostics.field.transport", defaultValue: "Transport")
         case "failure": localized("diagnostics.field.failure", defaultValue: "Failure")
         case "attempt": localized("diagnostics.field.attempt", defaultValue: "Attempt")
@@ -1396,6 +1463,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case "route": localized("diagnostics.field.route", defaultValue: "Route")
         case "style": localized("diagnostics.field.style", defaultValue: "Style")
         case "reason": localized("diagnostics.field.reason", defaultValue: "Reason")
+        case "cancellation": localized("diagnostics.field.cancellation", defaultValue: "Cancellation")
         case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
         case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
         case "created": localized("diagnostics.field.created", defaultValue: "Created")

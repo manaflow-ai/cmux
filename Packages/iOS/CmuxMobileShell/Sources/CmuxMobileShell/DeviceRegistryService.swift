@@ -101,9 +101,10 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// A cmux-GENERATED persisted UUID (NOT `identifierForVendor`, which resets
     /// when the last cmux app is removed, and NOT a hardware fingerprint).
     /// Stored in a device-only Keychain item so it survives an app reinstall
-    /// (iOS `UserDefaults` does not): the iroh binding slot is keyed on
+    /// (iOS `UserDefaults` does not): the device-registry slot is keyed on
     /// `(user, device, tag)`, so a returning phone must present the same device
-    /// id to overwrite its own binding in place instead of stranding a new one.
+    /// id to overwrite its own registry record in place instead of stranding a
+    /// new one.
     /// The `UserDefaults` mirror is trusted only when it provably belongs to
     /// THIS physical device: `UserDefaults` travels in device backups onto NEW
     /// phones while the `ThisDeviceOnly` Keychain item does not, so a mirror is
@@ -115,10 +116,9 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// This is the best-effort read used by non-binding callers (the device
     /// registry HTTP client, which only reads the team's Macs). It never returns
     /// `nil`: when the store is unreadable and no mirror exists it yields a
-    /// process-stable ephemeral id. Do NOT use it to register an iroh binding —
-    /// that path must use ``durableDeviceID(defaults:)`` and defer while it is
-    /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
-    /// binding.
+    /// process-stable ephemeral id. Do NOT use it to register a device record,
+    /// because a throwaway id would become a stranded `(user, device, tag)`
+    /// record.
     /// - Parameters:
     ///   - defaults: Legacy persistence store (injected for tests).
     ///   - evidence: Same-device evidence probe consulted for a mirror with no
@@ -128,7 +128,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     @MainActor
     public static func deviceID(
         defaults: UserDefaults = .standard,
-        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+        evidence: any SameDeviceEvidenceProbing = DeviceContinuityEvidenceProbe()
     ) -> String {
         deviceID(
             store: defaultDeviceIdentityStore(defaults: defaults),
@@ -143,7 +143,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
         deviceWitness: String? = nil,
-        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+        evidence: any SameDeviceEvidenceProbing = DeviceContinuityEvidenceProbe()
     ) -> String {
         switch resolveDurableDeviceID(
             store: store,
@@ -163,7 +163,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
     }
 
-    /// This iOS device's *durable* identity for registering an iroh binding, or
+    /// This iOS device's *durable* identity for registering a device record, or
     /// `nil` when no durable id can be produced right now.
     ///
     /// Returns `nil` in exactly two cases: the Keychain is unreadable (locked
@@ -181,7 +181,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     @MainActor
     public static func durableDeviceID(
         defaults: UserDefaults = .standard,
-        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+        evidence: any SameDeviceEvidenceProbing = DeviceContinuityEvidenceProbe()
     ) -> String? {
         durableDeviceID(
             store: defaultDeviceIdentityStore(defaults: defaults),
@@ -199,7 +199,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     public static func durableDeviceID(
         defaults: UserDefaults = .standard,
         deviceWitness: String?,
-        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+        evidence: any SameDeviceEvidenceProbing = DeviceContinuityEvidenceProbe()
     ) -> String? {
         durableDeviceID(
             store: defaultDeviceIdentityStore(defaults: defaults),
@@ -229,7 +229,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
         deviceWitness: String? = nil,
-        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+        evidence: any SameDeviceEvidenceProbing = DeviceContinuityEvidenceProbe()
     ) -> String? {
         switch resolveDurableDeviceID(
             store: store,
@@ -256,7 +256,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     /// Resolve the device id from the authoritative store. Keychain is
-    /// authoritative because it survives an app reinstall, keeping the iroh
+    /// authoritative because it survives an app reinstall, keeping the
     /// `(user, device, tag)` slot stable.
     ///
     /// Mirror trust is decided by ``mirrorVerdict``: the recorded
@@ -267,7 +267,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
         deviceWitness: String? = nil,
-        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+        evidence: any SameDeviceEvidenceProbing = DeviceContinuityEvidenceProbe()
     ) -> DurableDeviceIDResolution {
         switch store.read() {
         case .found(let stored):
@@ -492,26 +492,18 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        guard registry != local else { return nil }
-        // Keep a locally persisted Tailscale destination alongside a newly
-        // published Iroh route. The local route may carry the pre-Iroh grant
-        // needed to reconnect an older Mac while the registry has already
-        // converged on Iroh-only publication.
-        guard registry.contains(where: { $0.kind == .iroh }) else {
-            return registry
-        }
-        // The registry remains authoritative when it publishes any current
-        // Tailscale route. Only an Iroh-only response needs one legacy local
-        // fallback for Macs paired before the Iroh migration.
-        guard registry.allSatisfy({ $0.kind == .iroh }) else {
-            return registry
-        }
-        var selected = registry
-        if let legacyTailscale = local.first(where: { $0.kind == .tailscale }),
-           !selected.contains(where: { $0.endpoint == legacyTailscale.endpoint }) {
-            selected.append(legacyTailscale)
-        }
-        return selected == local ? nil : selected
+        // Keep the historical route label in persistence. The stable factory
+        // performs the one legacy-to-TCP conversion immediately before dial,
+        // so route identity and trust evidence remain comparable across an
+        // in-place upgrade.
+        let usableRegistry = registry.filter(\.usesStableTCPTransport)
+        // A registry response containing only removed provider routes cannot
+        // replace a usable local route. A response containing stable host/port
+        // routes is authoritative, including legacy names that the factory
+        // can normalize at the transport boundary.
+        guard !usableRegistry.isEmpty else { return nil }
+        let usableLocal = local.filter(\.usesStableTCPTransport)
+        return usableRegistry == usableLocal ? nil : usableRegistry
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac

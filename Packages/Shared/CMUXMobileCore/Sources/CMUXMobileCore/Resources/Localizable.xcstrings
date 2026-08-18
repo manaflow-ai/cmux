@@ -690,13 +690,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "LAN advertisement state changed"
+            "value": "LAN publication state changed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "LANアドバタイズ状態が変化しました"
+            "value": "LAN公開状態が変化しました"
           }
         }
       }
@@ -1098,13 +1098,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Direct dial leg connected"
+            "value": "Direct dial leg succeeded"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "直接ダイヤル経路が接続しました"
+            "value": "直接ダイヤル経路が成功しました"
           }
         }
       }
@@ -1115,13 +1115,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Direct dial plan assembled"
+            "value": "Transport dial plan built"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "直接ダイヤルプランを作成しました"
+            "value": "トランスポートのダイヤルプランを作成しました"
           }
         }
       }
@@ -1149,7 +1149,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "LAN discovery resolved"
+            "value": "LAN discovery completed"
           }
         },
         "ja": {
@@ -1183,13 +1183,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Private addresses joined broker port"
+            "value": "Private address candidate joined"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プライベートアドレスをブローカーのポートと結合しました"
+            "value": "プライベートアドレス候補が追加されました"
           }
         }
       }

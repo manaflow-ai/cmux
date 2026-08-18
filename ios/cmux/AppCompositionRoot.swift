@@ -21,7 +21,7 @@ import cmuxFeature
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
-    let iroh: MobileIrohRuntimeComposition
+    let transportComposition: MobileTransportRuntimeComposition
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -76,7 +76,7 @@ final class AppCompositionRoot {
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        iroh: MobileIrohRuntimeComposition,
+        transportComposition: MobileTransportRuntimeComposition,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -89,7 +89,7 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
-        self.iroh = iroh
+        self.transportComposition = transportComposition
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -174,19 +174,11 @@ final class AppCompositionRoot {
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
-            let preparation = iroh.beginSignOutPreparation()
             return { accessToken, refreshToken in
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
                             accountID: signingOutAccountID,
-                            accessToken: accessToken,
-                            refreshToken: refreshToken
-                        )
-                    }
-                    group.addTask {
-                        await iroh.completeSignOutAfterAuthClear(
-                            preparation,
                             accessToken: accessToken,
                             refreshToken: refreshToken
                         )
@@ -340,7 +332,7 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
-            let isFullForegroundReturn = iroh.didBecomeActive()
+            let isFullForegroundReturn = transportComposition.didBecomeActive()
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
@@ -372,10 +364,10 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
-            iroh.archiveDiagnostics()
+            transportComposition.archiveDiagnostics()
         case .background:
             diagnosticLog.recordAppEvent(.appBackgrounded)
-            iroh.didEnterBackground()
+            transportComposition.didEnterBackground()
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])
