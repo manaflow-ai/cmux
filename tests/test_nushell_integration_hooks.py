@@ -88,9 +88,10 @@ class _SocketCollector:
     """Accepts unix-socket connections and collects newline-terminated lines."""
 
     def __init__(self, path: Path) -> None:
+        """Bind `path` and start the background socket reader."""
         self.path = path
         self.lines: List[str] = []
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
         self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server.bind(str(path))
         self._server.listen(16)
@@ -100,6 +101,7 @@ class _SocketCollector:
         self._thread.start()
 
     def _loop(self) -> None:
+        """Collect payload lines until ``stop`` requests shutdown."""
         while not self._stop.is_set():
             try:
                 conn, _ = self._server.accept()
@@ -119,16 +121,26 @@ class _SocketCollector:
                 except socket.timeout:
                     pass
             text = b"".join(chunks).decode("utf-8", errors="replace")
-            with self._lock:
+            with self._condition:
                 for line in text.splitlines():
                     if line.strip():
                         self.lines.append(line.strip())
+                self._condition.notify_all()
+
+    def wait_for(self, expected_lines: List[str], timeout: float) -> bool:
+        """Wait until every expected payload arrives or `timeout` expires."""
+        with self._condition:
+            return self._condition.wait_for(
+                lambda: all(line in self.lines for line in expected_lines),
+                timeout=timeout,
+            )
 
     def stop(self) -> List[str]:
+        """Stop the reader and return a stable copy of collected lines."""
         self._stop.set()
         self._thread.join(timeout=5)
         self._server.close()
-        with self._lock:
+        with self._condition:
             return list(self.lines)
 
 
@@ -148,6 +160,7 @@ def _debug(proc: subprocess.CompletedProcess, lines: List[str]) -> str:
 
 
 def test_nushell_integration_hook_reports() -> None:
+    """Report tty, state, cwd, and port events with fish-compatible payloads."""
     nu = _require_nu()
     if nu is None:
         return
@@ -287,45 +300,59 @@ def test_nushell_integration_background_sends_deliver() -> None:
                 "CMUX_PANEL_ID": PANEL_ID,
                 "CMUX_SURFACE_ID": "surface-nu-bg",
                 "_CMUX_TTY_NAME": TTY_NAME,
-                # No CMUX_TEST_SYNC_SEND: exercise the job spawn path. The
-                # trailing sleep keeps the shell alive long enough for the
-                # background job to flush (nushell kills jobs at exit; real
-                # prompts outlive them).
+                # No CMUX_TEST_SYNC_SEND: exercise the job spawn path.
             }
         )
+        suffix = f"--tab={TAB_ID} --panel={PANEL_ID}"
+        expected_lines = [
+            f"report_shell_state running {suffix}",
+            f"report_tty {TTY_NAME} {suffix}",
+        ]
         script = "; ".join(
             [
                 f'source "{INTEGRATION}"',
                 "_cmux_pre_execution",
-                "sleep 800ms",
+                # Hold the shell open on stdin until the socket collector sees
+                # the spawned jobs' payloads. Python closes stdin immediately
+                # after the real completion signal (or its bounded deadline).
+                "^/bin/cat | ignore",
             ]
         )
-        proc = subprocess.run(
+        process = subprocess.Popen(
             [nu, "-n", "-c", script],
             env=env,
             cwd=str(home),
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=30,
-            check=False,
+        )
+        delivered = collector.wait_for(expected_lines, timeout=5)
+        stdout, stderr = process.communicate(input="\n", timeout=30)
+        proc = subprocess.CompletedProcess(
+            args=process.args,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
         lines = collector.stop()
         debug = _debug(proc, lines)
 
         assert proc.returncode == 0, "integration errored on background sends" + debug
-        suffix = f"--tab={TAB_ID} --panel={PANEL_ID}"
-        assert f"report_shell_state running {suffix}" in lines, (
-            "background (job spawn) send did not deliver report_shell_state"
+        assert delivered, (
+            "background jobs did not deliver all expected payloads before the deadline"
             + debug
         )
-        assert f"report_tty {TTY_NAME} {suffix}" in lines, (
-            "background (job spawn) send did not deliver report_tty" + debug
-        )
+        for payload in expected_lines:
+            assert payload in lines, (
+                f"background (job spawn) send did not deliver {payload!r}" + debug
+            )
     finally:
         shutil.rmtree(td, ignore_errors=True)
 
 
 def test_nushell_integration_keyboard_reset_test_knob() -> None:
+    """Emit the keyboard-protocol reset when the test override is enabled."""
     nu = _require_nu()
     if nu is None:
         return

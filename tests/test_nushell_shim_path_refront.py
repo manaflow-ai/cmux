@@ -172,6 +172,7 @@ def _debug(proc: subprocess.CompletedProcess) -> str:
 
 
 def test_nushell_bootstrap_refronts_shim_over_user_path_prepends() -> None:
+    """Put the per-surface shim ahead of a hostile user PATH prepend."""
     nu = _require_nu()
     if nu is None:
         return
@@ -218,6 +219,7 @@ def test_nushell_bootstrap_refronts_shim_over_user_path_prepends() -> None:
 
 
 def test_nushell_bootstrap_normalizes_string_path() -> None:
+    """Normalize a colon-joined user PATH before re-fronting the shim."""
     nu = _require_nu()
     if nu is None:
         return
@@ -256,6 +258,7 @@ def test_nushell_bootstrap_normalizes_string_path() -> None:
 
 
 def test_nushell_bootstrap_noops_outside_cmux() -> None:
+    """Leave PATH unchanged when no cmux surface identity is present."""
     nu = _require_nu()
     if nu is None:
         return

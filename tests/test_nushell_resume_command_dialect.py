@@ -172,6 +172,7 @@ SESSION_ID = "01234567-89ab-cdef-0123-456789abcdef"
 
 
 def test_wrapped_legacy_resume_runs_agent_in_working_directory() -> None:
+    """Run the wrapped agent from its saved working directory."""
     nu = _require_nu()
     if nu is None:
         return
@@ -196,6 +197,7 @@ def test_wrapped_legacy_resume_runs_agent_in_working_directory() -> None:
 
 
 def test_wrapped_resume_survives_missing_working_directory() -> None:
+    """Launch from the current directory when the saved directory disappeared."""
     nu = _require_nu()
     if nu is None:
         return
@@ -223,6 +225,7 @@ def test_wrapped_resume_survives_missing_working_directory() -> None:
 
 
 def test_wrapped_resume_quoting_edges() -> None:
+    """Preserve spaces, quotes, apostrophes, and backslashes through both shells."""
     nu = _require_nu()
     if nu is None:
         return
@@ -256,6 +259,7 @@ def test_wrapped_resume_quoting_edges() -> None:
 
 
 def test_wrapped_resume_non_ascii_printf_substitution() -> None:
+    """Preserve non-ASCII argv encoded through POSIX printf substitution."""
     nu = _require_nu()
     if nu is None:
         return
@@ -278,6 +282,7 @@ def test_wrapped_resume_non_ascii_printf_substitution() -> None:
 
 
 def test_wrapped_env_prefix_reaches_agent() -> None:
+    """Carry an env-prefixed value through the Nushell envelope."""
     nu = _require_nu()
     if nu is None:
         return
@@ -297,6 +302,7 @@ def test_wrapped_env_prefix_reaches_agent() -> None:
 
 
 def test_legacy_posix_resume_string_is_a_nushell_parse_error() -> None:
+    """Pin the unwrapped POSIX command as invalid Nushell syntax."""
     nu = _require_nu()
     if nu is None:
         return
