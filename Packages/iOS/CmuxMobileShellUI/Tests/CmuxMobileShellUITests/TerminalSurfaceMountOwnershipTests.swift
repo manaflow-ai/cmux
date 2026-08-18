@@ -48,8 +48,8 @@ struct TerminalSurfaceMountOwnershipTests {
     }
 
     @MainActor
-    @Test("terminal primes current viewport before claiming output on each mount")
-    func terminalPrimesViewportBeforeClaimingOutputOnEachMount() async throws {
+    @Test("terminal claims output without waiting for a resize on each mount")
+    func terminalClaimsOutputWithoutWaitingForResizeOnEachMount() async throws {
         let store = MobileShellComposite.preview()
         let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
         let terminal = try #require(workspace.terminals.first)
@@ -86,10 +86,12 @@ struct TerminalSurfaceMountOwnershipTests {
 
         surfaceView.frame = host.view.bounds
         host.view.addSubview(surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
+        let mountedWithoutResize = await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
         }
-        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
+        #expect(mountedWithoutResize)
+        let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 0)
 
         coordinator.ghosttySurfaceView(
             surfaceView,
@@ -101,11 +103,6 @@ struct TerminalSurfaceMountOwnershipTests {
             ),
             reportID: 1
         )
-        let mounted = await waitUntil {
-            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
-        }
-        #expect(mounted)
-        let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
         #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
@@ -118,10 +115,11 @@ struct TerminalSurfaceMountOwnershipTests {
         #expect(unmounted)
 
         host.view.addSubview(surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
+        let remountedWithoutResize = await waitUntil {
+            guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
+            return token != firstToken
         }
-        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
+        #expect(remountedWithoutResize)
 
         coordinator.ghosttySurfaceView(
             surfaceView,
@@ -133,11 +131,7 @@ struct TerminalSurfaceMountOwnershipTests {
             ),
             reportID: 2
         )
-        let remounted = await waitUntil {
-            guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
-            return token != firstToken
-        }
-        #expect(remounted)
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 2)
     }
 
     @MainActor

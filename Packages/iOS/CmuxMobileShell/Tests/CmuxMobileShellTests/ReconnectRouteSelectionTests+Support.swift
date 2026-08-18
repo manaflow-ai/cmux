@@ -176,6 +176,11 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private var authorizationModes: [CmxTransportAuthorizationMode] = []
     private var hangingKinds: Set<CmxAttachTransportKind> = []
     private var hangingTransports: [HangingConnectTransport] = []
+    private var remainingNoRouteFailures = 0
+
+    func failNextAttemptsWithNoRoute(_ count: Int) {
+        lock.withLock { remainingNoRouteFailures = count }
+    }
 
     /// Route kinds whose transports park forever in `connect()` from now on.
     /// Models an Iroh dial that neither completes nor fails (relay DNS churn,
@@ -222,6 +227,14 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private func makeRecordedTransport(
         for route: CmxAttachRoute
     ) throws -> any CmxByteTransport {
+        let failsWithNoRoute = lock.withLock { () -> Bool in
+            guard remainingNoRouteFailures > 0 else { return false }
+            remainingNoRouteFailures -= 1
+            return true
+        }
+        if failsWithNoRoute {
+            throw FirstAttemptNoRouteError()
+        }
         if failingKinds.contains(route.kind) {
             throw RouteRecordingTransportError.routeFailed
         }
@@ -242,6 +255,10 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     func attemptedAuthorizationModes() -> [CmxTransportAuthorizationMode] {
         lock.withLock { authorizationModes }
     }
+}
+
+private struct FirstAttemptNoRouteError: DiagnosticFailureProviding {
+    let diagnosticFailureKind: DiagnosticFailureKind = .noRoute
 }
 
 /// A transport whose `connect()` parks forever, ignoring cancellation the way

@@ -497,6 +497,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let selectedWorkspaceID = try #require(fixture.store.selectedWorkspaceID)
+        let foregroundMacDeviceID = try #require(fixture.store.foregroundMacDeviceID)
+        let activeRoute = try #require(fixture.store.activeRoute)
         await fixture.diagnosticLog.clear()
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
@@ -531,6 +534,10 @@ extension ReconnectRouteSelectionTests {
         #expect(failures[0].diagnosticFailureKind == .connectionClosed)
         #expect(fixture.store.connectionRecoveryOwner.phase == .failed(attempt))
         #expect(fixture.store.connectionState == .disconnected)
+        #expect(fixture.store.selectedWorkspaceID == selectedWorkspaceID)
+        #expect(fixture.store.foregroundMacDeviceID == foregroundMacDeviceID)
+        #expect(fixture.store.activeRoute == activeRoute)
+        #expect(fixture.store.workspaces.contains { $0.id == selectedWorkspaceID })
     }
 
     @Test func immediateValidatedRecoveryEmitsSuccessExactlyOnce() async throws {
