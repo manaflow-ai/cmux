@@ -203,7 +203,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         case 0x71: // XTVERSION (CSI > q)
             return intermediateCount == 1 && firstIntermediate == 0x3E && !hasParameter
         case 0x74: // XTWINOPS size queries
-            return intermediateCount == 0 && singleNumericParameter && parameterDigitCount == 2 && (
+            return intermediateCount == 0 && singleNumericParameter && (
                 parameterValue == 14 || parameterValue == 16 ||
                 parameterValue == 18 || parameterValue == 21 ||
                 parameterValue == 11 || parameterValue == 13 ||
@@ -290,8 +290,9 @@ public struct SSHPTYReplayOutputFilter: Sendable {
                 let payload = bytes[payloadStart..<cursor]
                 // Kitty graphics query commands use `a=q`; leave image and
                 // drawing commands intact so replayed visuals are preserved.
+                let headerEnd = payload.firstIndex(of: Self.semicolon) ?? payload.endIndex
                 let isQuery = payload.starts(with: [0x47]) && containsSubsequence(
-                    payload,
+                    payload[..<headerEnd],
                     [0x61, 0x3D, 0x71]
                 )
                 return isQuery ? .strip(length: cursor - start + 2) : .passThrough
