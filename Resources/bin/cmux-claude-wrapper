@@ -69,14 +69,14 @@ EOF
 cmux_claude_wrapper_hook_reentry_limit=16
 
 cmux_claude_wrapper_settings_value_is_cmux_injected() {
-    # Match the whole first command of HOOKS_JSON below, not just the cmux hook
-    # binary variable: a hook the user wrote against that same variable must not
-    # read as cmux's own block. Only the head of the value is inspected, because
-    # the injected block always carries its SessionStart entry there, and
-    # pattern-matching an unbounded argument is exactly the cost this guard
-    # exists to avoid. A false negative here is harmless: the merge below is
-    # idempotent on its own.
-    [[ "${1:0:4096}" == *'${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start'* ]]
+    # Match the whole first hook object of HOOKS_JSON below, verbatim, so a hook
+    # the user wrote around the same command cannot read as cmux's own block.
+    # Only the head of the value is inspected, because the injected block always
+    # carries its SessionStart entry there, and pattern-matching an unbounded
+    # argument is exactly the cost this guard exists to avoid. Keep this literal
+    # in step with HOOKS_JSON; a mismatch only costs the early no-op below, since
+    # the merge is idempotent on its own.
+    [[ "${1:0:4096}" == *'{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}'* ]]
 }
 
 cmux_claude_wrapper_argv_has_injected_settings() {
@@ -1137,21 +1137,29 @@ const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
 // one instead of concatenating onto it: injecting the same block twice converges
 // to one copy, while every user-authored hook and key is merged untouched.
 //
-// Identity is the exact command string this launch is about to inject, collected
-// from the base block below. Nothing else is touched, so a user hook that runs
-// the same cmux binary with a command of their own survives verbatim.
-const cmuxInjectedCommands=new Set();
-const forEachHookCommand=(s,fn)=>{
+// Identity is the whole hook object this launch is about to inject, canonicalized
+// and collected from the base block below. Matching the command alone would take
+// a user hook that runs the same command with their own timeout/async and replace
+// their configuration with cmux defaults; matching the whole object means a hook
+// that differs in any field is theirs and is merged verbatim.
+const cmuxInjectedHooks=new Set();
+const canonicalHook=h=>{
+  if(!isObj(h))return null;
+  const o={};
+  for(const k of Object.keys(h).sort())o[k]=h[k];
+  return JSON.stringify(o);
+};
+const forEachHook=(s,fn)=>{
   if(!isObj(s)||!isObj(s.hooks))return;
   for(const entries of Object.values(s.hooks)){
     if(!Array.isArray(entries))continue;
     for(const entry of entries){
       if(!isObj(entry)||!Array.isArray(entry.hooks))continue;
-      for(const h of entry.hooks)if(isObj(h)&&typeof h.command==="string")fn(h.command);
+      for(const h of entry.hooks)fn(h);
     }
   }
 };
-const isCmuxHook=h=>isObj(h)&&typeof h.command==="string"&&cmuxInjectedCommands.has(h.command);
+const isCmuxHook=h=>{const c=canonicalHook(h);return c!==null&&cmuxInjectedHooks.has(c);};
 const stripCmuxHooks=s=>{
   if(!isObj(s)||!isObj(s.hooks))return s;
   const hooks={};
@@ -1186,7 +1194,7 @@ const merge=(a,b)=>{
 const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
 const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
 let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
-forEachHookCommand(acc,c=>cmuxInjectedCommands.add(c));
+forEachHook(acc,h=>{const c=canonicalHook(h);if(c!==null)cmuxInjectedHooks.add(c);});
 const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
 // split() leaves one trailing "" from printf terminating NUL; slice it off
 // rather than filtering all empties, so an explicit empty --settings= reaches

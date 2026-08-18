@@ -54,13 +54,16 @@ def count_cmux_hook_commands(settings: dict) -> int:
     return total
 
 
-def collect_hook_commands(settings: dict) -> list[str]:
-    commands: list[str] = []
+def collect_hooks(settings: dict) -> list[dict]:
+    hooks: list[dict] = []
     for entries in (settings.get("hooks") or {}).values():
         for entry in entries:
-            for hook in entry.get("hooks", []):
-                commands.append(hook.get("command", ""))
-    return commands
+            hooks.extend(entry.get("hooks", []))
+    return hooks
+
+
+def collect_hook_commands(settings: dict) -> list[str]:
+    return [hook.get("command", "") for hook in collect_hooks(settings)]
 
 
 class ReentryRun:
@@ -257,6 +260,9 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
     # deletes a user hook on every merge.
     user_bin_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" notify --title mine'
     user_hooks_claude_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude audit'
+    # Same command cmux injects, but the user's own timeout: their configuration
+    # must survive rather than be replaced by cmux's copy of that command.
+    cmux_stop_command = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude stop'
     user_settings = {
         "model": "user-selected-model",
         "hooks": {
@@ -267,6 +273,7 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
                         {"type": "command", "command": "user-stop-hook", "timeout": 7},
                         {"type": "command", "command": user_bin_hook, "timeout": 7},
                         {"type": "command", "command": user_hooks_claude_hook, "timeout": 7},
+                        {"type": "command", "command": cmux_stop_command, "timeout": 90},
                     ],
                 }
             ]
@@ -298,6 +305,15 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
             count = hook_commands.count(command)
             if count != 1:
                 failures.append(f"pass {index} carried {count} copies of the user's {label} hook, expected 1")
+        user_timeouts = [
+            hook.get("timeout")
+            for hook in collect_hooks(settings)
+            if hook.get("command") == cmux_stop_command and hook.get("timeout") == 90
+        ]
+        if len(user_timeouts) != 1:
+            failures.append(
+                f"pass {index} kept {len(user_timeouts)} copies of the user's own timeout on cmux's stop command, expected 1"
+            )
         cmux_hook_count = count_cmux_hook_commands(settings)
         if cmux_hook_count != 3:
             failures.append(f"pass {index} carried {cmux_hook_count} cmux hook-feed commands, expected 3")
