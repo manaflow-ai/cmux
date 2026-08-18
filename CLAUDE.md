@@ -17,6 +17,14 @@ A tag gives the app its own name, bundle ID, socket, and derived data path, so i
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 
+## Shared Mac fleet capacity
+
+Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
+
+## Agent messaging
+
+Coding agents must not send iMessage or SMS messages to the `cmux` group conversation. Do not use `imsg`, Messages.app, or `cmux-imsg` for status, bug reports, handoffs, alerts, or coordination. Use the cmux workspace, GitHub PR or issue, or the current agent conversation instead.
+
 Compile-only check, no launch:
 
 ```bash
