@@ -178424,6 +178424,23 @@
         }
       }
     },
+    "settings.mobile.route.tcp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP"
+          }
+        }
+      }
+    },
     "settings.mobile.route.tailscale": {
       "extractionState": "manual",
       "localizations": {
