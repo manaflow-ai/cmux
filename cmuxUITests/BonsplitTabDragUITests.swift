@@ -275,8 +275,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
-    func testRightSidebarCloseButtonLivesInsideSidebarChrome() {
-        let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowShortcutHints: true)
+    func testRightSidebarCloseButtonKeepsPersistentTitlebarToggle() {
+        let (app, dataPath) = launchConfiguredApp(
+            presentationMode: .standard,
+            showRightSidebar: true,
+            alwaysShowShortcutHints: true
+        )
 
         XCTAssertTrue(
             ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
@@ -294,9 +298,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
 
         let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
-        XCTAssertFalse(
-            titlebarToggle.waitForExistence(timeout: 1.0),
-            "Expected right sidebar toggle to be removed from the global titlebar."
+        XCTAssertTrue(
+            titlebarToggle.waitForExistence(timeout: 5.0),
+            "Expected a persistent right-sidebar toggle in the titlebar."
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { titlebarToggle.isHittable },
+            "Expected the persistent right-sidebar titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
 
         let closeButton = app.buttons["RightSidebar.closeButton"]
@@ -396,20 +404,20 @@ final class BonsplitTabDragUITests: XCTestCase {
             ensureAppForegroundForKeyboardInteraction(app, timeout: 6.0),
             "Expected cmux to be foreground before toggling the right sidebar shortcut. state=\(app.state.rawValue)"
         )
-        app.typeKey("b", modifierFlags: [.command, .option])
+        titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
                 closeButton.exists && closeButton.isHittable
             },
-            "Expected Cmd+Option+B to reopen the right sidebar."
+            "Expected the persistent titlebar toggle to reopen the right sidebar."
         )
 
-        app.typeKey("b", modifierFlags: [.command, .option])
+        titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
                 !closeButton.exists || !closeButton.isHittable
             },
-            "Expected Cmd+Option+B to hide the right sidebar when it is open."
+            "Expected the persistent titlebar toggle to hide the right sidebar."
         )
     }
 
