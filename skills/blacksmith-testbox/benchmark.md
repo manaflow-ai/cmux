@@ -188,7 +188,9 @@ cleanup() {
       # and the usual cause is simply that no stop was ever authorized.
       if [[ -z "${TBX:-}" ]]; then
         echo "no Testbox was created; nothing to stop" >&2
-      elif [[ -z "${CONFIRM_TESTBOX_STOP_SHA:-}" ]]; then
+      elif grep -q "$TBX" "$OUT/list-at-exit.log" 2>/dev/null; then
+        # Only claim the box is alive if the inventory just said so. Saying it
+        # after a completed stop ceremony reads as a failure on a clean run.
         echo "Testbox ${TBX} is still running; no stop was authorized, so stop it yourself with the PREVIEW then STOP ceremony" >&2
       else
         echo "no owned Testbox receipt; refusing to stop a box this run cannot prove it owns" >&2
