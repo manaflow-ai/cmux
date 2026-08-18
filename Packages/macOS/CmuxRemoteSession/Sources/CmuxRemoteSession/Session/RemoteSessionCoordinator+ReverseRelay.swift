@@ -98,13 +98,11 @@ extension RemoteSessionCoordinator {
                 debugLog(
                     "remote.relay.startFailed relayPort=\(relayPort) error=\(detail)"
                 )
-                let recoveryControlPath =
-                    resolveControlMasterPathForRecoveryLocked()
                 if beginInheritedControlMasterReapIfNeededLocked(
                     startupFailure: detail,
                     remotePath: remotePath,
                     relayPort: relayPort,
-                    resolvedControlPath: controlPath ?? recoveryControlPath
+                    resolvedControlPath: controlPath
                 ) {
                     return
                 }
