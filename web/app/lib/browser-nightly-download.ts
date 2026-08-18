@@ -129,7 +129,7 @@ export async function resolveBrowserNightlyDownload(
   const url = assetLocation.kind === "r2"
     ? `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${encodeURIComponent(payload.version)}/${encodeURIComponent(target.assetName)}`
     : `${BROWSER_RELEASE_REPOSITORY_URL}/releases/download/${assetLocation.releaseTag}/${target.assetName}`;
-  await requirePublishedAsset(fetchImplementation, url);
+  await requirePublishedAsset(fetchImplementation, url, assetLocation);
 
   return { url, version: payload.version };
 }
@@ -215,7 +215,11 @@ export function verifyFeedEnvelope(
 
 type VerifiedAssetLocation =
   | { readonly kind: "github"; readonly releaseTag: string }
-  | { readonly kind: "r2" };
+  | {
+      readonly kind: "r2";
+      readonly sha256: string;
+      readonly size: string;
+    };
 
 function verifiedAssetLocation(
   rawEntry: unknown,
@@ -268,7 +272,11 @@ function verifiedAssetLocation(
     if (r2Version !== version || r2Archive !== expectedArchive) {
       throw invalidFeed();
     }
-    return { kind: "r2" };
+    return {
+      kind: "r2",
+      sha256: rawEntry.sha256,
+      size: rawEntry.size,
+    };
   }
 
   if (signedUrl.host !== "github.com") throw invalidFeed();
@@ -287,6 +295,7 @@ function verifiedAssetLocation(
 async function requirePublishedAsset(
   fetchImplementation: typeof globalThis.fetch,
   url: string,
+  location: VerifiedAssetLocation,
 ): Promise<void> {
   let response: Response;
   try {
@@ -308,6 +317,14 @@ async function requirePublishedAsset(
     ![301, 302, 303, 307, 308].includes(response.status)
   ) {
     throw new BrowserNightlyDownloadError("upstream_unavailable");
+  }
+  if (location.kind === "r2" && response.status === 200) {
+    if (
+      response.headers.get("x-cmux-sha256") !== location.sha256 ||
+      response.headers.get("x-cmux-size") !== location.size
+    ) {
+      throw new BrowserNightlyDownloadError("unavailable");
+    }
   }
 }
 
