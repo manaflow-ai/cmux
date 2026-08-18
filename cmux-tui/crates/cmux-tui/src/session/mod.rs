@@ -436,11 +436,9 @@ impl Session {
                 if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {
                     return None;
                 }
-                let value = remote
-                    .request(json!({"cmd": "client-focus", "client_id": client_id}))
-                    .ok()?;
-                let pane: PaneId =
-                    serde_json::from_value(value.get("pane")?.clone()).ok()?;
+                let value =
+                    remote.request(json!({"cmd": "client-focus", "client_id": client_id})).ok()?;
+                let pane: PaneId = serde_json::from_value(value.get("pane")?.clone()).ok()?;
                 let tab = value.get("tab").and_then(|tab| tab.as_u64()).unwrap_or(0) as usize;
                 Some(ClientFocus { pane, tab })
             }
