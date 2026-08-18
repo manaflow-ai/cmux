@@ -86,7 +86,10 @@ private struct WorkspacePanelContentHostView: View {
                       let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                     return false
                 }
-                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+                // selectedTabId, not selectedTab: building a Tab reads every
+                // TabItem property, which subscribes this update to the tab's
+                // title. Portal ownership only needs identity.
+                return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
