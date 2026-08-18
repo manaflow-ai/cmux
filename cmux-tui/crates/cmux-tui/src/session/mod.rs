@@ -362,7 +362,45 @@ pub(crate) enum SurfaceAttach {
     Missing,
 }
 
+/// A client's focused pane and tab. Reported to the mux so the server's
+/// persisted focus follows the user: a later attach (same machine or another
+/// client) adopts it, and future follow-along clients can subscribe to it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ClientFocus {
+    pub(crate) pane: PaneId,
+    pub(crate) tab: usize,
+}
+
 impl Session {
+    /// Best-effort focus report: the client already navigated optimistically,
+    /// so failures are ignored and remote sends are never awaited. The mux's
+    /// `pane.focus` adopts the pane's workspace and screen and persists all
+    /// three; `select-tab` persists the tab within the pane.
+    pub(crate) fn report_focus(&self, previous: Option<ClientFocus>, focus: ClientFocus) {
+        let pane_changed = previous.map(|value| value.pane) != Some(focus.pane);
+        let tab_changed = previous != Some(focus);
+        match self {
+            Session::Local(mux) => {
+                if pane_changed {
+                    let _ = mux.focus_pane(focus.pane);
+                }
+                if tab_changed {
+                    mux.select_tab(Some(focus.pane), Some(focus.tab), None);
+                }
+            }
+            Session::Remote(remote) => {
+                if pane_changed {
+                    let _ = remote.notify(json!({"cmd": "focus-pane", "pane": focus.pane}));
+                }
+                if tab_changed {
+                    let _ = remote.notify(
+                        json!({"cmd": "select-tab", "pane": focus.pane, "index": focus.tab}),
+                    );
+                }
+            }
+        }
+    }
+
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
             Session::Local(mux) => mux.allocate_in_process_resize_owner(),
