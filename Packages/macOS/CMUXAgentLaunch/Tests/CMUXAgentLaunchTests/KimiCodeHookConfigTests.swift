@@ -117,6 +117,35 @@ struct KimiCodeHookConfigTests {
         #expect(KimiCodeHookConfig.uninstalling(from: existing) == existing)
     }
 
+    @Test("Detects whether a config carries a cmux block")
+    func detectsWhetherConfigCarriesCmuxBlock() {
+        let userOnly = """
+        model = "kimi-k2"
+
+        [[hooks]]
+        event = "Stop"
+        command = "vibe-island"
+
+        """
+        let installed = KimiCodeHookConfig.installing(
+            events: [
+                KimiCodeHookConfig.Event(
+                    name: "Stop",
+                    command: "cmux hooks kimi stop",
+                    timeout: 10
+                ),
+            ],
+            in: userOnly
+        )
+
+        #expect(!KimiCodeHookConfig.containsCmuxBlock(in: ""))
+        #expect(!KimiCodeHookConfig.containsCmuxBlock(in: userOnly))
+        #expect(KimiCodeHookConfig.containsCmuxBlock(in: installed))
+        #expect(!KimiCodeHookConfig.containsCmuxBlock(
+            in: KimiCodeHookConfig.uninstalling(from: installed)
+        ))
+    }
+
     @Test("Uninstall removes orphaned begin marker without dropping following TOML")
     func uninstallRemovesOrphanedBeginMarkerWithoutDroppingFollowingTOML() {
         let existing = """

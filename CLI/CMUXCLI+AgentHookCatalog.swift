@@ -231,8 +231,10 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
-            configDir: ".kimi", configFile: "config.toml", configDirEnvOverride: "KIMI_SHARE_DIR",
-            createConfigDirIfMissing: true, binaryName: "kimi",
+            configDir: kimiCodeConfigDirectory, configFile: kimiConfigFileName,
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedKimiConfigDirectory().path },
+            binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
             hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
             events: [

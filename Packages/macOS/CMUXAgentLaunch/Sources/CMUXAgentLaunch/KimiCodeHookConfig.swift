@@ -51,6 +51,15 @@ public enum KimiCodeHookConfig {
         return tomlContent(from: lines)
     }
 
+    /// Returns whether the content already carries a cmux-owned Kimi Code hooks block.
+    /// - Parameter existing: Existing TOML config content.
+    /// - Returns: `true` when a cmux marker block is present.
+    public static func containsCmuxBlock(in existing: String) -> Bool {
+        tomlLines(from: existing).contains { line in
+            line.trimmingCharacters(in: .whitespaces) == beginMarker
+        }
+    }
+
     /// Returns TOML content after removing cmux-owned Kimi Code hooks blocks.
     /// - Parameter existing: Existing TOML config content.
     /// - Returns: The TOML content without cmux-owned Kimi Code hook blocks.
