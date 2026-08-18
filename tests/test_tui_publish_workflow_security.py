@@ -2094,8 +2094,15 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-waiter-") as raw:
         temporary = Path(raw)
-        waiter = temporary / ".github" / "scripts" / "wait-for-workflow-run.sh"
-        waiter.parent.mkdir(parents=True)
+        scripts = temporary / ".github" / "scripts"
+        scripts.mkdir(parents=True)
+        resolver = scripts / "resolve-workflow-run-id.sh"
+        resolver.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' 42\n"
+        )
+        resolver.chmod(0o755)
+        waiter = scripts / "wait-for-workflow-run.sh"
         waiter.write_text(
             "#!/usr/bin/env bash\n"
             "printf '%s\\n' 'fake waiter failure' >&2\n"
@@ -2109,8 +2116,8 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "case \"${1:-}\" in\n"
-            "  api) printf '%s\\n' '{\"workflow_runs\":[]}' ;;\n"
-            "  workflow) printf '%s\\n' 'https://github.com/manaflow-ai/cmux/actions/runs/42' ;;\n"
+            "  api) printf '%s\\n' '{\"workflow_runs\":[{\"id\":41}]}' ;;\n"
+            "  workflow) : ;;\n"
             "  *) exit 1 ;;\n"
             "esac\n"
         )
@@ -2124,6 +2131,7 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
                 "GITHUB_STEP_SUMMARY": str(summary),
                 "TAG": "cmux-tui-v1.2.3",
                 "VERSION": "1.2.3",
+                "BEFORE_RUN_ID": "41",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
             }
         )
@@ -2169,7 +2177,7 @@ def test_release_cut_recovers_when_dispatch_returns_no_run_url() -> None:
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "printf '%s\\n' \"$*\" > \"$WAITER_ARGS\"\n"
-            "printf '%s\\n' '42\\tsuccess'\n"
+            "printf '42\\tsuccess\\n'\n"
         )
         waiter.chmod(0o755)
         dispatch_called = temporary / "dispatch-called"
@@ -2195,6 +2203,7 @@ def test_release_cut_recovers_when_dispatch_returns_no_run_url() -> None:
                 "GITHUB_STEP_SUMMARY": str(summary),
                 "TAG": "cmux-tui-v1.2.3",
                 "VERSION": "1.2.3",
+                "BEFORE_RUN_ID": "41",
                 "PATH": f"{bin_dir}:{environment['PATH']}",
                 "RESOLVER_ARGS": str(resolver_args),
                 "WAITER_ARGS": str(waiter_args),
@@ -2215,6 +2224,115 @@ def test_release_cut_recovers_when_dispatch_returns_no_run_url() -> None:
         assert "cmux-tui-release.yml" in resolver_args.read_text()
         assert "42" in waiter_args.read_text()
         assert "- Build/package run: 42 (success)" in summary.read_text()
+
+
+def test_release_run_id_resolver_matches_one_exact_new_run() -> None:
+    script = ROOT / ".github" / "scripts" / "resolve-workflow-run-id.sh"
+    sha = "a" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-resolver-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        state = temporary / "state"
+        state.write_text("0\n")
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "endpoint=\"$2\"\n"
+            "if [[ \"$1\" == api && \"$endpoint\" == */workflows/cmux-tui-release.yml/runs[?]* ]]; then\n"
+            "  count=$(cat \"$STATE\")\n"
+            "  count=$((count + 1))\n"
+            "  printf '%s\\n' \"$count\" > \"$STATE\"\n"
+            "  if (( count == 1 )); then\n"
+            "    printf '%s\\n' '{\"workflow_runs\":[{\"id\":41,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-15T23:58:00Z\"}]}'\n"
+            "  else\n"
+            "    printf '%s\\n' '{\"workflow_runs\":[{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"},{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"},{\"id\":43,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"}]}'\n"
+            "  fi\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "STATE": str(state),
+                "POLL_INTERVAL_SECONDS": "0",
+                "WAIT_TIMEOUT_SECONDS": "3",
+                "CLOCK_SKEW_SECONDS": "5",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "41",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42"
+
+
+def test_release_run_id_resolver_rejects_ambiguous_exact_runs() -> None:
+    script = ROOT / ".github" / "scripts" / "resolve-workflow-run-id.sh"
+    sha = "b" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-resolver-ambiguous-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"$1\" == api ]]; then\n"
+            "  printf '%s\\n' '{\"workflow_runs\":[{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"},{\"id\":43,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:02Z\"}]}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "POLL_INTERVAL_SECONDS": "0",
+                "WAIT_TIMEOUT_SECONDS": "3",
+                "CLOCK_SKEW_SECONDS": "5",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "41",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode != 0
+        assert "multiple matching" in result.stderr
 
 
 def test_dispatch_waiter_requires_explicit_run_id_and_uses_watch() -> None:
@@ -2424,11 +2542,14 @@ def test_release_workflows_pass_dispatch_run_ids_to_waiter() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
     release = workflow("cmux-tui-release.yml")
 
-    assert "release_dispatch_output" in release_cut
+    assert "release_dispatch_output" not in release_cut
+    assert "resolve-workflow-run-id.sh" in release_cut
+    assert "dispatch_started_at" in release_cut
+    assert "BEFORE_RUN_ID" in release_cut
+    assert "before_run_id" in release_cut
     assert "release_run_id" in release_cut
     assert '"$release_run_id"' in release_cut
-    assert "before_run_id" not in release_cut
-    assert "dispatch_started_at" not in release_cut
+    assert "release_run_url" not in release_cut
 
     assert "npm_dispatch_output" in release
     assert "pypi_dispatch_output" in release

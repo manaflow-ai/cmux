@@ -140,6 +140,21 @@ jobs:
       - name: Revalidate protected main before tagging
         run: bash .github/scripts/require-current-main.sh
 
+      - name: Snapshot release workflow runs before tagging
+        id: release-dispatch-baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          workflow_runs_endpoint="repos/$GITHUB_REPOSITORY/actions/workflows/cmux-tui-release.yml/runs?event=workflow_dispatch&per_page=100"
+          if ! before_run_id="$(
+            gh api "$workflow_runs_endpoint" --jq '[.workflow_runs[]?.id | tonumber] | max // 0'
+          )" || [[ ! "$before_run_id" =~ ^[0-9]+$ ]]; then
+            echo "could not snapshot release workflow runs before tagging" >&2
+            exit 1
+          fi
+          echo "before_run_id=$before_run_id" >> "$GITHUB_OUTPUT"
+
       - name: Create annotated tag
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -170,31 +185,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          BEFORE_RUN_ID: ${{ steps.release-dispatch-baseline.outputs.before_run_id }}
         run: |
           set -euo pipefail
-          if ! release_dispatch_output="$(
-            gh workflow run cmux-tui-release.yml \
-              --repo "$GITHUB_REPOSITORY" \
-              --ref "$TAG" \
-              -f version="$VERSION" \
-              -f publish_npm=true \
-              -f publish_pypi=true \
-              -f confirm_tui_cmux=true 2>&1
-          )"; then
-            printf '%s\n' "$release_dispatch_output" >&2
+          dispatch_started_at="$(date +%s)"
+          if ! gh workflow run cmux-tui-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG" \
+            -f version="$VERSION" \
+            -f publish_npm=true \
+            -f publish_pypi=true \
+            -f confirm_tui_cmux=true >/dev/null; then
             echo "release workflow dispatch failed" >&2
             exit 1
           fi
-          release_run_url="$(
-            printf '%s\n' "$release_dispatch_output" |
-              grep -Eo 'https://github\.com/[^[:space:]]+/actions/runs/[0-9]+' |
-              tail -n 1 || true
-          )"
-          release_run_id="${release_run_url##*/}"
-          [[ "$release_run_id" =~ ^[0-9]+$ ]] || {
-            echo "gh workflow run did not return a release run URL" >&2
+          if ! release_run_id="$(
+            WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/resolve-workflow-run-id.sh \
+              cmux-tui-release.yml "$TAG" "$GITHUB_SHA" \
+              "$dispatch_started_at" "$BEFORE_RUN_ID"
+          )"; then
+            echo "release workflow dispatch succeeded but its run ID could not be resolved" >&2
             exit 1
-          }
+          fi
           # BEGIN release-workflow-wait-contract
           release_result="$(
             WAIT_TIMEOUT_SECONDS=5400 bash .github/scripts/wait-for-workflow-run.sh \
