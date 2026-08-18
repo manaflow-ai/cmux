@@ -4115,6 +4115,7 @@ pub enum MenuAction {
     CopyPaneId(PaneId),
     CopyStatusMessage,
     NewPaneSmart(PaneId),
+    NewPaneRight(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
@@ -4191,6 +4192,9 @@ impl MenuAction {
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
             }
+            MenuAction::NewPaneRight(_) => {
+                localization::catalog().action_label(Action::NewPaneRight)
+            }
             MenuAction::NewTab(_) => localization::catalog().action_label(Action::NewTab),
             MenuAction::NewBrowserTab(_) => {
                 localization::catalog().action_label(Action::NewBrowserTab)
@@ -4239,6 +4243,7 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
         MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
         MenuAction::RenameTab(_) => Some(Action::RenameTab),
         MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
+        MenuAction::NewPaneRight(_) => Some(Action::NewPaneRight),
         MenuAction::NewTab(_) => Some(Action::NewTab),
         MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
         MenuAction::SplitRight(_) => Some(Action::SplitRight),
@@ -4886,6 +4891,7 @@ fn pane_context_menu_groups(
         ],
         browser_actions,
         vec![
+            MenuAction::NewPaneRight(pane),
             MenuAction::SplitRight(pane),
             MenuAction::SplitDown(pane),
             MenuAction::ClosePane(pane),
@@ -17319,6 +17325,10 @@ impl App {
                 self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
                 return Ok(());
             }
+            MenuAction::NewPaneRight(pane) => {
+                self.run_action_for_pane(Action::NewPaneRight, Some(pane))?;
+                return Ok(());
+            }
             MenuAction::NewTab(pane) => {
                 self.run_action_for_pane(Action::NewTab, Some(pane))?;
                 return Ok(());
@@ -17457,6 +17467,7 @@ impl App {
             }
             MenuAction::CopyStatusMessage => self.copy_status_message(),
             MenuAction::NewPaneSmart(_)
+            | MenuAction::NewPaneRight(_)
             | MenuAction::NewTab(_)
             | MenuAction::NewBrowserTab(_)
             | MenuAction::SplitRight(_)
@@ -20479,6 +20490,7 @@ impl App {
             | MenuAction::BrowserEditUrl(pane)
             | MenuAction::RenameTab(pane)
             | MenuAction::NewPaneSmart(pane)
+            | MenuAction::NewPaneRight(pane)
             | MenuAction::NewTab(pane)
             | MenuAction::NewBrowserTab(pane)
             | MenuAction::SplitRight(pane)
