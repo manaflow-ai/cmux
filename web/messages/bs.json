@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "Varijabla okruženja",
       "workspaceShortcuts": "Prečice: {new} (novi), {jump} (skok), {close} (zatvori), {prevNext} (prethodni/sljedeći)",
+      "workspaceOptionHover": "Držite Option dok pomjerate pokazivač preko redova radnih prostora da biste ih fokusirali bez klika.",
       "paneTitle": "Panel",
       "paneDesc": "Podijeljena regija unutar radnog prostora. Kreira se dijeljenjem sa {right} (desno) ili {down} (dolje). Navigirajte između panela sa {nav} + strelice.",
       "paneNote": "Svaki panel može sadržavati više površina (tabova unutar panela).",

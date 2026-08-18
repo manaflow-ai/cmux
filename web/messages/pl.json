@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "Zmienna środowiskowa",
       "workspaceShortcuts": "Skróty: {new} (nowy), {jump} (przejdź), {close} (zamknij), {prevNext} (poprzedni/następny)",
+      "workspaceOptionHover": "Przytrzymaj Option podczas przesuwania wskaźnika nad wierszami obszarów roboczych, aby ustawiać na nich fokus bez klikania.",
       "paneTitle": "Panel",
       "paneDesc": "Podzielony region w workspace. Tworzony przez podział za pomocą {right} (prawo) lub {down} (dół). Nawiguj między panelami za pomocą {nav} + klawisze strzałek.",
       "paneNote": "Każdy panel może zawierać wiele surface'ów (karty wewnątrz panelu).",

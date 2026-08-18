@@ -506,36 +506,38 @@ struct SidebarWorkspaceTableTests {
     }
 
     @Test
-    @MainActor
     func optionHoverFocusesOnlyWhenThePointerEntersANewTableRow() {
         let resolver = SidebarWorkspaceTableHoverResolver()
-        let first = makeRowConfiguration()
-        let second = makeRowConfiguration()
-        let groupHeader = makeRowConfiguration(isGroupHeader: true)
-        let rows = [first, second, groupHeader]
+        let first = SidebarWorkspaceRenderItemID.workspace(UUID())
+        let second = SidebarWorkspaceRenderItemID.workspace(UUID())
+        let groupHeader = SidebarWorkspaceRenderItemID.group(UUID())
 
         #expect(resolver.newOptionHoveredRow(
             1,
-            previousRowId: first.id,
-            rows: rows,
+            rowId: second,
+            previousRowId: first,
+            isGroupHeader: false,
             modifiers: [.option]
         ) == 1)
         #expect(resolver.newOptionHoveredRow(
             1,
-            previousRowId: second.id,
-            rows: rows,
+            rowId: second,
+            previousRowId: second,
+            isGroupHeader: false,
             modifiers: [.option]
         ) == nil)
         #expect(resolver.newOptionHoveredRow(
             1,
-            previousRowId: first.id,
-            rows: rows,
+            rowId: second,
+            previousRowId: first,
+            isGroupHeader: false,
             modifiers: []
         ) == nil)
         #expect(resolver.newOptionHoveredRow(
             2,
-            previousRowId: second.id,
-            rows: rows,
+            rowId: groupHeader,
+            previousRowId: second,
+            isGroupHeader: true,
             modifiers: [.option]
         ) == nil)
     }
@@ -546,8 +548,7 @@ struct SidebarWorkspaceTableTests {
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light,
-        fixedHeight: CGFloat? = nil,
-        isGroupHeader: Bool = false
+        fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
@@ -562,10 +563,10 @@ struct SidebarWorkspaceTableTests {
         )
 #endif
         return SidebarWorkspaceTableRowConfiguration(
-            id: isGroupHeader ? .group(workspaceId) : .workspace(workspaceId),
+            id: .workspace(workspaceId),
             workspaceId: workspaceId,
             groupId: nil,
-            isGroupHeader: isGroupHeader,
+            isGroupHeader: false,
             isPinned: false,
             environment: environment,
             equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)

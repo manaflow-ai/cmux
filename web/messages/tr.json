@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "Ortam değişkeni",
       "workspaceShortcuts": "Kısayollar: {new} (yeni), {jump} (atla), {close} (kapat), {prevNext} (önceki/sonraki)",
+      "workspaceOptionHover": "Tıklamadan odaklamak için işaretçiyi çalışma alanı satırlarının üzerinde hareket ettirirken Option tuşunu basılı tutun.",
       "paneTitle": "Panel",
       "paneDesc": "Bir çalışma alanı içinde bölünmüş bir alan. {right} (sağ) veya {down} (aşağı) ile bölerek oluşturulur. {nav} + ok tuşları ile paneller arasında gezinin.",
       "paneNote": "Her panel birden fazla yüzey (panel içi sekmeler) barındırabilir.",

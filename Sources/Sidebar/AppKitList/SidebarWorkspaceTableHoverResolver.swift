@@ -14,16 +14,16 @@ struct SidebarWorkspaceTableHoverResolver {
         return row
     }
 
-    @MainActor
-    func newOptionHoveredRow(
+    nonisolated func newOptionHoveredRow(
         _ row: Int?,
+        rowId: SidebarWorkspaceRenderItemID?,
         previousRowId: SidebarWorkspaceRenderItemID?,
-        rows: [SidebarWorkspaceTableRowConfiguration],
+        isGroupHeader: Bool,
         modifiers: NSEvent.ModifierFlags
     ) -> Int? {
-        guard modifiers.contains(.option), let row, rows.indices.contains(row),
-              !rows[row].isGroupHeader,
-              rows[row].id != previousRowId else { return nil }
+        guard modifiers.contains(.option), let row, let rowId,
+              !isGroupHeader,
+              rowId != previousRowId else { return nil }
         return row
     }
 }

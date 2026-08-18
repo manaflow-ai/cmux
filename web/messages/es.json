@@ -874,6 +874,7 @@
       "socketAPI": "API de socket",
       "environmentVariable": "Variable de entorno",
       "workspaceShortcuts": "Atajos: {new} (nuevo), {jump} (saltar), {close} (cerrar), {prevNext} (anterior/siguiente)",
+      "workspaceOptionHover": "Mantén pulsada Opción mientras mueves el puntero sobre las filas de espacios de trabajo para enfocarlas sin hacer clic.",
       "paneTitle": "Panel",
       "paneDesc": "Una región dividida dentro de un workspace. Se crea dividiendo con {right} (derecha) o {down} (abajo). Navegue entre paneles con {nav} + teclas de flecha.",
       "paneNote": "Cada panel puede contener múltiples superficies (pestañas dentro del panel).",

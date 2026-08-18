@@ -1275,12 +1275,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             rowCount: rows.count
         )
         let nextRowId = row.map { rows[$0].id }
+        let isGroupHeader = row.map { rows[$0].isGroupHeader } ?? false
         let previousRowId = hoveredRowId
         setHoveredRowId(nextRowId)
         guard let row = SidebarWorkspaceTableHoverResolver().newOptionHoveredRow(
             row,
+            rowId: nextRowId,
             previousRowId: previousRowId,
-            rows: rows,
+            isGroupHeader: isGroupHeader,
             modifiers: modifiers
         ) else { return }
         onOptionHoverWorkspace?(rows[row].workspaceId)

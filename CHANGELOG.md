@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [Unreleased]
 
 ### Added
+
 - Hold Option while hovering workspace rows to focus them without clicking
 
 ## [0.64.22] - 2026-08-03

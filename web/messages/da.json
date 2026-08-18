@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "Miljøvariabel",
       "workspaceShortcuts": "Genveje: {new} (ny), {jump} (spring til), {close} (luk), {prevNext} (forrige/næste)",
+      "workspaceOptionHover": "Hold Option nede, mens du flytter markøren hen over arbejdsområderækker, for at fokusere dem uden at klikke.",
       "paneTitle": "Panel",
       "paneDesc": "Et opdelt område inden for et workspace. Oprettes ved at opdele med {right} (højre) eller {down} (ned). Navigér mellem paneler med {nav} + piletaster.",
       "paneNote": "Hvert panel kan indeholde flere surfaces (faner inden for panelet).",

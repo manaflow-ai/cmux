@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "环境变量",
       "workspaceShortcuts": "快捷键：{new}（新建）、{jump}（跳转）、{close}（关闭）、{prevNext}（上一个/下一个）",
+      "workspaceOptionHover": "按住 Option 键并将指针移到工作区行上，即可无需点击而聚焦相应工作区。",
       "paneTitle": "面板（Pane）",
       "paneDesc": "工作区内的一个分屏区域。通过 {right}（向右）或 {down}（向下）创建分屏。使用 {nav} + 方向键在面板间导航。",
       "paneNote": "每个面板可以包含多个 surface（面板内的标签页）。",
