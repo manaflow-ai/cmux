@@ -27,6 +27,25 @@ struct SSHPTYReplayOutputFilterTests {
         #expect(filter.remainingReplayBytes == 0)
     }
 
+    @Test("all supported Ghostty query families are removed from replay")
+    func stripsAdditionalGhosttyQueryFamilies() {
+        let replay = Data(
+            (
+                "before" +
+                "\u{1B}Z" +
+                "\u{1B}[14t" +
+                "\u{1B}[?6n" +
+                "\u{1B}[?u" +
+                "\u{1B}P$qm\u{1B}\\" +
+                "\u{1B}_Ga=q,i=1;\u{1B}\\" +
+                "after"
+            ).utf8
+        )
+        var filter = SSHPTYReplayOutputFilter(replayBytes: replay.count)
+
+        #expect(filter.filter(replay) == Data("beforeafter".utf8))
+    }
+
     @Test("live terminal negotiation after replay remains byte-for-byte")
     func preservesLiveQueriesAfterReplayBoundary() {
         let replay = Data("replay\n\u{1B}[>q".utf8)

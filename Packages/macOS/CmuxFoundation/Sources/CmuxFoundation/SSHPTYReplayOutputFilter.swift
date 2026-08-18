@@ -132,31 +132,46 @@ public struct SSHPTYReplayOutputFilter: Sendable {
 
     private static func csiQuery(in bytes: [UInt8], at start: Int) -> SequenceMatch {
         var cursor = start + 2
-        var intermediates = [UInt8]()
-        var parameters = [UInt8]()
-        var sawParameter = false
+        var intermediateCount = 0
+        var firstIntermediate: UInt8 = 0
+        var secondIntermediate: UInt8 = 0
+        var parameterDigitCount = 0
+        var parameterSeparatorCount = 0
+        var parameterValue = 0
 
         while cursor < bytes.count {
             guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
             let byte = bytes[cursor]
             if byte >= 0x40, byte <= 0x7E {
                 return isCSIQuery(
-                    parameters: parameters,
-                    intermediates: intermediates,
+                    intermediateCount: intermediateCount,
+                    firstIntermediate: firstIntermediate,
+                    secondIntermediate: secondIntermediate,
+                    parameterDigitCount: parameterDigitCount,
+                    parameterSeparatorCount: parameterSeparatorCount,
+                    parameterValue: parameterValue,
                     final: byte,
-                    sawParameter: sawParameter
                 )
                     ? .strip(length: cursor - start + 1)
                     : .passThrough
             }
-            if byte >= 0x30, byte <= 0x3B {
-                parameters.append(byte)
-                sawParameter = true
+            if byte >= 0x30, byte <= 0x39 {
+                parameterDigitCount += 1
+                if parameterValue <= 100_000 {
+                    parameterValue = min(100_001, parameterValue * 10 + Int(byte - 0x30))
+                }
+                cursor += 1
+                continue
+            }
+            if byte == 0x3A || byte == Self.semicolon {
+                parameterSeparatorCount += 1
                 cursor += 1
                 continue
             }
             if (byte >= 0x20 && byte <= 0x2F) || (byte >= 0x3C && byte <= 0x3F) {
-                intermediates.append(byte)
+                intermediateCount += 1
+                if intermediateCount == 1 { firstIntermediate = byte }
+                if intermediateCount == 2 { secondIntermediate = byte }
                 cursor += 1
                 continue
             }
@@ -166,64 +181,68 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     }
 
     private static func isCSIQuery(
-        parameters: [UInt8],
-        intermediates: [UInt8],
+        intermediateCount: Int,
+        firstIntermediate: UInt8,
+        secondIntermediate: UInt8,
+        parameterDigitCount: Int,
+        parameterSeparatorCount: Int,
+        parameterValue: Int,
         final: UInt8,
-        sawParameter: Bool
     ) -> Bool {
+        let hasParameter = parameterDigitCount > 0 || parameterSeparatorCount > 0
+        let singleNumericParameter = parameterDigitCount > 0 && parameterSeparatorCount == 0
         switch final {
         case 0x63: // DA1/DA2/DA3
-            return intermediates.isEmpty || intermediates == [0x3E] || intermediates == [0x3D]
+            return intermediateCount == 0 ||
+                (intermediateCount == 1 && (firstIntermediate == 0x3E || firstIntermediate == 0x3D))
         case 0x6E: // DSR
-            return (intermediates.isEmpty || intermediates == [0x3F]) && sawSingleNumericParameter(parameters)
+            return (intermediateCount == 0 || (intermediateCount == 1 && firstIntermediate == 0x3F)) &&
+                singleNumericParameter
         case 0x70: // DECRQM / DECRQM-ANSI
-            return (intermediates == [0x24] || intermediates == [0x3F, 0x24]) &&
-                sawSingleNumericParameter(parameters)
+            return (
+                (intermediateCount == 1 && firstIntermediate == 0x24) ||
+                (intermediateCount == 2 && firstIntermediate == 0x3F && secondIntermediate == 0x24)
+            ) && singleNumericParameter
         case 0x71: // XTVERSION (CSI > q)
-            return intermediates == [0x3E] && !sawParameter
+            return intermediateCount == 1 && firstIntermediate == 0x3E && !hasParameter
         case 0x74: // XTWINOPS size queries
-            return intermediates.isEmpty && (
-                parameters == [0x31, 0x34] ||
-                parameters == [0x31, 0x36] ||
-                parameters == [0x31, 0x38] ||
-                parameters == [0x32, 0x31]
+            return intermediateCount == 0 && singleNumericParameter && parameterDigitCount == 2 && (
+                parameterValue == 14 || parameterValue == 16 ||
+                parameterValue == 18 || parameterValue == 21
             )
         case 0x75: // Kitty keyboard query (CSI ? u)
-            return intermediates == [0x3F] && !sawParameter
+            return intermediateCount == 1 && firstIntermediate == 0x3F && !hasParameter
         default:
             return false
         }
     }
 
-    private static func sawSingleNumericParameter(_ parameters: [UInt8]) -> Bool {
-        !parameters.isEmpty && parameters.allSatisfy { byte in
-            byte >= 0x30 && byte <= 0x39
-        }
-    }
-
     private static func oscQuery(in bytes: [UInt8], at start: Int) -> SequenceMatch {
         var cursor = start + 2
-        var command = [UInt8]()
+        var command = 0
+        var commandDigitCount = 0
         while cursor < bytes.count, bytes[cursor] >= 0x30, bytes[cursor] <= 0x39 {
             guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
-            command.append(bytes[cursor])
+            commandDigitCount += 1
+            command = min(100_001, command * 10 + Int(bytes[cursor] - 0x30))
             cursor += 1
         }
         guard cursor < bytes.count, bytes[cursor] == Self.semicolon else {
             return cursor == bytes.count ? .incomplete : .passThrough
         }
         cursor += 1
-        let payloadStart = cursor
+        var payloadFirst: UInt8?
         while cursor < bytes.count {
             guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
+            if payloadFirst == nil { payloadFirst = bytes[cursor] }
             if bytes[cursor] == Self.bell {
-                return isColorQuery(command: command, payload: Array(bytes[payloadStart..<cursor]))
+                return isColorQuery(command: command, commandDigitCount: commandDigitCount, payloadFirst: payloadFirst)
                     ? .strip(length: cursor - start + 1)
                     : .passThrough
             }
             if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
                bytes[cursor + 1] == Self.backslash {
-                return isColorQuery(command: command, payload: Array(bytes[payloadStart..<cursor]))
+                return isColorQuery(command: command, commandDigitCount: commandDigitCount, payloadFirst: payloadFirst)
                     ? .strip(length: cursor - start + 2)
                     : .passThrough
             }
@@ -232,12 +251,14 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         return .incomplete
     }
 
-    private static func isColorQuery(command: [UInt8], payload: [UInt8]) -> Bool {
-        guard command == [0x34] || command == [0x31, 0x30] ||
-            command == [0x31, 0x31] || command == [0x31, 0x32] else {
-            return false
-        }
-        return payload.first == 0x3F
+    private static func isColorQuery(
+        command: Int,
+        commandDigitCount: Int,
+        payloadFirst: UInt8?
+    ) -> Bool {
+        commandDigitCount > 0 &&
+            (command == 4 || command == 10 || command == 11 || command == 12) &&
+            payloadFirst == 0x3F
     }
 
     private static func dcsQuery(in bytes: [UInt8], at start: Int) -> SequenceMatch {
