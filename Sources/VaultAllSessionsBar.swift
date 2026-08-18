@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Chrome row for the Vault's recency ("All") grouping: session search field
+/// Chrome row shown for every Vault grouping: session search field
 /// plus sort and filter menus. Mounted directly by `SessionIndexView` above
 /// the table boundary, mirroring the existing control bar (safe to observe
 /// the store here — never inside table rows).
 struct VaultAllSessionsBar: View {
     @ObservedObject var store: SessionIndexStore
     let chromeBackgroundColor: NSColor
+    /// Sort and filters act on the recency ("All") sections; other groupings
+    /// keep only the search field.
+    let showsSortAndFilter: Bool
     @Binding var searchText: String
     /// Enter — peek the top search result.
     let onPeekTopResult: () -> Void
@@ -18,8 +21,10 @@ struct VaultAllSessionsBar: View {
     var body: some View {
         HStack(spacing: 6) {
             searchField
-            sortMenu
-            filterMenu
+            if showsSortAndFilter {
+                sortMenu
+                filterMenu
+            }
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)

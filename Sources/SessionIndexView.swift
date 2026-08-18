@@ -94,21 +94,20 @@ struct SessionIndexView: View {
     }
 
     private var isShowingSearchResults: Bool {
-        store.grouping == .recency && !trimmedSearchText.isEmpty
+        !trimmedSearchText.isEmpty
     }
 
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            if store.grouping == .recency {
-                VaultAllSessionsBar(
-                    store: store,
-                    chromeBackgroundColor: chromeBackgroundColor,
-                    searchText: $searchText,
-                    onPeekTopResult: { peekTopSearchResult() },
-                    onResumeTopResult: { resumeTopSearchResult() }
-                )
-            }
+            VaultAllSessionsBar(
+                store: store,
+                chromeBackgroundColor: chromeBackgroundColor,
+                showsSortAndFilter: store.grouping == .recency,
+                searchText: $searchText,
+                onPeekTopResult: { peekTopSearchResult() },
+                onResumeTopResult: { resumeTopSearchResult() }
+            )
             if isShowingSearchResults && !searchErrors.isEmpty {
                 searchErrorBanner
             }
@@ -148,13 +147,13 @@ struct SessionIndexView: View {
 
             Spacer(minLength: 4)
 
-            Toggle(isOn: $store.scopeToCurrentDirectory) {
-                Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-            }
-            .toggleStyle(.checkbox)
-            .controlSize(.small)
+            // Icon toggle, not a labeled checkbox: the sidebar is routinely
+            // too narrow for "This folder only" and truncated chrome text
+            // reads as broken UI. The tooltip carries the full label.
+            ScopePillToggle(
+                isOn: $store.scopeToCurrentDirectory,
+                label: String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only")
+            )
             .frame(height: RightSidebarChromeMetrics.controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
@@ -353,12 +352,12 @@ struct SessionIndexView: View {
     /// user enters/leaves the recency grouping, and after a reload finishes
     /// (fresh entries can change the metadata phase).
     private var searchTaskKey: String {
-        "\(store.grouping.rawValue)|\(store.isLoading)|\(trimmedSearchText)"
+        "\(store.isLoading)|\(trimmedSearchText)"
     }
 
     @MainActor
     private func runGlobalSearch() async {
-        guard store.grouping == .recency, !trimmedSearchText.isEmpty else {
+        guard !trimmedSearchText.isEmpty else {
             searchResults = []
             searchErrors = []
             isSearchInFlight = false
@@ -433,27 +432,52 @@ private struct GroupingButton: View {
     @State private var isHovered: Bool = false
 
     var body: some View {
+        // Icon-only: the sidebar gets narrow enough that text labels truncate
+        // into "By…"/"B…", which reads as broken chrome. The tooltip and
+        // accessibility label carry the full name.
         Button(action: action) {
-            HStack(spacing: 3) {
-                Image(systemName: mode.symbolName)
-                    .symbolRenderingMode(.monochrome)
-                    .cmuxFont(
-                        size: RightSidebarChromeControlStyle.secondaryIconSize,
-                        weight: RightSidebarChromeControlStyle.iconWeight
-                    )
-                Text(mode.label)
-                    .cmuxFont(
-                        size: RightSidebarChromeControlStyle.labelSize,
-                        weight: RightSidebarChromeControlStyle.labelWeight
-                    )
-            }
-            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
+            Image(systemName: mode.symbolName)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFont(
+                    size: RightSidebarChromeControlStyle.secondaryIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight
+                )
+                .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
         .titlebarInteractiveControl()
+        .accessibilityLabel(Text(mode.label))
         .onHover { isHovered = $0 }
         .help(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
+    }
+}
+
+/// Pill-styled icon toggle for the "This folder only" scope, visually paired
+/// with the grouping pills. Icon-only for narrow sidebars; the tooltip and
+/// accessibility label carry the full text.
+private struct ScopePillToggle: View {
+    @Binding var isOn: Bool
+    let label: String
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            Image(systemName: "scope")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFont(
+                    size: RightSidebarChromeControlStyle.secondaryIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight
+                )
+                .rightSidebarChromePill(isSelected: isOn, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_scopePill")
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(label)
+        .accessibilityLabel(Text(label))
+        .accessibilityAddTraits(isOn ? [.isSelected] : [])
     }
 }
 
