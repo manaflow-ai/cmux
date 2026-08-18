@@ -136,6 +136,11 @@ enum AppSettingsFileMapping {
             defaultsKey: app.workspaceInheritWorkingDirectory.userDefaultsKey,
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
+        .init(
+            jsonKey: "keepExpandedOnNewTab",
+            defaultsKey: app.keepExpandedOnNewTab.userDefaultsKey,
+            invalidPath: "app.keepExpandedOnNewTab"
+        ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
             jsonKey: "focusHistoryIncludesPanesAndTabs",
@@ -396,6 +401,7 @@ extension CmuxSettingsFileStore {
         "app.menuBarOnly",
         "app.newWorkspacePlacement",
         "app.workspaceInheritWorkingDirectory",
+        "app.keepExpandedOnNewTab",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",

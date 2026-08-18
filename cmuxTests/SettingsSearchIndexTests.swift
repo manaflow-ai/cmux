@@ -20,6 +20,7 @@ struct SettingsSearchIndexTests {
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
+        assertSearch("expanded new tab", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "keep-expanded-on-new-tab"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("textbox new terminals", contains: SettingsSearchIndex.settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"))
@@ -110,6 +111,13 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "app.workspaceInheritWorkingDirectory")
                 == SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesKeepExpandedOnNewTab() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.keepExpandedOnNewTab")
+                == SettingsSearchIndex.settingID(for: .app, idSuffix: "keep-expanded-on-new-tab")
         )
     }
 

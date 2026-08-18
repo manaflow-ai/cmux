@@ -436,6 +436,11 @@
           "default": true,
           "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
         },
+        "keepExpandedOnNewTab": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, creating a new tab in a zoomed pane keeps that pane expanded and focuses the new tab."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,

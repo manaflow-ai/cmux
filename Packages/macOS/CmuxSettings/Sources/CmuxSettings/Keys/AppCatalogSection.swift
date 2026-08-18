@@ -47,6 +47,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceInheritWorkingDirectory"
     )
 
+    /// Whether a new tab created in the currently zoomed pane keeps that pane zoomed.
+    /// Defaults to the legacy behavior, which restores the full split layout first.
+    public let keepExpandedOnNewTab = DefaultsKey<Bool>(
+        id: "app.keepExpandedOnNewTab",
+        defaultValue: false,
+        userDefaultsKey: "keepExpandedOnNewTab"
+    )
+
     public let presentationMode = DefaultsKey<WorkspacePresentationMode>(
         id: "app.minimalMode",
         defaultValue: .standard,

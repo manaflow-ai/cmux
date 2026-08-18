@@ -2873,8 +2873,6 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 
 @MainActor
 final class TabManagerNewSurfaceZoomTests: XCTestCase {
-    private let keepExpandedOnNewTabKey = "keepExpandedOnNewTab"
-
     func testNewSurfaceKeepsExpandedPaneWhenOptedIn() {
         let suiteName = "TabManagerNewSurfaceZoomTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -2882,9 +2880,8 @@ final class TabManagerNewSurfaceZoomTests: XCTestCase {
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: keepExpandedOnNewTabKey)
-
         let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.keepExpandedOnNewTab)
         let manager = TabManager(settings: settings)
         guard let workspace = manager.selectedWorkspace,
               let firstPanelId = workspace.focusedPanelId,

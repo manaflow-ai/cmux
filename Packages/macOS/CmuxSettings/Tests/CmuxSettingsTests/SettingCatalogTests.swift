@@ -90,6 +90,7 @@ struct SettingCatalogTests {
         let ids = Set(SettingCatalog().all.map(\.id))
         #expect(ids.contains("app.appearance"))
         #expect(ids.contains("app.focusHistoryIncludesPanesAndTabs"))
+        #expect(ids.contains("app.keepExpandedOnNewTab"))
         #expect(ids.contains("paneBorderColor"))
         #expect(ids.contains("activePaneBorderColor"))
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
@@ -105,6 +106,10 @@ struct SettingCatalogTests {
 
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
+    }
+
+    @Test func keepExpandedOnNewTabDefaultsToLegacyBehavior() {
+        #expect(!SettingCatalog().app.keepExpandedOnNewTab.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

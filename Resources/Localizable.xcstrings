@@ -151166,6 +151166,57 @@
         }
       }
     },
+    "settings.app.keepExpandedOnNewTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Pane Expanded on New Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブでもペインの拡大を維持"
+          }
+        }
+      }
+    },
+    "settings.app.keepExpandedOnNewTab.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating a new tab returns the workspace to the normal split layout."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブを作成すると、ワークスペースを通常の分割レイアウトに戻します。"
+          }
+        }
+      }
+    },
+    "settings.app.keepExpandedOnNewTab.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New tabs created in a zoomed pane keep that pane expanded and take focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大中のペインで新しいタブを作成すると、そのペインの拡大を維持して新しいタブにフォーカスします。"
+          }
+        }
+      }
+    },
     "settings.app.commandPaletteSearchAllSurfaces": {
       "extractionState": "manual",
       "localizations": {
@@ -190351,6 +190402,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory 作業ディレクトリ 継承 現在 フォーカス Ghostty"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.keep-expanded-on-new-tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab pane zoom expanded new tab surface terminal preserve layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab ペイン ズーム 拡大 新しいタブ サーフェス レイアウト 維持"
           }
         }
       }

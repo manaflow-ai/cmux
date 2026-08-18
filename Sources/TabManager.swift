@@ -3902,13 +3902,38 @@ class TabManager: ObservableObject {
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        if let workspace = selectedWorkspace {
+            _ = createNewTerminalSurface(in: workspace, initialInput: nil)
+        }
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        if let workspace = selectedWorkspace {
+            _ = createNewTerminalSurface(in: workspace, initialInput: initialInput)
+        }
+    }
+
+    /// Creates a user-requested terminal tab while applying the app's pane-zoom
+    /// inheritance policy. The legacy path clears zoom before creating a tab;
+    /// ``app.keepExpandedOnNewTab`` lets the focused pane remain expanded.
+    @discardableResult
+    func createNewTerminalSurface(
+        in workspace: Workspace,
+        initialInput: String? = nil
+    ) -> TerminalPanel? {
+        let zoomedPaneId = workspace.bonsplitController.zoomedPaneId
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let keepExpanded = settings.value(for: settingsCatalog.app.keepExpandedOnNewTab)
+        let shouldKeepExpanded = keepExpanded && zoomedPaneId != nil && zoomedPaneId == focusedPaneId
+
+        if zoomedPaneId != nil && !shouldKeepExpanded {
+            workspace.clearSplitZoom()
+        }
+
+        return workspace.newTerminalSurfaceInFocusedPane(
+            focus: true,
+            initialInput: initialInput
+        )
     }
 
     // MARK: - Split Creation
