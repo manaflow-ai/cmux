@@ -79,7 +79,6 @@ trap on_cancel INT TERM
 # discovery interval is needed.
 read_details
 
-set +e
 "$timeout_command" \
   --foreground \
   --signal=TERM \
@@ -87,10 +86,9 @@ set +e
   "${wait_timeout}s" \
   gh run watch --compact --exit-status --repo "$repo" "$run_id" >&2 &
 watch_pid=$!
-wait "$watch_pid"
-watch_status=$?
+watch_status=0
+wait "$watch_pid" || watch_status=$?
 watch_pid=""
-set -e
 
 if (( watch_status == 124 || watch_status == 137 )); then
   die "run $run_id did not complete before timeout"
