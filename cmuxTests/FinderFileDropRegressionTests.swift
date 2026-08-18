@@ -332,6 +332,40 @@ final class FinderFileDropRegressionTests: XCTestCase {
         service.cleanupTransferredTemporaryImageFiles([ownedURL])
     }
 
+    func testMultiplePromisedFileURLItemsAreReadIndividually() throws {
+        let firstURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("promised-first-(UUID().uuidString).png")
+        let secondURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("promised-second-(UUID().uuidString).png")
+        try make1x1PNG(color: .systemPink).write(to: firstURL)
+        try make1x1PNG(color: .systemYellow).write(to: secondURL)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-test-multiple-promised-file-urls-(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let firstItem = NSPasteboardItem()
+        firstItem.setString(
+            firstURL.absoluteString,
+            forType: PasteboardFileURLReader.promisedFileURLPasteboardType
+        )
+        let secondItem = NSPasteboardItem()
+        secondItem.setString(
+            secondURL.absoluteString,
+            forType: PasteboardFileURLReader.promisedFileURLPasteboardType
+        )
+        XCTAssertTrue(pasteboard.writeObjects([firstItem, secondItem]))
+
+        XCTAssertEqual(
+            PasteboardFileURLReader.fileURLs(from: pasteboard),
+            [firstURL.standardizedFileURL, secondURL.standardizedFileURL]
+        )
+    }
+
     func testTransientImageURLsUnderTmpAliasesGetOwnedCopies() throws {
         let ownedDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-owned-alias-drop-(UUID().uuidString)", isDirectory: true)

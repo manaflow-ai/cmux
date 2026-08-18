@@ -55,6 +55,7 @@ enum PasteboardFileURLReader {
 
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         var fileURLs: [URL] = []
+        var didReadPromisedFileURL = false
 
         let objects = pasteboard.readObjects(
             forClasses: [NSURL.self],
@@ -80,11 +81,27 @@ enum PasteboardFileURLReader {
             fileURLs.append(url.standardizedFileURL)
         }
 
-        if let rawPromisedFileURL = pasteboard.string(
-            forType: promisedFileURLPasteboardType
-        ),
-        let url = URL(string: rawPromisedFileURL),
-        url.isFileURL {
+        for item in pasteboard.pasteboardItems ?? [] {
+            guard let rawPromisedFileURL = item.string(
+                forType: promisedFileURLPasteboardType
+            ),
+            let url = URL(string: rawPromisedFileURL),
+            url.isFileURL else {
+                continue
+            }
+            fileURLs.append(url.standardizedFileURL)
+            didReadPromisedFileURL = true
+        }
+
+        // A few providers expose the promised value on the pasteboard rather
+        // than on an individual item. Preserve that legacy representation as
+        // a fallback after item-level extraction.
+        if !didReadPromisedFileURL,
+           let rawPromisedFileURL = pasteboard.string(
+               forType: promisedFileURLPasteboardType
+           ),
+           let url = URL(string: rawPromisedFileURL),
+           url.isFileURL {
             fileURLs.append(url.standardizedFileURL)
         }
 
