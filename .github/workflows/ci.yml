@@ -1169,6 +1169,7 @@ jobs:
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_hermes_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
+          python3 tests/test_claude_wrapper_settings_reentry.py
           python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
           python3 tests/test_claude_teams_test_utils.py
