@@ -67,6 +67,13 @@ public struct KimiConfigLocationResolver {
     /// Characters that may follow a path in a report line without belonging to it.
     private static let pathDelimiters: Set<Character> = ["\"", "'", "`", ",", ";", ":", ")", "]", "}", ">"]
 
+    /// A `kimi doctor` report is a handful of short lines naming a config file.
+    /// Anything larger is not a report, so parsing stops at these bounds instead
+    /// of scanning arbitrary output from an unrelated binary.
+    private static let maximumReportCharacters = 8_192
+    private static let maximumReportLineCharacters = 1_024
+    private static let maximumPathStartsPerLine = 32
+
     private let environment: [String: String]
     private let fileManager: FileManager
     private let directorySpecs: [DirectorySpec]
@@ -142,7 +149,9 @@ public struct KimiConfigLocationResolver {
     /// - Parameter output: Combined standard output and error of `kimi doctor`.
     /// - Returns: The reported config file URL, or `nil`.
     public func reportedConfigURL(inDoctorOutput output: String) -> URL? {
-        for line in output.split(whereSeparator: { $0.isNewline }) {
+        let bounded = output.prefix(Self.maximumReportCharacters)
+        for line in bounded.split(whereSeparator: { $0.isNewline })
+        where line.count <= Self.maximumReportLineCharacters {
             if let url = reportedConfigURL(inDoctorOutputLine: String(line)) {
                 return url
             }
@@ -157,8 +166,16 @@ public struct KimiConfigLocationResolver {
     /// first candidate whose parent directory exists wins. That keeps a path
     /// containing spaces intact, which whitespace tokenization would split,
     /// while a label or prose before the path is rejected by the same directory
-    /// check. Work is bounded by the length of a single line.
+    /// check.
+    ///
+    /// Path starts are collected in one pass and capped, so the candidate work
+    /// stays bounded by `maximumPathStartsPerLine * maximumReportLineCharacters`
+    /// even for output that is not a report at all. A real report line opens one
+    /// or two paths.
     private func reportedConfigURL(inDoctorOutputLine line: String) -> URL? {
+        let pathStarts = pathStarts(in: line)
+        guard !pathStarts.isEmpty else { return nil }
+
         var nameSearchStart = line.startIndex
         while let nameRange = line.range(
             of: configFileName,
@@ -172,8 +189,7 @@ public struct KimiConfigLocationResolver {
                 }
             }
 
-            for start in line.indices[line.startIndex..<nameRange.lowerBound]
-            where startsPath(at: start, in: line) {
+            for start in pathStarts where start < nameRange.lowerBound {
                 if let url = usableConfigURL(String(line[start..<nameRange.upperBound])) {
                     return url
                 }
@@ -182,14 +198,22 @@ public struct KimiConfigLocationResolver {
         return nil
     }
 
-    /// Whether a path could begin at this index: a `/` or `~` that opens a
-    /// token rather than sitting inside one.
-    private func startsPath(at index: String.Index, in line: String) -> Bool {
-        let character = line[index]
-        guard character == "/" || character == "~" else { return false }
-        guard index > line.startIndex else { return true }
-        let preceding = line[line.index(before: index)]
-        return preceding.isWhitespace || Self.pathDelimiters.contains(preceding)
+    /// Indices where a path could begin: a `/` or `~` that opens a token rather
+    /// than sitting inside one.
+    private func pathStarts(in line: String) -> [String.Index] {
+        var starts: [String.Index] = []
+        var previous: Character?
+        for index in line.indices {
+            let character = line[index]
+            defer { previous = character }
+            guard character == "/" || character == "~" else { continue }
+            if let previous, !previous.isWhitespace, !Self.pathDelimiters.contains(previous) {
+                continue
+            }
+            starts.append(index)
+            if starts.count == Self.maximumPathStartsPerLine { break }
+        }
+        return starts
     }
 
     private func usableConfigURL(_ candidate: String) -> URL? {

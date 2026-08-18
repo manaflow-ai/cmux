@@ -43516,6 +43516,12 @@
             "value": "警告: cmux hooks は %@ にインストールされましたが、%@ にある既存の hook ブロックを更新できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行して更新を完了してください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមាន៖ cmux hooks ត្រូវបានដំឡើងនៅ %@ ប៉ុន្តែ cmux មិនអាចធ្វើបច្ចុប្បន្នភាពប្លុក hook ដែលមានស្រាប់នៅក្នុង %@ បានទេ។ សូមពិនិត្យផ្លូវនោះ រួចដំណើរការ `cmux hooks setup kimi` ម្ដងទៀត ដើម្បីបញ្ចប់ការធ្វើបច្ចុប្បន្នភាព។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -43633,6 +43639,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "警告: hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមាន៖ cmux មិនអាចលុបប្លុក hook របស់ខ្លួនចេញពី %@ បានទេ។ សូមពិនិត្យផ្លូវនោះ រួចដំណើរការ `cmux hooks uninstall kimi` ម្ដងទៀត ដើម្បីបញ្ចប់ការសម្អាត។"
           }
         },
         "ko": {
