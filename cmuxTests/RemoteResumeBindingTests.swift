@@ -543,6 +543,10 @@ struct RemoteResumeBindingTests {
     @Test
     func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
         let fixture = try makeRelayedFixture()
+        let persistedTerminal = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.surfaceID }?.terminal
+        )
+        #expect(persistedTerminal.wasAgentRunning == true)
         let suiteName = "cmux-remote-resume-binding-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
