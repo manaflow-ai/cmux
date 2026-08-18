@@ -388,11 +388,25 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(stopResult)
         let snapshot = context.state.snapshot()
-        #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
-                "The parent Stop must still fire its turn-complete ping; saw \(snapshot)")
-        #expect(statusLine(snapshot, value: "Idle") != nil,
-                "The parent Stop must still set the Idle pill; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") != nil,
-                "The parent Stop must still publish an idle lifecycle; saw \(snapshot)")
+        // Exactly one ping, and it carries the parent's own last assistant
+        // message — asserting mere presence would be satisfied by the
+        // subagent's ping, which is the thing this fix removes.
+        let notifyLines = snapshot.filter { $0.hasPrefix("notify_target_async ") }
+        #expect(notifyLines.count == 1,
+                "Only the parent Stop may ping for this turn; saw \(notifyLines)")
+        #expect(notifyLines.first?.contains("|ok|c=turn-complete;p=0") == true,
+                "The surviving ping must be the parent Stop's turn-complete; saw \(notifyLines)")
+        let lastStatus = try #require(
+            lastLine(snapshot, prefix: "set_status claude_code "),
+            "Expected the parent Stop's pill in \(snapshot)"
+        )
+        #expect(lastStatus.hasPrefix("set_status claude_code Idle "),
+                "The parent Stop must leave the Idle pill; saw \(lastStatus)")
+        let lastLifecycle = try #require(
+            lastLine(snapshot, prefix: "set_agent_lifecycle claude_code "),
+            "Expected the parent Stop's lifecycle in \(snapshot)"
+        )
+        #expect(lastLifecycle.hasPrefix("set_agent_lifecycle claude_code idle "),
+                "The parent Stop must leave an idle lifecycle; saw \(lastLifecycle)")
     }
 }
