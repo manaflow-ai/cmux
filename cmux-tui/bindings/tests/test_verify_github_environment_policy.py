@@ -154,6 +154,7 @@ class VerifyGithubEnvironmentPolicyTests(unittest.TestCase):
                 None,
                 302,
                 "Found",
+                None,
                 "https://collector.example.test/collect",
             )
 
