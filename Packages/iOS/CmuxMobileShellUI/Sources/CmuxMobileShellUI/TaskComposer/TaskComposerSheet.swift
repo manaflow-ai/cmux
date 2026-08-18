@@ -1021,49 +1021,46 @@ struct TaskComposerSheet: View {
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
-}
-
-private extension TaskComposerSheet {
-func validWorkspaceGroupID(
-    _ candidate: MobileWorkspaceGroupPreview.ID?,
-    groups: [MobileWorkspaceGroupPreview],
-    macDeviceID: String,
-    instanceTag: String?
-) -> MobileWorkspaceGroupPreview.ID? {
-    guard let candidate,
-          filteredWorkspaceGroups(
-              groups,
-              macDeviceID: macDeviceID,
-              instanceTag: instanceTag
-          ).contains(where: { $0.id == candidate }) else {
-        return nil
-    }
-    return candidate
-}
-
-func filteredWorkspaceGroups(
-    _ groups: [MobileWorkspaceGroupPreview],
-    macDeviceID: String,
-    instanceTag: String?
-) -> [MobileWorkspaceGroupPreview] {
-    guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
-        return []
-    }
-    return groups.filter { group in
-        guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
-              groupMacDeviceID == macDeviceID else {
-            return false
+    private func validWorkspaceGroupID(
+        _ candidate: MobileWorkspaceGroupPreview.ID?,
+        groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileWorkspaceGroupPreview.ID? {
+        guard let candidate,
+              filteredWorkspaceGroups(
+                  groups,
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ).contains(where: { $0.id == candidate }) else {
+            return nil
         }
-        return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+        return candidate
     }
-}
 
-func normalizedWorkspaceOwner(_ value: String?) -> String? {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return nil
+    private func filteredWorkspaceGroups(
+        _ groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> [MobileWorkspaceGroupPreview] {
+        guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
+            return []
+        }
+        return groups.filter { group in
+            guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
+                  groupMacDeviceID == macDeviceID else {
+                return false
+            }
+            return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+        }
     }
-    return value
-}
+
+    private func normalizedWorkspaceOwner(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
 }
 #endif
