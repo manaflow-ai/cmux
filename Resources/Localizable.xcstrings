@@ -39413,6 +39413,23 @@
         }
       }
     },
+    "cli.help.sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (print saved agent session records; no socket required)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]   (保存済みエージェントセッション記録を表示します。ソケットは不要です)"
+          }
+        }
+      }
+    },
     "cli.help.simulator": {
       "extractionState": "manual",
       "localizations": {
