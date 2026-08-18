@@ -38,6 +38,8 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
+        case .notifications:
+            return MobileSurfaceKind(rawValue: "notifications")
         }
     }
 
@@ -160,6 +162,8 @@ extension TerminalController {
                 "surface_id": focusedSurfaceID.uuidString,
                 "window_id": v2OrNull(windowID?.uuidString),
             ])
+        case let .dockUnavailable(message):
+            return .err(code: "unavailable", message: message, data: nil)
         }
     }
 
@@ -275,6 +279,27 @@ extension TerminalController {
                     key: "mobile.chat.artifact.error.transferUnavailable",
                     defaultValue: "Artifact transfer is temporarily unavailable.",
                     path: nil
+                )
+            case .permissionDenied:
+                return mobilePanelArtifactFileError(
+                    code: "permission_denied",
+                    key: "mobile.chat.artifact.error.permissionDenied",
+                    defaultValue: "cmux does not have permission to read that file.",
+                    path: v2RawString(params, "path")
+                )
+            case .notRegularFile:
+                return mobilePanelArtifactFileError(
+                    code: "not_regular_file",
+                    key: "mobile.chat.artifact.error.notRegularFile",
+                    defaultValue: "That path is not a regular file.",
+                    path: v2RawString(params, "path")
+                )
+            case .readFailed:
+                return mobilePanelArtifactFileError(
+                    code: "read_failed",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac found that file but could not read it.",
+                    path: v2RawString(params, "path")
                 )
             }
         } catch ArtifactByteReader.Error.fileNotFound {
