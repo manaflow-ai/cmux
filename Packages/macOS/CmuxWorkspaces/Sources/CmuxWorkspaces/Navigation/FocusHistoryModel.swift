@@ -262,20 +262,32 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         )
     }
 
-    private func focusHistoryEntryResolvesToCurrent(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
-        guard let currentEntry,
-              let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else { return false }
-        return resolvedEntry == currentEntry
-    }
-
-    private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
-        guard resolvedFocusHistoryEntry(for: entry) != nil else { return false }
-        if navigationScope() == .workspacesOnly,
+    /// Navigability given an already-resolved entry. Callers that have just
+    /// resolved `entry` pass the result here instead of resolving it again;
+    /// `resolvedFocusHistoryEntry` reaches the host for every panel lookup, and
+    /// the menu path runs this once per history entry per rebuild.
+    private func focusHistoryEntryIsNavigable(
+        _ entry: FocusHistoryEntry,
+        resolvedEntry: FocusHistoryEntry,
+        scope: FocusHistoryNavigationScope,
+        currentEntry: FocusHistoryEntry?
+    ) -> Bool {
+        if scope == .workspacesOnly,
            entry.workspaceId == currentEntry?.workspaceId {
             return false
         }
-        if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) { return false }
+        if let currentEntry, resolvedEntry == currentEntry { return false }
         return true
+    }
+
+    private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
+        guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else { return false }
+        return focusHistoryEntryIsNavigable(
+            entry,
+            resolvedEntry: resolvedEntry,
+            scope: navigationScope(),
+            currentEntry: currentEntry
+        )
     }
 
     private func navigationEntry(for entry: FocusHistoryEntry) -> FocusHistoryEntry {
@@ -311,7 +323,12 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             let scopedEntry = navigationEntry(for: entry)
             guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
                   let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
-                  focusHistoryEntryIsNavigable(scopedEntry, currentEntry: currentEntry) else {
+                  focusHistoryEntryIsNavigable(
+                      scopedEntry,
+                      resolvedEntry: resolvedEntry,
+                      scope: scope,
+                      currentEntry: currentEntry
+                  ) else {
                 return nil
             }
             if scope == .workspacesOnly, previousWorkspaceId == entry.workspaceId {
