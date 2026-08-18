@@ -69,7 +69,7 @@ public final class TerminalPasteboardService: Sendable {
     nonisolated(unsafe) let fileManager: FileManager
 
     /// The directory that owned temporary image files are written into.
-    let temporaryDirectory: URL
+    public let temporaryDirectory: URL
 
     private let temporaryImageOwnershipLock = NSLock()
     // SAFETY: guarded by `temporaryImageOwnershipLock`; mutated from
