@@ -53,6 +53,31 @@ struct GitHubPullRequestRequestTests {
         )
     }
 
+    @Test func userAgentValueAppendsApplicationVersion() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "1.2.3")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueTrimsSurroundingWhitespace() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  1.2.3  ")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueFallsBackWhenApplicationVersionIsUnavailable() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: nil)
+                == "cmux-workspace-pr-poller/unknown"
+        )
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  ")
+                == "cmux-workspace-pr-poller/unknown"
+        )
+    }
+
     @Test func cachedETagRevalidatesAndReusesBodyAfterNotModified() async throws {
         let body = Data("[{\"number\":8175}]".utf8)
         GitHubPullRequestStubURLProtocol.reset(stubs: [
