@@ -283,8 +283,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return
             }
             status.append(0x0A)
-            writeAll(fd: clientFD, data: status)
-            writeAll(fd: clientFD, data: replay)
+            Self.writeAll(fd: clientFD, data: status)
+            Self.writeAll(fd: clientFD, data: replay)
         }
         return handled
     }
@@ -522,5 +522,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             isDirectory: true
         ).appendingPathComponent(".config", isDirectory: true).path
         return resolved
+    }
+
+    private static func writeAll(fd: Int32, data: Data) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var remaining = rawBuffer.count
+            var cursor = base
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written < 0, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
     }
 }
