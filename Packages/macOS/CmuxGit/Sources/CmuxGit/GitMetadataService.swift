@@ -1,11 +1,11 @@
 import Foundation
 
-/// Reads a directory's git metadata from the on-disk repository, with a bounded
-/// non-locking `git status` fallback for indexes that are unsafe to scan directly.
+/// Reads a directory's git metadata from the on-disk repository, with bounded
+/// Git fallbacks for non-files reference storage and unsafe index scans.
 ///
 /// This service does the filesystem work that powers the workspace sidebar's
 /// branch label, dirty indicator, and pull-request badge: resolving the
-/// enclosing repository, parsing `HEAD`/`index`/`config`, and deriving the set
+/// enclosing repository, resolving refs, parsing `index`/`config`, and deriving the set
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
@@ -30,6 +30,7 @@ import Foundation
 public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     let dirtyStatusReader: any GitDirtyStatusReading
+    let referenceReader: any GitReferenceReading
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
@@ -39,6 +40,9 @@ public struct GitMetadataService: Sendable {
         let safetyConfiguration = GitMetadataSafetyConfiguration()
         self.fileStatusReader = SystemGitFileStatusReader()
         self.dirtyStatusReader = SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.referenceReader = SystemGitReferenceReader(
             boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
         )
         self.degradationRecorder = GitMetadataDegradationRecorder(
@@ -51,12 +55,16 @@ public struct GitMetadataService: Sendable {
     init(
         fileStatusReader: any GitFileStatusReading,
         dirtyStatusReader: (any GitDirtyStatusReading)? = nil,
+        referenceReader: (any GitReferenceReading)? = nil,
         degradationRecorder: GitMetadataDegradationRecorder? = nil,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     ) {
         self.fileStatusReader = fileStatusReader
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.referenceReader = referenceReader ?? SystemGitReferenceReader(
             boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
         )
         self.degradationRecorder = degradationRecorder ?? GitMetadataDegradationRecorder(
@@ -98,17 +106,19 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
+        async let references = gitReferenceSnapshot(repository: repository)
         let trackedChanges = await gitTrackedChangesSnapshot(
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
+        let resolvedReferences = await references
         return GitWorkspaceMetadata(
             isRepository: true,
-            branch: Self.gitBranchName(repository: repository),
+            branch: resolvedReferences.branchName,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: Self.gitHeadSignature(repository: repository)
+            headSignature: resolvedReferences.headSignature
         )
     }
 
@@ -204,7 +214,8 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        return Self.gitCheckedOutBranch(repository: repository)
+        let references = await gitReferenceSnapshot(repository: repository)
+        return references.checkedOutBranch
     }
 
     /// Whether this module's `nonisolated async` methods execute off the calling

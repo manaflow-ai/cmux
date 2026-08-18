@@ -1,7 +1,7 @@
 import Foundation
 
-/// A point-in-time read of a directory's git state, computed without spawning a
-/// `git` process (the working tree, `HEAD`, and `index` are parsed directly).
+/// A point-in-time read of a directory's git state. File-backed refs and the
+/// index are parsed directly; other reference backends use Git plumbing.
 ///
 /// Returned by ``GitMetadataService/workspaceMetadata(for:)``. The signature
 /// fields let a caller cheaply detect "did anything change since last read"
@@ -12,9 +12,9 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
     /// every other field is its empty default.
     public let isRepository: Bool
 
-    /// The current branch name (from `HEAD`), or `nil` for a detached HEAD or
-    /// when `HEAD` is unreadable. The raw name as recorded in `HEAD`; callers
-    /// that key state by branch should normalize (trim) it.
+    /// The current branch name, or `nil` for a detached HEAD or when the
+    /// configured reference backend cannot resolve `HEAD`. Callers that key
+    /// state by branch should normalize (trim) it.
     public let branch: String?
 
     /// Whether the working tree has changes relative to the index (tracked-file

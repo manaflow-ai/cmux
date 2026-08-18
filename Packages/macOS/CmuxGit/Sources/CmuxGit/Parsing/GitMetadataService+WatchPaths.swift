@@ -107,8 +107,8 @@ extension GitMetadataService {
         )
     }
 
-    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, every reachable
-    /// `config`) for a single resolved repository.
+    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, `reftable`,
+    /// every reachable `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository
     ) -> [String] {
@@ -116,8 +116,10 @@ extension GitMetadataService {
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
+            joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
+            joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
         ] + gitConfigURLs(repository: repository).map(\.path)
     }
 
