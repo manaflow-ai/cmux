@@ -4,7 +4,7 @@
 //! descriptor-pinned working directories. Non-Unix platforms use
 //! portable-pty's native backend.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
@@ -14,6 +14,25 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
+
+#[cfg(windows)]
+fn canonical_environment_key(mut key: String) -> String {
+    key.make_ascii_lowercase();
+    key
+}
+
+#[cfg(not(windows))]
+fn canonical_environment_key(key: String) -> String {
+    key
+}
+
+fn remove_environment_key(environment: &mut BTreeMap<String, String>, key: &str) {
+    environment.remove(key);
+}
+
+fn remove_environment_marker(removed_environment: &mut BTreeSet<String>, key: &str) {
+    removed_environment.remove(key);
+}
 
 #[cfg(unix)]
 mod macos;
@@ -96,6 +115,7 @@ pub struct PtyCommand {
     #[cfg(unix)]
     cwd_descriptor: Option<Arc<File>>,
     environment: BTreeMap<String, String>,
+    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -108,6 +128,7 @@ impl PtyCommand {
             #[cfg(unix)]
             cwd_descriptor: None,
             environment: BTreeMap::new(),
+            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -135,12 +156,36 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.environment.insert(key.into(), value.into());
+        let key = canonical_environment_key(key.into());
+        remove_environment_key(&mut self.environment, &key);
+        remove_environment_marker(&mut self.removed_environment, &key);
+        self.environment.insert(key, value.into());
+    }
+
+    /// Remove an inherited variable from the child process environment.
+    pub fn env_remove(&mut self, key: impl Into<String>) {
+        let key = canonical_environment_key(key.into());
+        remove_environment_key(&mut self.environment, &key);
+        remove_environment_marker(&mut self.removed_environment, &key);
+        self.removed_environment.insert(key);
+    }
+
+    /// Set the cmux-owned environment identity used by a terminal child.
+    ///
+    /// These keys are reserved by the PTY runtime. This method intentionally
+    /// runs after caller-provided variables so a child cannot impersonate a
+    /// different terminal or re-enable the inherited `NO_COLOR` override.
+    pub fn env_terminal_identity(&mut self, term: impl Into<String>) {
+        self.env("TERM", term);
+        self.env("COLORTERM", "truecolor");
+        self.env("TERM_PROGRAM", "ghostty");
+        self.env_remove("NO_COLOR");
     }
 
     pub fn env_clear(&mut self) {
         self.clean_environment = true;
         self.environment.clear();
+        self.removed_environment.clear();
     }
 }
 
@@ -204,6 +249,9 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
+        for key in command.removed_environment {
+            builder.env_remove(key);
+        }
         slave.0.spawn_command(builder)
     }
 }
@@ -245,6 +293,45 @@ mod tests {
             let status = spawned.child.wait().unwrap();
             panic!("missing PTY program was published as child status {status:?}");
         }
+    }
+
+    #[test]
+    fn env_remove_prevents_a_color_suppression_variable_from_reaching_the_child() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/usr/bin/printenv");
+        command.env("NO_COLOR", "1");
+        command.env_remove("NO_COLOR");
+        command.args(["NO_COLOR"]);
+
+        let mut spawned = pair.spawn(command).unwrap();
+        assert!(!spawned.child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn env_remove_prevents_shell_from_reaching_the_child() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/usr/bin/printenv");
+        command.env("SHELL", "/bin/sh");
+        command.env_remove("SHELL");
+        command.args(["SHELL"]);
+
+        let mut spawned = pair.spawn(command).unwrap();
+        assert!(!spawned.child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn environment_operations_keep_unix_keys_case_sensitive() {
+        let mut command = PtyCommand::new("printenv");
+        command.env("Path", "first");
+        command.env("PATH", "second");
+
+        assert_eq!(command.environment.len(), 2);
+        assert_eq!(command.environment.get("Path"), Some(&"first".to_owned()));
+        assert_eq!(command.environment.get("PATH"), Some(&"second".to_owned()));
+
+        command.env_remove("Path");
+        assert!(!command.environment.contains_key("Path"));
+        assert!(command.environment.contains_key("PATH"));
     }
 
     #[test]
@@ -350,5 +437,26 @@ mod tests {
             "seccomp filter installation failed: {}",
             io::Error::last_os_error()
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn environment_operations_canonicalize_windows_ascii_keys() {
+        let mut command = PtyCommand::new("printenv");
+        command.env("Path", "first");
+        command.env_remove("PATH");
+        command.env("pAtH", "second");
+
+        assert_eq!(command.environment.len(), 1);
+        assert_eq!(command.environment.get("path"), Some(&"second".to_owned()));
+        assert!(!command.environment.contains_key("pAtH"));
+        assert!(command.removed_environment.is_empty());
+
+        command.env_remove("TeMp");
+        assert!(command.removed_environment.contains("temp"));
     }
 }

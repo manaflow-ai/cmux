@@ -11,13 +11,15 @@ use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
@@ -48,6 +50,102 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
 };
 use cmux_tui_cdp::BrowserMode;
+
+#[cfg(test)]
+mod color_environment_tests {
+    use super::{SurfaceOptions, resolve_terminal_name};
+
+    #[test]
+    fn prefers_ghostty_term_when_terminfo_is_available() {
+        assert_eq!(resolve_terminal_name(None, true), "xterm-ghostty");
+    }
+
+    #[test]
+    fn keeps_compatible_fallback_without_terminfo() {
+        assert_eq!(resolve_terminal_name(None, false), "xterm-256color");
+    }
+
+    #[test]
+    fn explicit_term_always_wins() {
+        assert_eq!(resolve_terminal_name(Some("screen-256color"), true), "screen-256color");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_preserves_explicit_term_without_running_infocmp() {
+        const CHILD_ENV: &str = "CMUX_SURFACE_DEFAULT_TERM_CHILD";
+        const MARKER_ENV: &str = "CMUX_SURFACE_DEFAULT_TERM_MARKER";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let term = SurfaceOptions::default().term;
+            assert_eq!(term, "surface-test-term");
+            let marker = std::env::var_os(MARKER_ENV).expect("infocmp marker path");
+            assert!(!std::path::Path::new(&marker).exists(), "Default ran infocmp");
+            return;
+        }
+
+        let root = std::env::temp_dir()
+            .join(format!("cmux-surface-default-infocmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let infocmp = root.join("infocmp");
+        let marker = root.join("invoked");
+        std::fs::write(
+            &infocmp,
+            "#!/bin/sh\nprintf invoked > \"$CMUX_SURFACE_DEFAULT_TERM_MARKER\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&infocmp, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg(
+                "surface::color_environment_tests::default_preserves_explicit_term_without_running_infocmp",
+            )
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .env(MARKER_ENV, &marker)
+            .env("PATH", &root)
+            .env("CMUX_TUI_TERM", "surface-test-term")
+            .env_remove("CMUX_MUX_TERM")
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            output.status.success(),
+            "SurfaceOptions default child failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn resolve_terminal_name(explicit: Option<&str>, ghostty_terminfo_available: bool) -> String {
+    if let Some(term) = explicit.filter(|term| !term.is_empty()) {
+        return term.to_string();
+    }
+    if ghostty_terminfo_available { "xterm-ghostty".into() } else { "xterm-256color".into() }
+}
+
+fn ghostty_terminfo_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        #[cfg(unix)]
+        {
+            Command::new("infocmp")
+                .arg("xterm-ghostty")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    })
+}
 
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
@@ -97,8 +195,10 @@ pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
-    /// TERM value for children. xterm-256color is the compatible default;
-    /// set xterm-ghostty when the ghostty terminfo is installed.
+    /// TERM value for children. Startup entrypoints can call
+    /// [`SurfaceOptions::detect_term`] to prefer xterm-ghostty when its
+    /// terminfo is available. `Default` uses the configured environment value
+    /// or the portable xterm-256color fallback without probing the system.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -135,9 +235,7 @@ impl Default for SurfaceOptions {
         SurfaceOptions {
             command: None,
             cwd: None,
-            term: std::env::var("CMUX_TUI_TERM")
-                .or_else(|_| std::env::var("CMUX_MUX_TERM"))
-                .unwrap_or_else(|_| "xterm-256color".into()),
+            term: configured_terminal_name().unwrap_or_else(|| "xterm-256color".into()),
             cols: 80,
             rows: 24,
             scrollback: 10_000,
@@ -155,6 +253,26 @@ impl Default for SurfaceOptions {
             terminal_host_root: None,
         }
     }
+}
+
+impl SurfaceOptions {
+    /// Resolve the startup TERM value, including the optional terminfo probe.
+    ///
+    /// Keep this explicit because constructing options is also a library and
+    /// test operation that must not fork a subprocess.
+    pub fn detect_term() -> String {
+        if let Some(term) = configured_terminal_name() {
+            return term;
+        }
+        resolve_terminal_name(None, ghostty_terminfo_available())
+    }
+}
+
+fn configured_terminal_name() -> Option<String> {
+    std::env::var("CMUX_TUI_TERM")
+        .or_else(|_| std::env::var("CMUX_MUX_TERM"))
+        .ok()
+        .filter(|term| !term.is_empty())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2247,10 +2365,10 @@ impl Surface {
             .unwrap_or_else(|| vec![platform::default_shell()]);
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
-        cmd.env("TERM", &opts.term);
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
+        cmd.env_terminal_identity(&opts.term);
         let cwd = opts
             .cwd
             .clone()
@@ -6061,16 +6179,29 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
-    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+    /// Return the journal target without extending the mux lifetime across a
+    /// blocking terminal read or queue-capacity wait. The reader keeps a weak
+    /// mux owner and a separate ingress-state waiter until output can append.
+    fn journal_target(
+        &self,
+    ) -> Option<(Weak<Mux>, crate::journal_ingress::JournalIngressWaiter, Arc<TerminalPublicId>)>
+    {
         let terminal_id = self.terminal_public_id.clone()?;
-        let mux = self.mux.upgrade()?;
-        (mux.terminal_journal_enabled() && self.journal_capture_supported)
-            .then_some((mux, terminal_id))
+        let mux = self.mux.clone();
+        let owner = mux.upgrade()?;
+        let enabled = owner.terminal_journal_enabled() && self.journal_capture_supported;
+        let waiter = enabled.then(|| owner.terminal_journal_waiter());
+        drop(owner);
+        waiter.map(|waiter| (mux, waiter, terminal_id))
     }
 
     fn journal_output_if_open(
         &self,
-        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
+        (mux, waiter, terminal_id): (
+            Weak<Mux>,
+            crate::journal_ingress::JournalIngressWaiter,
+            Arc<TerminalPublicId>,
+        ),
         bytes: Vec<u8>,
     ) {
         let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
@@ -6082,16 +6213,24 @@ impl PtySurface {
                     if !self.journal_capture_open.load(Ordering::Acquire) {
                         return;
                     }
-                    let retry = match mux.try_journal_terminal_output(
-                        terminal_id.clone(),
-                        self.journal_generation.clone(),
-                        occurred_at_ms,
-                        pending,
-                    ) {
+                    let result = {
+                        let Some(owner) = mux.upgrade() else {
+                            return;
+                        };
+                        owner.try_journal_terminal_output(
+                            terminal_id.clone(),
+                            self.journal_generation.clone(),
+                            occurred_at_ms,
+                            pending,
+                        )
+                    };
+                    let retry = match result {
                         Ok(retry) => retry,
                         Err(error) => {
                             self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
+                            if let Some(owner) = mux.upgrade() {
+                                owner.request_daemon_shutdown();
+                            }
                             eprintln!(
                                 "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
                             );
@@ -6102,9 +6241,11 @@ impl PtySurface {
                     pending = retry;
                     space_epoch
                 };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
+                if let Err(error) = waiter.wait_for_queue_space(space_epoch) {
                     self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
+                    if let Some(owner) = mux.upgrade() {
+                        owner.request_daemon_shutdown();
+                    }
                     eprintln!(
                         "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
                     );
@@ -9004,6 +9145,123 @@ mod tests {
         );
         drop(terminal);
         finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+    }
+
+    #[test]
+    fn blocked_local_reader_does_not_retain_persistent_mux() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-blocked-local-reader-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "blocked-local-reader";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        mux.insert_surface_runtime_for_test(surface.clone());
+
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let reader_surface = surface.clone();
+        let reader = std::thread::spawn(move || {
+            let pty = reader_surface.as_pty().expect("test reader owns a PTY surface");
+            let journal_target = pty.journal_target();
+            assert!(journal_target.is_some(), "persistent mux must enable terminal journaling");
+            let mut journal_update =
+                journal_target.as_ref().and_then(|_| pty.begin_terminal_journal_update());
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            drop(journal_update.take());
+            drop(journal_target);
+        });
+        surface.install_terminal_reader_for_test(reader);
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("local reader did not reach its blocking read reservation");
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = crate::workspace_registry::WorkspaceRegistry::open(&root, session);
+        assert!(
+            reopened.is_ok(),
+            "a blocked local reader must not retain the persistent session lease"
+        );
+        drop(reopened);
+
+        release_tx.send(()).unwrap();
+        assert!(
+            surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(1)),
+            "blocked local reader did not finish after release"
+        );
+        drop(surface);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn queued_terminal_output_wait_does_not_retain_persistent_mux() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-queued-output-owner-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "queued-output-owner";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        mux.insert_surface_runtime_for_test(surface.clone());
+        let pty = surface.as_pty().expect("test surface must be a PTY");
+        let terminal_id = pty.terminal_public_id.clone().expect("test PTY has terminal identity");
+        let generation = pty.journal_generation.clone();
+
+        let (commit_entered, commit_entered_receiver) = sync_channel(1);
+        let (commit_release, commit_release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(commit_entered, commit_release_receiver);
+        mux.journal_terminal_output(terminal_id.clone(), generation.clone(), vec![b'a']);
+        commit_entered_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("journal writer did not enter the commit barrier");
+
+        loop {
+            let retry = mux
+                .try_journal_terminal_output(
+                    terminal_id.clone(),
+                    generation.clone(),
+                    crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                    vec![b'b'],
+                )
+                .expect("terminal journal queue must remain live while filling");
+            if retry.is_some() {
+                break;
+            }
+        }
+        let baseline_owners = Arc::strong_count(&mux);
+        let (wait_entered, wait_entered_receiver) = sync_channel(1);
+        mux.install_terminal_journal_queue_wait_notifier_for_test(wait_entered);
+        let output_surface = surface.clone();
+        let (output_done, output_done_receiver) = sync_channel(1);
+        let output = std::thread::spawn(move || {
+            let pty = output_surface.as_pty().expect("test output owns a PTY surface");
+            let target = pty.journal_target().expect("persistent mux enables terminal journaling");
+            pty.journal_output_if_open(target, vec![b'c']);
+            output_done.send(()).unwrap();
+        });
+        wait_entered_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal output did not wait on the full journal queue");
+        let retained_mux = Arc::strong_count(&mux) > baseline_owners;
+
+        commit_release.send(()).unwrap();
+        output_done_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal output did not resume after journal queue space opened");
+        output.join().unwrap();
+        mux.shutdown();
+        drop(mux);
+        let reopened = crate::workspace_registry::WorkspaceRegistry::open(&root, session);
+        assert!(reopened.is_ok(), "session lease must reopen after terminal output drains");
+        drop(reopened);
+        drop(surface);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            !retained_mux,
+            "terminal output must not retain the mux while it waits for journal queue space"
+        );
     }
 
     #[test]

@@ -1080,7 +1080,7 @@ def _aux_snapshot(
             state=_required_enum(
                 payload,
                 "state",
-                ("working", "blocked", "idle", "done", "unknown"),
+                ("working", "blocked", "idle", "done", "interrupted", "unknown"),
             ),
             source=_required_enum(
                 payload,

@@ -11,6 +11,11 @@ on:
         description: "Successful cmux-tui release run containing verified packages"
         required: true
         type: string
+      confirm_tui_cmux:
+        description: "Set true only for the coordinated cmux TUI registry publish"
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -39,9 +44,14 @@ jobs:
         id: release
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
+          CONFIRM_TUI_CMUX: ${{ inputs.confirm_tui_cmux }}
         run: |
           set -euo pipefail
-          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          if [[ "$CONFIRM_TUI_CMUX" != "true" ]]; then
+            echo "PyPI publishing requires confirm_tui_cmux=true." >&2
+            exit 1
+          fi
+          [[ "$DISPATCH_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "workflow_dispatch version must match X.Y.Z" >&2
             exit 1
           }
@@ -137,6 +147,17 @@ jobs:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - name: Require PyPI cmux confirmation
+        if: inputs.confirm_tui_cmux != true
+        run: |
+          echo "Refusing to publish PyPI package cmux for the TUI without confirm_tui_cmux=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate-version.outputs.release_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -144,6 +165,20 @@ jobs:
           path: dist
           run-id: ${{ inputs.artifact_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Revalidate PyPI wheel contract
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "$VERSION"
+
+      - name: Prepare exact PyPI retry set
+        id: pypi_upload
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash cmux-tui/scripts/prepare-pypi-tui-upload.sh dist upload "$VERSION"
 
       - name: Trusted publisher setup note
         run: |
@@ -155,8 +190,40 @@ jobs:
           - Environment: pypi-tui
           EOF
 
+      - name: Verify independent environment approval policy
+        uses: ./.github/actions/verify-release-environment
+        with:
+          environment: pypi-tui
+
       - name: Publish package distributions to PyPI
+        if: steps.pypi_upload.outputs.has_new == 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: dist
+          packages-dir: upload
           attestations: true
+
+      - name: Verify every PyPI wheel after upload
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" == 6 ]] || {
+            echo "expected six immutable PyPI wheels, found ${#wheels[@]}" >&2
+            exit 1
+          }
+          allowed_args=()
+          for wheel in "${wheels[@]}"; do
+            allowed_args+=(--allowed-artifact "$wheel")
+          done
+          for wheel in "${wheels[@]}"; do
+            python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+              --registry pypi \
+              --package cmux \
+              --version "$VERSION" \
+              --artifact "$wheel" \
+              "${allowed_args[@]}" \
+              --wait-seconds 120 \
+              --require-match
+          done

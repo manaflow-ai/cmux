@@ -57,7 +57,13 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// Returns a validated default path. Invalid input, including an explicit empty
+// session, maps to a per-input isolated path; use try_default_socket_path when
+// a connector needs an invalid_argument result before any path use.
 [[nodiscard]] std::string default_socket_path(std::string_view session = "main");
+[[nodiscard]] Result<void> validate_session_name(std::string_view session);
+// Validates the session name before joining it into the derived path.
+[[nodiscard]] Result<std::string> try_default_socket_path(std::string_view session = "main");
 [[nodiscard]] std::string socket_path_from_environment();
 [[nodiscard]] Result<std::string> resolve_socket_path(
     std::string_view explicit_path,

@@ -32,6 +32,9 @@ pub const CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY: &str = "client-capability-ne
 /// Enables non-scope `ProviderAction::target` values for one control
 /// generation after client-capability negotiation succeeds.
 pub const PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY: &str = "provider-action-targets-v1";
+/// Enables additive, informational `MachineDescriptor::access_methods`
+/// metadata for one control generation after negotiation succeeds.
+pub const MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY: &str = "machine-access-methods-v1";
 pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
@@ -577,17 +580,45 @@ pub struct SnapshotResult {
     pub notice: Option<ProviderNotice>,
 }
 
+fn negotiated_snapshot_field_support<I>(capabilities: I) -> (bool, bool)
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    capabilities.into_iter().fold(
+        (false, false),
+        |(targeted_actions, access_methods), capability| {
+            let capability = capability.as_ref();
+            (
+                targeted_actions || capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
+                access_methods || capability == MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY,
+            )
+        },
+    )
+}
+
 impl SnapshotResult {
-    /// Removes action shapes that are unsafe for a strict pre-negotiation v1
-    /// decoder. Providers call this before every snapshot-shaped response,
-    /// using the capabilities accepted for that control generation.
-    pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
-        if !capabilities
-            .iter()
-            .any(|capability| capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY)
-        {
+    /// Removes additive snapshot fields that are unsafe for a strict
+    /// pre-negotiation v1 decoder. Providers call this before every
+    /// snapshot-shaped response, using the capabilities accepted for that
+    /// control generation.
+    pub fn retain_negotiated_fields_for_client_capabilities(&mut self, capabilities: &[String]) {
+        let (targeted_actions, access_methods) = negotiated_snapshot_field_support(capabilities);
+        if !targeted_actions {
             self.actions.retain(|action| action.target == ProviderActionTarget::Scope);
         }
+        if !access_methods {
+            for machine in &mut self.machines {
+                machine.access_methods.clear();
+            }
+        }
+    }
+
+    /// Compatibility name retained for providers already using the v1 helper.
+    /// It now filters every negotiated snapshot field, including machine
+    /// access methods.
+    pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
+        self.retain_negotiated_fields_for_client_capabilities(capabilities);
     }
 }
 
@@ -617,6 +648,20 @@ pub struct MachineDescriptor {
     pub status: MachineStatus,
     pub connectable: bool,
     pub workspace_create: WorkspaceCreatePolicy,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub access_methods: Vec<MachineAccessMethod>,
+}
+
+/// Informational ways a user can reach one machine outside this provider
+/// session. These values never select the transport returned by
+/// `open_machine`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineAccessMethod {
+    Ssh,
+    Websocket,
+    #[serde(other)]
+    Unsupported,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1373,6 +1418,95 @@ mod tests {
     }
 
     #[test]
+    fn machine_access_methods_are_optional_negotiated_and_forward_compatible() {
+        let document = json!({
+            "revision": 21,
+            "scopes": [{
+                "id": "personal",
+                "display_name": "Personal",
+                "kind": "personal",
+                "can_admin": false
+            }],
+            "selected_scope_id": "personal",
+            "machines": [{
+                "id": "machine-1",
+                "display_name": "Sirius",
+                "status": "running",
+                "connectable": true,
+                "workspace_create": { "owner": "session" },
+                "access_methods": ["websocket", "ssh", "future_mesh"]
+            }],
+            "selected_machine_id": "machine-1",
+            "capabilities": {},
+            "actions": []
+        });
+        let snapshot: SnapshotResult = serde_json::from_value(document).unwrap();
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["machines"][0]["access_methods"],
+            json!(["websocket", "ssh", "unsupported"])
+        );
+
+        let mut legacy = snapshot.clone();
+        legacy.retain_actions_for_client_capabilities(&[]);
+        assert!(
+            serde_json::to_value(legacy).unwrap()["machines"][0].get("access_methods").is_none(),
+            "a provider must omit access methods before client negotiation"
+        );
+
+        let mut negotiated = snapshot;
+        negotiated.retain_actions_for_client_capabilities(&[
+            MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY.to_string(),
+        ]);
+        assert_eq!(
+            serde_json::to_value(negotiated).unwrap()["machines"][0]["access_methods"],
+            json!(["websocket", "ssh", "unsupported"])
+        );
+
+        let legacy_document = json!({
+            "id": "machine-1",
+            "display_name": "Sirius",
+            "status": "running",
+            "connectable": true,
+            "workspace_create": { "owner": "session" }
+        });
+        let legacy_machine: MachineDescriptor = serde_json::from_value(legacy_document).unwrap();
+        assert!(
+            serde_json::to_value(legacy_machine).unwrap().get("access_methods").is_none(),
+            "legacy machine descriptors must keep their v1 wire shape"
+        );
+    }
+
+    #[test]
+    fn negotiated_snapshot_field_detection_reads_each_capability_once() {
+        use std::cell::Cell;
+
+        struct CapabilityProbe<'a> {
+            value: &'a str,
+            reads: &'a Cell<usize>,
+        }
+
+        impl AsRef<str> for CapabilityProbe<'_> {
+            fn as_ref(&self) -> &str {
+                self.reads.set(self.reads.get() + 1);
+                self.value
+            }
+        }
+
+        let reads = Cell::new(0);
+        let capabilities = [
+            CapabilityProbe { value: PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, reads: &reads },
+            CapabilityProbe { value: "future-provider-feature-v1", reads: &reads },
+            CapabilityProbe { value: MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY, reads: &reads },
+        ];
+
+        let (targeted_actions, access_methods) = negotiated_snapshot_field_support(capabilities);
+
+        assert!(targeted_actions);
+        assert!(access_methods);
+        assert_eq!(reads.get(), 3, "each capability must be inspected once");
+    }
+
+    #[test]
     fn snapshot_request_matches_the_v1_golden_document() {
         let request = RequestEnvelope::new(
             id("17"),
@@ -1525,6 +1659,7 @@ mod tests {
                     default_mode: WorkspaceCreateMode::Isolated,
                     modes: vec![WorkspaceCreateMode::Isolated, WorkspaceCreateMode::Host],
                 },
+                access_methods: Vec::new(),
             }],
             selected_machine_id: Some(id("vm-uuid")),
             capabilities: ProviderCapabilities {

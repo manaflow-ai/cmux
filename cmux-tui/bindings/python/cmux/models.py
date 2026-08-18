@@ -203,7 +203,7 @@ class NotificationSnapshot(Snapshot[NotificationId]):
 class AgentSnapshot(Snapshot[AgentId]):
     session_id: SessionId
     terminal_id: TerminalId
-    state: Literal["working", "blocked", "idle", "done", "unknown"]
+    state: Literal["working", "blocked", "idle", "done", "interrupted", "unknown"]
     source: Literal["hook", "socket", "detected"]
     updated_at_ms: str
     source_session: Optional[str]

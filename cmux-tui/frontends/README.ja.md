@@ -3,7 +3,7 @@
 [English](README.md)
 
 リポジトリ内のリファレンス実装は[ウェブフロントエンド](web)です。
-プロトコルv7のWebSocket APIとTypeScript SDKのブラウザ向けエントリポイントを
+プロトコルv12のWebSocket APIとTypeScript SDKのブラウザ向けエントリポイントを
 使用した実装例です。
 
 macOSネイティブフロントエンドは、非公開の

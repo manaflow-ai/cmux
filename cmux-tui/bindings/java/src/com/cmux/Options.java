@@ -20,7 +20,7 @@ public final class Options {
         public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
     }
 
-    public enum AgentState { WORKING, BLOCKED, IDLE, DONE, UNKNOWN;
+    public enum AgentState { WORKING, BLOCKED, IDLE, DONE, INTERRUPTED, UNKNOWN;
         public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
     }
 

@@ -135,6 +135,8 @@ use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -151,6 +153,14 @@ use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
+
+#[cfg(test)]
+static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn test_environment_lock() -> &'static Mutex<()> {
+    &CONFIG_ENV_LOCK
+}
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -4398,11 +4408,6 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 mod tests {
     use super::*;
     use std::ffi::OsString;
-    use std::sync::Mutex;
-
-    /// Config env vars are process-global state; tests that set them must not
-    /// run concurrently with each other.
-    static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn restore_env_var(key: &str, value: Option<OsString>) {
         match value {

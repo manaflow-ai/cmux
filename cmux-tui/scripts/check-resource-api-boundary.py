@@ -183,6 +183,53 @@ TRANSPORT_OPERATION_CLASSES = (
 )
 ALL_OPERATION_CLASSES = TRANSPORT_OPERATION_CLASSES + ("local",)
 STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
+# Journal administration is a trusted local CLI surface. The operations stay
+# in the transport catalog and package descriptors for wire parity, but the
+# seven handwritten SDK facades expose no typed methods for them.
+CLI_ONLY_JOURNAL_OPERATIONS = frozenset(
+    {
+        "session.journal.append",
+        "session.journal.checkpoint.create",
+        "session.journal.checkpoint.list",
+        "session.journal.hook.list",
+        "session.journal.hook.put",
+        "session.journal.inspect",
+        "session.journal.list",
+        "session.journal.producer.list",
+        "session.journal.producer.put",
+        "session.journal.restore",
+        "session.journal.restore.preview",
+        "session.journal.segment.list",
+        "session.journal.segment.seal",
+    }
+)
+FACADE_OPERATION_REGISTRIES = {
+    "rust": "bindings/rust/src/resource/ops.rs",
+    "python": "bindings/python/cmux/_operations.py",
+    "typescript": "bindings/typescript/src/internal/operations.ts",
+    "go": "bindings/go/internal/wirev2/operations.go",
+    "java": "bindings/java/src/com/cmux/internal/Operations.java",
+    "cpp": "bindings/cpp/include/cmux/resource.hpp",
+    "zig": "bindings/zig/src/resource.zig",
+}
+
+
+def _facade_operation_tokens(operation: str) -> tuple[str, ...]:
+    """Return wire and common enum spellings for one operation."""
+    snake = operation.replace(".", "_")
+    camel = "".join(part.capitalize() for part in operation.split("."))
+    return (operation, snake, snake.upper(), camel)
+
+
+def _facade_exposes_operation(source: str, operation: str) -> bool:
+    if re.search(rf"(?<![A-Za-z0-9_.]){re.escape(operation)}(?![A-Za-z0-9_.])", source):
+        return True
+    for token in _facade_operation_tokens(operation)[1:]:
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])", source):
+            return True
+    return False
+
+
 # These operations can cross cmux's durable transaction boundary before their
 # outcome is journaled. A daemon restart must never guess that repeating one is
 # safe. Keep this set explicit so a future catalog edit cannot silently promise
@@ -1280,6 +1327,21 @@ def _operation_catalog(
     if not isinstance(operations, dict) or not operations:
         _catalog_diagnostic(diagnostics, path, text, "operations must be a nonempty object")
         operations = {}
+    journal_admin = {
+        operation
+        for operation in operations
+        if operation.startswith("session.journal.")
+        and operation != "session.journal.subscribe"
+    }
+    if journal_admin != CLI_ONLY_JOURNAL_OPERATIONS:
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "journal administration operations must remain the explicit CLI-only set",
+            "session.journal",
+            code="boundary.cli-only-journal",
+        )
     if not isinstance(local_operations, dict) or not local_operations:
         _catalog_diagnostic(diagnostics, path, text, "local_operations must be a nonempty object")
         local_operations = {}
@@ -2068,14 +2130,14 @@ def _operation_catalog(
             )
     expected_agent_state = {
         "kind": "enum",
-        "values": ["working", "blocked", "idle", "done", "unknown"],
+        "values": ["working", "blocked", "idle", "done", "interrupted", "unknown"],
     }
     if "agent.list" in operations and types.get("AgentState") != expected_agent_state:
         _catalog_diagnostic(
             diagnostics,
             path,
             text,
-            "AgentState must match the runtime working|blocked|idle|done|unknown set",
+            "AgentState must match the runtime working|blocked|idle|done|interrupted|unknown set",
             "AgentState",
         )
     agent_state_ref = {"kind": "ref", "name": "AgentState"}
@@ -3159,6 +3221,49 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
                         1,
                         "boundary.sdk-descriptor",
                         "SDK descriptor operation set differs from the typed catalog",
+                    )
+                )
+
+        for language, relative_path in FACADE_OPERATION_REGISTRIES.items():
+            facade_path = tui / relative_path
+            if not facade_path.exists():
+                if (tui / "bindings" / language).exists():
+                    diagnostics.append(
+                        Diagnostic(
+                            facade_path,
+                            1,
+                            1,
+                            "boundary.cli-only-journal",
+                            f"{language} facade registry is missing at {relative_path}",
+                        )
+                    )
+                continue
+            try:
+                facade_text = facade_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                diagnostics.append(
+                    Diagnostic(
+                        facade_path,
+                        1,
+                        1,
+                        "boundary.cli-only-journal",
+                        f"{language} facade registry cannot be read: {error}",
+                    )
+                )
+                continue
+            exposed = {
+                operation
+                for operation in CLI_ONLY_JOURNAL_OPERATIONS
+                if _facade_exposes_operation(facade_text, operation)
+            }
+            if exposed:
+                diagnostics.append(
+                    Diagnostic(
+                        facade_path,
+                        1,
+                        1,
+                        "boundary.cli-only-journal",
+                        f"{language} facade exposes CLI-only journal operations: {sorted(exposed)!r}",
                     )
                 )
     return sorted(set(diagnostics))

@@ -878,11 +878,12 @@ struct NotificationSnapshot {
 };
 
 enum class AgentState {
-    working,
-    blocked,
-    idle,
-    done,
-    unknown,
+    working = 0,
+    blocked = 1,
+    idle = 2,
+    done = 3,
+    interrupted = 5,
+    unknown = 4,
 };
 
 enum class AgentSource {

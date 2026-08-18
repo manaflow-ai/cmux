@@ -1,12 +1,16 @@
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import tomllib
 import yaml
@@ -60,6 +64,18 @@ def workflow_dispatch_input(text: str, name: str) -> str:
     )
     assert match is not None
     return match.group(1)
+
+
+def install_timeout_stub(bin_dir: Path) -> None:
+    timeout = bin_dir / "timeout"
+    timeout.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "while [[ \"${1:-}\" == --* ]]; do shift; done\n"
+        "shift\n"
+        "exec \"$@\"\n"
+    )
+    timeout.chmod(0o755)
 
 
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
@@ -132,11 +148,23 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "CMUX_NPM_PACKAGE" in bootstrap
     assert 'npm publish "$(realpath "${packages[0]}")"' in bootstrap
     assert "--tag bootstrap" in bootstrap
+    assert 'npm dist-tag add "cmux-sdk@$BOOTSTRAP_VERSION" latest' in publish
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap
+    assert "tags.latest !== expected" in bootstrap
+    assert "tags.latest !== expected" in workflow_job(bootstrap, "preflight")
+    assert "--require-dist-tag latest" in workflow_job(
+        workflow("sdk-release-cut.yml"), "registry-preflight"
+    )
     assert sdk_ci.count('".github/workflows/sdk-bootstrap-npm.yml"') == 2
     assert "sdk-bootstrap-npm.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
+    assert "npm dist-tag add cmux-sdk@0.0.0-bootstrap.0 latest" in releasing
+    assert "both `bootstrap` and `latest` to resolve exactly" in " ".join(releasing.split())
+    assert "Stable publication must move `latest`" in releasing
+    registry_preflight = workflow_job(workflow("sdk-release-cut.yml"), "registry-preflight")
+    assert "tags.latest !== expected" in registry_preflight
+    assert "cannot claim `latest`" not in releasing
     assert "first `cmux-sdk` release interactively" not in releasing
 
 
@@ -286,8 +314,10 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
         assert "actions/checkout@" not in publish
         assert "actions/download-artifact@" in publish
         assert "continue-on-error: true" in publish
-        assert publish.rstrip().endswith("--no-verify") or publish.rstrip().endswith(
-            "--access public"
+        assert (
+            publish.rstrip().endswith("--no-verify")
+            or publish.rstrip().endswith("--access public")
+            or publish.rstrip().endswith("latest")
         )
         for command in package_commands:
             assert command in build
@@ -566,6 +596,19 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
     assert "registry-preflight" in revalidate_tags
     assert release.index("registry-preflight:") < release.index("revalidate-tags:")
     assert release.index("revalidate-tags:") < release.index("cut-tags:")
+
+
+def test_credential_preflight_runs_before_authorization_freshness_window() -> None:
+    document = yaml.load(workflow("sdk-release-cut.yml"), Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    credential_preflight = jobs["credential-environment-preflight"]
+    revalidate_tags = jobs["revalidate-tags"]
+    cut_tags = jobs["cut-tags"]
+
+    assert credential_preflight.get("needs") in (None, [])
+    assert "credential-environment-preflight" in revalidate_tags["needs"]
+    assert "credential-environment-preflight" not in cut_tags["needs"]
+    assert credential_preflight["timeout-minutes"] == "5"
 
 
 def test_registry_state_is_revalidated_after_release_approval() -> None:
@@ -936,6 +979,13 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     assert "go mod download" in public_probe
     assert "go mod verify" in public_probe
     assert "go test" in public_probe
+
+
+def test_tui_sdk_contract_has_budget_for_dependency_install() -> None:
+    contract = workflow_job(workflow("cmux-tui-sdks.yml"), "contract")
+    timeout = re.search(r"(?m)^    timeout-minutes: (\d+)$", contract)
+    assert timeout is not None
+    assert int(timeout.group(1)) >= 15
 
 
 def test_go_public_tag_probe_retries_proxy_propagation() -> None:
@@ -1348,6 +1398,232 @@ def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
         assert f"name: {environment}" in text
 
 
+def test_tui_publishers_require_independent_environment_policy_preflight() -> None:
+    policy_action = (ROOT / ".github/actions/verify-release-environment/action.yml").read_text()
+    assert 'RELEASE_ENVIRONMENT: ${{ inputs.environment }}' in policy_action
+    assert 'environments/$RELEASE_ENVIRONMENT' in policy_action
+    assert "--hostname github.com" in policy_action
+    assert "GH_TOKEN: ${{ github.token }}" in policy_action
+    assert "verify_release_environment_policy.py" in policy_action
+    for name, job, environment, publish_step in (
+        (
+            "cmux-tui-nightly.yml",
+            "publish-npm",
+            "npm-tui",
+            "Publish platform packages with nightly dist-tag",
+        ),
+        (
+            "cmux-tui-nightly.yml",
+            "publish-pypi",
+            "pypi-tui",
+            "Publish nightly package distributions to PyPI",
+        ),
+        (
+            "tui-publish-npm.yml",
+            "publish",
+            "npm-tui",
+            "Publish platform packages with exact retry reconciliation",
+        ),
+        (
+            "tui-publish-pypi.yml",
+            "publish",
+            "pypi-tui",
+            "Publish package distributions to PyPI",
+        ),
+    ):
+        block = workflow_job(workflow(name), job)
+        assert "Verify independent environment approval policy" in block
+        assert "uses: ./.github/actions/verify-release-environment" in block
+        assert "environment: " + environment in block
+        assert "actions: read" in block
+        assert block.index("Verify independent environment approval policy") < block.index(
+            publish_step
+        )
+
+
+def _run_environment_policy_check(
+    document: dict[str, object],
+    deployment_policies: dict[str, object] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
+    if deployment_policies is None:
+        deployment_policies = _tui_deployment_policy_document()
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-policy-") as raw:
+        path = Path(raw) / "environment.json"
+        path.write_text(json.dumps(document))
+        deployment_path = Path(raw) / "deployment-policies.json"
+        deployment_path.write_text(json.dumps(deployment_policies))
+        return subprocess.run(
+            (
+                "python3",
+                str(script),
+                "--environment",
+                str(document["name"]),
+                "--environment-json",
+                str(path),
+                "--deployment-policies-json",
+                str(deployment_path),
+            ),
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+
+def _environment_policy_document(
+    *,
+    can_admins_bypass: bool = False,
+    prevent_self_review: bool = True,
+    protected_branches: bool = False,
+    custom_branch_policies: bool = True,
+    reviewers: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    if reviewers is None:
+        reviewers = [
+            {"type": "User", "reviewer": {"login": "release-reviewer"}},
+        ]
+    return {
+        "name": "npm-tui",
+        "can_admins_bypass": can_admins_bypass,
+        "deployment_branch_policy": {
+            "protected_branches": protected_branches,
+            "custom_branch_policies": custom_branch_policies,
+        },
+        "protection_rules": [
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": prevent_self_review,
+                "reviewers": reviewers,
+            },
+            {"type": "branch_policy"},
+        ],
+    }
+
+
+def _tui_deployment_policy_document(
+    policies: list[dict[str, object]] | None = None,
+    total_count: int | None = None,
+) -> dict[str, object]:
+    if policies is None:
+        policies = [
+            {"name": "main", "type": "branch"},
+            {"name": "cmux-tui-v*", "type": "tag"},
+        ]
+    return {
+        "total_count": len(policies) if total_count is None else total_count,
+        "branch_policies": policies,
+    }
+
+
+def test_environment_policy_accepts_independent_review_configuration() -> None:
+    result = _run_environment_policy_check(_environment_policy_document())
+    assert result.returncode == 0, result.stderr
+
+
+def test_environment_policy_rejects_self_review_and_admin_bypass() -> None:
+    self_review = _run_environment_policy_check(
+        _environment_policy_document(prevent_self_review=False)
+    )
+    assert self_review.returncode != 0
+    assert "prevent_self_review" in self_review.stderr
+
+    admin_bypass = _run_environment_policy_check(
+        _environment_policy_document(can_admins_bypass=True)
+    )
+    assert admin_bypass.returncode != 0
+    assert "can_admins_bypass" in admin_bypass.stderr
+
+
+def test_environment_policy_rejects_missing_required_reviewer() -> None:
+    result = _run_environment_policy_check(_environment_policy_document(reviewers=[]))
+    assert result.returncode != 0
+    assert "required reviewer" in result.stderr
+
+
+def test_environment_policy_rejects_protected_branch_only_mode() -> None:
+    result = _run_environment_policy_check(
+        _environment_policy_document(
+            protected_branches=True,
+            custom_branch_policies=False,
+        )
+    )
+    assert result.returncode != 0
+    assert "selected branch and tag" in result.stderr
+
+
+def test_environment_policy_rejects_incomplete_or_extra_deployment_rules() -> None:
+    missing_main = _run_environment_policy_check(
+        _environment_policy_document(),
+        _tui_deployment_policy_document(
+            policies=[{"name": "cmux-tui-v*", "type": "tag"}]
+        ),
+    )
+    assert missing_main.returncode != 0
+    assert "deployment policies" in missing_main.stderr
+
+    wrong_ref_type = _run_environment_policy_check(
+        _environment_policy_document(),
+        _tui_deployment_policy_document(
+            policies=[
+                {"name": "main", "type": "branch"},
+                {"name": "cmux-tui-v*", "type": "branch"},
+            ]
+        ),
+    )
+    assert wrong_ref_type.returncode != 0
+    assert "deployment policies" in wrong_ref_type.stderr
+
+    truncated = _run_environment_policy_check(
+        _environment_policy_document(),
+        _tui_deployment_policy_document(total_count=3),
+    )
+    assert truncated.returncode != 0
+    assert "deployment policies" in truncated.stderr
+
+
+def test_environment_policy_reads_non_ascii_json_with_utf8() -> None:
+    script = ROOT / "cmux-tui" / "bindings" / "verify_release_environment_policy.py"
+    spec = importlib.util.spec_from_file_location("release_environment_policy", script)
+    assert spec is not None
+    assert spec.loader is not None
+    policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(policy)
+    document = _environment_policy_document(
+        reviewers=[{"type": "User", "reviewer": {"login": "réviseur"}}]
+    )
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-environment-utf8-") as raw:
+        path = Path(raw) / "environment.json"
+        path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        deployment_path = Path(raw) / "deployment-policies.json"
+        deployment_path.write_text(
+            json.dumps(_tui_deployment_policy_document()),
+            encoding="utf-8",
+        )
+        original_read_text = Path.read_text
+
+        def locale_default_fails(
+            candidate: Path, *args: object, **kwargs: object
+        ) -> str:
+            if candidate == path and kwargs.get("encoding") is None:
+                raise UnicodeDecodeError("ascii", b"\xc3", 0, 1, "non-ASCII reviewer")
+            return original_read_text(candidate, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", locale_default_fails), mock.patch.object(
+            sys,
+            "argv",
+            [
+                str(script),
+                "--environment",
+                str(document["name"]),
+                "--environment-json",
+                str(path),
+                "--deployment-policies-json",
+                str(deployment_path),
+            ],
+        ):
+            assert policy.main() == 0
+
+
 def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
     text = workflow("tui-publish-pypi.yml")
     assert "push:\n    tags:" not in text
@@ -1364,11 +1640,123 @@ def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
         assert "npm@^11.5.1" not in text
 
 
+def test_tui_package_contract_pins_setup_node_commit() -> None:
+    text = workflow("cmux-tui-build-package.yml")
+    assert (
+        "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0"
+        in text
+    )
+    assert "actions/setup-node@37930b1c2abaa49bbe596cd826c3c89aef350131" not in text
+
+
 def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
     text = workflow("cmux-tui-nightly.yml")
     assert "ref: ${{ github.sha }}" in text
     assert 'if [[ "$head_sha" != "$GITHUB_SHA" ]]' in text
     assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
+    assert "NPM_VERSION: ${{ needs.version.outputs.npm_version }}" in text
+    assert '--version "$NPM_VERSION"' in text
+    assert "PYPI_VERSION: ${{ needs.version.outputs.pypi_version }}" in text
+    assert ' --version "$PYPI_VERSION"' in text
+    assert '--version "${{ needs.version.outputs.npm_version }}"' not in text
+    assert '--version "${{ needs.version.outputs.pypi_version }}"' not in text
+
+
+def test_npm_latest_guard_uses_the_authoritative_input_version() -> None:
+    text = workflow("tui-publish-npm.yml")
+    guard = text.split("- name: Refuse an npm latest regression", 1)[1].split(
+        "- name:", 1
+    )[0]
+    assert "VERSION: ${{ inputs.version }}" in guard
+    assert 'candidate_version="$VERSION"' in guard
+    assert "GITHUB_REF_NAME#cmux-tui-v" not in guard
+
+
+def test_nightly_channel_is_manual_only_and_documented_as_such() -> None:
+    text = workflow("cmux-tui-nightly.yml")
+    docs = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
+    nightly_docs = docs.split("## Nightly channel", 1)[1].split("## ", 1)[0]
+    triggers = workflow_triggers(text)
+
+    assert set(triggers) == {"workflow_dispatch"}
+    assert "schedule" not in triggers
+    assert "manual-dispatch only" in text
+    assert "manual-dispatch only" in nightly_docs
+    assert "daily schedule" not in nightly_docs.lower()
+
+
+def test_r2_artifact_workflow_is_manual_only_and_documented_as_such() -> None:
+    text = workflow("cmux-tui-artifacts.yml")
+    docs = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
+    release_docs = docs.split("## Cutting a Stable Release", 1)[1].split(
+        "## Publishing", 1
+    )[0]
+    triggers = workflow_triggers(text)
+
+    assert set(triggers) == {"workflow_dispatch"}
+    assert "push" not in triggers
+    assert "cmux-tui-artifacts.yml" in release_docs
+    assert "manual-dispatch only" in release_docs
+    assert "gh workflow run cmux-tui-artifacts.yml" in release_docs
+    assert "does not trigger" in release_docs.lower()
+    assert (
+        "manual `git push origin cmux-tui-vX.Y.Z` runs the artifact workflow"
+        not in release_docs
+    )
+
+
+def test_r2_publish_helper_is_ordered_and_available_to_each_publish_step() -> None:
+    workflow_text = workflow("cmux-tui-artifacts.yml")
+    helper = ROOT / "scripts" / "ci" / "publish-r2-prefix.sh"
+
+    assert workflow_text.count("scripts/ci/publish-r2-prefix.sh") == 6
+    assert "publish_legacy_prefix" not in workflow_text
+    assert helper.is_file()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-r2-order-") as raw:
+        temporary = Path(raw)
+        source = temporary / "assets"
+        fake_bin = temporary / "bin"
+        source.mkdir()
+        fake_bin.mkdir()
+        (source / "cmux-tui-linux").write_bytes(b"binary")
+        (source / "manifest.json").write_text("{}\n")
+        # The test double records the uploaded basename through a wrapper that
+        # replaces the repository uploader on PATH.
+        wrapper = fake_bin / "python3"
+        wrapper.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"$1\" == */upload-r2-object.py ]]; then\n"
+            "  for ((i=1; i<=$#; i++)); do\n"
+            "    if [[ \"${!i}\" == \"--file\" ]]; then\n"
+            "      j=$((i + 1)); basename \"${!j}\" >> \"$ORDER_LOG\"; break\n"
+            "    fi\n"
+            "  done\n"
+            "  exit 0\n"
+            "fi\n"
+            "exec /usr/bin/python3 \"$@\"\n"
+        )
+        wrapper.chmod(0o755)
+        log = temporary / "order.log"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "ORDER_LOG": str(log),
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+                "R2_ENDPOINT": "https://example.invalid",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(helper), str(source), "cmux-tui/latest", "no-cache"),
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert log.read_text().splitlines() == ["cmux-tui-linux", "manifest.json"]
 
 
 def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
@@ -1435,6 +1823,1114 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)
+
+
+def test_release_cut_rejects_an_event_sha_stale_from_protected_main() -> None:
+    script = ROOT / ".github" / "scripts" / "require-current-main.sh"
+
+    def git(*arguments: str, cwd: Path) -> str:
+        return subprocess.run(
+            ("git", *arguments),
+            cwd=cwd,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-main-guard-") as raw:
+        temporary = Path(raw)
+        source = temporary / "source"
+        remote = temporary / "remote.git"
+        source.mkdir()
+        git("init", "-b", "main", cwd=source)
+        git("config", "user.name", "cmux release test", cwd=source)
+        git("config", "user.email", "release-test@cmux.dev", cwd=source)
+        git("commit", "--allow-empty", "-m", "release", cwd=source)
+        release_sha = git("rev-parse", "HEAD", cwd=source)
+        git("init", "--bare", str(remote), cwd=temporary)
+        git("remote", "add", "origin", str(remote), cwd=source)
+        git("push", "origin", "main", cwd=source)
+
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_SHA": release_sha,
+            }
+        )
+        current = subprocess.run(
+            ("bash", str(script)),
+            cwd=source,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert current.returncode == 0, current.stderr
+
+        git("commit", "--allow-empty", "-m", "advance main", cwd=source)
+        git("push", "origin", "main", cwd=source)
+        stale = subprocess.run(
+            ("bash", str(script)),
+            cwd=source,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert stale.returncode != 0
+        assert "not current protected main" in stale.stderr
+
+
+def test_dispatch_waiter_watches_an_explicit_run_to_success() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "a" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-wait-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        detail_state = temporary / "detail-state"
+        detail_state.write_text("0\n")
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+        endpoint="$2"
+        if [[ "$1" == api && "$endpoint" == */actions/runs/42 ]]; then
+          count=$(cat "$DETAIL_STATE")
+          count=$((count + 1))
+          printf '%s\\n' "$count" > "$DETAIL_STATE"
+  if (( count == 1 )); then
+    printf '%s\\n' '{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"in_progress","conclusion":null}'
+  else
+    printf '%s\\n' '{"id":42,"path":".github/workflows/cmux-tui-release.yml","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
+          fi
+          exit 0
+        fi
+        if [[ "$1" == run && "$2" == watch ]]; then exit 0; fi
+        exit 1
+"""
+        )
+        gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+                "DETAIL_STATE": str(detail_state),
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "42",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42\tsuccess"
+        assert "completed with success" in result.stderr
+
+
+def test_dispatch_waiter_accepts_a_completed_explicit_run() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "c" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-boundary-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+        endpoint="$2"
+        if [[ "$1" == api && "$endpoint" == */actions/runs/42 ]]; then
+  printf '%s\\n' '{"id":42,"path":".github/workflows/tui-publish-npm.yml","head_sha":"cccccccccccccccccccccccccccccccccccccccc","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
+  exit 0
+        fi
+        if [[ "$1" == run && "$2" == watch ]]; then exit 0; fi
+        exit 1
+"""
+        )
+        gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "tui-publish-npm.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "42",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42\tsuccess"
+
+
+def test_dispatch_waiter_fails_closed_on_a_failed_run() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "b" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-failure-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+endpoint="$2"
+if [[ "$1" == api && "$endpoint" == */actions/runs/99 ]]; then
+  printf '%s\\n' '{"id":99,"path":".github/workflows/tui-publish-pypi.yml","head_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head_branch":"cmux-tui-v1.2.3","event":"workflow_dispatch","status":"completed","conclusion":"failure"}'
+  exit 0
+fi
+if [[ "$1" == run && "$2" == watch ]]; then exit 1; fi
+exit 1
+"""
+        )
+        gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(script), "tui-publish-pypi.yml", "cmux-tui-v1.2.3", sha, "99"),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "concluded failure" in result.stderr
+
+
+def test_dispatch_waiter_rejects_a_run_with_the_wrong_ref() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "d" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-ambiguous-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+endpoint="$2"
+if [[ "$1" == api && "$endpoint" == */actions/runs/102 ]]; then
+  printf '%s\\n' '{"id":102,"path":".github/workflows/tui-publish-npm.yml","head_sha":"dddddddddddddddddddddddddddddddddddddddd","head_branch":"other-tag","event":"workflow_dispatch","status":"completed","conclusion":"success"}'
+  exit 0
+fi
+if [[ "$1" == run && "$2" == watch ]]; then exit 0; fi
+exit 1
+"""
+        )
+        gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "3",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "tui-publish-npm.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "102",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "ref other-tag does not match" in result.stderr
+
+
+def test_release_cut_does_not_mask_waiter_failure() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    document = yaml.load(release_cut, Loader=yaml.BaseLoader)
+    dispatch_step = next(
+        step
+        for step in document["jobs"]["tag"]["steps"]
+        if step.get("name") == "Dispatch release workflows"
+    )
+    run_text = dispatch_step["run"]
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-waiter-") as raw:
+        temporary = Path(raw)
+        scripts = temporary / ".github" / "scripts"
+        scripts.mkdir(parents=True)
+        resolver = scripts / "resolve-workflow-run-id.sh"
+        resolver.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' 42\n"
+        )
+        resolver.chmod(0o755)
+        waiter = scripts / "wait-for-workflow-run.sh"
+        waiter.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' 'fake waiter failure' >&2\n"
+            "exit 37\n"
+        )
+        waiter.chmod(0o755)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "case \"${1:-}\" in\n"
+            "  api) printf '%s\\n' '{\"workflow_runs\":[{\"id\":41}]}' ;;\n"
+            "  workflow) : ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        gh.chmod(0o755)
+        summary = temporary / "summary"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "TAG": "cmux-tui-v1.2.3",
+                "VERSION": "1.2.3",
+                "BEFORE_RUN_ID": "41",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+            }
+        )
+        result = subprocess.run(
+            ("bash", "-c", "set -euo pipefail\n" + run_text),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "release workflow did not complete successfully" in result.stderr
+        assert not summary.exists()
+
+
+def test_release_cut_recovers_when_dispatch_returns_no_run_url() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    document = yaml.load(release_cut, Loader=yaml.BaseLoader)
+    dispatch_step = next(
+        step
+        for step in document["jobs"]["tag"]["steps"]
+        if step.get("name") == "Dispatch release workflows"
+    )
+    run_text = dispatch_step["run"]
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-empty-dispatch-") as raw:
+        temporary = Path(raw)
+        scripts = temporary / ".github" / "scripts"
+        scripts.mkdir(parents=True)
+        resolver_args = temporary / "resolver-args"
+        resolver = scripts / "resolve-workflow-run-id.sh"
+        resolver.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" > \"$RESOLVER_ARGS\"\n"
+            "printf '%s\\n' 42\n"
+        )
+        resolver.chmod(0o755)
+        waiter_args = temporary / "waiter-args"
+        waiter = scripts / "wait-for-workflow-run.sh"
+        waiter.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" > \"$WAITER_ARGS\"\n"
+            "printf '42\\tsuccess\\n'\n"
+        )
+        waiter.chmod(0o755)
+        dispatch_called = temporary / "dispatch-called"
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "case \"${1:-}\" in\n"
+            "  api) printf '%s\\n' '{\"workflow_runs\":[{\"id\":41}]}' ;;\n"
+            "  workflow) : > \"$DISPATCH_CALLED\" ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        gh.chmod(0o755)
+        summary = temporary / "summary"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "TAG": "cmux-tui-v1.2.3",
+                "VERSION": "1.2.3",
+                "BEFORE_RUN_ID": "41",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "RESOLVER_ARGS": str(resolver_args),
+                "WAITER_ARGS": str(waiter_args),
+                "DISPATCH_CALLED": str(dispatch_called),
+            }
+        )
+        result = subprocess.run(
+            ("bash", "-c", "set -euo pipefail\n" + run_text),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert dispatch_called.exists()
+        assert "cmux-tui-release.yml" in resolver_args.read_text()
+        assert "42" in waiter_args.read_text()
+        assert "- Build/package run: 42 (success)" in summary.read_text()
+
+
+def test_release_run_id_resolver_matches_one_exact_new_run() -> None:
+    script = ROOT / ".github" / "scripts" / "resolve-workflow-run-id.sh"
+    sha = "a" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-resolver-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        state = temporary / "state"
+        state.write_text("0\n")
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "endpoint=\"$2\"\n"
+            "if [[ \"$1\" == api && \"$endpoint\" == */workflows/cmux-tui-release.yml/runs[?]* ]]; then\n"
+            "  count=$(cat \"$STATE\")\n"
+            "  count=$((count + 1))\n"
+            "  printf '%s\\n' \"$count\" > \"$STATE\"\n"
+            "  if (( count == 1 )); then\n"
+            "    printf '%s\\n' '{\"workflow_runs\":[{\"id\":41,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-15T23:58:00Z\"}]}'\n"
+            "  else\n"
+            "    printf '%s\\n' '{\"workflow_runs\":[{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"},{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"},{\"id\":43,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"}]}'\n"
+            "  fi\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "STATE": str(state),
+                "POLL_INTERVAL_SECONDS": "0",
+                "WAIT_TIMEOUT_SECONDS": "3",
+                "CLOCK_SKEW_SECONDS": "5",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "41",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42"
+
+
+def test_release_run_id_resolver_rejects_ambiguous_exact_runs() -> None:
+    script = ROOT / ".github" / "scripts" / "resolve-workflow-run-id.sh"
+    sha = "b" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-resolver-ambiguous-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"$1\" == api ]]; then\n"
+            "  printf '%s\\n' '{\"workflow_runs\":[{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:01Z\"},{\"id\":43,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"created_at\":\"2026-08-16T00:00:02Z\"}]}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "POLL_INTERVAL_SECONDS": "0",
+                "WAIT_TIMEOUT_SECONDS": "3",
+                "CLOCK_SKEW_SECONDS": "5",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "1786838400",
+                "41",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode != 0
+        assert "multiple matching" in result.stderr
+
+
+def test_dispatch_waiter_requires_explicit_run_id_and_uses_watch() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "e" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-explicit-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        calls = temporary / "calls"
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" >> \"$CALLS\"\n"
+            "if [[ \"${1:-}\" == api && \"${2:-}\" == */actions/runs/42 ]]; then\n"
+            "  printf '%s\\n' '{\"id\":42,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"status\":\"completed\",\"conclusion\":\"success\"}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [[ \"${1:-}\" == run && \"${2:-}\" == watch ]]; then exit 0; fi\n"
+            "printf 'unexpected gh invocation\\n' >&2\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        install_timeout_stub(bin_dir)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "CALLS": str(calls),
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "42",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42\tsuccess"
+        calls_text = calls.read_text()
+        assert "run watch" in calls_text
+        assert "42" in calls_text
+        assert "/workflows/cmux-tui-release.yml/runs?" not in calls_text
+
+
+def test_dispatch_waiter_fails_closed_when_watch_deadline_expires() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "f" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-deadline-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        timeout_call = temporary / "timeout-call"
+        timeout_script = bin_dir / "timeout"
+        timeout_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" > \"$TIMEOUT_CALL\"\n"
+            "exit 124\n"
+        )
+        timeout_script.chmod(0o755)
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${1:-}\" == api && \"${2:-}\" == */actions/runs/43 ]]; then\n"
+            "  printf '%s\\n' '{\"id\":43,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"ffffffffffffffffffffffffffffffffffffffff\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"status\":\"in_progress\",\"conclusion\":null}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "TIMEOUT_CALL": str(timeout_call),
+                "WAIT_TIMEOUT_SECONDS": "1",
+            }
+        )
+        result = subprocess.run(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "43",
+            ),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode != 0
+        assert "did not complete before timeout" in result.stderr
+        assert "gh run watch" in timeout_call.read_text()
+
+
+def test_dispatch_waiter_keeps_errexit_while_capturing_watch_status() -> None:
+    script = (ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh").read_text()
+
+    assert "set +e" not in script
+    assert (
+        'watch_status=0\nwait "$watch_pid" || watch_status=$?\nwatch_pid=""'
+        in script
+    )
+
+
+def test_dispatch_waiter_cancels_watch_on_signal() -> None:
+    script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
+    sha = "1" * 40
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-run-cancel-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        watch_started = temporary / "watch-started"
+        watch_cancelled = temporary / "watch-cancelled"
+        watch_release = temporary / "watch-release"
+        timeout_script = bin_dir / "timeout"
+        timeout_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "while [[ \"${1:-}\" == --* ]]; do shift; done\n"
+            "shift\n"
+            "exec \"$@\"\n"
+        )
+        timeout_script.chmod(0o755)
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${1:-}\" == api && \"${2:-}\" == */actions/runs/44 ]]; then\n"
+            "  printf '%s\\n' '{\"id\":44,\"path\":\".github/workflows/cmux-tui-release.yml\",\"head_sha\":\"1111111111111111111111111111111111111111\",\"head_branch\":\"cmux-tui-v1.2.3\",\"event\":\"workflow_dispatch\",\"status\":\"in_progress\",\"conclusion\":null}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [[ \"${1:-}\" == run && \"${2:-}\" == watch ]]; then\n"
+            "  trap ' : > \"$WATCH_CANCELLED\"; exit 143' INT TERM\n"
+            "  : > \"$WATCH_STARTED\"\n"
+            "  while [[ ! -e \"$WATCH_RELEASE\" ]]; do sleep 0.01; done\n"
+            "  while :; do sleep 1; done\n"
+            "fi\n"
+            "exit 1\n"
+        )
+        gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "WAIT_TIMEOUT_SECONDS": "30",
+                "WATCH_STARTED": str(watch_started),
+                "WATCH_CANCELLED": str(watch_cancelled),
+                "WATCH_RELEASE": str(watch_release),
+            }
+        )
+        process = subprocess.Popen(
+            (
+                "bash",
+                str(script),
+                "cmux-tui-release.yml",
+                "cmux-tui-v1.2.3",
+                sha,
+                "44",
+            ),
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not watch_started.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert watch_started.exists(), "watch process did not start"
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+        assert process.returncode != 0
+        assert stdout == ""
+        assert "wait cancelled" in stderr
+        assert watch_cancelled.exists()
+
+
+def test_release_workflows_pass_dispatch_run_ids_to_waiter() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    release = workflow("cmux-tui-release.yml")
+
+    assert "release_dispatch_output" not in release_cut
+    assert "resolve-workflow-run-id.sh" in release_cut
+    assert "dispatch_started_at" in release_cut
+    assert "BEFORE_RUN_ID" in release_cut
+    assert "before_run_id" in release_cut
+    assert "release_run_id" in release_cut
+    assert '"$release_run_id"' in release_cut
+    assert "release_run_url" not in release_cut
+
+    assert "npm_dispatch_output" in release
+    assert "pypi_dispatch_output" in release
+    assert "npm_run_id" in release
+    assert "pypi_run_id" in release
+    assert '"$npm_run_id"' in release
+    assert '"$pypi_run_id"' in release
+    assert "npm_before_run_id" not in release
+    assert "pypi_before_run_id" not in release
+    assert "npm_dispatch_started_at" not in release
+    assert "pypi_dispatch_started_at" not in release
+
+
+def test_release_dispatch_timeout_covers_sequential_publisher_waits() -> None:
+    release = workflow("cmux-tui-release.yml")
+    dispatch = workflow_job(release, "dispatch-publishers")
+
+    assert "timeout-minutes: 210" in dispatch
+    assert dispatch.count("WAIT_TIMEOUT_SECONDS=5400") == 2
+    assert 210 * 60 > 2 * 5400
+
+
+def test_stable_tui_versions_reject_leading_zero_components() -> None:
+    strict_component = "(0|[1-9][0-9]*)"
+    for name in (
+        "cmux-tui-release-cut.yml",
+        "cmux-tui-release.yml",
+        "cmux-tui-nightly.yml",
+        "tui-publish-npm.yml",
+        "tui-publish-pypi.yml",
+    ):
+        assert strict_component in workflow(name)
+    assert strict_component in (
+        ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    ).read_text()
+    assert 'part.startswith("0")' in workflow("tui-publish-npm.yml")
+
+
+def test_tui_registry_dispatch_requires_confirmation_and_waits_for_publishers() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    release = workflow("cmux-tui-release.yml")
+    npm = workflow("tui-publish-npm.yml")
+    pypi = workflow("tui-publish-pypi.yml")
+
+    assert "require-current-main.sh" in release_cut
+    assert release_cut.count("wait-for-workflow-run.sh") == 1
+    assert "release_run_id" in release_cut
+    assert release.count("wait-for-workflow-run.sh") == 2
+    assert "actions/checkout@" in workflow_job(release, "dispatch-publishers")
+    assert "npm_run_id" in release
+    assert "pypi_run_id" in release
+    assert "confirm_tui_cmux=true" in release
+    assert "PUBLISH_PYPI" in release
+    assert "PyPI publishing requires confirm_tui_cmux=true." in release
+    assert "group: tui-publish-npm-latest" in npm
+    concurrency = npm.split("concurrency:", 1)[1].split("jobs:", 1)[0]
+    assert "cancel-in-progress: false" in concurrency
+    assert "cancel-in-progress: true" not in concurrency
+    assert not re.search(r"(?m)^\s+queue:", concurrency)
+    guide = (ROOT / "cmux-tui" / "dist" / "RELEASING-TUI.md").read_text()
+    assert "`queue: max`" in guide
+    assert "pinned actionlint validator rejects" in guide
+    assert "fails closed" in guide
+    assert "Refuse an npm latest regression" in npm
+    assert "confirm_tui_cmux:" in pypi
+    assert "PyPI publishing requires confirm_tui_cmux=true." in pypi
+
+
+def test_release_summary_redacts_provider_run_ids() -> None:
+    release = workflow("cmux-tui-release.yml")
+    summary = release.split('echo "### Registry publishing"', 1)[1].split(
+        '} >> "$GITHUB_STEP_SUMMARY"', 1
+    )[0]
+
+    assert "ARTIFACT_RUN_ID" not in summary
+    assert "npm_run_id" not in summary
+    assert "pypi_run_id" not in summary
+    assert 'echo "- Verified artifacts: ready"' in summary
+    assert 'echo "- npm publisher: $npm_conclusion"' in summary
+    assert 'echo "- PyPI publisher: $pypi_conclusion"' in summary
+
+
+def test_release_dispatch_fails_closed_when_pending_publisher_is_replaced() -> None:
+    release = workflow("cmux-tui-release.yml")
+    document = yaml.load(release, Loader=yaml.BaseLoader)
+    dispatch_step = next(
+        step
+        for step in document["jobs"]["dispatch-publishers"]["steps"]
+        if step.get("name") == "Dispatch registry publishers"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-publisher-replacement-") as raw:
+        temporary = Path(raw)
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  api)
+    endpoint="${2:-}"
+    if [[ "$endpoint" == *"/workflows/tui-publish-npm.yml/runs?"* ]]; then
+      printf '%s\\n' '{"workflow_runs":[{"id":100}]}'
+    else
+      printf '%s\\n' '{"workflow_runs":[]}'
+    fi
+    ;;
+      workflow)
+        printf '%s\\n' 'https://github.com/manaflow-ai/cmux/actions/runs/101'
+        exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+        )
+        gh.chmod(0o755)
+        waiter = temporary / ".github" / "scripts" / "wait-for-workflow-run.sh"
+        waiter.parent.mkdir(parents=True)
+        waiter.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' 'pending publisher run was replaced' >&2\n"
+            "exit 23\n"
+        )
+        waiter.chmod(0o755)
+        summary = temporary / "summary"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "TAG": "cmux-tui-v1.2.3",
+                "VERSION": "1.2.3",
+                "ARTIFACT_RUN_ID": "123",
+                "PUBLISH_NPM": "true",
+                "PUBLISH_PYPI": "false",
+                "POLL_INTERVAL_SECONDS": "0",
+            }
+        )
+        result = subprocess.run(
+            ("bash", "-c", dispatch_step["run"]),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode != 0
+        assert "pending publisher run was replaced" in result.stderr
+        assert summary.read_text() == (
+            "### Registry publishing\n\n"
+            "- Verified artifacts: ready\n"
+            "- npm publisher: failure\n"
+        )
+
+
+def test_tui_publishers_reconcile_partial_registry_writes() -> None:
+    npm = workflow("tui-publish-npm.yml")
+    pypi = workflow("tui-publish-pypi.yml")
+    pypi_helper = (
+        ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    ).read_text()
+
+    assert "npm pack --ignore-scripts" in npm
+    assert npm.count("reconcile_registry_artifact.py publish") == 2
+    assert 'for package in "${packages[@]}"' in npm
+    for package in (
+        "cmux-tui-darwin-arm64",
+        "cmux-tui-darwin-x64",
+        "cmux-tui-linux-x64",
+        "cmux-tui-linux-arm64",
+    ):
+        assert package in npm
+    assert "--package cmux" in npm
+    assert 'dist/npm-publish/$package-$VERSION.tgz' in npm
+    assert "-- npm publish --ignore-scripts --provenance" in npm
+    assert "--wait-seconds 120" in npm
+    assert "--registry npm" in npm
+    assert "prepare-pypi-tui-upload.sh" in pypi
+    assert "--registry pypi" in pypi_helper
+    assert "--allowed-artifact" in pypi_helper
+    assert "--wait-seconds 120" in pypi_helper
+    assert "steps.pypi_upload.outputs.has_new == 'true'" in pypi
+
+
+def test_tui_publishers_use_env_versions_and_disable_npm_lifecycle_scripts() -> None:
+    stable_npm = workflow("tui-publish-npm.yml")
+    stable_pypi = workflow("tui-publish-pypi.yml")
+    nightly = workflow("cmux-tui-nightly.yml")
+
+    assert "VERSION: ${{ inputs.version }}" in stable_npm
+    assert '--version "$VERSION"' in stable_npm
+    assert 'version="${{ inputs.version }}"' not in stable_npm
+    assert stable_npm.count("npm publish --ignore-scripts") == 2
+    assert '> "$environment_json" 2>/dev/null' not in stable_npm
+
+    assert "VERSION: ${{ inputs.version }}" in stable_pypi
+    assert '--version "$VERSION"' in stable_pypi
+    assert '> "$environment_json" 2>/dev/null' not in stable_pypi
+
+    assert nightly.count("npm publish --ignore-scripts") == 2
+    assert nightly.count('> "$environment_json" 2>/dev/null') == 0
+
+
+def test_linux_package_smoke_probes_the_runner_architecture() -> None:
+    workflow_text = workflow("cmux-tui-build-package.yml")
+    assert workflow_text.count('probe_binary=dist/binaries/cmux-tui-x86_64-unknown-linux-musl') == 2
+    assert workflow_text.count('probe_binary=dist/binaries/cmux-tui-aarch64-unknown-linux-musl') == 2
+    assert workflow_text.count('CMUX_TUI_PROBE="$("$probe_binary" remote-probe --json)"') == 2
+
+
+def test_tui_pypi_publisher_verifies_every_wheel_after_upload() -> None:
+    pypi = workflow("tui-publish-pypi.yml")
+    document = yaml.load(pypi, Loader=yaml.BaseLoader)
+    assert isinstance(document, dict)
+    publish = document["jobs"]["publish"]
+    steps = publish["steps"]
+    names = [step.get("name", "") for step in steps]
+    upload_index = names.index("Publish package distributions to PyPI")
+    verify_index = names.index("Verify every PyPI wheel after upload")
+    assert upload_index < verify_index
+
+    verify_step = steps[verify_index]
+    run = verify_step["run"]
+    assert 'wheels=(dist/*.whl)' in run
+    assert '[[ "${#wheels[@]}" == 6 ]]' in run
+    assert 'for wheel in "${wheels[@]}"' in run
+    assert "reconcile_registry_artifact.py check" in run
+    assert "--registry pypi" in run
+    assert "--package cmux" in run
+    assert '--artifact "$wheel"' in run
+    assert "--allowed-artifact" in run
+    assert "--require-match" in run
+
+
+def test_tui_nightly_pypi_publisher_verifies_every_wheel_after_upload() -> None:
+    nightly = workflow("cmux-tui-nightly.yml")
+    document = yaml.load(nightly, Loader=yaml.BaseLoader)
+    assert isinstance(document, dict)
+    assert set(workflow_triggers(nightly)) == {"workflow_dispatch"}
+
+    publish = document["jobs"]["publish-pypi"]
+    assert publish["environment"]["name"] == "pypi-tui"
+    assert publish["permissions"]["id-token"] == "write"
+    steps = publish["steps"]
+    names = [step.get("name", "") for step in steps]
+    policy_index = names.index("Verify independent environment approval policy")
+    upload_index = names.index("Publish nightly package distributions to PyPI")
+    verify_index = names.index("Verify every nightly PyPI wheel after upload")
+    assert policy_index < upload_index < verify_index
+
+    verify_step = steps[verify_index]
+    assert verify_step["env"]["VERSION"] == "${{ needs.version.outputs.pypi_version }}"
+    run = verify_step["run"]
+    assert 'wheels=(dist/*.whl)' in run
+    assert '[[ "${#wheels[@]}" == 6 ]]' in run
+    assert 'for wheel in "${wheels[@]}"' in run
+    assert "reconcile_registry_artifact.py check" in run
+    assert "--registry pypi" in run
+    assert "--package cmux" in run
+    assert '--version "$VERSION"' in run
+    assert '--artifact "$wheel"' in run
+    assert "--allowed-artifact" in run
+    assert "--require-match" in run
+
+
+def test_pypi_retry_preparation_skips_only_exact_matches() -> None:
+    script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    tags = (
+        "macosx_11_0_arm64",
+        "macosx_10_12_x86_64",
+        "manylinux_2_17_x86_64.manylinux2014_x86_64",
+        "musllinux_1_2_x86_64",
+        "manylinux_2_17_aarch64.manylinux2014_aarch64",
+        "musllinux_1_2_aarch64",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-pypi-retry-") as raw:
+        temporary = Path(raw)
+        wheels = temporary / "wheels"
+        upload = temporary / "upload"
+        fake_bin = temporary / "bin"
+        wheels.mkdir()
+        fake_bin.mkdir()
+        for tag in tags:
+            (wheels / f"cmux-1.2.3-py3-none-{tag}.whl").write_bytes(tag.encode())
+
+        fake_python = fake_bin / "python3"
+        fake_python.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "[[ -f \"$1\" ]] || { echo \"missing reconciler: $1\" >&2; exit 2; }\n"
+            "artifact=\"\"\n"
+            "while [[ $# -gt 0 ]]; do\n"
+            "  if [[ \"$1\" == \"--artifact\" ]]; then\n"
+            "    artifact=\"$2\"\n"
+            "    shift 2\n"
+            "  else\n"
+            "    shift\n"
+            "  fi\n"
+            "done\n"
+            "case \"$(basename \"$artifact\")\" in\n"
+            "  *manylinux2014_x86_64.whl) echo 'status=missing' >> \"$GITHUB_OUTPUT\" ;;\n"
+            "  *) echo 'status=match' >> \"$GITHUB_OUTPUT\" ;;\n"
+            "esac\n"
+        )
+        fake_python.chmod(0o755)
+        output = temporary / "github-output"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_OUTPUT": str(output),
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(script), str(wheels), str(upload), "1.2.3"),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert sorted(path.name for path in upload.iterdir()) == [
+            "cmux-1.2.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+        ]
+        assert "has_new=true" in output.read_text()
+
+
+def test_pypi_retry_preparation_fails_on_registry_mismatch() -> None:
+    script = ROOT / "cmux-tui" / "scripts" / "prepare-pypi-tui-upload.sh"
+    tags = (
+        "macosx_11_0_arm64",
+        "macosx_10_12_x86_64",
+        "manylinux_2_17_x86_64.manylinux2014_x86_64",
+        "musllinux_1_2_x86_64",
+        "manylinux_2_17_aarch64.manylinux2014_aarch64",
+        "musllinux_1_2_aarch64",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-pypi-mismatch-") as raw:
+        temporary = Path(raw)
+        wheels = temporary / "wheels"
+        upload = temporary / "upload"
+        fake_bin = temporary / "bin"
+        wheels.mkdir()
+        fake_bin.mkdir()
+        for tag in tags:
+            (wheels / f"cmux-1.2.3-py3-none-{tag}.whl").write_bytes(tag.encode())
+        fake_python = fake_bin / "python3"
+        fake_python.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "echo 'registry hash mismatch' >&2\n"
+            "exit 1\n"
+        )
+        fake_python.chmod(0o755)
+        output = temporary / "github-output"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_OUTPUT": str(output),
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+            }
+        )
+        result = subprocess.run(
+            ("bash", str(script), str(wheels), str(upload), "1.2.3"),
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode != 0
+        assert "registry hash mismatch" in result.stderr
+        assert not upload.exists() or not any(upload.iterdir())
 
 
 if __name__ == "__main__":

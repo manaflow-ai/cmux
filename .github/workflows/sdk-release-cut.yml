@@ -267,7 +267,21 @@ jobs:
         run: npm install --global npm@11.5.1
 
       - name: Verify the npm ownership bootstrap
+        env:
+          BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"
         run: |
+          set -euo pipefail
+          tags="$RUNNER_TEMP/cmux-sdk-bootstrap-tags.json"
+          npm view cmux-sdk dist-tags --json > "$tags"
+          node - "$tags" "$BOOTSTRAP_VERSION" <<'NODE'
+          const fs = require("node:fs");
+          const [path, expected] = process.argv.slice(2);
+          const tags = JSON.parse(fs.readFileSync(path, "utf8"));
+          if (tags.bootstrap !== expected || tags.latest !== expected) {
+            console.error("cmux-sdk bootstrap dist-tags are not reserved exactly");
+            process.exit(1);
+          }
+          NODE
           python3 cmux-tui/bindings/verify_npm_provenance.py \
             --package cmux-sdk \
             --version 0.0.0-bootstrap.0 \
@@ -277,6 +291,7 @@ jobs:
             --workflow .github/workflows/sdk-bootstrap-npm.yml \
             --workflow-ref refs/heads/main \
             --dist-tag bootstrap \
+            --require-dist-tag latest \
             --publisher owner
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -356,6 +371,7 @@ jobs:
       - typescript-preflight
       - python-preflight
       - registry-preflight
+      - credential-environment-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read
@@ -511,6 +527,27 @@ jobs:
             echo "remote_state_sha256=$remote_state_sha256"
             echo "remote_tag_state_sha256=$remote_tag_state_sha256"
           } >> "$GITHUB_OUTPUT"
+
+  credential-environment-preflight:
+    name: verify credential environment policy
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Verify credential environment protection
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 cmux-tui/bindings/verify_github_environment_policy.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --environment sdk-release-credentials \
+            --dispatcher "$GITHUB_ACTOR"
 
   cut-tags:
     needs:

@@ -1028,8 +1028,8 @@ Payload:
 object{
   event:"agent-state-changed",
   surface:Id,
-  previous:"working"|"blocked"|"idle"|"done"|"unknown"|null,
-  state:"working"|"blocked"|"idle"|"done"|"unknown",
+  previous:"working"|"blocked"|"idle"|"done"|"interrupted"|"unknown"|null,
+  state:"working"|"blocked"|"idle"|"done"|"interrupted"|"unknown",
   source:"detected"|"socket"|"hook",
   session:string|null,
   updated_at_ms:uint64

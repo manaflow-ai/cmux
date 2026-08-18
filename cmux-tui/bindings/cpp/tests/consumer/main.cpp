@@ -138,6 +138,11 @@ int main() {
         cmux::AgentReportSource::socket);
     agent.source_session = "consumer";
     auto agent_params = agent.to_params();
+    cmux::AgentReportOptions interrupted_agent(
+        terminal_id.value(),
+        cmux::AgentState::interrupted,
+        cmux::AgentReportSource::socket);
+    auto interrupted_agent_params = interrupted_agent.to_params();
 
     cmux::raw::IdentifyRequest raw_request;
     return selector.wire() != "name:current" ||
@@ -145,6 +150,7 @@ int main() {
                    !pane_params || !split_params || !terminal_params ||
                    !browser_params || !history_params || !attach_params ||
                    !notification_params || !agent_params ||
+                   !interrupted_agent_params ||
                    workspace_params.value()
                            .at("correlation_key")
                            .as_string()
@@ -197,6 +203,10 @@ int main() {
                            .at("source")
                            .as_string()
                            .value() != "socket" ||
+                   interrupted_agent_params.value()
+                           .at("state")
+                           .as_string()
+                           .value() != "interrupted" ||
                    !(raw_request == cmux::raw::IdentifyRequest{}) ||
                    cmux::kSdkVersion != "1.0.0"
                ? 1

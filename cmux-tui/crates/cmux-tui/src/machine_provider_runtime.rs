@@ -15,10 +15,10 @@ use zeroize::Zeroize;
 use crate::config::MachineConfig;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-    MachineCapabilities, MachineConnectRoute, MachineController, MachineDescriptor, MachineKey,
-    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
-    MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineAccessMethods,
+    MachineActionResult, MachineCapabilities, MachineConnectRoute, MachineController,
+    MachineDescriptor, MachineKey, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
+    MachineUpdate, MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
     ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
     ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionTarget,
@@ -163,6 +163,7 @@ impl ProviderNoticeIdentity {
 pub(crate) struct ProviderMachineRuntime {
     connector: Arc<dyn MachineProviderConnector>,
     client: Arc<ProviderClient>,
+    surface_options: SurfaceOptions,
     snapshot: protocol::SnapshotResult,
     machine_lifecycle_snapshot: protocol::MachineLifecycleSnapshotResult,
     workspace_snapshot: Option<protocol::WorkspaceSnapshotResult>,
@@ -217,11 +218,12 @@ impl ProviderMachineController {
         configured: Vec<MachineConfig>,
         connect_external: bool,
         state_root: Option<PathBuf>,
+        surface_options: SurfaceOptions,
     ) -> anyhow::Result<Self> {
         let local = MachineRuntime::external(configured, connect_external);
         let local_connections = MachineConnectionHub::new(local.connection_connectors());
         Ok(Self {
-            provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
+            provider: ProviderMachineRuntime::connect_with(connector, state_root, surface_options)?,
             local,
             active_local: None,
             local_connections,
@@ -485,16 +487,19 @@ impl ProviderMachineRuntime {
         Self::connect_with_notice_identity(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             ProviderNoticeIdentity::Ephemeral(random_notice_consumer_id()?),
+            SurfaceOptions::default(),
         )
     }
 
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
         state_root: Option<PathBuf>,
+        surface_options: SurfaceOptions,
     ) -> anyhow::Result<Self> {
         Self::connect_with_notice_identity(
             connector,
             ProviderNoticeIdentity::Persisted { state_root, lease: None },
+            surface_options,
         )
     }
 
@@ -507,6 +512,7 @@ impl ProviderMachineRuntime {
         Self::connect_with(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             Some(state_root.to_path_buf()),
+            SurfaceOptions::default(),
         )
     }
 
@@ -518,12 +524,14 @@ impl ProviderMachineRuntime {
         Self::connect_with(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             None,
+            SurfaceOptions::default(),
         )
     }
 
     fn connect_with_notice_identity(
         connector: Arc<dyn MachineProviderConnector>,
         mut notice_identity: ProviderNoticeIdentity,
+        surface_options: SurfaceOptions,
     ) -> anyhow::Result<Self> {
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
             connect_client(Arc::clone(&connector), &mut notice_identity)?;
@@ -532,6 +540,7 @@ impl ProviderMachineRuntime {
         let mut runtime = Self {
             connector,
             client,
+            surface_options,
             snapshot,
             machine_lifecycle_snapshot,
             workspace_snapshot,
@@ -632,7 +641,7 @@ impl ProviderMachineRuntime {
             .unwrap_or_else(|| "machines".to_string());
         let mut ui = self.ui_state(false);
         ui.notice = Some(notice.into());
-        (placeholder_session(), label, ui)
+        (placeholder_session(&self.surface_options), label, ui)
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
@@ -1456,7 +1465,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None));
+            return Ok((placeholder_session(&self.surface_options), "machines".to_string(), None));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1576,7 +1585,7 @@ impl ProviderMachineRuntime {
             result.ui.session_available = false;
             let machine = result.ui.snapshot.active;
             result.replacement = Some(crate::machine::MachineSession {
-                session: placeholder_session(),
+                session: placeholder_session(&self.surface_options),
                 label,
                 machine,
             });
@@ -1807,6 +1816,7 @@ fn merge_local_machine_ui(
     ui.snapshot.capabilities.connect |= local.snapshot.capabilities.connect;
     ui.creation_sources.extend(local.creation_sources.iter().cloned());
     ui.connection_targets.extend(local.connection_targets.iter().cloned());
+    ui.extend_machine_access_methods_from(local);
     ui.extend_client_renamable_machines(
         local
             .snapshot
@@ -2192,6 +2202,15 @@ fn machine_ui_state(
     );
     for machine in &snapshot.machines {
         let Some(key) = key_for_id(keys, &machine.id) else { continue };
+        let mut access_methods = MachineAccessMethods::default();
+        for method in &machine.access_methods {
+            match method {
+                protocol::MachineAccessMethod::Ssh => access_methods.ssh = true,
+                protocol::MachineAccessMethod::Websocket => access_methods.websocket = true,
+                protocol::MachineAccessMethod::Unsupported => {}
+            }
+        }
+        ui.set_machine_access_methods(key, access_methods);
         let policy = match &machine.workspace_create {
             protocol::WorkspaceCreatePolicy::Session => WorkspaceCreationPolicy::SessionOwned,
             protocol::WorkspaceCreatePolicy::Provider { default_mode, modes } => {
@@ -2267,10 +2286,10 @@ fn workspace_creation_mode(mode: protocol::WorkspaceCreateMode) -> WorkspaceCrea
     }
 }
 
-fn placeholder_session() -> Session {
+fn placeholder_session(surface_options: &SurfaceOptions) -> Session {
     Session::Local(Mux::new(
         format!("provider-placeholder-{}", std::process::id()),
-        SurfaceOptions::default(),
+        surface_options.clone(),
     ))
 }
 
@@ -2736,6 +2755,7 @@ mod tests {
                 status,
                 connectable: false,
                 workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                access_methods: Vec::new(),
             }],
             selected_machine_id: Some(id("machine-1")),
             capabilities: protocol::ProviderCapabilities {
@@ -3746,7 +3766,13 @@ mod tests {
             else {
                 panic!("client capability negotiation did not immediately follow hello");
             };
-            assert_eq!(params.capabilities, [protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY]);
+            assert_eq!(
+                params.capabilities,
+                [
+                    protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
+                    protocol::MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY,
+                ]
+            );
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(
@@ -3754,6 +3780,7 @@ mod tests {
                     protocol::NegotiateClientCapabilitiesResult {
                         capabilities: vec![
                             protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+                            protocol::MACHINE_ACCESS_METHODS_CLIENT_CAPABILITY.to_string(),
                         ],
                     },
                 ),
@@ -3786,6 +3813,51 @@ mod tests {
         );
         finish.send(()).unwrap();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn presentation_treats_machine_access_methods_as_an_informational_set() {
+        let document = json!({
+            "revision": 1,
+            "scopes": [{
+                "id": "personal",
+                "display_name": "Personal",
+                "kind": "personal",
+                "can_admin": false
+            }],
+            "selected_scope_id": "personal",
+            "machines": [{
+                "id": "machine-1",
+                "display_name": "Machine",
+                "subtitle": "Freestyle",
+                "status": "running",
+                "connectable": false,
+                "workspace_create": { "owner": "session" },
+                "access_methods": ["websocket", "ssh", "ssh", "future_mesh"]
+            }],
+            "selected_machine_id": "machine-1",
+            "capabilities": {},
+            "actions": []
+        });
+        let snapshot: protocol::SnapshotResult = serde_json::from_value(document).unwrap();
+        let lifecycle = machine_lifecycle_snapshot(&snapshot);
+        let keys = Arc::new(Mutex::new(KeyRegistry {
+            by_id: HashMap::new(),
+            by_key: HashMap::new(),
+            next: 1,
+        }));
+
+        let ui = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, false);
+        let machine = &ui.snapshot.machines[0];
+        assert_eq!(
+            ui.machine_access_methods(machine.key),
+            MachineAccessMethods { ssh: true, websocket: true }
+        );
+        assert_eq!(machine.status, MachineStatus::Running);
+        assert!(
+            !snapshot.machines[0].connectable,
+            "access-method metadata must not change machine connectability"
+        );
     }
 
     #[test]
@@ -3825,6 +3897,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -3907,6 +3980,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: false,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -4528,6 +4602,7 @@ mod tests {
             Vec::new(),
             false,
             Some(state_root.path.clone()),
+            SurfaceOptions::default(),
         )
         .unwrap();
 
@@ -4642,6 +4717,7 @@ mod tests {
             Vec::new(),
             false,
             Some(state_root.path.clone()),
+            SurfaceOptions::default(),
         )
         .unwrap();
         let machine = key_for_id(&controller.provider.keys, &id("machine-1")).unwrap();
@@ -5282,6 +5358,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {
@@ -5359,6 +5436,7 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            access_methods: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {

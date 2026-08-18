@@ -123,6 +123,7 @@ Result<Json> Codec<AgentState>::encode(const AgentState& value) {
         case AgentState::blocked: return Json(std::string("blocked"));
         case AgentState::idle: return Json(std::string("idle"));
         case AgentState::done: return Json(std::string("done"));
+        case AgentState::interrupted: return Json(std::string("interrupted"));
         case AgentState::unknown: return Json(std::string("unknown"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
@@ -133,6 +134,7 @@ Result<AgentState> Codec<AgentState>::decode(const Json& value) {
     if (value == Json(std::string("blocked"))) return AgentState::blocked;
     if (value == Json(std::string("idle"))) return AgentState::idle;
     if (value == Json(std::string("done"))) return AgentState::done;
+    if (value == Json(std::string("interrupted"))) return AgentState::interrupted;
     if (value == Json(std::string("unknown"))) return AgentState::unknown;
     return make_error(ErrorCode::decode, "unknown AgentState value");
 }

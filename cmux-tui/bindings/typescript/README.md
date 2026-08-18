@@ -113,6 +113,13 @@ invoking the credential-rejection callback.
 
 The `cmux-sdk` and `cmux-sdk/browser` dependency graphs import no Node modules.
 The `cmux-sdk/node` entry adds Unix-socket discovery and transport.
+`defaultSocketPath` and both Node clients validate the session component before
+deriving a socket path. Empty names, `.`, `..`, separators, NUL, control
+characters, Unicode line separators, Unicode noncharacters, Windows-reserved filename characters, and malformed Unicode throw a
+`TypeError`. Spaces, Unicode, punctuation, and long legacy-safe names remain
+valid. Long names that exceed the Unix socket limit use the shared SHA-256
+fallback below `/tmp/cmux-tui-hashed-<uid>`. Explicit `socketPath` and socket
+environment overrides are used as provided.
 
 The generated protocol-v12 API and numeric mux identities are available only
 from `cmux-sdk/raw`:

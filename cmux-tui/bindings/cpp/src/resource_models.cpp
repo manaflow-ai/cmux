@@ -1300,6 +1300,7 @@ AgentSnapshot parse_agent(const Json& value) {
                 {"blocked", AgentState::blocked},
                 {"idle", AgentState::idle},
                 {"done", AgentState::done},
+                {"interrupted", AgentState::interrupted},
                 {"unknown", AgentState::unknown},
             },
             "agent state"),

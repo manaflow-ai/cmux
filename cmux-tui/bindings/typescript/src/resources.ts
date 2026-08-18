@@ -924,7 +924,7 @@ function agentSnapshot(value: unknown): AgentSnapshot {
     state: requiredEnum(
       payload,
       "state",
-      ["working", "blocked", "idle", "done", "unknown"] as const,
+      ["working", "blocked", "idle", "done", "interrupted", "unknown"] as const,
     ),
     source: requiredEnum(
       payload,

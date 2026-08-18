@@ -7,7 +7,9 @@ mod resource_topology;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
-use public_projections::{RestoredPublicProjections, restore_public_projections};
+use public_projections::{
+    RestoredPublicProjections, TerminalAgentRecords, restore_public_projections,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -22,7 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use ghostty_vt::KittyGraphicsLimits;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
@@ -1008,6 +1010,7 @@ pub enum AgentState {
     Blocked,
     Idle,
     Done,
+    Interrupted,
     Unknown,
 }
 
@@ -1018,6 +1021,7 @@ impl AgentState {
             AgentState::Blocked => "blocked",
             AgentState::Idle => "idle",
             AgentState::Done => "done",
+            AgentState::Interrupted => "interrupted",
             AgentState::Unknown => "unknown",
         }
     }
@@ -1095,6 +1099,18 @@ struct TerminalAgentRecord {
     source: AgentSource,
     session: Option<String>,
     updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+struct AgentProjectionCacheRefresh {
+    version: u64,
+    after_terminal_id: Option<TerminalPublicId>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct JournalRestorePlan {
+    pub(crate) head_sequence: u64,
+    pub(crate) preview: Value,
 }
 
 enum AgentReportTarget<'a> {
@@ -1976,7 +1992,23 @@ pub struct Mux {
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
-    agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    agent_records: Mutex<TerminalAgentRecords>,
+    agent_projection_reads_ready: AtomicBool,
+    agent_projection_rebuild_running: AtomicBool,
+    agent_projection_cache_refresh: Mutex<Option<AgentProjectionCacheRefresh>>,
+    // Keep the dedicated worker owned by Mux so shutdown can release the
+    // registry session lease only after projection work has stopped.
+    agent_projection_rebuild_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    #[cfg(test)]
+    agent_projection_refresh_failure: AtomicBool,
+    #[cfg(test)]
+    agent_projection_rebuild_after_step: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    #[cfg(test)]
+    agent_projection_rebuild_finished: Mutex<Option<SyncSender<()>>>,
+    #[cfg(test)]
+    agent_projection_begin_before_registry: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    #[cfg(test)]
+    journal_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -1992,6 +2024,10 @@ pub struct Mux {
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
+    /// Resource listeners may read derived caches after every wake. Publish
+    /// this signal only after those caches include the durable commit.
+    resource_event_epoch: Mutex<u64>,
+    resource_event_changed: Condvar,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2160,14 +2196,24 @@ impl Mux {
         surface_options: SurfaceOptions,
         state_root: &Path,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_persistent_with_restore(session, surface_options, state_root, true)
+    }
+
+    pub fn open_persistent_with_restore(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        restore_journal: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
+        let registry = WorkspaceRegistry::open_with_restore(state_root, &session, restore_journal)?;
+        Self::from_workspace_registry_with_restore(
             session,
             surface_options,
             registry,
             ProviderWorkspaceState::default(),
             false,
+            restore_journal,
         )
     }
 
@@ -2177,9 +2223,25 @@ impl Mux {
         state_root: &Path,
         authority: ProviderWorkspaceAuthority,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_persistent_provider_managed_with_restore(
+            session,
+            surface_options,
+            state_root,
+            authority,
+            true,
+        )
+    }
+
+    pub fn open_persistent_provider_managed_with_restore(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        authority: ProviderWorkspaceAuthority,
+        restore_journal: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
+        let registry = WorkspaceRegistry::open_with_restore(state_root, &session, restore_journal)?;
+        Self::from_workspace_registry_with_restore(
             session,
             surface_options,
             registry,
@@ -2190,6 +2252,7 @@ impl Mux {
                 authority: Some(authority),
             },
             false,
+            restore_journal,
         )
     }
 
@@ -2199,11 +2262,27 @@ impl Mux {
         state_root: &Path,
         mux_generation: impl Into<String>,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_persistent_provider_managed_pending_with_restore(
+            session,
+            surface_options,
+            state_root,
+            mux_generation,
+            true,
+        )
+    }
+
+    pub fn open_persistent_provider_managed_pending_with_restore(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        mux_generation: impl Into<String>,
+        restore_journal: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let mux_generation = mux_generation.into();
         validate_mux_generation(&mux_generation)?;
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
+        let registry = WorkspaceRegistry::open_with_restore(state_root, &session, restore_journal)?;
+        Self::from_workspace_registry_with_restore(
             session,
             surface_options,
             registry,
@@ -2214,15 +2293,34 @@ impl Mux {
                 authority: None,
             },
             false,
+            restore_journal,
         )
     }
 
     fn from_workspace_registry(
         session: String,
+        surface_options: SurfaceOptions,
+        registry: WorkspaceRegistry,
+        provider_workspace: ProviderWorkspaceState,
+        test_surface_runtime: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::from_workspace_registry_with_restore(
+            session,
+            surface_options,
+            registry,
+            provider_workspace,
+            test_surface_runtime,
+            true,
+        )
+    }
+
+    fn from_workspace_registry_with_restore(
+        session: String,
         mut surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        restore_journal: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
@@ -2235,13 +2333,15 @@ impl Mux {
             agent_records,
             terminal_notifications,
             notification_ledger,
-        } = restore_public_projections(&state, registry.public_projections()?)?;
+        } = restore_public_projections(&state, registry.public_projections_for_cache_restore()?)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
             &journal_producers,
         )?;
+        let agent_projection_reads_ready =
+            restore_journal || !registry.agent_projection_rebuild_pending()?;
         let (journal_ingress, journal_ingress_receiver) =
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
@@ -2339,7 +2439,21 @@ impl Mux {
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
-            agent_records: Mutex::new(agent_records),
+            agent_records: Mutex::new(agent_records.into()),
+            agent_projection_reads_ready: AtomicBool::new(agent_projection_reads_ready),
+            agent_projection_rebuild_running: AtomicBool::new(false),
+            agent_projection_cache_refresh: Mutex::new(None),
+            agent_projection_rebuild_worker: Mutex::new(None),
+            #[cfg(test)]
+            agent_projection_refresh_failure: AtomicBool::new(false),
+            #[cfg(test)]
+            agent_projection_rebuild_after_step: Mutex::new(None),
+            #[cfg(test)]
+            agent_projection_rebuild_finished: Mutex::new(None),
+            #[cfg(test)]
+            agent_projection_begin_before_registry: Mutex::new(None),
+            #[cfg(test)]
+            journal_before_publish: Mutex::new(None),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -2350,6 +2464,8 @@ impl Mux {
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
+            resource_event_epoch: Mutex::new(0),
+            resource_event_changed: Condvar::new(),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -2377,6 +2493,9 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        if restore_journal {
+            mux.start_agent_projection_rebuild_worker()?;
+        }
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
@@ -2980,6 +3099,10 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        #[cfg(debug_assertions)]
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL") {
+            let _ = std::fs::write(signal, b"1");
+        }
         Ok(())
     }
 
@@ -3191,6 +3314,12 @@ impl Mux {
                             &record,
                         );
                         break;
+                    }
+                    #[cfg(debug_assertions)]
+                    if let Some(signal) =
+                        std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL")
+                    {
+                        let _ = std::fs::write(signal, b"1");
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
@@ -4674,6 +4803,17 @@ impl Mux {
     }
 
     fn publish_journal_event(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.journal_before_publish.lock().unwrap().clone() {
+            hook();
+        }
+        self.publish_journal_commit();
+        let mut epoch = self.resource_event_epoch.lock().unwrap();
+        *epoch = epoch.wrapping_add(1);
+        self.resource_event_changed.notify_all();
+    }
+
+    fn publish_journal_commit(&self) {
         self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -4736,8 +4876,8 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
+    pub(crate) fn terminal_journal_waiter(&self) -> crate::journal_ingress::JournalIngressWaiter {
+        self.journal_ingress.queue_space_waiter()
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -4763,6 +4903,14 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_terminal_journal_queue_wait_notifier_for_test(
+        &self,
+        notifier: SyncSender<()>,
+    ) {
+        self.journal_ingress.install_queue_space_wait_notifier_for_test(notifier);
     }
 
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
@@ -4835,7 +4983,17 @@ impl Mux {
             remaining.min(sqlite_wait_cap),
             admit_commit,
         )?;
-        self.publish_journal_event();
+        let projection_current = agent_terminal_ids_from_journal_ingresses(
+            events.iter().filter_map(|event| match *event {
+                crate::journal_ingress::JournalIngressEvent::Producer { ingress, .. } => {
+                    Some(ingress)
+                }
+                _ => None,
+            }),
+        )
+        .and_then(|terminal_ids| self.sync_agent_records_for_terminals(&registry, terminal_ids));
+        drop(registry);
+        self.publish_committed_journal(projection_current);
         Ok(commits)
     }
 
@@ -4848,6 +5006,20 @@ impl Mux {
         let _registry = self.workspace_registry.lock().unwrap();
         entered.send(()).unwrap();
         release.recv().unwrap();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_agent_projection_begin_before_registry_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.agent_projection_begin_before_registry.lock().unwrap() = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_agent_projection_refresh_for_test(&self) {
+        self.agent_projection_refresh_failure.store(true, Ordering::Release);
     }
 
     #[cfg(test)]
@@ -4888,11 +5060,16 @@ impl Mux {
     }
 
     pub(crate) fn resource_event_epoch(&self) -> u64 {
-        self.journal_event_epoch()
+        *self.resource_event_epoch.lock().unwrap()
     }
 
     pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
-        self.wait_for_journal_event(epoch, timeout)
+        let current = self.resource_event_epoch.lock().unwrap();
+        if *current != epoch {
+            return *current;
+        }
+        let (current, _) = self.resource_event_changed.wait_timeout(current, timeout).unwrap();
+        *current
     }
 
     pub(crate) fn resource_events_after(
@@ -4971,6 +5148,118 @@ impl Mux {
         Ok(commit)
     }
 
+    fn start_agent_projection_rebuild_worker(self: &Arc<Self>) -> anyhow::Result<()> {
+        if !self.workspace_registry.lock().unwrap().agent_projection_rebuild_pending()? {
+            return Ok(());
+        }
+        if self
+            .agent_projection_rebuild_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let mut worker_slot = self.agent_projection_rebuild_worker.lock().unwrap();
+        if self.shutting_down.load(Ordering::Acquire) {
+            self.agent_projection_rebuild_running.store(false, Ordering::Release);
+            return Ok(());
+        }
+        let weak = Arc::downgrade(self);
+        let worker = match std::thread::Builder::new()
+            .name("cmux-agent-projection-rebuild".into())
+            .spawn(move || Self::run_agent_projection_rebuild_worker(weak))
+        {
+            Ok(worker) => worker,
+            Err(error) => {
+                self.agent_projection_rebuild_running.store(false, Ordering::Release);
+                self.agent_projection_reads_ready.store(false, Ordering::Release);
+                #[cfg(test)]
+                self.notify_agent_projection_rebuild_finished_for_test();
+                eprintln!("cmux-tui: could not spawn agent projection rebuild: {error}");
+                return Ok(());
+            }
+        };
+        *worker_slot = Some(worker);
+        Ok(())
+    }
+
+    fn run_agent_projection_rebuild_worker(weak: Weak<Self>) {
+        let Some(mux) = weak.upgrade() else { return };
+        loop {
+            if mux.shutting_down.load(Ordering::Acquire) {
+                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                #[cfg(test)]
+                mux.notify_agent_projection_rebuild_finished_for_test();
+                return;
+            }
+
+            let result = (|| -> anyhow::Result<(bool, bool)> {
+                // The registry is the owner fence for durable projection state.
+                // Keep it held while choosing, staging, and publishing a cache
+                // refresh so a direct report cannot interleave with the decision.
+                let registry = mux.workspace_registry.lock().unwrap();
+                if mux.agent_projection_cache_refresh.lock().unwrap().is_some() {
+                    return mux.continue_agent_projection_cache_refresh_locked(&registry);
+                }
+                let step = registry.continue_agent_projection_rebuild_page()?;
+                if !step.checkpoint_ready {
+                    return Ok((false, step.pending));
+                }
+                if step.refresh_required {
+                    mux.begin_agent_projection_cache_refresh(&registry)?;
+                    return mux.continue_agent_projection_cache_refresh_locked(&registry);
+                }
+                Ok((true, step.pending))
+            })();
+
+            match result {
+                Ok((checkpoint_ready, pending)) => {
+                    if checkpoint_ready {
+                        mux.publish_journal_event();
+                    }
+                    #[cfg(test)]
+                    if checkpoint_ready {
+                        mux.notify_agent_projection_rebuild_step_for_test();
+                    }
+                    if pending {
+                        continue;
+                    }
+
+                    // Keep the registry fence while checking and clearing the
+                    // running state. A concurrent journal append then either
+                    // appears as pending here or waits until this worker has
+                    // released ownership before updating projections directly.
+                    let registry = mux.workspace_registry.lock().unwrap();
+                    match registry.agent_projection_rebuild_pending() {
+                        Ok(true) => continue,
+                        Ok(false) => {
+                            mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                            #[cfg(test)]
+                            mux.notify_agent_projection_rebuild_finished_for_test();
+                            return;
+                        }
+                        Err(error) => {
+                            mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                            mux.agent_projection_reads_ready.store(false, Ordering::Release);
+                            #[cfg(test)]
+                            mux.notify_agent_projection_rebuild_finished_for_test();
+                            eprintln!("cmux-tui: check agent projection rebuild: {error:#}");
+                            return;
+                        }
+                    }
+                }
+                Err(error) => {
+                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                    mux.agent_projection_reads_ready.store(false, Ordering::Release);
+                    #[cfg(test)]
+                    mux.notify_agent_projection_rebuild_finished_for_test();
+                    eprintln!("cmux-tui: rebuild agent projections: {error:#}");
+                    return;
+                }
+            }
+        }
+    }
+
     pub(crate) fn append_journal_ingress(
         &self,
         ingress: &crate::JournalIngress,
@@ -4986,16 +5275,205 @@ impl Mux {
                 idempotency_key.into(),
             );
         }
-        let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
-            ingress,
-            &validated,
-            origin,
-            idempotency_key,
-        )?;
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let commit =
+            registry.append_journal_ingress(ingress, &validated, origin, idempotency_key)?;
+        let projection_current = self.sync_agent_records_from_journal_ingress(&registry, ingress);
+        drop(registry);
         if !commit.replayed {
-            self.publish_journal_event();
+            self.publish_committed_journal(projection_current);
+        } else if let Err(error) = projection_current {
+            // A replay does not publish a new resource event on success, but
+            // a failed derived-cache refresh must still wake durable readers
+            // and stop the daemon before it serves an incomplete cache.
+            self.fail_closed_agent_projection_reads();
+            self.publish_journal_commit();
+            eprintln!("cmux-tui: refresh agent cache after replayed journal append: {error:#}");
+            self.request_daemon_shutdown();
+            return Err(error);
         }
         Ok(commit)
+    }
+
+    fn fail_closed_agent_projection_reads(&self) {
+        self.agent_projection_reads_ready.store(false, Ordering::Release);
+        *self.agent_projection_cache_refresh.lock().unwrap() = None;
+    }
+
+    fn publish_committed_journal(&self, projection_current: anyhow::Result<bool>) {
+        match projection_current {
+            Ok(true) => self.publish_journal_event(),
+            Ok(false) => self.publish_journal_commit(),
+            Err(error) => {
+                // SQLite already accepted the journal transaction. Wake
+                // durable readers, but keep resource readers asleep because
+                // the derived agent cache does not contain this commit.
+                self.fail_closed_agent_projection_reads();
+                self.publish_journal_commit();
+                eprintln!("cmux-tui: refresh agent cache after durable journal commit: {error:#}");
+                self.request_daemon_shutdown();
+            }
+        }
+    }
+
+    fn sync_agent_records_from_journal_ingress(
+        &self,
+        registry: &WorkspaceRegistry,
+        ingress: &crate::JournalIngress,
+    ) -> anyhow::Result<bool> {
+        let terminal_ids = agent_terminal_ids_from_journal_ingresses(std::iter::once(ingress))?;
+        self.sync_agent_records_for_terminals(registry, terminal_ids)
+    }
+
+    fn sync_agent_records_for_terminals(
+        &self,
+        registry: &WorkspaceRegistry,
+        terminal_ids: HashSet<TerminalPublicId>,
+    ) -> anyhow::Result<bool> {
+        // Registry ownership comes first. Keep the refresh decision locked
+        // through the corresponding records update, so a worker cannot begin
+        // a new generation between this check and the write.
+        let refresh = self.agent_projection_cache_refresh.lock().unwrap();
+        if let Some(refresh) = refresh.as_ref() {
+            let version = refresh.version;
+            self.stage_agent_records_for_terminals(registry, terminal_ids, version)?;
+            return Ok(false);
+        }
+        if registry.agent_projection_rebuild_pending()? {
+            return Ok(false);
+        }
+        self.refresh_agent_records_for_terminals(registry, terminal_ids)?;
+        Ok(true)
+    }
+
+    fn stage_agent_records_for_terminals(
+        &self,
+        registry: &WorkspaceRegistry,
+        terminal_ids: HashSet<TerminalPublicId>,
+        version: u64,
+    ) -> anyhow::Result<()> {
+        let mut records = Vec::with_capacity(terminal_ids.len());
+        for terminal_id in terminal_ids {
+            let Some(projection) = registry.agent_projection_for_cache_refresh(&terminal_id)?
+            else {
+                continue;
+            };
+            records.push((
+                projection.terminal_id,
+                public_projections::terminal_agent_record(
+                    &projection.state,
+                    &projection.source,
+                    projection.source_session,
+                    projection.updated_at_ms,
+                )?,
+            ));
+        }
+        self.agent_records.lock().unwrap().stage_or_insert(version, records)
+    }
+
+    fn refresh_agent_records_for_terminals(
+        &self,
+        registry: &WorkspaceRegistry,
+        terminal_ids: HashSet<TerminalPublicId>,
+    ) -> anyhow::Result<()> {
+        #[cfg(test)]
+        if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("forced agent projection refresh failure");
+        }
+        if terminal_ids.is_empty() {
+            return Ok(());
+        }
+
+        let projections = registry.public_agent_projections_for_terminals(&terminal_ids)?;
+        let mut records = self.agent_records.lock().unwrap();
+        for projection in projections {
+            let record = public_projections::terminal_agent_record(
+                &projection.state,
+                &projection.source,
+                projection.source_session,
+                projection.updated_at_ms,
+            )?;
+            records.insert(projection.terminal_id, record);
+        }
+        Ok(())
+    }
+
+    fn begin_agent_projection_cache_refresh(
+        &self,
+        _registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<()> {
+        let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
+        anyhow::ensure!(refresh.is_none(), "agent projection cache refresh is already active");
+        let version = self.agent_records.lock().unwrap().begin_staging()?;
+        *refresh = Some(AgentProjectionCacheRefresh { version, after_terminal_id: None });
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn begin_agent_projection_cache_refresh_for_test(&self) -> anyhow::Result<()> {
+        if let Some((entered, release)) =
+            self.agent_projection_begin_before_registry.lock().unwrap().take()
+        {
+            entered.send(()).unwrap();
+            release.recv().unwrap();
+        }
+        let registry = self.workspace_registry.lock().unwrap();
+        self.begin_agent_projection_cache_refresh(&registry)
+    }
+
+    fn continue_agent_projection_cache_refresh_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<(bool, bool)> {
+        #[cfg(test)]
+        if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("forced agent projection refresh failure");
+        }
+        // The caller owns the registry fence. Hold the refresh state until
+        // staging, publication, and rebuild-change cleanup are complete.
+        let mut refresh_state = self.agent_projection_cache_refresh.lock().unwrap();
+        let refresh =
+            refresh_state.as_ref().cloned().context("agent projection cache refresh is absent")?;
+        let page =
+            registry.agent_projection_rebuild_change_page(refresh.after_terminal_id.as_ref())?;
+        let records = page
+            .projections
+            .into_iter()
+            .map(|projection| {
+                Ok((
+                    projection.terminal_id,
+                    public_projections::terminal_agent_record(
+                        &projection.state,
+                        &projection.source,
+                        projection.source_session,
+                        projection.updated_at_ms,
+                    )?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        self.agent_records.lock().unwrap().stage(refresh.version, records)?;
+        if !page.complete {
+            let last_terminal_id =
+                page.last_terminal_id.context("agent projection refresh page has no cursor")?;
+            let active =
+                refresh_state.as_mut().context("agent projection cache refresh disappeared")?;
+            anyhow::ensure!(
+                active.version == refresh.version,
+                "agent projection cache refresh version changed"
+            );
+            active.after_terminal_id = Some(last_terminal_id);
+            return Ok((false, true));
+        }
+
+        // Every staged entry is hidden until this one version change. This
+        // keeps direct readers from observing a partial fixed checkpoint.
+        self.agent_records.lock().unwrap().publish(refresh.version)?;
+        // Clear only after publication succeeds. A failure keeps the durable
+        // terminal set available for a later process restart.
+        registry.clear_agent_projection_rebuild_changes()?;
+        let rebuild_pending = registry.agent_projection_rebuild_pending()?;
+        *refresh_state = None;
+        Ok((true, rebuild_pending))
     }
 
     pub(crate) fn journal_hook_states(
@@ -5116,32 +5594,180 @@ impl Mux {
         self.workspace_registry.lock().unwrap().journal_checkpoints()
     }
 
-    pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
-        let checkpoint = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .journal_checkpoint(selector)?
-            .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
+    fn journal_restore_plan_inner(
+        &self,
+        selector: &str,
+    ) -> anyhow::Result<Option<JournalRestorePlan>> {
+        let (checkpoint, head_sequence) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let checkpoint = registry.journal_checkpoint(selector)?;
+            let head_sequence = registry.session_journal_after(0, 1)?.head_sequence;
+            (checkpoint, head_sequence)
+        };
+        let Some(checkpoint) = checkpoint else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            checkpoint.source_sequence <= head_sequence,
+            "journal checkpoint {} is newer than journal head {}",
+            checkpoint.checkpoint_id,
+            head_sequence
+        );
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
-        let mut target_head = None;
-        let head_sequence = loop {
+        while sequence < head_sequence {
             let page = self.session_journal_after(sequence, 1024)?;
-            let head = *target_head.get_or_insert(page.head_sequence);
-            let empty = page.records.is_empty();
+            anyhow::ensure!(
+                page.head_sequence >= head_sequence,
+                "journal head moved backwards while preparing restore"
+            );
+            let mut advanced = false;
             for record in page.records {
-                if record.sequence > head {
+                if record.sequence > head_sequence {
                     break;
                 }
+                anyhow::ensure!(
+                    record.sequence > sequence,
+                    "journal restore page did not advance after sequence {sequence}"
+                );
                 sequence = record.sequence;
                 reducer.apply(&record)?;
+                advanced = true;
             }
-            if empty || sequence >= head {
-                break head;
+            anyhow::ensure!(
+                advanced,
+                "journal head {head_sequence} is not readable after sequence {sequence}"
+            );
+        }
+        let preview = reducer.finish(head_sequence)?;
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            // Validate the exact reduced collection before the mutation
+            // transaction. This keeps malformed historical state fail closed
+            // without touching the live projection or receipt tables.
+            registry.validate_reduced_agent_state(&preview["state"], head_sequence)?;
+        }
+        Ok(Some(JournalRestorePlan { head_sequence, preview }))
+    }
+
+    pub(crate) fn prepare_journal_restore(
+        &self,
+        selector: &str,
+    ) -> anyhow::Result<JournalRestorePlan> {
+        self.journal_restore_plan_inner(selector)?
+            .with_context(|| format!("journal checkpoint {selector:?} does not exist"))
+    }
+
+    pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
+        Ok(self.prepare_journal_restore(selector)?.preview)
+    }
+
+    pub(crate) fn journal_projection_status(&self) -> anyhow::Result<Value> {
+        self.workspace_registry.lock().unwrap().agent_projection_restore_status()
+    }
+
+    pub(crate) fn journal_list(&self) -> anyhow::Result<Value> {
+        let head_sequence = self.session_journal_after(0, 1)?.head_sequence;
+        let checkpoints = self.journal_checkpoints()?;
+        let segments = self.journal_segments()?;
+        let projection = self.journal_projection_status()?;
+        Ok(json!({
+            "head_sequence": head_sequence.to_string(),
+            "checkpoints": checkpoints,
+            "segments": segments,
+            "projection": projection,
+        }))
+    }
+
+    pub(crate) fn journal_inspect(&self, selector: Option<&str>) -> anyhow::Result<Value> {
+        let projection = self.journal_projection_status()?;
+        let selector = selector.unwrap_or("latest");
+        let Some(plan) = self.journal_restore_plan_inner(selector)? else {
+            let head_sequence = self.session_journal_after(0, 1)?.head_sequence;
+            return Ok(json!({
+                "head_sequence": head_sequence.to_string(),
+                "checkpoint": Value::Null,
+                "preview": Value::Null,
+                "projection": projection,
+            }));
+        };
+        let checkpoint_id = plan.preview["checkpoint_id"]
+            .as_str()
+            .context("journal restore preview omitted its checkpoint id")?;
+        let summary = self
+            .journal_checkpoints()?
+            .into_iter()
+            .find(|summary| summary.checkpoint_id == checkpoint_id)
+            .context("selected journal checkpoint has no summary")?;
+        Ok(json!({
+            "head_sequence": plan.head_sequence.to_string(),
+            "checkpoint": summary,
+            "preview": plan.preview,
+            "projection": projection,
+        }))
+    }
+
+    pub(crate) fn restore_journal_projections_with_receipt(
+        &self,
+        plan: JournalRestorePlan,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<(Value, crate::workspace_registry::JournalRestoreCommit)> {
+        anyhow::ensure!(
+            plan.preview["fully_reducible"] == Value::Bool(true),
+            "journal restore is not fully reducible"
+        );
+        let checkpoint_id = plan.preview["checkpoint_id"].as_str();
+        let state_sha256 = plan.preview["state_sha256"].as_str();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let (commit, projections, result) = registry.apply_journal_restore_state(
+            plan.head_sequence,
+            &plan.preview["state"],
+            origin,
+            idempotency_key,
+            checkpoint_id,
+            state_sha256,
+        )?;
+        let cache_was_ready = self.agent_projection_reads_ready.load(Ordering::Acquire);
+        let records = match self.restore_agent_projection_records(projections) {
+            Ok(records) => records,
+            Err(error) => {
+                // SQLite already committed the restore receipt. Hide the
+                // derived cache, stop future writers, and wake durable readers
+                // without reporting a false resource publication.
+                self.agent_projection_reads_ready.store(false, Ordering::Release);
+                *self.agent_projection_cache_refresh.lock().unwrap() = None;
+                self.request_daemon_shutdown();
+                drop(registry);
+                self.publish_journal_commit();
+                eprintln!("cmux-tui: restore agent cache after durable journal commit: {error:#}");
+                return Ok((result, commit));
             }
         };
-        reducer.finish(head_sequence)
+        // Keep the registry fence through cache replacement. A refresh worker
+        // cannot publish a pre-restore generation over this state.
+        {
+            let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
+            self.agent_records.lock().unwrap().replace(records);
+            *refresh = None;
+        }
+        self.agent_projection_reads_ready.store(true, Ordering::Release);
+        drop(registry);
+        if !commit.journal.replayed || !cache_was_ready {
+            self.publish_journal_event();
+        }
+        Ok((result, commit))
+    }
+
+    fn restore_agent_projection_records(
+        &self,
+        projections: Vec<crate::workspace_registry::RegistryAgentProjection>,
+    ) -> anyhow::Result<HashMap<TerminalPublicId, TerminalAgentRecord>> {
+        #[cfg(test)]
+        if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("forced agent projection refresh failure");
+        }
+        public_projections::restore_agent_projections(projections)
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {
@@ -5219,6 +5845,38 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.workspace_registry.lock().unwrap().corrupt_agent_projection_for_test(terminal_id);
+    }
+
+    #[cfg(test)]
+    fn notify_agent_projection_rebuild_step_for_test(&self) {
+        let Some((entered, release)) =
+            self.agent_projection_rebuild_after_step.lock().unwrap().take()
+        else {
+            return;
+        };
+        entered.send(()).unwrap();
+        release.recv().unwrap();
+    }
+
+    #[cfg(test)]
+    fn install_agent_projection_rebuild_after_step_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.agent_projection_rebuild_after_step.lock().unwrap() = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    fn install_agent_projection_rebuild_finished_for_test(&self, finished: SyncSender<()>) {
+        *self.agent_projection_rebuild_finished.lock().unwrap() = Some(finished);
+    }
+
+    #[cfg(test)]
+    fn notify_agent_projection_rebuild_finished_for_test(&self) {
+        if let Some(finished) = self.agent_projection_rebuild_finished.lock().unwrap().take() {
+            finished.send(()).unwrap();
+        }
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -8366,9 +9024,28 @@ impl Mux {
         };
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
+        if let Some(existing) = records.get(&terminal_id)
+            && existing.source == AgentSource::Hook
+            && source == AgentSource::Socket
+            && matches!(
+                existing.state,
+                AgentState::Working | AgentState::Blocked | AgentState::Idle
+            )
+            && let (Some(existing_session), Some(source_session)) =
+                (existing.session.as_deref(), source_session.as_deref())
+            && existing_session != source_session
+        {
+            anyhow::bail!(
+                "this terminal already has an active agent hook session; stop the hook session, then report again"
+            );
+        }
         let record = match records.get(&terminal_id) {
             Some(existing)
-                if existing.source == AgentSource::Hook && source == AgentSource::Socket =>
+                if existing.source == AgentSource::Hook
+                    && source == AgentSource::Socket
+                    && (existing.session.is_none()
+                        || source_session.is_none()
+                        || existing.session == source_session) =>
             {
                 existing.clone()
             }
@@ -8481,7 +9158,10 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let records = self.agent_records.lock().unwrap().clone();
+        if !self.agent_projection_reads_ready.load(Ordering::Acquire) {
+            return Vec::new();
+        }
+        let records = self.agent_records.lock().unwrap().snapshot();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
@@ -8526,6 +9206,12 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
         self.journal_kernel.wake_waiters();
+        if let Some(worker) = self.agent_projection_rebuild_worker.lock().unwrap().take()
+            && worker.join().is_err()
+        {
+            eprintln!("cmux-tui: agent projection rebuild worker panicked during shutdown");
+        }
+        self.agent_projection_rebuild_running.store(false, Ordering::Release);
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
@@ -14671,6 +15357,18 @@ impl Mux {
     }
 }
 
+fn agent_terminal_ids_from_journal_ingresses<'a>(
+    ingresses: impl IntoIterator<Item = &'a crate::JournalIngress>,
+) -> anyhow::Result<HashSet<TerminalPublicId>> {
+    ingresses
+        .into_iter()
+        .filter(|ingress| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+        .flat_map(|ingress| ingress.subjects.iter())
+        .filter(|subject| subject.kind == "terminal")
+        .map(|subject| TerminalPublicId::parse(subject.id.clone()).map_err(Into::into))
+        .collect()
+}
+
 fn persist_public_topology_result(
     operation: &str,
     result: &mut Value,
@@ -15358,6 +16056,12 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        self.shutting_down.store(true, Ordering::Release);
+        if let Ok(worker_slot) = self.agent_projection_rebuild_worker.get_mut()
+            && let Some(worker) = worker_slot.take()
+        {
+            let _ = worker.join();
+        }
         if let Ok(state) = self.state.get_mut() {
             let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
             for surface in unique_surface_runtimes(state) {
@@ -17198,6 +17902,15 @@ mod tests {
         let content_id = ContentPublicId::Terminal(terminal_id.clone());
         let placements = restored.state.placements_of_content(&content_id).to_vec();
         assert_eq!(placements.len(), 2);
+        let expected_tab_ids = placements
+            .iter()
+            .filter_map(|slot| restored.state.resource_indexes.tab_ids.get(slot).cloned())
+            .collect::<HashSet<_>>();
+        let tab_order = resource_content::ordered_terminal_tab_ids(&restored.state).unwrap();
+        assert_eq!(
+            tab_order[&terminal_id].iter().cloned().collect::<HashSet<_>>(),
+            expected_tab_ids
+        );
         let first_tab = topology.tabs[0].public_id.clone();
         let source = Surface::spawn_for_test_with_resource_identity(
             placements[0],
@@ -20590,34 +21303,33 @@ mod tests {
         assert_eq!(hook.state, AgentState::Blocked);
         assert_eq!(hook.source, AgentSource::Hook);
 
-        let ignored_socket = mux
+        let error = mux
             .report_agent(
                 surface.id,
                 AgentState::Done,
                 AgentSource::Socket,
                 Some("late-socket".to_string()),
             )
-            .unwrap();
-        assert_eq!(ignored_socket.state, AgentState::Blocked);
-        assert_eq!(ignored_socket.source, AgentSource::Hook);
+            .unwrap_err();
+        let error_message = error.to_string();
+        assert!(
+            error_message.contains("active agent hook session")
+                && !error_message.contains("late-socket")
+                && !error_message.contains("hook-session"),
+            "unexpected agent projection rejection: {error_message}"
+        );
 
         let filtered = mux.list_agents(Some(surface.id), Some(AgentState::Blocked));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
-        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 2);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
-        assert_eq!(resource_events.batches.len(), 3);
+        assert_eq!(resource_events.batches.len(), 2);
         assert_eq!(resource_events.batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
-        assert_eq!(
-            resource_events.batches[2].changes[0]["value"]["source_session"],
-            "hook-session"
-        );
         assert!(matches!(
             events.recv_timeout(Duration::from_millis(100)),
             Ok(MuxEvent::AgentChanged {
@@ -20631,7 +21343,225 @@ mod tests {
                 && source.as_ref() == "hook"
                 && session.as_ref() == "hook-session"
         ));
+        assert!(events.try_iter().next().is_none());
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[test]
+    fn stale_memory_hook_report_cannot_be_replaced_by_a_conflicting_socket_report() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id,
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Hook,
+                session: Some("memory-hook-session".into()),
+                updated_at_ms: now_ms(),
+            },
+        );
+
+        let error = mux
+            .report_agent(
+                surface.id,
+                AgentState::Done,
+                AgentSource::Socket,
+                Some("conflicting-socket-session".into()),
+            )
+            .unwrap_err();
+        let error_message = error.to_string();
+        assert!(error_message.contains("active agent hook session"));
+        assert!(!error_message.contains("memory-hook-session"));
+        assert!(!error_message.contains("conflicting-socket-session"));
+    }
+
+    #[test]
+    fn newer_hook_report_replaces_an_active_hook_projection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("before".into()))
+            .unwrap();
+        let latest = mux
+            .report_agent(surface.id, AgentState::Done, AgentSource::Hook, Some("after".into()))
+            .unwrap();
+        assert_eq!(latest.state, AgentState::Done);
+        assert_eq!(latest.session.as_deref(), Some("after"));
+
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let agent = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|agent| agent["terminal_id"] == terminal_id.as_str())
+            .cloned()
+            .expect("the current hook report remains in the durable snapshot");
+        assert_eq!(agent["state"], "done");
+        assert_eq!(agent["source"], "hook");
+        assert_eq!(agent["source_session"], "after");
+    }
+
+    #[test]
+    fn agent_projection_refresh_begin_waits_for_registry_writer() {
+        let mux = test_mux();
+        let (writer_entered, writer_ready) = std::sync::mpsc::sync_channel(1);
+        let (writer_release, writer_release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer_mux = mux.clone();
+        let writer = std::thread::spawn(move || {
+            writer_mux.hold_workspace_registry_for_test(writer_entered, writer_release_rx);
+        });
+        writer_ready.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (begin_entered, begin_ready) = std::sync::mpsc::sync_channel(1);
+        let (begin_release, begin_release_rx) = std::sync::mpsc::sync_channel(1);
+        mux.install_agent_projection_begin_before_registry_for_test(
+            begin_entered,
+            begin_release_rx,
+        );
+        let (begun, begun_rx) = std::sync::mpsc::sync_channel(1);
+        let refresh = std::thread::spawn(move || {
+            mux.begin_agent_projection_cache_refresh_for_test().unwrap();
+            begun.send(()).unwrap();
+        });
+        begin_ready.recv_timeout(Duration::from_secs(1)).unwrap();
+        begin_release.send(()).unwrap();
+
+        // The registry writer remains active. A refresh must not establish a
+        // staging generation until that writer has released its ownership.
+        let began_while_registry_was_held =
+            begun_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        writer_release.send(()).unwrap();
+        let began_after_registry_release = begun_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        refresh.join().unwrap();
+        writer.join().unwrap();
+
+        assert!(!began_while_registry_was_held);
+        assert!(began_after_registry_release);
+    }
+
+    #[test]
+    fn agent_projection_rebuild_does_not_require_deadline_pool_admission() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "test-agent",
+            "agent_state_changed",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id":"rebuild-session","state":"working"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "projection-rebuild-test", "projection-rebuild")
+            .unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .mark_agent_projection_rebuild_pending_for_test()
+            .unwrap();
+        let (entered, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (finished, finished_rx) = std::sync::mpsc::sync_channel(1);
+        mux.install_agent_projection_rebuild_after_step_for_test(entered, release_rx);
+        mux.install_agent_projection_rebuild_finished_for_test(finished);
+        {
+            let mut state = mux
+                .deadline_fanout_pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.admitted_jobs = CELL_PIXEL_FANOUT_MAX_WORKERS;
+        }
+
+        mux.start_agent_projection_rebuild_worker().unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        release.send(()).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.agent_projection_rebuild_running.load(Ordering::Acquire));
+        {
+            let mut state = mux
+                .deadline_fanout_pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.admitted_jobs = 0;
+            mux.deadline_fanout_pool.inner.changed.notify_all();
+        }
+        mux.shutdown();
+    }
+
+    #[test]
+    fn agent_refresh_failure_after_new_journal_append_fails_closed_with_populated_cache() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("cached-session".into()),
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(None, None).len(), 1);
+        assert!(mux.agent_projection_reads_ready.load(Ordering::Acquire));
+
+        let ingress = crate::agent_hook_journal_ingress(
+            "test-agent",
+            "agent_state_changed",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id":"new-append-session","state":"working"}),
+        )
+        .unwrap();
+        let journal_epoch = mux.journal_event_epoch();
+        mux.fail_next_agent_projection_refresh_for_test();
+        let commit = mux.append_journal_ingress(&ingress, "new-agent-test", "new-agent").unwrap();
+
+        assert!(!commit.replayed);
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(!mux.agent_projection_reads_ready.load(Ordering::Acquire));
+        assert!(mux.list_agents(None, None).is_empty());
+    }
+
+    #[test]
+    fn replayed_agent_refresh_failure_fails_closed_with_populated_cache() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("replayed-session".into()),
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(None, None).len(), 1);
+        assert!(mux.agent_projection_reads_ready.load(Ordering::Acquire));
+
+        let ingress = crate::agent_hook_journal_ingress(
+            "test-agent",
+            "agent_state_changed",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id":"replayed-session","state":"working"}),
+        )
+        .unwrap();
+        let first =
+            mux.append_journal_ingress(&ingress, "replayed-agent-test", "replayed-agent").unwrap();
+        assert!(!first.replayed);
+        let journal_epoch = mux.journal_event_epoch();
+
+        mux.fail_next_agent_projection_refresh_for_test();
+        let error = mux
+            .append_journal_ingress(&ingress, "replayed-agent-test", "replayed-agent")
+            .unwrap_err();
+        assert!(error.to_string().contains("forced agent projection refresh failure"));
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(!mux.agent_projection_reads_ready.load(Ordering::Acquire));
+        assert!(mux.list_agents(None, None).is_empty());
     }
 
     #[test]
@@ -20698,30 +21628,64 @@ mod tests {
         assert_eq!(hook["result"]["value"]["source"], "hook");
         assert_eq!(hook["result"]["value"]["state"], "blocked");
 
-        let ignored = mux
+        let public_conflict_revision = mux.with_state(|state| state.resource_revision);
+        let public_conflict_epoch = mux.resource_event_epoch();
+        let public_conflict_batch_count =
+            mux.resource_events_after(created_revision).unwrap().batches.len();
+        let public_error = public_request(
+            &mux,
+            "agent-public-conflict",
+            "agent.report",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal_id":terminal_id,
+                "state":"done",
+                "source":"socket",
+                "source_session":"late-public-session",
+                "expected_revision":public_conflict_revision.to_string(),
+            }),
+            Some("agent-public-conflict"),
+        );
+        assert_eq!(public_error["ok"], false);
+        assert_eq!(public_error["error"]["code"], "operation.failed");
+        let public_error_message = public_error["error"]["message"].as_str().unwrap();
+        assert!(!public_error_message.contains("late-public-session"));
+        assert!(!public_error_message.contains("hook-session"));
+        assert_eq!(mux.with_state(|state| state.resource_revision), public_conflict_revision);
+        assert_eq!(mux.resource_event_epoch(), public_conflict_epoch);
+        assert_eq!(
+            mux.resource_events_after(created_revision).unwrap().batches.len(),
+            public_conflict_batch_count
+        );
+
+        let error = mux
             .report_agent(
                 surface,
                 AgentState::Done,
                 AgentSource::Socket,
                 Some("late-raw-session".into()),
             )
-            .unwrap();
-        assert_eq!(ignored.state, AgentState::Blocked);
-        assert_eq!(ignored.source, AgentSource::Hook);
-        assert_eq!(ignored.session.as_deref(), Some("hook-session"));
-        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+            .unwrap_err();
+        let error_message = error.to_string();
+        assert!(
+            error_message.contains("active agent hook session")
+                && !error_message.contains("late-raw-session")
+                && !error_message.contains("hook-session"),
+            "unexpected agent projection rejection: {error_message}"
+        );
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
         assert_eq!(
             batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
-            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+            vec![created_revision + 1, created_revision + 2]
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
         assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])
@@ -20786,6 +21750,7 @@ mod tests {
             }
         });
         let revision = mux.with_state(|state| state.resource_revision);
+        let initial_epoch = mux.resource_event_epoch();
         let barrier = Arc::new(std::sync::Barrier::new(3));
 
         let raw_thread = {
@@ -20799,7 +21764,6 @@ mod tests {
                     AgentSource::Socket,
                     Some("racing-socket".into()),
                 )
-                .unwrap()
             })
         };
         let hook_thread = {
@@ -20826,10 +21790,24 @@ mod tests {
         barrier.wait();
         let raw_result = raw_thread.join().unwrap();
         let hook_commit = hook_thread.join().unwrap();
-        assert!(matches!(raw_result.source, AgentSource::Socket | AgentSource::Hook));
-        assert!(
-            matches!(hook_commit.revision, value if value == revision + 1 || value == revision + 2)
-        );
+        let raw_succeeded = match raw_result {
+            Ok(record) => {
+                assert_eq!(record.source, AgentSource::Socket);
+                true
+            }
+            Err(error) => {
+                let error_message = error.to_string();
+                assert!(
+                    error_message.contains("active agent hook session")
+                        && !error_message.contains("racing-socket")
+                        && !error_message.contains("racing-hook"),
+                    "unexpected concurrent agent projection rejection: {error_message}"
+                );
+                false
+            }
+        };
+        let expected_revision = revision + if raw_succeeded { 2 } else { 1 };
+        assert_eq!(hook_commit.revision, expected_revision);
 
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
@@ -20838,11 +21816,17 @@ mod tests {
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let batches = mux.resource_events_after(revision).unwrap().batches;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].revision, revision + 1);
-        assert_eq!(batches[1].revision, revision + 2);
-        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        assert_eq!(batches.len(), if raw_succeeded { 2 } else { 1 });
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + if raw_succeeded { 2 } else { 1 });
+        if raw_succeeded {
+            assert_eq!(batches[0].revision, revision + 1);
+            assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
+            assert_eq!(batches[1].revision, revision + 2);
+        } else {
+            assert_eq!(batches[0].revision, revision + 1);
+        }
+        assert_eq!(batches.last().unwrap().changes[0]["value"]["source"], "hook");
+        assert_eq!(batches.last().unwrap().changes[0]["value"]["state"], "blocked");
     }
 
     #[test]
@@ -24184,6 +25168,54 @@ mod tests {
     }
 
     #[test]
+    fn no_restore_hides_agent_records_while_projection_rebuild_is_pending() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-no-restore-agents-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "no-restore-agents";
+        {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some("stale-session".into()),
+            )
+            .unwrap();
+            mux.shutdown();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry.mark_agent_projection_rebuild_pending_for_test().unwrap();
+        let mux = Mux::from_workspace_registry_with_restore(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(
+            mux.list_agents(None, None).is_empty(),
+            "no-restore must not expose the stable cache while projection rebuild is pending"
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn persistent_provider_managed_mux_keeps_registry_durable_and_lifecycle_guarded() {
         let root = std::env::temp_dir().join(format!(
             "cmux-mux-persistent-provider-{}",
@@ -26361,5 +27393,410 @@ mod tests {
         rotated_rx.recv().unwrap();
         mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
+    }
+
+    fn journal_restore_test_root(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "cmux-journal-restore-{label}-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ))
+    }
+
+    fn journal_restore_test_mux(label: &str) -> (std::path::PathBuf, Arc<Mux>) {
+        let root = journal_restore_test_root(label);
+        let session = format!("journal-restore-{label}");
+        let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session,
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        (root, mux)
+    }
+
+    fn finish_journal_restore_test(root: std::path::PathBuf, mux: Arc<Mux>) {
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn journal_restore_surface_and_terminal(mux: &Arc<Mux>) -> (SurfaceId, TerminalPublicId) {
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        (surface.id, terminal_id)
+    }
+
+    fn journal_restore_plan_after_agent(
+        mux: &Arc<Mux>,
+        surface: SurfaceId,
+    ) -> (crate::workspace_registry::JournalCheckpointCommit, JournalRestorePlan) {
+        let checkpoint = mux
+            .create_journal_checkpoint("journal-restore-test", "checkpoint-before-agent")
+            .unwrap();
+        mux.report_agent(
+            surface,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("restore-session".into()),
+        )
+        .unwrap();
+        let plan = mux.prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id).unwrap();
+        (checkpoint, plan)
+    }
+
+    fn journal_restore_required_manifest() -> crate::JournalProducerManifest {
+        crate::JournalProducerManifest {
+            producer_id: "restore_required_test".into(),
+            namespace: "plugin.restore_required_test".into(),
+            manifest_version: 1,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.restore_required_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.restore_required_test.event".into(),
+                schema_version: 1,
+                class: crate::JournalClass::State,
+                replay: crate::JournalReplayPolicy::Required,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        }
+    }
+
+    fn append_journal_restore_required_record(mux: &Arc<Mux>, key: &str) {
+        let manifest = journal_restore_required_manifest();
+        mux.put_journal_producer(&manifest, "journal-restore-test", "restore-producer").unwrap();
+        let event = manifest.events[0].clone();
+        let ingress = crate::JournalIngress {
+            producer_id: manifest.producer_id.clone(),
+            manifest_version: manifest.manifest_version,
+            kind: event.kind,
+            schema_version: event.schema_version,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: None,
+            payload: serde_json::json!({"unknown_required":true}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        mux.append_journal_ingress(&ingress, "journal-restore-test", key).unwrap();
+    }
+
+    #[test]
+    fn journal_restore_updates_durable_and_memory_projection_once() {
+        let (root, mux) = journal_restore_test_mux("projection");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        mux.corrupt_agent_projection_for_test(&terminal_id);
+        let before_epoch = mux.journal_event_epoch();
+
+        let (result, commit) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-projection",
+            )
+            .unwrap();
+
+        assert!(!commit.journal.replayed);
+        assert_eq!(result["restored"], true);
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        let agents = mux.list_agents(Some(surface), None);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert_eq!(agents[0].state, AgentState::Working);
+        assert!(mux.journal_event_epoch() > before_epoch);
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_receipt_includes_transactional_projection_status() {
+        let (root, mux) = journal_restore_test_mux("receipt-projection-status");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+
+        let (result, _commit) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-projection-status",
+            )
+            .unwrap();
+
+        let projection = &result["projection"];
+        let committed_sequence = result["sequence"].as_str().expect("restore sequence");
+        assert_eq!(projection["head_sequence"].as_str(), Some(committed_sequence));
+        assert!(projection["pending"].is_boolean());
+        assert!(
+            projection["cursor_sequence"].is_string() || projection["cursor_sequence"].is_null()
+        );
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_replay_is_idempotent_after_head_advances() {
+        let (root, mux) = journal_restore_test_mux("idempotent");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        let replay_plan = plan.clone();
+
+        let (_, first) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-idempotent",
+            )
+            .unwrap();
+        let epoch_after_first = mux.journal_event_epoch();
+        let first_agents = mux.list_agents(Some(surface), None);
+        assert_eq!(first_agents.len(), 1);
+
+        let (result, replay) = mux
+            .restore_journal_projections_with_receipt(
+                replay_plan,
+                "journal-restore-test",
+                "restore-idempotent",
+            )
+            .unwrap();
+        assert!(replay.journal.replayed);
+        assert_eq!(replay.journal.sequence, first.journal.sequence);
+        assert_eq!(result["sequence"], first.journal.sequence.to_string());
+        assert_eq!(mux.journal_event_epoch(), epoch_after_first);
+        let replay_agents = mux.list_agents(Some(surface), None);
+        assert_eq!(replay_agents.len(), first_agents.len());
+        assert_eq!(replay_agents[0].terminal_id, first_agents[0].terminal_id);
+        assert_eq!(replay_agents[0].state, first_agents[0].state);
+        assert_eq!(replay_agents[0].source, first_agents[0].source);
+        assert_eq!(replay_agents[0].session, first_agents[0].session);
+        assert_eq!(replay_agents[0].terminal_id, terminal_id);
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_reused_key_for_different_reduced_state() {
+        let (root, mux) = journal_restore_test_mux("fingerprint-state");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, mut first_plan) = journal_restore_plan_after_agent(&mux, surface);
+        first_plan.preview["state_sha256"] = Value::Null;
+        let mut second_plan = first_plan.clone();
+        let agents = second_plan.preview["state"]["session_snapshot"]["agents"]
+            .as_array_mut()
+            .expect("restore preview agents");
+        agents.first_mut().expect("restore preview agent")["state"] = json!("blocked");
+
+        mux.restore_journal_projections_with_receipt(
+            first_plan,
+            "journal-restore-test",
+            "restore-fingerprint-state",
+        )
+        .unwrap();
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                second_plan,
+                "journal-restore-test",
+                "restore-fingerprint-state",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("different payload"), "{error}");
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_state_digest_mismatch() {
+        let (root, mux) = journal_restore_test_mux("fingerprint-digest");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, mut plan) = journal_restore_plan_after_agent(&mux, surface);
+        plan.preview["state_sha256"] = json!("00".repeat(32));
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-fingerprint-digest",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("state_sha256 does not match supplied state"), "{error}");
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_replay_rehydrates_cache_after_reader_invalidation() {
+        let (root, mux) = journal_restore_test_mux("replay-cache-rehydrate");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+
+        mux.restore_journal_projections_with_receipt(
+            plan.clone(),
+            "journal-restore-test",
+            "restore-replay-cache-rehydrate",
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(Some(surface), None).len(), 1);
+
+        // A failed publication leaves the durable journal ahead of the
+        // in-memory cache. Replaying the receipt must rebuild that cache.
+        mux.agent_records.lock().unwrap().replace(HashMap::new());
+        mux.agent_projection_reads_ready.store(false, Ordering::Release);
+        let journal_epoch = mux.journal_event_epoch();
+        let resource_epoch = mux.resource_event_epoch();
+
+        let (_result, replay) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-replay-cache-rehydrate",
+            )
+            .unwrap();
+
+        assert!(replay.journal.replayed);
+        let agents = mux.list_agents(Some(surface), None);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        assert!(mux.resource_event_epoch() > resource_epoch);
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_conversion_failure_preserves_commit_and_fails_closed() {
+        let (root, mux) = journal_restore_test_mux("conversion-failure");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        let journal_epoch = mux.journal_event_epoch();
+
+        // Inject the conversion failure at the derived-cache boundary. The
+        // SQLite transaction must still be reported as committed.
+        mux.agent_projection_refresh_failure.store(true, Ordering::Release);
+        let (result, commit) = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-conversion-failure",
+            )
+            .unwrap();
+
+        assert!(!commit.journal.replayed);
+        assert_eq!(result["restored"], true);
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!mux.agent_projection_reads_ready.load(Ordering::Acquire));
+        assert!(mux.list_agents(Some(surface), None).is_empty());
+        assert!(mux.journal_event_epoch() > journal_epoch);
+        let records = mux.session_journal_after(0, 256).unwrap().records;
+        assert!(records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_concurrent_head_change_without_mutation() {
+        let (root, mux) = journal_restore_test_mux("head-fence");
+        let (surface, _terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let checkpoint =
+            mux.create_journal_checkpoint("journal-restore-test", "checkpoint-head-fence").unwrap();
+        let plan = mux.prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id).unwrap();
+        mux.report_agent(
+            surface,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("head-fence-session".into()),
+        )
+        .unwrap();
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-head-fence",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("journal head changed while preparing restore"), "{error}");
+        let records = mux.session_journal_after(0, 256).unwrap().records;
+        assert!(!records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_incompatible_required_records_without_mutation() {
+        let (root, mux) = journal_restore_test_mux("incompatible");
+        let checkpoint = mux
+            .create_journal_checkpoint("journal-restore-test", "checkpoint-incompatible")
+            .unwrap();
+        append_journal_restore_required_record(&mux, "restore-incompatible");
+        let plan = mux.prepare_journal_restore(&checkpoint.checkpoint.checkpoint_id).unwrap();
+        assert_eq!(plan.preview["fully_reducible"], false);
+        assert_eq!(plan.preview["unsupported_required_record_count"], "1");
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-incompatible",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("journal restore is not fully reducible"), "{error}");
+        let records = mux.session_journal_after(0, 256).unwrap().records;
+        assert!(!records.iter().any(|record| record.kind == "journal.restore.applied"));
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_restore_rejects_deleted_terminal_agent_projection() {
+        let (root, mux) = journal_restore_test_mux("deleted-agent");
+        let (surface, terminal_id) = journal_restore_surface_and_terminal(&mux);
+        let (_checkpoint, plan) = journal_restore_plan_after_agent(&mux, surface);
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .mark_terminal_deleted_for_test(&terminal_id)
+            .unwrap();
+
+        let preview_error = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .validate_reduced_agent_state(&plan.preview["state"], plan.head_sequence)
+            .unwrap_err()
+            .to_string();
+        assert!(preview_error.contains("unknown or deleted terminal"), "{preview_error}");
+
+        let error = mux
+            .restore_journal_projections_with_receipt(
+                plan,
+                "journal-restore-test",
+                "restore-deleted-agent",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown or deleted terminal"), "{error}");
+        finish_journal_restore_test(root, mux);
+    }
+
+    #[test]
+    fn journal_inspect_keeps_immutable_history_diagnostics_actionable() {
+        let (root, mux) = journal_restore_test_mux("immutable");
+        let checkpoint =
+            mux.create_journal_checkpoint("journal-restore-test", "checkpoint-immutable").unwrap();
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let connection = rusqlite::Connection::open(database).unwrap();
+        let error = connection
+            .execute(
+                "UPDATE journal_checkpoints SET sha256 = ?1 WHERE checkpoint_id = ?2",
+                rusqlite::params!["00".repeat(32), &checkpoint.checkpoint.checkpoint_id],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("journal checkpoints are immutable"), "{error}");
+        drop(connection);
+
+        let inspected = mux.journal_inspect(Some(&checkpoint.checkpoint.checkpoint_id)).unwrap();
+        assert_eq!(inspected["checkpoint"]["checkpoint_id"], checkpoint.checkpoint.checkpoint_id);
+        assert_eq!(inspected["preview"]["checkpoint_id"], checkpoint.checkpoint.checkpoint_id);
+        finish_journal_restore_test(root, mux);
     }
 }

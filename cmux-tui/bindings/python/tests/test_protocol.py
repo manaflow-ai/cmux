@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import inspect
 import os
+import socket
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from cmux.raw import (
+    CmuxClient,
     MISSING,
     MUX_PROTOCOL,
     UnknownEvent,
     default_socket_path,
     env_socket_path,
+    validate_session_name,
 )
+from cmux.resources import Client as ResourceClient
 from cmux.raw._generated import models
 from cmux.raw._generated._schema import SCHEMA
 from cmux.raw._generated.client import GeneratedClientMixin
@@ -139,6 +144,81 @@ class GeneratedProtocolTests(unittest.TestCase):
                 default_socket_path("sdk"),
                 f"/temporary/cmux-tui-{os.getuid()}/sdk.sock",
             )
+
+    def test_session_socket_paths_reject_unsafe_names_before_joining(self) -> None:
+        for session in (
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            r"nested\session",
+            "bad\x00name",
+            "bad\nname",
+            "bad\u0085name",
+            "bad\u2028name",
+            "bad\u2029name",
+            "\ufdd0name",
+            "\U0001fffe_name",
+            "\U0010ffff_name",
+            "bad:session",
+            'bad"session',
+            "bad<session",
+            "bad>session",
+            "bad|session",
+            "bad*session",
+            "bad?session",
+        ):
+            with self.assertRaises(ValueError, msg=repr(session)):
+                default_socket_path(session)
+
+        for session in (
+            "legacy name",
+            "名前",
+            "_legacy",
+            "-legacy",
+        ):
+            self.assertTrue(default_socket_path(session).endswith(f"/{session}.sock"))
+        validate_session_name(f"legacy-{'x' * 200}")
+
+        with patch("cmux.raw.client.JsonLineConnection") as connection:
+            with self.assertRaises(ValueError):
+                CmuxClient(session="../escape")
+            connection.assert_not_called()
+        with patch("cmux.resources.ProtocolConnection") as connection:
+            with self.assertRaises(ValueError):
+                ResourceClient(session="../escape")
+            connection.assert_not_called()
+
+    def test_long_session_socket_path_uses_bindable_digest_fallback(self) -> None:
+        session = f"legacy-{'x' * 200}"
+        expected_digest = (
+            "e538a84493067947f7376110a6f695dd3"
+            "db062b67eee939c3660c07f3f47dce2"
+        )
+        path = Path(default_socket_path(session))
+        self.assertEqual(path.name, f"{expected_digest}.sock")
+        self.assertEqual(path.parent.name, f"cmux-tui-hashed-{os.getuid()}")
+        capacity = 104 if os.uname().sysname == "Darwin" else 108
+        self.assertLess(len(os.fsencode(path)), capacity)
+
+        bind_session = f"python-sdk-bind-{os.getpid()}-{'x' * 200}"
+        bind_path = Path(default_socket_path(bind_session))
+        bind_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        bind_path.unlink(missing_ok=True)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            listener.bind(os.fspath(bind_path))
+        finally:
+            listener.close()
+            bind_path.unlink(missing_ok=True)
+
+    def test_session_validation_rejects_lone_surrogates_early(self) -> None:
+        session = "bad\ud800name"
+        with self.assertRaises(ValueError):
+            validate_session_name(session)
+        with self.assertRaises(ValueError):
+            default_socket_path(session)
 
 
 if __name__ == "__main__":

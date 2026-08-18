@@ -6,7 +6,8 @@
 
 pub use crate::client::{
     ClientConfig, CmuxClient as Client, CmuxError as Error, CmuxStream as Stream, Result,
-    ServerInfo, StreamCloser, default_socket_path, env_socket_path,
+    ServerInfo, StreamCloser, default_socket_path, env_socket_path, try_default_socket_path,
+    validate_session_name,
 };
 pub use crate::convenience::{AttachBuilder, SubscriptionBuilder};
 pub use crate::generated::*;

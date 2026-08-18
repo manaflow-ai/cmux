@@ -299,6 +299,20 @@ pub(crate) struct JournalIngressSender {
     writer: Mutex<Option<JournalWriter>>,
 }
 
+/// Queue-space access that does not retain the owning mux. Terminal readers
+/// may wait for ingress capacity while the mux is shutting down, so this
+/// handle owns only the ingress state and its wake condition.
+#[derive(Clone)]
+pub(crate) struct JournalIngressWaiter {
+    state: Arc<JournalIngressState>,
+}
+
+impl JournalIngressWaiter {
+    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
+        self.state.wait_for_queue_space(observed)
+    }
+}
+
 pub(crate) struct JournalWriter {
     thread: std::thread::JoinHandle<()>,
     finished: Receiver<()>,
@@ -356,6 +370,8 @@ struct JournalIngressState {
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
     enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
+    #[cfg(test)]
+    queue_space_wait_notifier: Mutex<Option<SyncSender<()>>>,
 }
 
 impl JournalIngressState {
@@ -412,6 +428,10 @@ impl JournalIngressState {
     }
 
     fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(notifier) = self.queue_space_wait_notifier.lock().unwrap().take() {
+            let _ = notifier.send(());
+        }
         let mut epoch = self.queue_space_epoch.lock().unwrap();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
@@ -642,6 +662,10 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    pub(crate) fn queue_space_waiter(&self) -> JournalIngressWaiter {
+        JournalIngressWaiter { state: self.state.clone() }
+    }
+
     pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
         self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
     }
@@ -682,6 +706,11 @@ impl JournalIngressSender {
     #[cfg(test)]
     fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
         *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_queue_space_wait_notifier_for_test(&self, notifier: SyncSender<()>) {
+        *self.state.queue_space_wait_notifier.lock().unwrap() = Some(notifier);
     }
 
     fn enqueue(
@@ -761,10 +790,6 @@ impl JournalIngressSender {
             }
             self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }
-    }
-
-    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
-        self.state.wait_for_queue_space(observed)
     }
 
     fn writer_error(&self) -> String {

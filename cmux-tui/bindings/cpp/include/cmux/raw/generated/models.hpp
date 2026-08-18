@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529";
+inline constexpr std::string_view kProtocolIrSha256 = "df830f6904ce11526857fee757f7c1521253b0ceccd40e71fdcdd51062aba0f7";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -304,11 +304,12 @@ enum class AgentSource {
 };
 
 enum class AgentState {
-    working,
-    blocked,
-    idle,
-    done,
-    unknown,
+    working = 0,
+    blocked = 1,
+    idle = 2,
+    done = 3,
+    interrupted = 5,
+    unknown = 4,
 };
 
 struct Id {

@@ -2080,6 +2080,51 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
 }
 
 #[test]
+fn resource_mutation_pruning_defers_during_agent_generation_backfill() {
+    let mut registry = WorkspaceRegistry::in_memory("mutation-backfill-fence").unwrap();
+    let count = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY + 1;
+    let interval = resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL;
+    let count_u64 = u64::try_from(count).unwrap();
+    let checkpoint = count_u64.div_ceil(interval) * interval;
+    let tx = registry.connection.transaction().unwrap();
+    for index in 0..count {
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               idempotency_key, origin, operation, fingerprint, result_json,
+               committed_revision
+             ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+            params![
+                format!("backfill-fence-{index:08}"),
+                canonical_json(&json!({"sequence":index})).unwrap(),
+                canonical_json(&json!({"sequence":index})).unwrap(),
+                i64::try_from(index + 1).unwrap(),
+            ],
+        )
+        .unwrap();
+    }
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [checkpoint.to_string()],
+    )
+    .unwrap();
+    tx.execute("DELETE FROM meta WHERE key = 'resource_agent_session_generation_backfill_v2'", [])
+        .unwrap();
+    resource_store::prune_resource_mutations(&tx).unwrap();
+    tx.commit().unwrap();
+
+    assert_eq!(registry.resource_mutation_count_for_test().unwrap(), count as u64);
+    let oldest_row_count: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
+            ["backfill-fence-00000000"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(oldest_row_count, 1);
+}
+
+#[test]
 fn completed_creation_counts_in_the_boundary_replay_window() {
     let mut registry = WorkspaceRegistry::in_memory("creation-mutation-bound").unwrap();
     let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
@@ -4650,6 +4695,82 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
     assert_eq!(projections[0].projection["window_id"], projection_id.as_str());
     assert_eq!(projections[0].projection["generation"], "legacy-schema-13");
     assert_eq!(projections[0].projection["projection"], json!({"selected_workspace":"alpha"}));
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_schema_rebuilds_legacy_agent_projection_change_constraints() {
+    let root = temp_root("current-schema-agent-rebuild-constraint");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "agent-rebuild-constraint-seed");
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_agent_projection_rebuild_changes(
+                   terminal_id, previous_result_json, previous_committed_revision
+                 ) VALUES(?1, ?2, ?3)",
+                params![
+                    terminal_id.as_str(),
+                    json!({"terminal_id":terminal_id.as_str()}).to_string(),
+                    7_i64,
+                ],
+            )
+            .unwrap();
+    }
+
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             CREATE TABLE resource_agent_projection_rebuild_changes_legacy (
+               terminal_id TEXT PRIMARY KEY NOT NULL
+                 REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+               previous_result_json TEXT,
+               previous_committed_revision INTEGER
+             );
+             INSERT INTO resource_agent_projection_rebuild_changes_legacy(
+               terminal_id, previous_result_json, previous_committed_revision
+             )
+             SELECT terminal_id, previous_result_json, previous_committed_revision
+             FROM resource_agent_projection_rebuild_changes;
+             DROP TABLE resource_agent_projection_rebuild_changes;
+             ALTER TABLE resource_agent_projection_rebuild_changes_legacy
+               RENAME TO resource_agent_projection_rebuild_changes;
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    let restored: (String, i64) = migrated
+        .connection
+        .query_row(
+            "SELECT previous_result_json, previous_committed_revision
+             FROM resource_agent_projection_rebuild_changes
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(restored.0, json!({"terminal_id":terminal_id.as_str()}).to_string());
+    assert_eq!(restored.1, 7);
+
+    let error = migrated
+        .connection
+        .execute(
+            "UPDATE resource_agent_projection_rebuild_changes
+             SET previous_result_json = '{}', previous_committed_revision = NULL
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("CHECK constraint failed"), "unexpected error: {error}");
     drop(migrated);
     fs::remove_dir_all(root).unwrap();
 }

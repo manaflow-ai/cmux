@@ -51,3 +51,17 @@ as an unsigned decimal string.
 `ClientOptions.DialContext` supports injected transports and tests. The default
 transport uses a Unix session socket, with a Windows-compatible build fallback
 that requires injection.
+
+When no explicit socket or inherited socket environment variable is set,
+`NewClient` converts an empty `ClientOptions.Session` to the legacy `main`
+session before deriving a path. For a non-empty session, `.`, `..`, path
+separators, NUL, Unicode control characters, Unicode line separators, Unicode
+noncharacters, Windows-reserved filename characters, and malformed UTF-8
+return `ErrInvalidArgument`. The lower-level `ResolveSocketPath` function
+rejects an explicitly empty derived session. Explicit or inherited socket
+paths take precedence and do not require session validation. Spaces, Unicode,
+and punctuation that is safe for the target platform remain valid. Long names
+that exceed the Unix socket limit use the shared SHA-256 fallback below
+`/tmp/cmux-tui-hashed-<uid>`.
+Windows named-pipe support remains experimental and still requires an injected
+dialer.

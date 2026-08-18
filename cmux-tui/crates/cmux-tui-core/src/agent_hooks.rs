@@ -8,12 +8,64 @@ use crate::{
 };
 
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
-pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
+pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 3;
 const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+const AGENT_CANONICAL_NATIVE_FORMAT: &str = "cmux.agent-native.canonical.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
+const MAX_LABEL_BYTES: usize = 128;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
+const AGENT_SESSION_SUBJECT_FORMAT: &[u8] = b"cmux.agent-session.v1\0";
+const PROPERTIES_INFO_ID_PATH: &[&str] = &["properties", "info", "id"];
+const EVENT_PROPERTIES_INFO_ID_PATH: &[&str] = &["event", "properties", "info", "id"];
+const EXPLICIT_AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
+    &["session_id"],
+    &["sessionId"],
+    &["sessionID"],
+    &["session", "id"],
+    &["properties", "sessionID"],
+    &["properties", "sessionId"],
+    &["event", "properties", "sessionID"],
+    &["event", "properties", "sessionId"],
+    &["event", "properties", "info", "sessionID"],
+    &["event", "properties", "info", "sessionId"],
+    &["event", "session_id"],
+    &["event", "sessionId"],
+    &["context", "session_id"],
+    &["context", "sessionId"],
+];
+const AGENT_CONVERSATION_ID_PATHS: &[&[&str]] = &[
+    &["conversation_id"],
+    &["conversationId"],
+    &["event", "conversation_id"],
+    &["event", "conversationId"],
+    &["context", "conversation_id"],
+    &["context", "conversationId"],
+];
+const AGENT_THREAD_ID_PATHS: &[&[&str]] = &[
+    &["thread_id"],
+    &["threadId"],
+    &["threadID"],
+    &["event", "thread_id"],
+    &["event", "threadId"],
+    &["event", "threadID"],
+    &["event", "thread", "id"],
+    &["context", "thread_id"],
+    &["context", "threadId"],
+    &["context", "threadID"],
+    &["context", "thread", "id"],
+];
+const AMBIGUOUS_AGENT_SESSION_ID_PATHS: &[&[&str]] =
+    &[PROPERTIES_INFO_ID_PATH, EVENT_PROPERTIES_INFO_ID_PATH];
+
+#[derive(Clone, Copy, Default)]
+struct ValidatedAgentIdentifiers<'a> {
+    session_id: Option<&'a str>,
+    conversation_id: Option<&'a str>,
+    thread_id: Option<&'a str>,
+}
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -40,12 +92,23 @@ pub fn agent_hook_journal_ingress(
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
     let native = redact_agent_native(native_event, native);
-    let mut normalized = normalized_fields(&native);
+    let identifiers = validate_agent_session_identifiers(&native)?;
+    let mut normalized = normalized_fields(&native, identifiers);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
-    let mut subjects = Vec::with_capacity(4);
-    if let Some(terminal_id) = terminal_id {
+    let native = canonical_native_payload(source, native_event, &normalized);
+    let mut subjects = Vec::with_capacity(5);
+    if let Some(terminal_id) = terminal_id.as_ref() {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
+    }
+    if let Some(terminal_id) = terminal_id.as_ref()
+        && !normalized_agent_is_nested(&normalized)
+        && let Some(source_session) = normalized
+            .get("agent_session_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+    {
+        subjects.push(agent_session_subject(terminal_id.as_str(), source, source_session));
     }
     for (field, kind) in [
         ("agent_tree_id", "agent_tree"),
@@ -74,6 +137,36 @@ pub fn agent_hook_journal_ingress(
         causation_id: None,
         correlation_id: None,
     })
+}
+
+pub(crate) fn agent_session_subject(
+    terminal_id: &str,
+    provider: &str,
+    source_session: &str,
+) -> JournalSubject {
+    let mut digest = Sha256::new();
+    digest.update(AGENT_SESSION_SUBJECT_FORMAT);
+    for component in [terminal_id, provider, source_session] {
+        digest.update((component.len() as u64).to_be_bytes());
+        digest.update(component.as_bytes());
+    }
+    let digest = digest.finalize();
+    let mut id = String::with_capacity(digest.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in digest.iter().copied() {
+        id.push(char::from(HEX[usize::from(byte >> 4)]));
+        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    JournalSubject { kind: "agent_session".into(), id }
+}
+
+pub(crate) fn normalized_agent_is_nested(normalized: &Map<String, Value>) -> bool {
+    normalized.get("agent_depth").and_then(Value::as_u64).is_some_and(|depth| depth > 0)
+        || normalized.get("parent_agent_node_id").is_some()
+        || normalized
+            .get("agent_relation")
+            .and_then(Value::as_str)
+            .is_some_and(|relation| relation != "root")
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
@@ -187,7 +280,67 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
             },
             "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
             "normalized":{"type":"object"},
-            "native":{}
+            "native":{
+                "type":"object",
+                "required":["format","provider","native_event","identifiers","checkpoint","topology","lifecycle"],
+                "properties":{
+                    "format":{"const":AGENT_CANONICAL_NATIVE_FORMAT},
+                    "provider":{
+                        "type":"string",
+                        "minLength":1,
+                        "maxLength":MAX_AGENT_SOURCE_BYTES,
+                        "pattern":"^[a-z0-9_-]+$"
+                    },
+                    "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
+                    "identifiers":{
+                        "type":"object",
+                        "properties":{
+                            "agent_session_id":{"type":"string"},
+                            "conversation_id":{"type":"string"},
+                            "thread_id":{"type":"string"},
+                            "turn_id":{"type":"string"},
+                            "tool_use_id":{"type":"string"},
+                            "native_agent_id":{"type":"string"},
+                            "native_child_agent_id":{"type":"string"},
+                            "native_parent_agent_id":{"type":"string"},
+                            "native_root_agent_id":{"type":"string"},
+                            "root_agent_session_id":{"type":"string"},
+                            "parent_agent_session_id":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "checkpoint":{
+                        "type":"object",
+                        "properties":{
+                            "cwd":{"type":"string"},
+                            "transcript_path":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "topology":{
+                        "type":"object",
+                        "properties":{
+                            "agent_tree_id":{"type":"string"},
+                            "agent_node_id":{"type":"string"},
+                            "parent_agent_node_id":{"type":"string"},
+                            "agent_relation":{"type":"string"},
+                            "agent_identity_quality":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "lifecycle":{
+                        "type":"object",
+                        "properties":{
+                            "tool_name":{"type":"string"},
+                            "agent_name":{"type":"string"},
+                            "agent_type":{"type":"string"},
+                            "agent_depth":{"type":"integer","minimum":0}
+                        },
+                        "additionalProperties":false
+                    }
+                },
+                "additionalProperties":false
+            }
         },
         "additionalProperties":false
     });
@@ -239,8 +392,11 @@ fn semantic_kind(
     normalized: &Map<String, Value>,
 ) -> &'static str {
     let event = semantic_key(native_event);
-    let tool =
-        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
+    let tool = normalized
+        .get("tool_name")
+        .and_then(Value::as_str)
+        .map(semantic_tool_key)
+        .unwrap_or_default();
     if tool == "askuserquestion" {
         return "agent.question.requested";
     }
@@ -312,34 +468,21 @@ fn is_child_completion(event: &str) -> bool {
     )
 }
 
-fn normalized_fields(native: &Value) -> Map<String, Value> {
+fn normalized_fields(
+    native: &Value,
+    identifiers: ValidatedAgentIdentifiers<'_>,
+) -> Map<String, Value> {
     let mut normalized = Map::new();
+    for (field, value) in [
+        ("agent_session_id", identifiers.session_id),
+        ("conversation_id", identifiers.conversation_id),
+        ("thread_id", identifiers.thread_id),
+    ] {
+        if let Some(value) = value.and_then(|value| normalized_provider_string(field, value)) {
+            normalized.insert(field.into(), Value::String(value));
+        }
+    }
     for (field, paths) in [
-        (
-            "agent_session_id",
-            &[
-                &["session_id"][..],
-                &["sessionId"][..],
-                &["sessionID"][..],
-                &["conversation_id"][..],
-                &["thread_id"][..],
-                &["session", "id"][..],
-                &["properties", "sessionID"][..],
-                &["properties", "sessionId"][..],
-                &["properties", "info", "id"][..],
-                &["event", "properties", "sessionID"][..],
-                &["event", "properties", "sessionId"][..],
-                &["event", "properties", "info", "id"][..],
-                &["event", "properties", "info", "sessionID"][..],
-                &["event", "properties", "info", "sessionId"][..],
-                &["event", "session_id"][..],
-                &["event", "sessionId"][..],
-                &["event", "thread", "id"][..],
-                &["context", "session_id"][..],
-                &["context", "sessionId"][..],
-                &["context", "thread", "id"][..],
-            ][..],
-        ),
         (
             "turn_id",
             &[
@@ -413,23 +556,6 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["event", "tool", "name"][..],
                 &["context", "tool_name"][..],
                 &["context", "toolName"][..],
-            ][..],
-        ),
-        (
-            "message",
-            &[
-                &["message"][..],
-                &["last_assistant_message"][..],
-                &["response"][..],
-                &["summary"][..],
-                &["properties", "message"][..],
-                &["event", "properties", "message"][..],
-                &["event", "properties", "info", "message"][..],
-                &["event", "message"][..],
-                &["event", "last_assistant_message"][..],
-                &["event", "response"][..],
-                &["event", "summary"][..],
-                &["context", "message"][..],
             ][..],
         ),
         (
@@ -574,9 +700,10 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
             ][..],
         ),
     ] {
-        if let Some(value) = first_string_at(native, paths) {
-            normalized
-                .insert(field.into(), Value::String(truncate_utf8(value, NORMALIZED_TEXT_BYTES)));
+        if let Some(value) = first_string_at(native, paths)
+            && let Some(value) = normalized_provider_string(field, value)
+        {
+            normalized.insert(field.into(), Value::String(value));
         }
     }
     if let Some(depth) = first_value_at(
@@ -596,6 +723,187 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
         normalized.insert("agent_depth".into(), Value::from(depth));
     }
     normalized
+}
+
+fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
+    match field {
+        "message" => None,
+        "agent_session_id"
+        | "conversation_id"
+        | "thread_id"
+        | "turn_id"
+        | "tool_use_id"
+        | "native_agent_id"
+        | "native_child_agent_id"
+        | "native_parent_agent_id"
+        | "native_root_agent_id"
+        | "root_agent_session_id"
+        | "parent_agent_session_id" => safe_opaque_identifier(value).then(|| value.to_string()),
+        "cwd" | "transcript_path" => {
+            let value = truncate_utf8(value, NORMALIZED_TEXT_BYTES);
+            safe_checkpoint_path(&value).then_some(value)
+        }
+        "tool_name" => {
+            let value = truncate_utf8(value, MAX_LABEL_BYTES);
+            safe_tool_name(&value).then_some(value)
+        }
+        "agent_name" | "agent_type" => {
+            let value = truncate_utf8(value, MAX_LABEL_BYTES);
+            safe_label(&value).then_some(value)
+        }
+        _ => None,
+    }
+}
+
+fn validate_agent_session_identifiers<'a>(
+    native: &'a Value,
+) -> anyhow::Result<ValidatedAgentIdentifiers<'a>> {
+    let explicit =
+        validate_agent_session_identifier_paths(native, EXPLICIT_AGENT_SESSION_ID_PATHS)?;
+    let conversation =
+        validate_agent_identifier_paths(native, AGENT_CONVERSATION_ID_PATHS, "conversation")?;
+    let thread = validate_agent_identifier_paths(native, AGENT_THREAD_ID_PATHS, "thread")?;
+    let ambiguous = if explicit.is_none() && conversation.is_none() && thread.is_none() {
+        validate_agent_session_identifier_paths(native, AMBIGUOUS_AGENT_SESSION_ID_PATHS)?
+    } else {
+        None
+    };
+    // Conversation and thread IDs are separate provider facts. They remain
+    // normalized independently, while legacy providers may use one as the
+    // session identity when no explicit session alias is present.
+    Ok(ValidatedAgentIdentifiers {
+        session_id: explicit.or(conversation).or(thread).or(ambiguous),
+        conversation_id: conversation,
+        thread_id: thread,
+    })
+}
+
+fn validate_agent_session_identifier_paths<'a>(
+    native: &'a Value,
+    paths: &[&[&str]],
+) -> anyhow::Result<Option<&'a str>> {
+    validate_agent_identifier_paths(native, paths, "session")
+}
+
+fn validate_agent_identifier_paths<'a>(
+    native: &'a Value,
+    paths: &[&[&str]],
+    kind: &str,
+) -> anyhow::Result<Option<&'a str>> {
+    let mut identifier: Option<&str> = None;
+    for path in paths {
+        let Some(value) = agent_session_identifier_at_path(native, path) else {
+            continue;
+        };
+        let value = value.trim();
+        anyhow::ensure!(
+            safe_opaque_identifier(value),
+            "agent {kind} identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
+        );
+        if let Some(expected) = identifier {
+            anyhow::ensure!(value == expected, "conflicting agent {kind} identifiers");
+        } else {
+            identifier = Some(value);
+        }
+    }
+    Ok(identifier)
+}
+
+fn agent_session_identifier_at_path<'a>(native: &'a Value, path: &[&str]) -> Option<&'a str> {
+    let info = if path == PROPERTIES_INFO_ID_PATH {
+        native.get("properties")?.get("info")?
+    } else if path == EVENT_PROPERTIES_INFO_ID_PATH {
+        native.get("event")?.get("properties")?.get("info")?
+    } else {
+        return path
+            .iter()
+            .try_fold(native, |value, component| value.get(*component))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+    };
+    if ["sessionID", "sessionId"].iter().any(|field| {
+        info.get(*field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty())
+    }) {
+        return None;
+    }
+    info.get("id").and_then(Value::as_str).filter(|value| !value.trim().is_empty())
+}
+
+fn safe_opaque_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_OPAQUE_IDENTIFIER_BYTES
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_checkpoint_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= NORMALIZED_TEXT_BYTES
+        && !value.contains("://")
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_LABEL_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn safe_tool_name(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_LABEL_BYTES && !value.chars().any(char::is_control)
+}
+
+fn canonical_native_payload(
+    source: &str,
+    native_event: &str,
+    normalized: &Map<String, Value>,
+) -> Value {
+    json!({
+        "format":AGENT_CANONICAL_NATIVE_FORMAT,
+        "provider":source,
+        "native_event":native_event,
+        "identifiers":canonical_field_group(normalized, &[
+            "agent_session_id",
+            "conversation_id",
+            "thread_id",
+            "turn_id",
+            "tool_use_id",
+            "native_agent_id",
+            "native_child_agent_id",
+            "native_parent_agent_id",
+            "native_root_agent_id",
+            "root_agent_session_id",
+            "parent_agent_session_id",
+        ]),
+        "checkpoint":canonical_field_group(normalized, &[
+            "cwd",
+            "transcript_path",
+        ]),
+        "topology":canonical_field_group(normalized, &[
+            "agent_tree_id",
+            "agent_node_id",
+            "parent_agent_node_id",
+            "agent_relation",
+            "agent_identity_quality",
+        ]),
+        "lifecycle":canonical_field_group(normalized, &[
+            "tool_name",
+            "agent_name",
+            "agent_type",
+            "agent_depth",
+        ]),
+    })
+}
+
+fn canonical_field_group(normalized: &Map<String, Value>, fields: &[&str]) -> Value {
+    let mut group = Map::new();
+    for field in fields {
+        if let Some(value) = normalized.get(*field) {
+            group.insert((*field).into(), value.clone());
+        }
+    }
+    Value::Object(group)
 }
 
 fn add_agent_topology(
@@ -655,8 +963,6 @@ fn add_agent_topology(
                 native_root_agent_id.as_deref().map(|identity| ("agent", identity, "native_root"))
             })
     };
-    let fallback_agent_name =
-        child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
     let (node_id, identity_quality) = match node_identity {
         Some((identity_kind, identity, quality)) => {
             let is_root = (identity_kind == scope_kind && identity == scope_identity.as_str())
@@ -671,17 +977,6 @@ fn add_agent_topology(
             (node_id, quality.to_string())
         }
         None if !child_event => (root_node_id.clone(), "session_root".into()),
-        None if fallback_agent_name.is_some() => {
-            let name = fallback_agent_name.expect("presence checked");
-            let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
-            let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-            if turn.is_empty() && tool.is_empty() {
-                normalized.insert("agent_relation".into(), Value::String("unknown".into()));
-                return;
-            }
-            let identity = format!("name:{name}\0turn:{turn}\0tool:{tool}");
-            (stable_agent_node_id(&tree_id, "name_fallback", &identity), "name_fallback".into())
-        }
         None => {
             normalized.insert("agent_relation".into(), Value::String("unknown".into()));
             return;
@@ -744,12 +1039,15 @@ fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
 }
 
 fn first_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
+    first_raw_string_at(native, paths).map(str::trim)
+}
+
+fn first_raw_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
     paths.iter().find_map(|path| {
         path.iter()
             .try_fold(native, |value, component| value.get(*component))
             .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.trim().is_empty())
     })
 }
 
@@ -778,12 +1076,59 @@ fn semantic_key(value: &str) -> String {
         .collect()
 }
 
+fn semantic_tool_key(value: &str) -> String {
+    let segments = value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let matches_suffix = |suffix: &[&str]| {
+        segments.len() >= suffix.len()
+            && segments[segments.len() - suffix.len()..]
+                .iter()
+                .zip(suffix)
+                .all(|(segment, expected)| semantic_key(segment).as_str() == *expected)
+    };
+    let final_segment = segments.last().map(|segment| semantic_key(segment)).unwrap_or_default();
+    // MCP adapters commonly namespace tools with `/`, `:`, or `__`. Match a
+    // complete final tool name, while avoiding arbitrary substring matches.
+    if final_segment == "askuserquestion" || matches_suffix(&["ask", "user", "question"]) {
+        "askuserquestion".into()
+    } else if final_segment == "exitplanmode" || matches_suffix(&["exit", "plan", "mode"]) {
+        "exitplanmode".into()
+    } else {
+        semantic_key(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
+    fn canonical_native_payload_has_a_bounded_shape() {
+        let ingress = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({
+                "session_id":"migration-session",
+                "opaque":{"v":42}
+            }),
+        )
+        .unwrap();
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "codex");
+        assert_eq!(ingress.payload["native"]["native_event"], "Stop");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "migration-session"
+        );
+        assert!(ingress.payload["native"].get("session_id").is_none());
+        assert!(ingress.payload["native"].get("opaque").is_none());
+    }
+
+    #[test]
+    fn completion_hooks_share_one_semantic_kind_and_canonicalize_native_payload() {
         for (source, event) in [
             ("codex", "Stop"),
             ("claude", "Stop"),
@@ -795,9 +1140,13 @@ mod tests {
             let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
             let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
             assert_eq!(ingress.kind, "agent.turn.completed");
-            assert_eq!(ingress.payload["native"]["session_id"], native["session_id"]);
-            assert_eq!(ingress.payload["native"]["message"], REDACTED_AGENT_VALUE);
-            assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
+            assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+            assert_eq!(ingress.payload["native"]["provider"], source);
+            assert_eq!(ingress.payload["native"]["native_event"], event);
+            assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "native-1");
+            assert!(ingress.payload["native"].get("session_id").is_none());
+            assert!(ingress.payload["native"].get("message").is_none());
+            assert!(ingress.payload["native"].get("opaque").is_none());
             assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
             assert_eq!(ingress.payload["adapter"]["id"], source);
             assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
@@ -816,7 +1165,10 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(ingress.payload["native"]["redacted"], true);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "pi");
+        assert_eq!(ingress.payload["native"]["native_event"], "input");
+        assert!(ingress.payload["native"].get("redacted").is_none());
         let encoded = serde_json::to_string(&ingress.payload).unwrap();
         assert!(!encoded.contains("do not persist this prompt"));
         assert!(!encoded.contains("do not persist this token"));
@@ -832,12 +1184,17 @@ mod tests {
             }),
         )
         .unwrap();
+        assert_eq!(credential.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(credential.payload["native"]["provider"], "codex");
+        assert_eq!(credential.payload["native"]["native_event"], "Stop");
+        assert_eq!(credential.payload["native"]["identifiers"]["agent_session_id"], "safe-session");
+        assert!(credential.payload["native"].get("nested").is_none());
+        assert!(credential.payload["native"].get("opaque").is_none());
         assert_eq!(credential.payload["normalized"]["agent_session_id"], "safe-session");
-        assert_eq!(credential.payload["native"]["nested"]["opaque"], 42);
         let encoded = serde_json::to_string(&credential.payload).unwrap();
         assert!(!encoded.contains("do not persist this credential"));
         assert!(!encoded.contains("do not persist this tool input"));
-        assert!(encoded.contains(REDACTED_AGENT_VALUE));
+        assert!(!encoded.contains(REDACTED_AGENT_VALUE));
     }
 
     #[test]
@@ -858,6 +1215,20 @@ mod tests {
         .unwrap();
         assert_eq!(question.kind, "agent.question.requested");
         assert_eq!(plan.kind, "agent.plan_review.requested");
+    }
+
+    #[test]
+    fn namespaced_question_tool_names_keep_semantic_classification() {
+        let question = agent_hook_journal_ingress(
+            "claude-code",
+            "PermissionRequest",
+            None,
+            json!({"tool_name":"server/ask_user_question"}),
+        )
+        .unwrap();
+
+        assert_eq!(question.kind, "agent.question.requested");
+        assert_eq!(question.payload["normalized"]["tool_name"], "server/ask_user_question");
     }
 
     #[test]
@@ -892,14 +1263,98 @@ mod tests {
             "context":{"cwd":"/tmp/project"},
             "provider_only":{"opaque":42}
         });
-        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
+        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
-        assert_eq!(ingress.payload["native"]["provider_only"], native["provider_only"]);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "amp");
+        assert_eq!(ingress.payload["native"]["native_event"], "Stop");
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["native"]["identifiers"]["thread_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["native"]["identifiers"]["turn_id"], "turn-7");
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["native"]["lifecycle"]["tool_name"], "Bash");
+        assert!(ingress.payload["native"].get("provider_only").is_none());
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["normalized"]["thread_id"], "amp-thread-1");
         assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
-        assert_eq!(ingress.payload["normalized"]["message"], REDACTED_AGENT_VALUE);
+        assert!(ingress.payload["normalized"].get("message").is_none());
+    }
+
+    #[test]
+    fn distinct_session_conversation_and_thread_ids_are_preserved() {
+        let ingress = agent_hook_journal_ingress(
+            "antigravity",
+            "Stop",
+            None,
+            json!({
+                "session_id":"native-session",
+                "conversation_id":"provider-conversation",
+                "thread_id":"provider-thread"
+            }),
+        )
+        .expect("independent provider identifiers must not reject ingress");
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-session");
+        assert_eq!(ingress.payload["normalized"]["conversation_id"], "provider-conversation");
+        assert_eq!(ingress.payload["normalized"]["thread_id"], "provider-thread");
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "native-session");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["conversation_id"],
+            "provider-conversation"
+        );
+        assert_eq!(ingress.payload["native"]["identifiers"]["thread_id"], "provider-thread");
+
+        let fallback = agent_hook_journal_ingress(
+            "antigravity",
+            "Stop",
+            None,
+            json!({
+                "conversation_id":"fallback-conversation",
+                "thread_id":"fallback-thread"
+            }),
+        )
+        .expect("conversation fallback must remain deterministic");
+        assert_eq!(fallback.payload["normalized"]["agent_session_id"], "fallback-conversation");
+    }
+
+    #[test]
+    fn trimmed_agent_identifiers_are_validated_after_whitespace_is_removed() {
+        let expected = "x".repeat(MAX_OPAQUE_IDENTIFIER_BYTES);
+        let padded = format!(" {expected} ");
+        let ingress =
+            agent_hook_journal_ingress("codex", "Stop", None, json!({"session_id":padded}))
+                .expect("trimmed identifier should use the bounded value");
+
+        assert_eq!(
+            ingress.payload["normalized"]["agent_session_id"].as_str(),
+            Some(expected.as_str())
+        );
+    }
+
+    #[test]
+    fn conflicting_true_session_aliases_are_rejected() {
+        let error = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"session_id":"session-a","sessionId":"session-b"}),
+        )
+        .expect_err("true session aliases must agree");
+        assert!(error.to_string().contains("conflicting agent session identifiers"));
+    }
+
+    #[test]
+    fn control_characters_in_provider_identifiers_are_rejected() {
+        let error = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"conversation_id":"conversation\nwith-control"}),
+        )
+        .expect_err("provider identifiers must reject control characters");
+        assert!(error.to_string().contains("control characters"));
     }
 
     #[test]
@@ -912,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn wrapped_opencode_events_keep_native_shape_and_normalize_properties() {
+    fn wrapped_opencode_events_canonicalize_native_shape_and_normalize_properties() {
         let native = json!({
             "event": {
                 "type":"session.created",
@@ -926,9 +1381,16 @@ mod tests {
             "context": {"worktree":"/tmp/opencode"}
         });
         let ingress =
-            agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
-                .unwrap();
-        assert_eq!(ingress.payload["native"], native);
+            agent_hook_journal_ingress("opencode", "session.created", None, native).unwrap();
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "opencode");
+        assert_eq!(ingress.payload["native"]["native_event"], "session.created");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "opencode-session"
+        );
+        assert_eq!(ingress.payload["native"]["checkpoint"]["cwd"], "/tmp/opencode");
+        assert!(ingress.payload["native"].get("event").is_none());
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
         assert_eq!(ingress.kind, "agent.session.started");
@@ -1199,18 +1661,40 @@ mod tests {
     }
 
     #[test]
-    fn terminal_identity_is_a_subject_and_unknown_events_remain_lossless() {
+    fn missing_structured_agent_id_fails_closed_for_ascii_and_non_ascii_names() {
+        let ingress = |agent_name: &str| {
+            agent_hook_journal_ingress(
+                "copilot",
+                "subagentStart",
+                None,
+                json!({
+                    "sessionId":"copilot-session",
+                    "agentName":agent_name,
+                    "turnId":"turn-1"
+                }),
+            )
+            .unwrap()
+        };
+
+        for agent_name in ["Explore", "探索"] {
+            let event = ingress(agent_name);
+            assert_eq!(event.payload["normalized"]["agent_relation"], "unknown", "{agent_name}");
+            assert!(event.payload["normalized"].get("agent_node_id").is_none(), "{agent_name}");
+        }
+    }
+
+    #[test]
+    fn terminal_identity_is_a_subject_and_unknown_events_are_canonicalized() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true});
-        let ingress = agent_hook_journal_ingress(
-            "future-agent",
-            "NewLifecycle",
-            Some(terminal),
-            native.clone(),
-        )
-        .unwrap();
+        let ingress =
+            agent_hook_journal_ingress("future-agent", "NewLifecycle", Some(terminal), native)
+                .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(ingress.payload["native"]["provider"], "future-agent");
+        assert_eq!(ingress.payload["native"]["native_event"], "NewLifecycle");
+        assert!(ingress.payload["native"].get("future").is_none());
         assert!(
             ingress
                 .subjects
@@ -1263,11 +1747,15 @@ mod tests {
         assert_eq!(record.producer.kind, "agent_adapter");
         assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
         assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
-        assert_eq!(record.payload["native"]["opaque"]["v"], 42);
+        assert_eq!(record.payload["native"]["format"], AGENT_CANONICAL_NATIVE_FORMAT);
+        assert_eq!(record.payload["native"]["provider"], "codex");
+        assert_eq!(record.payload["native"]["native_event"], "Stop");
+        assert_eq!(record.payload["native"]["identifiers"]["agent_session_id"], "native-session");
+        assert!(record.payload["native"].get("opaque").is_none());
         let encoded = serde_json::to_string(&record.payload).unwrap();
         assert!(!encoded.contains("persistent-secret-sentinel"));
         assert!(!encoded.contains("persistent-input-sentinel"));
-        assert!(encoded.contains(REDACTED_AGENT_VALUE));
+        assert!(!encoded.contains(REDACTED_AGENT_VALUE));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

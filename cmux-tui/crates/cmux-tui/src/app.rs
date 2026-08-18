@@ -5143,6 +5143,13 @@ pub struct Selection {
     pub head: (u16, u64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VisiblePtyInputState {
+    surface: SurfaceId,
+    selection: Option<Selection>,
+    scroll_offset: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StatusMessageSelection {
     text: String,
@@ -9174,9 +9181,7 @@ impl App {
         B::Error: Send + Sync + 'static,
     {
         // Initial layout + draw.
-        let size = terminal.size()?;
-        self.sync_layout((size.width, size.height));
-        self.draw_terminal(terminal)?;
+        self.draw_terminal(terminal, RenderAction::Draw)?;
         self.emit_graphics()?;
         self.commit_rendered_pointer_frame();
         self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
@@ -10234,14 +10239,8 @@ impl App {
         self.ensure_graphics_writer_healthy()?;
         self.mark_pointer_route_for_rebuild(action);
         match action {
-            RenderAction::Draw => {
-                let size = terminal.size()?;
-                self.sync_layout((size.width, size.height));
-                self.draw_terminal(terminal)?;
-                self.emit_graphics()?;
-            }
-            RenderAction::Paint => {
-                self.draw_terminal(terminal)?;
+            RenderAction::Draw | RenderAction::Paint => {
+                self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
             RenderAction::Graphics => self.emit_dirty_graphics()?,
@@ -10629,6 +10628,10 @@ impl App {
     }
 
     fn commit_rendered_pointer_frame_for(&mut self, action: RenderAction) {
+        if self.outer_size.0 == 0 || self.outer_size.1 == 0 {
+            self.rendered_pointer_frame = RenderedPointerFrame::default();
+            return;
+        }
         let pairing = self
             .pairing_dialog
             .as_ref()
@@ -11539,7 +11542,11 @@ impl App {
         anyhow::bail!("{message}")
     }
 
-    fn draw_terminal<B: Backend>(&mut self, terminal: &mut RatatuiTerminal<B>) -> anyhow::Result<()>
+    fn draw_terminal<B: Backend>(
+        &mut self,
+        terminal: &mut RatatuiTerminal<B>,
+        action: RenderAction,
+    ) -> anyhow::Result<()>
     where
         B::Error: Send + Sync + 'static,
     {
@@ -11548,7 +11555,12 @@ impl App {
         lock.recover_stream_locked()?;
         self.ensure_graphics_writer_healthy()?;
         self.painted_durable_notice_this_frame = None;
-        catch_renderer_panic(|| terminal.draw(|f| crate::ui::draw(self, f)))??;
+        catch_renderer_panic(|| {
+            terminal.draw(|frame| {
+                self.prepare_frame_layout(frame.area(), action);
+                crate::ui::draw(self, frame);
+            })
+        })??;
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -11567,6 +11579,36 @@ impl App {
             self.applied_outer_cursor = Some(self.desired_outer_cursor);
         }
         Ok(())
+    }
+
+    fn prepare_frame_layout(&mut self, area: ratatui::layout::Rect, action: RenderAction) {
+        let size = (area.width, area.height);
+        if action == RenderAction::Draw || self.outer_size != size {
+            self.sync_layout(size);
+        }
+        if area.width == 0 || area.height == 0 {
+            self.clear_empty_frame_geometry();
+        }
+    }
+
+    fn clear_empty_frame_geometry(&mut self) {
+        self.sidebar_layout = SidebarLayout::default();
+        self.sidebar_width = 0;
+        self.machine_sidebar_width = 0;
+        self.tabs_sidebar_width = 0;
+        self.content_area = Rect::default();
+        self.hits.clear();
+        self.pane_areas.clear();
+        self.viewport_projection.clear();
+        self.viewport_layout.clear();
+        self.viewport_stacked_headers.clear();
+        self.viewport_virtual_width = 0;
+        self.viewport_offset = 0;
+        self.rendered_terminal_sizes.clear();
+        self.rendered_terminal_bounds.clear();
+        self.rendered_kitty_graphics.clear();
+        self.rendered_terminal_pointer_semantics.clear();
+        self.rendered_pane_content_generations.clear();
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -13632,9 +13674,13 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
-                self.cancel_pointer_interaction();
+                let action = if self.cancel_pointer_interaction() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                };
                 self.advance_pointer_focus_generation();
-                Ok(RenderAction::None)
+                Ok(action)
             }
             TerminalInput::Resize => {
                 if self.graphics_supported {
@@ -13649,6 +13695,15 @@ impl App {
     }
 
     fn handle_paste_to(
+        &mut self,
+        text: String,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
+        let action = self.handle_paste_to_inner(text, destination)?;
+        Ok(action.merge(self.painted_status_message_action()))
+    }
+
+    fn handle_paste_to_inner(
         &mut self,
         text: String,
         destination: Option<SurfaceId>,
@@ -14661,6 +14716,44 @@ impl App {
         self.selection = selection;
     }
 
+    fn visible_pty_input_state(
+        &self,
+        destination: Option<SurfaceId>,
+    ) -> Option<VisiblePtyInputState> {
+        let surface = destination.or_else(|| self.active_surface())?;
+        (self.tree.surface_kind(surface) == SurfaceKind::Pty).then(|| VisiblePtyInputState {
+            surface,
+            selection: self.selection.filter(|selection| selection.surface == surface),
+            scroll_offset: self.surface_scroll_offset(surface),
+        })
+    }
+
+    fn painted_status_message_action(&self) -> RenderAction {
+        if self
+            .rendered_status_message
+            .as_ref()
+            .is_some_and(|rendered| self.status_message.as_deref() != Some(rendered.text.as_str()))
+        {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
+    }
+
+    fn visible_pty_input_action(&self, before: Option<VisiblePtyInputState>) -> RenderAction {
+        let action = before.map_or(RenderAction::None, |before| {
+            let selection = self.selection.filter(|selection| selection.surface == before.surface);
+            if selection != before.selection
+                || self.surface_scroll_offset(before.surface) != before.scroll_offset
+            {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            }
+        });
+        action.merge(self.painted_status_message_action())
+    }
+
     pub(crate) fn reset_rendered_status_message(&mut self) {
         self.rendered_status_message = None;
     }
@@ -15457,6 +15550,16 @@ impl App {
         input: keys::KeyboardInput,
         destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        let visible_state = self.visible_pty_input_state(destination);
+        let action = self.handle_direct_keyboard_to_inner(input, destination)?;
+        Ok(action.merge(self.visible_pty_input_action(visible_state)))
+    }
+
+    fn handle_direct_keyboard_to_inner(
+        &mut self,
+        input: keys::KeyboardInput,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
         let key = input.ui_key();
         if key.kind == KeyEventKind::Release {
             return Ok(RenderAction::None);
@@ -16208,11 +16311,16 @@ impl App {
                     self.terminal_tab_size_hint(self.active_pane()),
                 )
             }
-            FileCommand::OpenBrowser(path) => self.session.new_browser_tab(
-                file_url(&path),
-                self.active_pane(),
-                self.browser_tab_size_hint(self.active_pane()),
-            ),
+            FileCommand::OpenBrowser(path) => match file_url(&path) {
+                Ok(url) => self.session.new_browser_tab(
+                    url,
+                    self.active_pane(),
+                    self.browser_tab_size_hint(self.active_pane()),
+                ),
+                Err(_) => {
+                    Err(anyhow::anyhow!(localization::catalog().sidebar.unsupported_browser_path))
+                }
+            },
         };
         match result {
             Ok(()) => self.sidebar_files.set_message("sent to focused pane"),
@@ -17606,13 +17714,12 @@ impl App {
             self.tree.surface_kind(surface_id),
             self.session.supports_clear_history_key_fallback(surface_id),
         ) {
+            let visible_state = self.visible_pty_input_state(Some(surface_id));
             self.replace_selection(None);
             self.forward_key_to_surface(input, surface_id);
-            return if self.status_message.is_some() {
-                RenderAction::Draw
-            } else {
-                RenderAction::None
-            };
+            let action =
+                if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None };
+            return action.merge(self.visible_pty_input_action(visible_state));
         }
         let Some(key_input) = input.into_terminal_input() else {
             return RenderAction::None;
@@ -17627,7 +17734,9 @@ impl App {
             self.selection,
             self.selection_generation,
         );
-        if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
+        let action =
+            if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None };
+        action.merge(self.painted_status_message_action())
     }
 
     fn forward_key(&mut self, input: keys::KeyboardInput) {
@@ -18461,10 +18570,10 @@ impl App {
         self.handle_pty_enqueue_result(result)
     }
 
-    fn cancel_pointer_interaction(&mut self) {
-        if let Some(menu) = self.menu.as_mut() {
-            menu.finish_scrollbar_drag();
-        }
+    fn cancel_pointer_interaction(&mut self) -> bool {
+        let menu_scrollbar_dragged =
+            self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
+        let pointer_dragged = self.drag.is_some();
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
         } else if let Some(Drag::Browser { surface, content, position, frame_seq }) = &self.drag {
@@ -18490,6 +18599,7 @@ impl App {
         }
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
+        menu_scrollbar_dragged || pointer_dragged
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -26564,6 +26674,10 @@ mod tests {
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
         app.pane_areas = vec![area];
+        app.outer_size = (
+            area.rect.x.saturating_add(area.rect.width),
+            area.rect.y.saturating_add(area.rect.height),
+        );
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
         app.commit_rendered_pointer_frame();
@@ -28417,6 +28531,87 @@ mod tests {
         );
         mux.close_surface(first.id).unwrap();
         mux.close_surface(second.id).unwrap();
+    }
+
+    fn assert_rect_within_frame(rect: Rect, frame_size: (u16, u16)) {
+        assert!(
+            rect.x.saturating_add(rect.width) <= frame_size.0,
+            "rectangle {rect:?} exceeds frame width {}",
+            frame_size.0
+        );
+        assert!(
+            rect.y.saturating_add(rect.height) <= frame_size.1,
+            "rectangle {rect:?} exceeds frame height {}",
+            frame_size.1
+        );
+    }
+
+    fn assert_cached_geometry_within_frame(app: &App, frame_size: (u16, u16)) {
+        assert_eq!(app.outer_size, frame_size, "cached outer size must match the drawn frame");
+        assert_rect_within_frame(app.sidebar_layout.content, frame_size);
+        for rect in
+            [app.sidebar_layout.machine, app.sidebar_layout.workspace, app.sidebar_layout.tabs]
+                .into_iter()
+                .flatten()
+        {
+            assert_rect_within_frame(rect, frame_size);
+        }
+        for placement in &app.sidebar_layout.ordered {
+            assert_rect_within_frame(placement.rect, frame_size);
+        }
+        assert_rect_within_frame(app.content_area, frame_size);
+        for area in &app.pane_areas {
+            assert_rect_within_frame(area.rect, frame_size);
+            assert_rect_within_frame(area.content, frame_size);
+            for rect in [area.bar, area.omnibar, area.track].into_iter().flatten() {
+                assert_rect_within_frame(rect, frame_size);
+            }
+        }
+        for (rect, _) in &app.hits {
+            assert_rect_within_frame(*rect, frame_size);
+        }
+    }
+
+    #[test]
+    fn frame_area_owner_resyncs_paint_after_backend_shrink() {
+        let mux = Mux::new("frame-area-owner-paint-test", SurfaceOptions::default());
+        let surface =
+            mux.new_browser_tab("about:blank".to_string(), None, Some((100, 20))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert_cached_geometry_within_frame(&app, (100, 20));
+
+        terminal.backend_mut().resize(40, 10);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_cached_geometry_within_frame(&app, (40, 10));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn frame_area_owner_zero_frame_drops_rendered_routes() {
+        let mux = Mux::new("frame-area-owner-zero-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(!app.pane_areas.is_empty());
+        assert!(!app.rendered_pointer_frame.panes.is_empty());
+
+        terminal.backend_mut().resize(0, 0);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_eq!(app.outer_size, (0, 0));
+        assert!(app.pane_areas.is_empty());
+        assert!(app.hits.is_empty());
+        assert!(app.rendered_pointer_frame.panes.is_empty());
+        assert!(app.rendered_pointer_frame.hits.is_empty());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -33355,6 +33550,185 @@ mod tests {
 
         assert!(app.drag.is_none(), "focus loss must stop selection and its auto-scroll tick");
         assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn visible_state_direct_keyboard_requests_draw_after_selection_clear() {
+        let (mux, surface) = test_mux("visible-state-key-selection-test", None);
+        surface.with_terminal(|terminal| {
+            for line in 0..32 {
+                terminal.vt_write(format!("history-{line:02}\r\n").as_bytes());
+            }
+            terminal.vt_write(b"bottom");
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.status_message = Some("old failure".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        let visible = app.session.surface(surface.id).unwrap();
+        assert_eq!(visible.scroll_delta(-5), Some(true));
+        let offset = app.surface_scroll_offset(surface.id);
+        assert!(offset > 0);
+        app.replace_selection(Some(Selection {
+            surface: surface.id,
+            anchor: (0, offset),
+            head: (4, offset),
+        }));
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        assert!(app.selection.is_some(), "the setup frame must retain the visible selection");
+        assert_eq!(
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "clearing a painted selection needs a new frame");
+        assert!(app.selection.is_none());
+        assert!(app.status_message.is_none());
+        let scrollbar = app
+            .session
+            .surface(surface.id)
+            .and_then(|surface| surface.scrollbar())
+            .expect("the visible PTY must expose viewport geometry");
+        assert_eq!(
+            scrollbar.offset,
+            scrollbar.total.saturating_sub(scrollbar.len),
+            "ordinary PTY input must return the viewport to the live bottom (offset is absolute)"
+        );
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the input frame must remove the semantic status message"
+        );
+
+        let unchanged = app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('y'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        assert_eq!(unchanged, RenderAction::None, "a key with no visible mutation needs no draw");
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_paste_requests_draw_after_status_clear() {
+        let (mux, surface) = test_mux("visible-state-paste-status-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.status_message = Some("old failure".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        assert_eq!(
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
+        );
+
+        let action = app.handle(AppEvent::Input(Event::Paste("text".to_string()))).unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "removing a painted status needs a new frame");
+        assert!(app.status_message.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the paste frame must remove the semantic status message"
+        );
+
+        let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
+        assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_clear_history_fallback_requests_draw_after_selection_clear() {
+        let mux = Mux::new("visible-state-clear-history-fallback-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(11, false);
+        app.replace_selection(Some(Selection { surface: 11, anchor: (1, 1), head: (4, 1) }));
+
+        let action = app.run_clear_history_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into(),
+        );
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "the unclaimed PTY fallback clears the visible selection before forwarding the key"
+        );
+        assert!(app.selection.is_none());
+
+        let unchanged = app.run_clear_history_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into(),
+        );
+        assert_eq!(unchanged, RenderAction::None, "fallback with no selection needs no draw");
+    }
+
+    #[test]
+    fn painted_status_clear_requests_draw_without_a_visible_pty() {
+        let mux = Mux::new("painted-status-non-pty-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.present_status_message(Rect { x: 0, y: 0, width: 20, height: 1 }, "old failure".into());
+        app.status_message = None;
+
+        assert_eq!(
+            app.visible_pty_input_action(None),
+            RenderAction::Draw,
+            "clearing a painted status must redraw even without a visible PTY destination"
+        );
+    }
+
+    #[test]
+    fn visible_state_focus_loss_requests_draw_after_pointer_cancel() {
+        let mux = Mux::new("visible-state-focus-loss-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((40, 10))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.drag = Some(Drag::Tab { surface: second.id, target: Some((pane, 0)) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains('▌'),
+            "the setup frame must contain the tab drop marker"
+        );
+
+        let action = app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "canceling painted pointer state needs a new frame");
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            !buffer_text(terminal.backend().buffer()).contains('▌'),
+            "the focus-loss frame must remove the old tab drop marker"
+        );
+
+        let unchanged = app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+        assert_eq!(unchanged, RenderAction::None, "idle focus loss needs no draw");
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
     }
 
     #[test]

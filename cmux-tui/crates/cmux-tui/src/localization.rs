@@ -751,6 +751,7 @@ pub(crate) struct SidebarMessages {
     pub purge_workspace: &'static str,
     pub confirm_purge_workspace: &'static str,
     pub no_active_session: &'static str,
+    pub unsupported_browser_path: &'static str,
     pub managed_workspace_unsupported: &'static str,
     pub managed_workspace_machine_inactive: &'static str,
     pub managed_workspace_unavailable: &'static str,
@@ -760,6 +761,8 @@ pub(crate) struct SidebarMessages {
     pub sleeping: &'static str,
     pub stopped: &'static str,
     pub unavailable: &'static str,
+    pub machine_access_ssh: &'static str,
+    pub machine_access_websocket: &'static str,
     pub working: &'static str,
     pub blocked: &'static str,
     pub idle: &'static str,
@@ -918,6 +921,7 @@ const fn decimal_width(mut value: u16) -> usize {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StartupMessages {
     schema_too_new: &'static str,
+    pub invalid_session: &'static str,
     pub session_socket: &'static str,
     pub stop_newer_server: &'static str,
     pub no_server_listening: &'static str,
@@ -1032,6 +1036,7 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        invalid_session: "the session name is invalid; use a non-empty name without path separators or control characters",
         session_socket: "session socket",
         stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
         no_server_listening: "no server is listening on this socket",
@@ -1190,7 +1195,7 @@ edits shell files. Authenticate with the configured host before retrying.
         migration_failed: "Could not reconnect the machine; please try again",
         pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal and retry",
         runtime_failed: "The machine agent could not start or continue; check its configuration",
-        invalid_session: "The session name is invalid; use a short name without spaces or control characters",
+        invalid_session: "The session name is invalid; use a non-empty name without path separators or control characters",
         identity_unavailable: "The private machine identity is unavailable; check that --state points to a private writable file",
         registration_already_running: "A machine agent is already sharing this session; stop it before starting another",
         cloud_configuration_invalid: "The cloud connection settings are invalid; check the host, user, port, and identity file",
@@ -1538,6 +1543,7 @@ OPTIONS:
         purge_workspace: "Delete permanently",
         confirm_purge_workspace: "Type CONFIRM to permanently delete this workspace",
         no_active_session: "select or create a machine first",
+        unsupported_browser_path: "this Windows path cannot be opened in the browser",
         managed_workspace_unsupported: "this machine provider cannot create managed workspaces",
         managed_workspace_machine_inactive: "No machine is active; select or reconnect this workspace's machine, then retry",
         managed_workspace_unavailable: "Managed workspace details are unavailable; wait for the provider to refresh, then retry",
@@ -1547,6 +1553,8 @@ OPTIONS:
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
+        machine_access_ssh: "SSH",
+        machine_access_websocket: "WebSocket",
         working: "working",
         blocked: "blocked",
         idle: "idle",
@@ -1622,6 +1630,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        invalid_session: "セッション名が無効です。空でなく、パス区切り文字や制御文字を含まない ASCII 名を使用してください",
         session_socket: "セッションソケット",
         stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません",
@@ -1780,7 +1789,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
         pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行して再試行してください",
         runtime_failed: "machine-agent を開始または続行できませんでした。設定を確認してください",
-        invalid_session: "セッション名が無効です。空白や制御文字を含まない短い名前を使用してください",
+        invalid_session: "セッション名が無効です。空でなく、パス区切り文字や制御文字を含まない名前を使用してください",
         identity_unavailable: "非公開のマシン ID を使用できません。--state が非公開で書き込み可能なファイルを指していることを確認してください",
         registration_already_running: "このセッションは別の machine-agent が共有中です。停止してからもう一度開始してください",
         cloud_configuration_invalid: "クラウド接続設定が無効です。ホスト、ユーザー、ポート、ID ファイルを確認してください",
@@ -2125,6 +2134,7 @@ ID とセッション:
         purge_workspace: "完全に削除",
         confirm_purge_workspace: "完全に削除するには CONFIRM と入力してください",
         no_active_session: "先にマシンを選択または作成してください",
+        unsupported_browser_path: "この Windows パスはブラウザで開けません",
         managed_workspace_unsupported: "このマシンプロバイダーは管理ワークスペースを作成できません",
         managed_workspace_machine_inactive: "アクティブなマシンがありません。このワークスペースのマシンを選択または再接続してから再試行してください",
         managed_workspace_unavailable: "管理ワークスペースの情報を取得できません。プロバイダーの更新後に再試行してください",
@@ -2134,6 +2144,8 @@ ID とセッション:
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
+        machine_access_ssh: "SSH",
+        machine_access_websocket: "WebSocket",
         working: "作業中",
         blocked: "ブロック中",
         idle: "待機中",
@@ -2419,6 +2431,10 @@ mod tests {
         );
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.machine_access_ssh, "SSH");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.machine_access_ssh, "SSH");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.machine_access_websocket, "WebSocket");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.machine_access_websocket, "WebSocket");
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Add SSH host…");
@@ -2695,5 +2711,13 @@ mod tests {
         assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
         assert_eq!(japanese.bytes.len(), 64);
         assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
+    }
+
+    #[test]
+    fn machine_agent_session_messages_describe_the_same_rule() {
+        assert!(ENGLISH.machine_agent.invalid_session.contains("non-empty"));
+        assert!(JAPANESE.machine_agent.invalid_session.contains("空"));
+        assert!(ENGLISH.startup.invalid_session.contains("non-empty"));
+        assert!(JAPANESE.startup.invalid_session.contains("ASCII"));
     }
 }

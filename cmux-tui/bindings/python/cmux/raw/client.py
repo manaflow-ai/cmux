@@ -24,7 +24,11 @@ from ..errors import (
     ProtocolError,
     TimeoutError,
 )
-from ..client_defaults import default_socket_path, env_socket_path
+from ..client_defaults import (
+    default_socket_path,
+    env_socket_path,
+    validate_session_name,
+)
 from ..transport import DEFAULT_MAX_LINE_BYTES, JsonLineConnection
 
 
@@ -495,6 +499,7 @@ __all__ = [
     "EventStream",
     "default_socket_path",
     "env_socket_path",
+    "validate_session_name",
     "AuthorityError",
     "CmuxError",
     "CommandError",

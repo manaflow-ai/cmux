@@ -221,13 +221,15 @@ pub struct JournalCheckpoint {
     pub created_at_ms: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct JournalCheckpointSummary {
     pub checkpoint_id: String,
+    #[serde(serialize_with = "serialize_decimal")]
     pub source_sequence: u64,
     pub reducer_version: u32,
     pub content_refs: Vec<JournalContentRef>,
     pub sha256: String,
+    #[serde(serialize_with = "serialize_decimal")]
     pub created_at_ms: u64,
 }
 
@@ -253,6 +255,13 @@ impl JournalContentBlob {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct JournalCheckpointCommit {
     pub checkpoint: JournalCheckpoint,
+    pub journal: JournalAppendCommit,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct JournalRestoreCommit {
+    pub checkpoint_id: Option<String>,
+    pub state_sha256: Option<String>,
     pub journal: JournalAppendCommit,
 }
 
@@ -443,9 +452,15 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
     let manifest = crate::agent_hooks::built_in_agent_producer_manifest();
     let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
     transaction.execute(
-        "INSERT OR IGNORE INTO journal_producers(
+        "INSERT INTO journal_producers(
            producer_id, namespace, manifest_version, manifest_json, installed_at_ms
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+         ) VALUES(?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(producer_id) DO UPDATE SET
+           namespace = excluded.namespace,
+           manifest_version = excluded.manifest_version,
+           manifest_json = excluded.manifest_json,
+           installed_at_ms = excluded.installed_at_ms
+         WHERE journal_producers.manifest_version < excluded.manifest_version",
         params![
             manifest.producer_id,
             manifest.namespace,
@@ -454,13 +469,15 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             i64::try_from(unix_epoch_ms()?)?,
         ],
     )?;
-    let installed = transaction.query_row(
-        "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+    let (installed_version, installed) = transaction.query_row(
+        "SELECT manifest_version, manifest_json
+         FROM journal_producers WHERE producer_id = ?1",
         [crate::AGENT_HOOK_PRODUCER_ID],
-        |row| row.get::<_, String>(0),
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
     )?;
     anyhow::ensure!(
-        serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
+        installed_version == i64::from(manifest.manifest_version)
+            && serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
         "reserved cmux agent producer manifest does not match this binary"
     );
     Ok(())
@@ -2107,6 +2124,122 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Applies the reduced checkpoint projection and records the restore
+    /// receipt in one writer transaction. The receipt and head checks happen
+    /// before the reduced state is written, and are repeated inside the
+    /// transaction to fence a concurrent restore or journal append.
+    pub(crate) fn apply_journal_restore_state(
+        &mut self,
+        expected_head: u64,
+        state: &Value,
+        origin: &str,
+        idempotency_key: &str,
+        checkpoint_id: Option<&str>,
+        state_sha256: Option<&str>,
+    ) -> anyhow::Result<(JournalRestoreCommit, Vec<RegistryAgentProjection>, Value)> {
+        validate_identifier("journal restore origin", origin)?;
+        validate_identifier("journal restore idempotency key", idempotency_key)?;
+        let fingerprint = journal_restore_request_fingerprint(checkpoint_id, state_sha256, state)?;
+        let tx = self.connection.transaction()?;
+        if let Some(journal) = operation_receipt(
+            &tx,
+            "session.journal.restore",
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            let result = tx
+                .query_row(
+                    "SELECT result_json
+                     FROM journal_operation_receipts
+                     WHERE operation = 'session.journal.restore'
+                       AND origin = ?1 AND idempotency_key = ?2",
+                    params![origin, idempotency_key],
+                    |row| row.get::<_, String>(0),
+                )
+                .map(|value| serde_json::from_str::<Value>(&value))??;
+            let checkpoint_id = result["checkpoint_id"].as_str().map(str::to_owned);
+            let state_sha256 = result["state_sha256"].as_str().map(str::to_owned);
+            drop(tx);
+            let projections = self.public_projections_for_cache_restore()?.agents;
+            return Ok((
+                JournalRestoreCommit { checkpoint_id, state_sha256, journal },
+                projections,
+                result,
+            ));
+        }
+        anyhow::ensure!(
+            journal_head(&tx)? == expected_head,
+            "journal head changed while preparing restore; preview the journal again and retry"
+        );
+        let projections = agent_projection_store::replace_agent_projections_from_reduced_state(
+            &tx,
+            state,
+            expected_head,
+        )?;
+        let now = unix_epoch_ms()?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![JournalSubject { kind: "session".into(), id: session_id }];
+        let producer = JournalProducer { kind: "journal_admin".into(), id: origin.into() };
+        let event_id = random_event_id("restore");
+        let payload = json!({
+            "format":"cmux.journal-restore.v1",
+            "checkpoint_id":checkpoint_id,
+            "state_sha256":state_sha256,
+        });
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "journal.restore.applied",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let projection = WorkspaceRegistry::agent_projection_restore_status_for_transaction(&tx)?;
+        let result = json!({
+            "restored":true,
+            "checkpoint_id":checkpoint_id,
+            "state_sha256":state_sha256,
+            "projection":projection,
+            "published_checkpoint":true,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.restore",
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok((
+            JournalRestoreCommit {
+                checkpoint_id: checkpoint_id.map(str::to_owned),
+                state_sha256: state_sha256.map(str::to_owned),
+                journal: JournalAppendCommit { sequence, event_id, replayed: false },
+            },
+            projections,
+            result,
+        ))
+    }
+
     pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpointSummary>> {
         let mut statement = self.connection.prepare(
             "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
@@ -2610,6 +2743,30 @@ fn query_journal_checkpoint(
 
 fn checkpoint_request_fingerprint() -> sha2::digest::Output<Sha256> {
     Sha256::digest(b"cmux.session-journal.checkpoint.create.v1")
+}
+
+fn journal_restore_request_fingerprint(
+    checkpoint_id: Option<&str>,
+    state_sha256: Option<&str>,
+    state: &Value,
+) -> anyhow::Result<sha2::digest::Output<Sha256>> {
+    let computed_state_sha256 =
+        encode_hex(Sha256::digest(canonical_json(state)?.as_bytes()).as_slice());
+    if let Some(state_sha256) = state_sha256 {
+        anyhow::ensure!(
+            state_sha256 == computed_state_sha256,
+            "journal restore state_sha256 does not match supplied state"
+        );
+    }
+    Ok(Sha256::digest(
+        canonical_json(&json!({
+            "format":"cmux.session-journal.restore.v1",
+            "checkpoint_id":checkpoint_id,
+            "state_sha256":state_sha256,
+            "computed_state_sha256":computed_state_sha256,
+        }))?
+        .as_bytes(),
+    ))
 }
 
 fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<String> {

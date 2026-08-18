@@ -8,6 +8,7 @@ public enum AgentState implements WireEnum {
     BLOCKED("blocked"),
     IDLE("idle"),
     DONE("done"),
+    INTERRUPTED("interrupted"),
     UNKNOWN("unknown");
 
     private final Object wireValue;

@@ -3,6 +3,8 @@
 //! (the status bar starts after the sidebar) and rebuilds the click hit map
 //! as it draws.
 
+use std::borrow::Cow;
+
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -13,7 +15,27 @@ use super::{
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
-use crate::machine::{MachineRailSelection, MachineStatus, ProviderScopeKind};
+use crate::machine::{
+    MachineAccessMethods, MachineRailSelection, MachineStatus, ProviderScopeKind,
+};
+
+fn machine_detail<'a>(
+    subtitle: &'a str,
+    status: &'a str,
+    access_methods: MachineAccessMethods,
+    messages: &localization::SidebarMessages,
+) -> Cow<'a, str> {
+    let detail = if subtitle.is_empty() { status } else { subtitle };
+    match (access_methods.ssh, access_methods.websocket) {
+        (false, false) => Cow::Borrowed(detail),
+        (true, false) => Cow::Owned(format!("{detail} · {}", messages.machine_access_ssh)),
+        (false, true) => Cow::Owned(format!("{detail} · {}", messages.machine_access_websocket)),
+        (true, true) => Cow::Owned(format!(
+            "{detail} · {} · {}",
+            messages.machine_access_ssh, messages.machine_access_websocket
+        )),
+    }
+}
 
 fn projection_resource_label(resource: SidebarResourceKind) -> &'static str {
     let messages = &localization::catalog().sidebar;
@@ -239,8 +261,13 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                 |until| format!("{} · {until}", messages.recoverable_machine),
             )
         });
-        let subtitle = recoverable_subtitle.as_deref().unwrap_or_else(|| {
-            if machine.subtitle.is_empty() { status } else { &machine.subtitle }
+        let subtitle = recoverable_subtitle.map(Cow::<str>::Owned).unwrap_or_else(|| {
+            machine_detail(
+                &machine.subtitle,
+                status,
+                machine_ui.machine_access_methods(machine.key),
+                messages,
+            )
         });
         let indicator = if recoverable {
             Some(app.config.theme.notification_warning)
@@ -269,7 +296,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             y,
             rail::Entry {
                 name: &machine.name,
-                subtitle,
+                subtitle: &subtitle,
                 highlighted: is_active || focused,
                 active: is_active,
                 indicator,
@@ -896,6 +923,13 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     input_cursor
 }
 
+fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
+    if visible_height == 0 || total <= visible_height || selected < visible_height {
+        return 0;
+    }
+    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
+}
+
 fn unread_summary(app: &App) -> Option<(usize, Color)> {
     let mut count = 0;
     let mut highest = None;
@@ -921,9 +955,58 @@ fn unread_summary(app: &App) -> Option<(usize, Color)> {
     highest.map(|(_, color)| (count, color))
 }
 
-fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
-    if visible_height == 0 || total <= visible_height || selected < visible_height {
-        return 0;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::machine::MachineAccessMethods;
+
+    #[test]
+    fn machine_access_badges_use_canonical_localized_order() {
+        let methods = MachineAccessMethods { ssh: true, websocket: true };
+        let english = &localization::catalog_for_locale("en_US.UTF-8").sidebar;
+        let japanese = &localization::catalog_for_locale("ja_JP.UTF-8").sidebar;
+        assert_eq!(
+            machine_detail("Freestyle", "running", methods, english),
+            "Freestyle · SSH · WebSocket"
+        );
+        assert_eq!(
+            machine_detail(
+                "Freestyle",
+                "running",
+                MachineAccessMethods { ssh: true, websocket: false },
+                english,
+            ),
+            "Freestyle · SSH"
+        );
+        assert_eq!(
+            machine_detail(
+                "Freestyle",
+                "running",
+                MachineAccessMethods { ssh: false, websocket: true },
+                english,
+            ),
+            "Freestyle · WebSocket"
+        );
+        assert_eq!(
+            machine_detail("", "running", methods, japanese),
+            "running · SSH · WebSocket",
+            "access labels must preserve the machine status fallback"
+        );
+
+        let status = String::from("running");
+        let detail = machine_detail("", &status, MachineAccessMethods::default(), english);
+        assert_eq!(
+            detail.as_ptr(),
+            status.as_ptr(),
+            "rows without access labels must borrow the status fallback"
+        );
+
+        let subtitle = String::from("Freestyle");
+        let detail = machine_detail(&subtitle, "running", MachineAccessMethods::default(), english);
+        assert_eq!(
+            detail.as_ptr(),
+            subtitle.as_ptr(),
+            "rows without access labels must borrow their subtitle"
+        );
     }
-    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
 }

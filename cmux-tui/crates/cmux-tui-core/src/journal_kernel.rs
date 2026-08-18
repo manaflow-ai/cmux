@@ -6,6 +6,7 @@ use std::time::Duration;
 use base64::Engine;
 use serde_json::{Value, json};
 
+use crate::resource::TerminalPublicId;
 use crate::workspace_registry::SessionJournalReader;
 use crate::{
     JournalClass, JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity,
@@ -438,6 +439,16 @@ impl JournalKernel {
         if let Err(error) = event.validator.validate(&ingress.payload) {
             anyhow::bail!("journal event payload does not match its schema: {error}");
         }
+        if ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            for subject in ingress.subjects.iter().filter(|subject| subject.kind == "terminal") {
+                TerminalPublicId::parse(subject.id.clone()).map_err(|error| {
+                    anyhow::anyhow!(
+                        "agent journal terminal subject {} is invalid: {error}",
+                        subject.id
+                    )
+                })?;
+            }
+        }
         Ok(ValidatedJournalIngress { class: event.class, replay: event.replay, sensitivity })
     }
 
@@ -641,6 +652,24 @@ mod performance_tests {
                 payload_schema: json!({"type":"object"}),
             }],
         }
+    }
+
+    #[test]
+    fn agent_terminal_subjects_are_validated_before_commit() {
+        let manifest = crate::agent_hooks::built_in_agent_producer_manifest();
+        let kernel = JournalKernel::new(None, std::slice::from_ref(&manifest)).unwrap();
+        let mut ingress = crate::agent_hook_journal_ingress(
+            "claude",
+            "Stop",
+            Some("term_00000000000000000000000000000001"),
+            json!({}),
+        )
+        .unwrap();
+        assert!(kernel.validate_ingress(&ingress).is_ok());
+        ingress.subjects.iter_mut().find(|subject| subject.kind == "terminal").unwrap().id =
+            "term_malformed".into();
+        let error = kernel.validate_ingress(&ingress).err().unwrap().to_string();
+        assert!(error.contains("agent journal terminal subject"), "{error}");
     }
 
     #[test]

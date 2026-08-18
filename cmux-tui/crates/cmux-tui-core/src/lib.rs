@@ -38,6 +38,7 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+mod version;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
@@ -78,6 +79,7 @@ pub use surface::{
     SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
+pub use version::DISTRIBUTION_VERSION;
 pub use workspace_registry::{
     FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
     JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
@@ -85,8 +87,9 @@ pub use workspace_registry::{
     JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
-    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    RegistryAgentProjection, RegistryCommit, RegistryEvent, RegistryPublicProjections,
+    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

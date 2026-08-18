@@ -129,6 +129,15 @@ fn root_and_raw_clients_are_distinct_and_both_importable() {
 }
 
 #[test]
+fn session_socket_helpers_expose_fallible_public_paths() {
+    assert!(cmux::raw::try_default_socket_path("../escape").is_err());
+    assert!(cmux::raw::validate_session_name("legacy name").is_ok());
+    let _: fn(&str) -> cmux::Result<Config> = Config::try_from_env_or_default_session;
+    let _: fn(&str) -> cmux::raw::Result<cmux::raw::ClientConfig> =
+        cmux::raw::ClientConfig::try_from_env_or_default_session;
+}
+
+#[test]
 fn optional_metadata_updates_distinguish_unchanged_clear_and_empty() {
     assert_ne!(Update::<String>::Unchanged, Update::Clear);
     assert_ne!(Update::<String>::Clear, Update::Set(String::new()));

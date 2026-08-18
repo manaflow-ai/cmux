@@ -1,3 +1,5 @@
+mod build_support;
+
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,6 +27,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
+    emit_cargo_path_directive("rerun-if-changed", &manifest_dir.join("build_support.rs"));
     emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
     // Keep the generated binding fingerprint tied to the public terminal API.
     // Hosted build caches can otherwise restore bindings from an older
@@ -50,10 +53,12 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if target != host
-        && let Some(zig_target) = zig_target_for_rust_target(&target)
-    {
-        command.arg(format!("-Dtarget={zig_target}"));
+    match build_support::zig_target_arg(&target, &host) {
+        Ok(Some(zig_target_arg)) => {
+            command.arg(zig_target_arg);
+        }
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
     }
     // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
     // extension zig's default target detection can select (e.g. some AVX-512
@@ -133,22 +138,4 @@ fn strip_windows_verbatim(path: PathBuf) -> PathBuf {
         }
     }
     path
-}
-
-fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
-    match target {
-        "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
-        "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
-        "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
-        // Cross-compiling libghostty-vt for the release distribution targets
-        // (npm/PyPI `cmux` binaries). zig cross-compiles these cleanly and
-        // pairs with cargo-zigbuild for the Rust link step.
-        "x86_64-apple-darwin" => Some("x86_64-macos"),
-        "aarch64-apple-darwin" => Some("aarch64-macos"),
-        "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
-        "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
-        "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),
-        "aarch64-unknown-linux-musl" => Some("aarch64-linux-musl"),
-        _ => None,
-    }
 }

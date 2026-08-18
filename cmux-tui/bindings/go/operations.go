@@ -1011,7 +1011,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("agent snapshot ids must be present")
 		}
 		switch decoded.State {
-		case "working", "blocked", "idle", "done", "unknown":
+		case "working", "blocked", "idle", "done", "interrupted", "unknown":
 		default:
 			return fmt.Errorf("invalid agent state %q", decoded.State)
 		}
@@ -2132,6 +2132,7 @@ func validAgentState(state AgentState) bool {
 		AgentStateBlocked,
 		AgentStateIdle,
 		AgentStateDone,
+		AgentStateInterrupted,
 		AgentStateUnknown:
 		return true
 	default:

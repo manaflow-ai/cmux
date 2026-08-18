@@ -102,14 +102,14 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
     app.reset_rendered_status_message();
     let area = frame.area();
-    if area.height == 0 {
+    app.hits.clear();
+    if area.width == 0 || area.height == 0 {
         return;
     }
     if app.shortcut_help.is_some() && (area.width < 24 || area.height < 7) {
         app.shortcut_help = None;
     }
 
-    app.hits.clear();
     let mut sidebar_input_cursor = None;
     if app.sidebar_layout.ordered.is_empty() {
         // Preserve the pre-layout fallback used during startup, recovery, and

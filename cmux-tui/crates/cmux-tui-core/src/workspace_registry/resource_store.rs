@@ -7,6 +7,16 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+const RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_KEY: &str =
+    "resource_agent_session_generation_backfill_v2";
+const RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_TARGET_KEY: &str =
+    "resource_agent_session_generation_backfill_target_rowid_v2";
+const RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_CURSOR_KEY: &str =
+    "resource_agent_session_generation_backfill_cursor_rowid_v2";
+const RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PROJECTION_CURSOR_KEY: &str =
+    "resource_agent_session_generation_backfill_projection_cursor_v2";
+const RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PAGE_SIZE: usize = 256;
+const RESOURCE_AGENT_SESSION_GENERATION_FINALIZE_PAGE_SIZE: usize = 64;
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -150,6 +160,42 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_projection_rebuild_changes (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           previous_result_json TEXT CHECK (
+             previous_result_json IS NULL OR json_valid(previous_result_json)
+           ),
+           previous_committed_revision INTEGER CHECK (
+             previous_committed_revision IS NULL OR previous_committed_revision >= 0
+           ),
+           CHECK (
+             (previous_result_json IS NULL AND previous_committed_revision IS NULL)
+             OR (
+               previous_result_json IS NOT NULL
+               AND previous_committed_revision IS NOT NULL
+             )
+           )
+         );
+         CREATE TABLE IF NOT EXISTS resource_agent_session_generations (
+           terminal_id TEXT NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           provider TEXT NOT NULL,
+           source_session TEXT NOT NULL CHECK(length(source_session) > 0),
+           generation INTEGER NOT NULL CHECK(generation > 0),
+           superseded INTEGER NOT NULL CHECK(superseded IN (0, 1)),
+           journal_identity TEXT CHECK (
+             journal_identity IS NULL OR (
+               length(journal_identity) = 64
+               AND journal_identity NOT GLOB '*[^0-9a-f]*'
+             )
+           ),
+           PRIMARY KEY(terminal_id, provider, source_session),
+           UNIQUE(terminal_id, generation)
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS resource_agent_session_generation_current
+           ON resource_agent_session_generations(terminal_id)
+           WHERE superseded = 0;
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
@@ -162,6 +208,382 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              terminal_id DESC
            );",
     )?;
+    ensure_resource_agent_projection_rebuild_snapshot(transaction)?;
+    ensure_resource_agent_session_journal_identity(transaction)?;
+    Ok(())
+}
+
+fn ensure_resource_agent_projection_rebuild_snapshot(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement =
+            transaction.prepare("PRAGMA table_info(resource_agent_projection_rebuild_changes)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    let mut upgraded = false;
+    if !columns.contains("previous_result_json") {
+        transaction.execute(
+            "ALTER TABLE resource_agent_projection_rebuild_changes
+             ADD COLUMN previous_result_json TEXT CHECK (
+               previous_result_json IS NULL OR json_valid(previous_result_json)
+             )",
+            [],
+        )?;
+        upgraded = true;
+    }
+    if !columns.contains("previous_committed_revision") {
+        transaction.execute(
+            "ALTER TABLE resource_agent_projection_rebuild_changes
+             ADD COLUMN previous_committed_revision INTEGER CHECK (
+               previous_committed_revision IS NULL OR previous_committed_revision >= 0
+             )",
+            [],
+        )?;
+        upgraded = true;
+    }
+    if upgraded {
+        // The previous draft schema retained only terminal identities. Its
+        // best recoverable stable value is the projection present at upgrade.
+        transaction.execute(
+            "UPDATE resource_agent_projection_rebuild_changes AS changed
+             SET previous_result_json = (
+                   SELECT result_json FROM resource_agent_projections AS projection
+                   WHERE projection.terminal_id = changed.terminal_id
+                 ),
+                 previous_committed_revision = (
+                   SELECT committed_revision FROM resource_agent_projections AS projection
+                   WHERE projection.terminal_id = changed.terminal_id
+                 )",
+            [],
+        )?;
+    }
+    if !resource_agent_projection_rebuild_changes_has_pairing_check(transaction)? {
+        rebuild_resource_agent_projection_rebuild_changes(transaction)?;
+    }
+    Ok(())
+}
+
+fn resource_agent_projection_rebuild_changes_has_pairing_check(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<bool> {
+    let definition = transaction
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'table' AND name = 'resource_agent_projection_rebuild_changes'",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )?
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    Ok(definition.contains("previous_result_json is null and previous_committed_revision is null")
+        && definition.contains(
+            "previous_result_json is not null and previous_committed_revision is not null",
+        ))
+}
+
+fn rebuild_resource_agent_projection_rebuild_changes(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE resource_agent_projection_rebuild_changes_canonical (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           previous_result_json TEXT CHECK (
+             previous_result_json IS NULL OR json_valid(previous_result_json)
+           ),
+           previous_committed_revision INTEGER CHECK (
+             previous_committed_revision IS NULL OR previous_committed_revision >= 0
+           ),
+           CHECK (
+             (previous_result_json IS NULL AND previous_committed_revision IS NULL)
+             OR (
+               previous_result_json IS NOT NULL
+               AND previous_committed_revision IS NOT NULL
+             )
+           )
+         );
+         INSERT INTO resource_agent_projection_rebuild_changes_canonical(
+           terminal_id, previous_result_json, previous_committed_revision
+         )
+         SELECT terminal_id, previous_result_json, previous_committed_revision
+         FROM resource_agent_projection_rebuild_changes;
+         DROP TABLE resource_agent_projection_rebuild_changes;
+         ALTER TABLE resource_agent_projection_rebuild_changes_canonical
+           RENAME TO resource_agent_projection_rebuild_changes;",
+    )?;
+    Ok(())
+}
+
+fn ensure_resource_agent_session_journal_identity(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement =
+            transaction.prepare("PRAGMA table_info(resource_agent_session_generations)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    if !columns.contains("journal_identity") {
+        transaction.execute(
+            "ALTER TABLE resource_agent_session_generations
+             ADD COLUMN journal_identity TEXT CHECK (
+               journal_identity IS NULL OR (
+                 length(journal_identity) = 64
+                 AND journal_identity NOT GLOB '*[^0-9a-f]*'
+               )
+             )",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn resource_agent_generation_backfill_pending(
+    connection: &Connection,
+) -> anyhow::Result<bool> {
+    Ok(meta_value(connection, RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_KEY)?.is_none())
+}
+
+pub(super) fn backfill_resource_agent_session_generations_page(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<bool> {
+    if !resource_agent_generation_backfill_pending(transaction)? {
+        return Ok(true);
+    }
+
+    let target = match resource_agent_generation_meta_i64(
+        transaction,
+        RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_TARGET_KEY,
+    )? {
+        Some(target) => target,
+        None => {
+            let target = transaction.query_row(
+                "SELECT COALESCE(MAX(rowid), 0)
+                 FROM resource_mutations
+                 WHERE operation = 'agent.report'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            store_resource_agent_generation_meta_i64(
+                transaction,
+                RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_TARGET_KEY,
+                target,
+            )?;
+            target
+        }
+    };
+    let cursor = resource_agent_generation_meta_i64(
+        transaction,
+        RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_CURSOR_KEY,
+    )?
+    .unwrap_or(0);
+    anyhow::ensure!(cursor <= target, "agent generation backfill cursor exceeds its target");
+    if cursor < target {
+        let reports = {
+            let mut statement = transaction.prepare(
+                "SELECT rowid, result_json
+                 FROM resource_mutations
+                 WHERE operation = 'agent.report' AND rowid > ?1 AND rowid <= ?2
+                 ORDER BY rowid ASC
+                 LIMIT ?3",
+            )?;
+            statement
+                .query_map(
+                    params![
+                        cursor,
+                        target,
+                        i64::try_from(RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PAGE_SIZE)?,
+                    ],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                )?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (_, result_json) in &reports {
+            import_resource_agent_generation(transaction, result_json)?;
+        }
+        let next_cursor = reports.last().map(|(rowid, _)| *rowid).unwrap_or(target);
+        store_resource_agent_generation_meta_i64(
+            transaction,
+            RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_CURSOR_KEY,
+            next_cursor,
+        )?;
+        if next_cursor < target {
+            return Ok(false);
+        }
+    }
+
+    let projection_cursor =
+        meta_value(transaction, RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PROJECTION_CURSOR_KEY)?
+            .unwrap_or_default();
+    let projections = {
+        let mut statement = transaction.prepare(
+            "SELECT terminal_id, result_json
+             FROM resource_agent_projections
+             WHERE terminal_id > ?1
+             ORDER BY terminal_id ASC
+             LIMIT ?2",
+        )?;
+        statement
+            .query_map(
+                params![
+                    projection_cursor,
+                    i64::try_from(RESOURCE_AGENT_SESSION_GENERATION_FINALIZE_PAGE_SIZE)?,
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (terminal_id, result_json) in &projections {
+        finalize_resource_agent_generation(transaction, terminal_id, result_json)?;
+    }
+    if let Some((terminal_id, _)) = projections.last() {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PROJECTION_CURSOR_KEY, terminal_id],
+        )?;
+    }
+    if projections.len() == RESOURCE_AGENT_SESSION_GENERATION_FINALIZE_PAGE_SIZE {
+        return Ok(false);
+    }
+
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_KEY],
+    )?;
+    transaction.execute(
+        "DELETE FROM meta WHERE key IN (?1, ?2, ?3)",
+        params![
+            RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_TARGET_KEY,
+            RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_CURSOR_KEY,
+            RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PROJECTION_CURSOR_KEY,
+        ],
+    )?;
+    Ok(true)
+}
+
+fn resource_agent_generation_meta_i64(
+    connection: &Connection,
+    key: &str,
+) -> anyhow::Result<Option<i64>> {
+    meta_value(connection, key)?
+        .map(|value| value.parse().with_context(|| format!("invalid {key} metadata")))
+        .transpose()
+}
+
+fn store_resource_agent_generation_meta_i64(
+    transaction: &Transaction<'_>,
+    key: &str,
+    value: i64,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(value >= 0, "{key} cannot be negative");
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value.to_string()],
+    )?;
+    Ok(())
+}
+
+fn import_resource_agent_generation(
+    transaction: &Transaction<'_>,
+    result_json: &str,
+) -> anyhow::Result<()> {
+    let Ok(result) = serde_json::from_str::<Value>(result_json) else {
+        return Ok(());
+    };
+    let Some(terminal_id) = result.get("terminal_id").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let Some(source_session) =
+        result.get("source_session").and_then(Value::as_str).filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let terminal_exists = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM resource_agent_projections WHERE terminal_id = ?1
+         )",
+        [terminal_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if !terminal_exists {
+        return Ok(());
+    }
+    let provider = result
+        .pointer("/extra/provider")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
+    let generation = transaction.query_row(
+        "SELECT COALESCE(MAX(generation), 0) + 1
+         FROM resource_agent_session_generations
+         WHERE terminal_id = ?1",
+        [terminal_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    transaction.execute(
+        "INSERT OR IGNORE INTO resource_agent_session_generations(
+           terminal_id, provider, source_session, generation, superseded
+         ) VALUES(?1, ?2, ?3, ?4, 1)",
+        params![terminal_id, provider, source_session, generation],
+    )?;
+    Ok(())
+}
+
+fn finalize_resource_agent_generation(
+    transaction: &Transaction<'_>,
+    terminal_id: &str,
+    result_json: &str,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "UPDATE resource_agent_session_generations
+         SET superseded = 1
+         WHERE terminal_id = ?1",
+        [terminal_id],
+    )?;
+    let Ok(result) = serde_json::from_str::<Value>(result_json) else {
+        return Ok(());
+    };
+    let Some(source_session) =
+        result.get("source_session").and_then(Value::as_str).filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let provider = result
+        .pointer("/extra/provider")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
+    let activated = transaction.execute(
+        "UPDATE resource_agent_session_generations
+         SET superseded = 0
+         WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3",
+        params![terminal_id, provider, source_session],
+    )?;
+    if activated == 0 {
+        let generation = transaction.query_row(
+            "SELECT COALESCE(MAX(generation), 0) + 1
+             FROM resource_agent_session_generations
+             WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        transaction.execute(
+            "INSERT INTO resource_agent_session_generations(
+               terminal_id, provider, source_session, generation, superseded
+             ) VALUES(?1, ?2, ?3, ?4, 0)",
+            params![terminal_id, provider, source_session, generation],
+        )?;
+    }
     Ok(())
 }
 
@@ -334,10 +756,16 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
 pub(super) fn initialize_resource_mutation_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
+    if resource_agent_generation_backfill_pending(transaction)? {
+        return Ok(());
+    }
     compact_resource_mutations(transaction)
 }
 
 pub(super) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if resource_agent_generation_backfill_pending(transaction)? {
+        return Ok(());
+    }
     if transaction_resource_revision(transaction)? % RESOURCE_MUTATION_PRUNE_INTERVAL != 0 {
         return Ok(());
     }
@@ -466,15 +894,6 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        tx.execute(
-            "INSERT INTO resource_agent_projections(
-               terminal_id, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3)
-             ON CONFLICT(terminal_id) DO UPDATE SET
-               result_json = excluded.result_json,
-               committed_revision = excluded.committed_revision",
-            params![terminal_id.as_str(), result_json, sqlite_revision],
-        )?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -1007,6 +1426,20 @@ impl WorkspaceRegistry {
             |row| row.get::<_, i64>(0),
         )?;
         u64::try_from(count).context("resource agent projection count is negative")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mark_terminal_deleted_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "UPDATE resource_terminals
+             SET lifecycle = 'tombstoned', deleted_revision = COALESCE(deleted_revision, 1)
+             WHERE public_id = ?1",
+            [terminal_id.as_str()],
+        )?;
+        Ok(())
     }
 }
 

@@ -1,8 +1,8 @@
 name: cmux-tui nightly
 
 on:
-  # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
-  # separate TUI package build remains available on demand.
+  # TUI package nightlies are manual-dispatch only. Dispatch on main when an
+  # on-demand prerelease package is required.
   workflow_dispatch:
 
 permissions: {}
@@ -43,7 +43,7 @@ jobs:
           git fetch --force --tags
           latest_tag="$(
             git tag --merged HEAD --list 'cmux-tui-v*' --sort=-v:refname |
-              grep -E '^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$' |
+              grep -E '^cmux-tui-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
               head -n 1 || true
           )"
           if [[ -z "$latest_tag" ]]; then
@@ -95,8 +95,9 @@ jobs:
       - build-package
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
+      actions: read # Required to download the immutable package artifact.
       contents: read
-      id-token: write
+      id-token: write # Required for npm Trusted Publishing provenance.
     environment:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
@@ -128,6 +129,20 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        env:
+          NPM_VERSION: ${{ needs.version.outputs.npm_version }}
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "$NPM_VERSION" \
+            --install-npm-package cmux-tui-linux-x64
+
+      - name: Verify independent environment approval policy
+        uses: ./.github/actions/verify-release-environment
+        with:
+          environment: npm-tui
+
       - name: Publish platform packages with nightly dist-tag
         run: |
           set -euo pipefail
@@ -139,11 +154,11 @@ jobs:
           )
           for package in "${packages[@]}"; do
             echo "Publishing $package"
-            npm publish --provenance --tag nightly "dist/npm-packages/$package"
+            npm publish --ignore-scripts --provenance --tag nightly "dist/npm-packages/$package"
           done
 
       - name: Publish launcher package with nightly dist-tag
-        run: npm publish --provenance --tag nightly dist/npm-packages/cmux
+        run: npm publish --ignore-scripts --provenance --tag nightly dist/npm-packages/cmux
 
   publish-pypi:
     needs:
@@ -151,20 +166,66 @@ jobs:
       - build-package
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
+      actions: read # Required to download the immutable package artifact.
       contents: read
-      id-token: write
+      id-token: write # Required for PyPI Trusted Publishing provenance.
     environment:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - name: Checkout immutable nightly source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.version.outputs.head_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: pypi-wheels
           path: dist
 
+      - name: Revalidate PyPI wheel contract
+        env:
+          PYPI_VERSION: ${{ needs.version.outputs.pypi_version }}
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "$PYPI_VERSION"
+
+      - name: Verify independent environment approval policy
+        uses: ./.github/actions/verify-release-environment
+        with:
+          environment: pypi-tui
+
       - name: Publish nightly package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: dist
           attestations: true
+
+      - name: Verify every nightly PyPI wheel after upload
+        env:
+          VERSION: ${{ needs.version.outputs.pypi_version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ "${#wheels[@]}" == 6 ]] || {
+            echo "expected six immutable nightly PyPI wheels, found ${#wheels[@]}" >&2
+            exit 1
+          }
+          allowed_args=()
+          for wheel in "${wheels[@]}"; do
+            allowed_args+=(--allowed-artifact "$wheel")
+          done
+          for wheel in "${wheels[@]}"; do
+            python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+              --registry pypi \
+              --package cmux \
+              --version "$VERSION" \
+              --artifact "$wheel" \
+              "${allowed_args[@]}" \
+              --wait-seconds 120 \
+              --require-match
+          done

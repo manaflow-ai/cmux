@@ -115,6 +115,26 @@ let _request = cmux::raw::PingRequest::default();
 The optional `cmux-sidebar` companion provides Ratatui rendering and input
 forwarding without adding Ratatui to this base crate.
 
+Default socket helpers validate session names before joining them into a path.
+Names must be non-empty single path components without separators, NUL,
+control characters, Unicode line separators, Unicode noncharacters, or
+Windows-reserved filename characters. Spaces, Unicode, leading punctuation,
+and long legacy names remain valid. Use
+`cmux::raw::try_default_socket_path` or
+`ClientConfig::try_from_env_or_default_session` (and the corresponding
+`Config` method) when invalid input must return `Error::InvalidArgument`.
+Long names that exceed the Unix socket limit use the shared SHA-256 fallback
+below `/tmp/cmux-tui-hashed-<uid>`.
+The older non-fallible `default_socket_path` and configuration constructors
+remain source-compatible and map invalid names to a private path without
+opening a socket. Use their `try_` forms for user input when an
+`Error::InvalidArgument` is required. The path-only helper maps invalid names
+to distinct paths below a private invalid-session directory and never to a
+normal session socket. Its leaf is the lowercase SHA-256 digest of the
+session's UTF-8 bytes, matching the other SDKs. Repeated calls for the same
+input are deterministic, and different invalid inputs are kept in separate
+compatibility leaves.
+
 Verify:
 
 ```bash

@@ -48,6 +48,8 @@ jobs:
     needs: build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
+    env:
+      EXPECTED_WINDOWS_ARTIFACT: cmux-tui-x86_64-pc-windows-gnu.exe
     permissions:
       contents: read
     steps:
@@ -102,6 +104,14 @@ jobs:
           build_manifest assets/cmux-tui cmux-tui- cmux-tui-checksums.txt
           build_manifest assets/cmux-relay cmux-relay- cmux-relay-checksums.txt
 
+      - name: Verify cmux-tui manifest before upload
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/cmux-tui/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-artifact "$EXPECTED_WINDOWS_ARTIFACT"
+
       - name: Upload to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -110,25 +120,10 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          publish_prefix() {
-            local directory="$1"
-            local prefix="$2"
-            local cache="$3"
-            for file in "$directory"/*; do
-              python3 scripts/ci/upload-r2-object.py \
-                --file "$file" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
-                --key "$prefix/$(basename "$file")" \
-                --cache-control "$cache"
-            done
-          }
-          publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable"
-          publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable"
-          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            publish_prefix assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate"
-            publish_prefix assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate"
-          fi
+          scripts/ci/publish-r2-prefix.sh \
+            assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          scripts/ci/publish-r2-prefix.sh \
+            assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable"
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
           echo "Published: https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json"
 
@@ -163,19 +158,43 @@ jobs:
           }
           (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
           PY
-          publish_legacy_prefix() {
-            local prefix="$1"
-            local cache="$2"
-            for file in "$legacy_assets"/*; do
-              python3 scripts/ci/upload-r2-object.py \
-                --file "$file" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
-                --key "$prefix/$(basename "$file")" \
-                --cache-control "$cache"
-            done
-          }
-          publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          scripts/ci/publish-r2-prefix.sh \
+            "$legacy_assets" "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
+
+      - name: Verify immutable cmux-tui manifest before latest publish
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --require-artifact "$EXPECTED_WINDOWS_ARTIFACT"
+
+      - name: Publish rolling latest artifacts
+        if: github.ref == 'refs/heads/main'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          scripts/ci/publish-r2-prefix.sh \
+            assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate"
+          scripts/ci/publish-r2-prefix.sh \
+            assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate"
+          scripts/ci/publish-r2-prefix.sh \
+            assets-legacy "mux/latest" "no-cache, no-store, must-revalidate"
+
+      - name: Verify published cmux-tui manifests
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --require-artifact "$EXPECTED_WINDOWS_ARTIFACT"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            publish_legacy_prefix "mux/latest" "no-cache, no-store, must-revalidate"
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-tui/latest/manifest.json?verify=$GITHUB_SHA" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-artifact "$EXPECTED_WINDOWS_ARTIFACT"
           fi

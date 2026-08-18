@@ -30,6 +30,7 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+mod agent_projection_store;
 mod effect_store;
 mod journal_extensions;
 mod public_projection_store;
@@ -37,6 +38,7 @@ mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
 
+use agent_projection_store::rebuild_agent_projections_from_journal;
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -55,11 +57,12 @@ pub use journal_extensions::{
 pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
-    JournalSegmentSealCommit, JournalSegmentSealStart,
+    JournalRestoreCommit, JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub use public_projection_store::RegistryPublicProjections;
+pub use public_projection_store::RegistryAgentProjection;
 #[cfg(test)]
-pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+pub(crate) use public_projection_store::RegistryNotificationProjection;
+pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
 pub use resource_store::{
@@ -2257,10 +2260,25 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            true,
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        Self::open_with_restore(root, session_name, true)
+    }
+
+    /// Opens a durable registry, optionally replaying journal-owned projections.
+    ///
+    /// The journal remains the durable source of truth in both modes. When
+    /// `restore_journal` is false, derived projections are not replayed and
+    /// callers must treat pending projection rows as not ready until an
+    /// explicit restore or rebuild publishes them.
+    pub(crate) fn open_with_restore(
+        root: &Path,
+        session_name: &str,
+        restore_journal: bool,
+    ) -> anyhow::Result<Self> {
         let session_dir = root.join(session_storage_component(session_name));
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if db_path.is_file()
@@ -2292,9 +2310,13 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            restore_journal,
         )
     }
 
+    // The constructor receives independent durable-resource handles and
+    // startup policy, so bundling them would hide the initialization contract.
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2303,6 +2325,7 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        restore_journal: bool,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
@@ -2610,6 +2633,9 @@ impl WorkspaceRegistry {
             anyhow::bail!(
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
+        }
+        if restore_journal {
+            rebuild_agent_projections_from_journal(&connection, false)?;
         }
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;

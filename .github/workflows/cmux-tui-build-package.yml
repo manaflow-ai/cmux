@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: "npm package version, or the shared stable X.Y.Z version"
+        description: "canonical binary and npm version, or the shared stable X.Y.Z version"
         required: true
         type: string
       pypi_version:
-        description: "PyPI package version; defaults to version"
+        description: "PyPI metadata version; defaults to version and does not change the binary stamp"
         required: false
         default: ""
         type: string
@@ -480,6 +480,27 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Test Windows launch behavior
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          require_tests() {
+            local listing="$1"
+            grep -Eq ': test$' "$listing" || {
+              echo "::error::windows_launch selected no test in $listing" >&2
+              exit 1
+            }
+          }
+          cargo test -p ghostty-vt-sys windows_launch --locked --target x86_64-pc-windows-gnu -- --list \
+            | tee "$RUNNER_TEMP/ghostty-windows-launch.txt"
+          require_tests "$RUNNER_TEMP/ghostty-windows-launch.txt"
+          cargo test -p cmux-tui --bin cmux-tui windows_launch --locked --target x86_64-pc-windows-gnu -- --list \
+            | tee "$RUNNER_TEMP/cmux-windows-launch.txt"
+          require_tests "$RUNNER_TEMP/cmux-windows-launch.txt"
+          cargo test -p ghostty-vt-sys windows_launch --locked --target x86_64-pc-windows-gnu
+          cargo test -p cmux-tui --bin cmux-tui windows_launch --locked --target x86_64-pc-windows-gnu
+
       - name: Verify long Windows state path
         shell: bash
         run: |
@@ -497,7 +518,7 @@ jobs:
         with:
           python-version: "3.12.10"
 
-      - name: Verify Windows ConPTY resize
+      - name: Verify Windows ConPTY launch, input, and resize
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check --require-hashes \
@@ -598,47 +619,46 @@ jobs:
             --version "$PYPI_VERSION" \
             --out dist/pypi-wheels
 
+      - name: Set up Node.js for npm package contract
+        if: inputs.package_npm
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned npm for package contract
+        if: inputs.package_npm
+        run: npm install --global npm@11.5.1
+
       - name: Smoke verify npm packages
         if: inputs.package_npm
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-          import stat
-          import sys
-
-          version = os.environ["NPM_VERSION"]
-          root = pathlib.Path("dist/npm-packages")
-          platforms = {
-              "cmux-tui-darwin-arm64": ("darwin", "arm64"),
-              "cmux-tui-darwin-x64": ("darwin", "x64"),
-              "cmux-tui-linux-x64": ("linux", "x64"),
-              "cmux-tui-linux-arm64": ("linux", "arm64"),
+          case "$(uname -m)" in
+            x86_64|amd64) install_target=cmux-tui-linux-x64 ;;
+            aarch64|arm64) install_target=cmux-tui-linux-arm64 ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "$NPM_VERSION" \
+            --install-npm-package "$install_target"
+          case "$(uname -m)" in
+            x86_64|amd64) probe_binary=dist/binaries/cmux-tui-x86_64-unknown-linux-musl ;;
+            aarch64|arm64) probe_binary=dist/binaries/cmux-tui-aarch64-unknown-linux-musl ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          chmod +x "$probe_binary"
+          CMUX_TUI_VERSION_OUTPUT="$("$probe_binary" --version 2>&1)" || {
+            printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
+            exit 1
           }
-          launcher = json.loads((root / "cmux" / "package.json").read_text())
-          deps = launcher.get("optionalDependencies", {})
-          if deps != {name: version for name in platforms}:
-              print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
-              raise SystemExit(1)
-          for name, (os_name, cpu) in platforms.items():
-              package_json = json.loads((root / name / "package.json").read_text())
-              if package_json["version"] != version:
-                  raise SystemExit(f"{name}: version mismatch")
-              if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
-                  raise SystemExit(f"{name}: os/cpu mismatch")
-              binary = root / name / "bin" / "cmux-tui"
-              if not binary.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{binary} is not executable")
-              hook = root / name / "bin" / "cmux-tui-hook"
-              if not hook.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{hook} is not executable")
-          PY
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
-          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
-          CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
+          # NPM_VERSION is the canonical binary stamp. PyPI nightlies may use
+          # a different `.dev...` metadata version for the same binaries.
+          if [[ "$CMUX_TUI_VERSION_OUTPUT" != "cmux $NPM_VERSION"* ]]; then
+            echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
+            exit 1
+          fi
+          CMUX_TUI_PROBE="$("$probe_binary" remote-probe --json)"
           CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
           export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
           python3 - <<'PY'
@@ -657,6 +677,10 @@ jobs:
               raise SystemExit(
                   f"binary distribution version {probe.get('distribution_version')!r} != {expected!r}"
               )
+          if probe.get("version") != expected:
+              raise SystemExit(
+                  f"binary version {probe.get('version')!r} != {expected!r}"
+              )
           if probe.get("npm_bootstrap_version") != expected:
               raise SystemExit(
                   f"binary npm bootstrap version {probe.get('npm_bootstrap_version')!r} != {expected!r}"
@@ -674,24 +698,47 @@ jobs:
         if: inputs.package_pypi
         run: |
           set -euo pipefail
-          for wheel in dist/pypi-wheels/*.whl; do
-            python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
-          done
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist/pypi-wheels \
+            --version "$PYPI_VERSION"
+          case "$(uname -m)" in
+            x86_64|amd64) probe_binary=dist/binaries/cmux-tui-x86_64-unknown-linux-musl ;;
+            aarch64|arm64) probe_binary=dist/binaries/cmux-tui-aarch64-unknown-linux-musl ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          chmod +x "$probe_binary"
+          CMUX_TUI_VERSION_OUTPUT="$("$probe_binary" --version 2>&1)" || {
+            printf '%s\n' "$CMUX_TUI_VERSION_OUTPUT" >&2
+            exit 1
+          }
+          # NPM_VERSION is the canonical binary stamp. PyPI nightlies may use
+          # a different `.dev...` metadata version for the same binaries.
+          if [[ "$CMUX_TUI_VERSION_OUTPUT" != "cmux $NPM_VERSION"* ]]; then
+            echo "binary --version output $CMUX_TUI_VERSION_OUTPUT does not start with cmux $NPM_VERSION" >&2
+            exit 1
+          fi
+          CMUX_TUI_PROBE="$("$probe_binary" remote-probe --json)"
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
           python3 - <<'PY'
-          import glob
-          import stat
-          import zipfile
+          import json
+          import os
 
-          for path in glob.glob("dist/pypi-wheels/*.whl"):
-              with zipfile.ZipFile(path) as wheel:
-                  info = wheel.getinfo("cmux_tui/bin/cmux-tui-hook")
-                  mode = info.external_attr >> 16
-                  if not mode & stat.S_IXUSR:
-                      raise SystemExit(f"{path}: bundled cmux-tui-hook is not executable")
+          probe = json.loads(os.environ["CMUX_TUI_PROBE"])
+          expected = os.environ["NPM_VERSION"]
+          expected_identity = os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]
+          if probe.get("build_identity") != expected_identity:
+              raise SystemExit(
+                  f"binary build identity {probe.get('build_identity')!r} "
+                  f"!= {expected_identity!r}"
+              )
+          if probe.get("distribution_version") != expected:
+              raise SystemExit(
+                  f"binary distribution version {probe.get('distribution_version')!r} != {expected!r}"
+              )
+          if probe.get("version") != expected:
+              raise SystemExit(f"binary version {probe.get('version')!r} != {expected!r}")
           PY
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
-          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
@@ -779,3 +826,53 @@ jobs:
           python3 cmux-tui/dist/scripts/test_linux_packages.py \
             --architecture "${{ matrix.architecture }}" \
             "${args[@]}"
+
+  verify-macos-wheels:
+    name: verify macOS PyPI wheel (${{ matrix.architecture }})
+    needs: package
+    if: ${{ inputs.package_pypi }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-14
+          - architecture: x64
+            runner: macos-15-intel
+    env:
+      PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Download PyPI wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist/pypi-wheels
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install and execute native macOS wheel
+        run: |
+          python3 cmux-tui/dist/scripts/test_macos_packages.py \
+            --wheels dist/pypi-wheels \
+            --version "$PYPI_VERSION" \
+            --architecture "${{ matrix.architecture }}"

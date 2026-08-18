@@ -402,10 +402,147 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
-	for _, session := range []string{"", ".", "..", "../other", "contains space", "a/b"} {
+	for _, session := range []string{
+		"",
+		".",
+		"..",
+		"../other",
+		"a/b",
+		"a\\b",
+		"bad\x00name",
+		"bad\nname",
+		"bad\u0085name",
+		"bad\u2028name",
+		"bad\u2029name",
+		"bad\ufdd0name",
+		"bad\U0001fffe_name",
+		"bad\U0010ffff_name",
+		"bad:session",
+		"bad\"session",
+		"bad<session",
+		"bad>session",
+		"bad|session",
+		"bad*session",
+		"bad?session",
+	} {
 		if _, err := ResolveSocketPath("", session); !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("session %q error = %v, want invalid argument", session, err)
 		}
+	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xff, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("malformed UTF-8 session was accepted")
+	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xed, 0xa0, 0x80, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("UTF-8 surrogate session was accepted")
+	}
+}
+
+func TestDefaultSocketPathEmptySessionPreservesLegacyMain(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	if got, want := DefaultSocketPath(""), DefaultSocketPath("main"); got != want {
+		t.Fatalf("empty compatibility path = %q, want legacy main path %q", got, want)
+	}
+}
+
+func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	for _, session := range []string{
+		"contains space",
+		"名前",
+		"_leading",
+		"-leading",
+		".leading",
+	} {
+		path, err := ResolveSocketPath("", session)
+		if err != nil {
+			t.Fatalf("session %q rejected: %v", session, err)
+		}
+		if !strings.HasSuffix(path, "/"+session+".sock") {
+			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
+		}
+	}
+}
+
+func TestLongSessionSocketPathUsesBindableDigestFallback(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	session := "legacy-" + strings.Repeat("x", 200)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",
+	)
+	if path != want {
+		t.Fatalf("long session path = %q, want %q", path, want)
+	}
+	if !unixSocketPathFits(path) {
+		t.Fatalf("long session path exceeds sockaddr_un: %q", path)
+	}
+	bindDir, err := os.MkdirTemp("/tmp", "cmux-go-long-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(bindDir) })
+	leafLength := len([]byte(path)) - len([]byte(bindDir)) - 1
+	if leafLength <= len(".sock") {
+		t.Fatalf("temporary bind path cannot reach the canonical byte length: %q", path)
+	}
+	bindPath := filepath.Join(bindDir, strings.Repeat("x", leafLength-len(".sock"))+".sock")
+	if len([]byte(bindPath)) != len([]byte(path)) {
+		t.Fatalf("temporary bind path length = %d, want %d", len([]byte(bindPath)), len([]byte(path)))
+	}
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(context.Background(), "unix", bindPath)
+	if err != nil {
+		t.Fatalf("bind long session path %q: %v", bindPath, err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(bindPath)
+	})
+}
+
+func TestNonASCIILongSessionUsesSharedUTF8SHA256Digest(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	session := strings.Repeat("名前", 100)
+	path, err := ResolveSocketPath("", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-hashed-%d", os.Getuid()),
+		"0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3.sock",
+	)
+	if path != want {
+		t.Fatalf("non-ASCII long session path = %q, want %q", path, want)
+	}
+}
+
+func TestInvalidCompatibilityPathIsDeterministicAndIsolated(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	first := DefaultSocketPath("../escape")
+	second := DefaultSocketPath("../escape")
+	if first != second {
+		t.Fatalf("invalid compatibility paths differ: %q != %q", first, second)
+	}
+	if (!strings.Contains(first, "/cmux-tui-invalid-") &&
+		!strings.Contains(first, "/tmp/cmux-tui-invalid-")) ||
+		!strings.HasSuffix(first, ".sock") || strings.Contains(first, "escape") {
+		t.Fatalf("invalid compatibility path is not an isolated digest leaf: %q", first)
 	}
 }
 

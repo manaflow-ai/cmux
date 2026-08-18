@@ -66,8 +66,11 @@
     "session.journal.checkpoint.list",
     "session.journal.hook.list",
     "session.journal.hook.put",
+    "session.journal.inspect",
+    "session.journal.list",
     "session.journal.producer.list",
     "session.journal.producer.put",
+    "session.journal.restore",
     "session.journal.restore.preview",
     "session.journal.segment.list",
     "session.journal.segment.seal",
@@ -538,8 +541,8 @@
     }
   },
   "protocol_domains": [
-    {"id": "mux-control-v10", "status": "implemented", "spec": "commands.md"},
-    {"id": "mux-events-v10", "status": "implemented", "spec": "events.md"},
+    {"id": "mux-control-v12", "status": "implemented", "spec": "commands.md"},
+    {"id": "mux-events-v12", "status": "implemented", "spec": "events.md"},
     {"id": "terminal-host-v1", "status": "partial", "spec": "terminal-host.md"},
     {"id": "machine-provider-v0-v1", "status": "implemented", "spec": "machine-provider.md"},
     {"id": "cmux.machine-agent-v1", "status": "implemented", "spec": "machine-agent.md"},
@@ -549,12 +552,5 @@
     {"id": "frontend-actions-vNext", "status": "proposed", "spec": "programmability.md"},
     {"id": "configuration-vNext", "status": "proposed", "spec": "programmability.md"}
   ],
-  "pending_heads": [
-    {
-      "name": "terminal-shortcuts",
-      "url": "https://github.com/manaflow-ai/cmux/pull/8698",
-      "status": "pending",
-      "note": "Adds clear-history and structured key work. It is not part of the main protocol inventory."
-    }
-  ]
+  "pending_heads": []
 }

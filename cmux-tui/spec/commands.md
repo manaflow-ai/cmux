@@ -3507,7 +3507,7 @@ Result:
 object{
   agents: array<object{
     surface: Id,
-    state: "working"|"blocked"|"idle"|"done"|"unknown",
+    state: "working"|"blocked"|"idle"|"done"|"interrupted"|"unknown",
     source: "detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
@@ -3528,7 +3528,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `list-agents` |
-| Flags | `[--surface <id>] [--state working|blocked|idle|done|unknown]` |
+| Flags | `[--surface <id>] [--state working\|blocked\|idle\|done\|interrupted\|unknown]` |
 | Plain stdout | one line per agent: `<surface> <state> <source> <session-or->` |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3555,19 +3555,21 @@ to `session.events`. The server generates an internal mutation identity for
 this raw command.
 
 Each live terminal has at most one current agent projection. Hook reports have
-authority over socket reports. A socket report received after a hook retains
-the hook value while still advancing the resource revision and publishing that
-retained value. Restart restores the current projection. Closing the terminal
-deletes it, so historical reports cannot recreate an agent. Browser surfaces,
-surfaces without durable terminal identity, and terminal-less default reports
-are rejected.
+authority over socket reports. A socket report with a conflicting structured
+source session is rejected without changing the projection, resource revision,
+or `session.events`. The legacy report path retains an active hook projection
+when `source_session` is absent and still commits that retained value. Direct
+journal projection transitions reject an omitted active source session. Restart
+restores the current projection. Closing the terminal deletes it, so historical
+reports cannot recreate an agent. Browser surfaces, surfaces without durable
+terminal identity, and terminal-less default reports are rejected.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
-| `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
+| `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, `"interrupted"`, or `"unknown"` |
 | `source` | `string` | required | `"socket"` or `"hook"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
@@ -3586,6 +3588,8 @@ Errors:
 | `surface <id> has no durable resource identity` | Surface is not durably registered |
 | `bad state <state>` | State is not allowed |
 | `bad source <source>` | Source is not allowed |
+| `agent projection session conflict` | Structured source session conflicts with the active agent projection |
+| `agent projection requires a session identity` | Direct journal projection transition omits the active source session |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -3593,7 +3597,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `report-agent` |
-| Flags | `--surface <id> --state working|blocked|idle|done|unknown --source socket|hook [--session <id>]` |
+| Flags | `--surface <id> --state working\|blocked\|idle\|done\|interrupted\|unknown --source socket\|hook [--session <id>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |

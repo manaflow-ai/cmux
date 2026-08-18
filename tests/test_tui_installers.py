@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-UNIX_INSTALLER = ROOT / "web/public/tui/install.sh"
-WINDOWS_INSTALLER = ROOT / "web/public/tui/install.ps1"
+UNIX_INSTALLER = ROOT / "web/public/tui/install-static.sh"
+WINDOWS_INSTALLER = ROOT / "web/public/tui/install-static.ps1"
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -90,6 +90,11 @@ def test_install_scripts_are_public_and_checksum_verified() -> None:
     assert "SetEnvironmentVariable" in windows
     assert "SecurityProtocolType]::Tls12" in windows
     assert "release manifest" not in windows
+
+
+def test_static_installer_bodies_are_available_to_route_handlers() -> None:
+    assert UNIX_INSTALLER.is_file()
+    assert WINDOWS_INSTALLER.is_file()
 
 
 def test_unix_installer_has_valid_shell_syntax() -> None:

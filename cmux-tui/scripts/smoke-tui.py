@@ -1,5 +1,7 @@
 import os, pty, select, socket, json, time, sys, signal, subprocess, re, tempfile
 
+from smoke_tui_probe import osc_probe_command, write_osc_probe_script
+
 BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
@@ -184,9 +186,37 @@ def wait_for_pane_count(count, seconds=15):
     }
     raise AssertionError({"tree": last, "render": rendered, "screens": screens})
 
+def wait_for_surface_active(surface_id, pane_id, seconds=15):
+    """Wait until the restored terminal tab is the pane's published selection."""
+    deadline = time.monotonic() + seconds
+    last = None
+    while time.monotonic() < deadline:
+        workspaces = tree()
+        for workspace in workspaces:
+            if not workspace.get("active"):
+                continue
+            for screen in workspace.get("screens", []):
+                if not screen.get("active"):
+                    continue
+                for pane in screen.get("panes", []):
+                    if pane.get("id") != pane_id:
+                        continue
+                    last = pane
+                    active_tab = pane.get("active_tab")
+                    tabs = pane.get("tabs", [])
+                    if (
+                        isinstance(active_tab, int)
+                        and 0 <= active_tab < len(tabs)
+                        and tabs[active_tab].get("surface") == surface_id
+                    ):
+                        return pane
+        drain(min(0.2, max(0.0, deadline - time.monotonic())))
+    raise AssertionError({"pane": last, "surface": surface_id})
+
 SOCK = discover_socket_path()
 
 tmpdir = tempfile.TemporaryDirectory(prefix="cmux-tui-smoke-")
+osc_probe_path = write_osc_probe_script(tmpdir.name)
 config_path = os.path.join(tmpdir.name, "cmux-tui.json")
 sidebar_marker = "tui-file.txt"
 with open(os.path.join(tmpdir.name, sidebar_marker), "w", encoding="utf-8") as f:
@@ -654,6 +684,13 @@ screen0 = active_screen(tree()[0])
 assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
 print("prefix-B browser omnibar focuses, Esc blurs, and close works ok")
 
+# Closing a browser tab publishes the tab list before the frontend focus
+# mutation is visible. Reassert the terminal pane and tab through the control
+# protocol, then wait for the published selection before sending keystrokes.
+assert rpc({"id": 32, "cmd": "focus-pane", "pane": pane_id})["ok"]
+assert rpc({"id": 33, "cmd": "select-tab", "pane": pane_id, "index": 0})["ok"]
+wait_for_surface_active(surface_id, pane_id)
+
 # Host OSC replies must be consumed by the startup probe, not forwarded as
 # keystrokes into the child shell.
 screen = rpc({"id": 30, "cmd": "read-screen", "surface": surface_id})
@@ -680,30 +717,12 @@ assert has_sgr_parameters(color_output, (48, 5, 236)), color_output[-2000:]
 assert not has_sgr_parameters(color_output, (38, 2, 204, 102, 102)), color_output[-2000:]
 print("indexed color passthrough ok")
 
-inner_osc_query = """python3 - <<'PY'
-import os, select, termios, time, tty
-fd = os.open('/dev/tty', os.O_RDWR)
-old = termios.tcgetattr(fd)
-try:
-    tty.setraw(fd)
-    os.write(fd, b'\\x1b]11;?\\x1b\\\\')
-    data = b''
-    # Generous deadline: the shell may still be consuming the pasted
-    # heredoc and the TUI coalesces frames (this raced at 2s).
-    end = time.time() + 8
-    while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
-        r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
-        if not r:
-            break
-        data += os.read(fd, 128)
-finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    os.close(fd)
-print(data.decode('ascii', 'ignore').replace('\\x1b', '<ESC>').replace('\\x07', '<BEL>'))
-PY
-"""
-os.write(fd, inner_osc_query.replace("\n", "\r").encode())
+# Run the probe through one short shell command. A multiline heredoc sent in
+# one PTY write can leave /bin/sh waiting for its terminator while echoing the
+# source, so the OSC reply never reaches the child before the screen deadline.
+os.write(fd, (osc_probe_command(osc_probe_path) + "\r").encode())
 wait_screen_contains(surface_id, "1313/1414/1515")
+wait_screen_contains(surface_id, "cmux-tui-osc-probe-complete")
 print("inner OSC 11 query receives seeded background ok")
 os.write(fd, b"\x03")
 drain(0.4)

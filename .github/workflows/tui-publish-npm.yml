@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       confirm_tui_cmux:
-        description: "Set true only for the coordinated npm cmux TUI publish"
+        description: "Set true only for the coordinated cmux TUI registry publish"
         required: true
         default: false
         type: boolean
@@ -20,7 +20,13 @@ on:
 permissions: {}
 
 concurrency:
-  group: tui-publish-npm-${{ github.ref }}
+  # The launcher publish owns npm's global `latest` dist-tag. Keep different
+  # release tags out of the publish section at the same time.
+  # GitHub documents `queue: max` for larger queues, but the pinned actionlint
+  # contract does not parse that newer key yet. Keep the default single pending
+  # run until the validator is upgraded. The release waiter fails closed when
+  # GitHub replaces a pending run.
+  group: tui-publish-npm-latest
   cancel-in-progress: false
 
 jobs:
@@ -50,7 +56,7 @@ jobs:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          [[ "$DISPATCH_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "workflow_dispatch version must match stable X.Y.Z (no prerelease); nightlies go through cmux-tui-nightly.yml" >&2
             exit 1
           }
@@ -180,7 +186,78 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
-      - name: Publish platform packages
+      - name: Revalidate packed npm contract
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "$VERSION" \
+            --install-npm-package cmux-tui-linux-x64
+
+      - name: Refuse an npm latest regression
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          candidate_version="$VERSION"
+          current_latest="$(npm view cmux dist-tags.latest --json 2>/dev/null | tr -d '\"' | tr -d '[:space:]')" || {
+            echo "Could not resolve npm cmux latest; refusing to publish." >&2
+            exit 1
+          }
+          python3 - "$current_latest" "$candidate_version" <<'PY'
+          import sys
+
+          def parse(value: str) -> tuple[int, int, int]:
+              parts = value.split(".")
+              if len(parts) != 3 or any(
+                  not part.isdigit() or (len(part) > 1 and part.startswith("0"))
+                  for part in parts
+              ):
+                  raise SystemExit("invalid stable npm version")
+              return tuple(int(part) for part in parts)
+
+          current, candidate = map(parse, sys.argv[1:])
+          if current > candidate:
+              raise SystemExit(
+                  f"npm cmux latest {sys.argv[1]} is newer than candidate {sys.argv[2]}; refusing regression"
+              )
+          print(f"npm cmux latest {sys.argv[1]} is not newer than candidate {sys.argv[2]}")
+          PY
+
+      - name: Pack npm packages for registry reconciliation
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          archive_dir=dist/npm-publish
+          mkdir -p "$archive_dir"
+          packages=(
+            cmux
+            cmux-tui-darwin-arm64
+            cmux-tui-darwin-x64
+            cmux-tui-linux-x64
+            cmux-tui-linux-arm64
+          )
+          for package in "${packages[@]}"; do
+            npm pack --ignore-scripts \
+              --pack-destination "$archive_dir" \
+              "dist/npm-packages/$package" >/dev/null
+            archive="$archive_dir/$package-$VERSION.tgz"
+            [[ -f "$archive" ]] || {
+              echo "npm pack produced no expected archive: $archive" >&2
+              exit 1
+            }
+          done
+
+      - name: Verify independent environment approval policy
+        uses: ./.github/actions/verify-release-environment
+        with:
+          environment: npm-tui
+
+      - name: Publish platform packages with exact retry reconciliation
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           packages=(
@@ -190,29 +267,26 @@ jobs:
             cmux-tui-linux-arm64
           )
           for package in "${packages[@]}"; do
-            echo "Publishing $package"
-            if ! npm publish --provenance "dist/npm-packages/$package"; then
-              cat >&2 <<'EOF'
-          npm publish failed.
-
-          For the first publish of the new TUI platform package names, add npm Trusted Publishers for:
-          - cmux-tui-darwin-arm64
-          - cmux-tui-darwin-x64
-          - cmux-tui-linux-x64
-          - cmux-tui-linux-arm64
-
-          Trusted publisher settings for each package:
-          - Repository: manaflow-ai/cmux
-          - Workflow: tui-publish-npm.yml
-          - Environment: npm-tui
-          EOF
-              exit 1
-            fi
+            python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
+              --registry npm \
+              --package "$package" \
+              --version "$VERSION" \
+              --artifact "dist/npm-publish/$package-$VERSION.tgz" \
+              --wait-seconds 120 \
+              --publish-timeout-seconds 600 \
+              -- npm publish --ignore-scripts --provenance "dist/npm-packages/$package"
           done
 
-      - name: Publish launcher package
+      - name: Publish launcher package with exact retry reconciliation
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          # Deliberately do not pass --tag: this coordinated TUI publish takes
-          # over the cmux latest dist-tag from the old 0.8.3 CLI when version > 0.8.3.
-          npm publish --provenance dist/npm-packages/cmux
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
+            --registry npm \
+            --package cmux \
+            --version "$VERSION" \
+            --artifact "dist/npm-publish/cmux-$VERSION.tgz" \
+            --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
+            -- npm publish --ignore-scripts --provenance dist/npm-packages/cmux

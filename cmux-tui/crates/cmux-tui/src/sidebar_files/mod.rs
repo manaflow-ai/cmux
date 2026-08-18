@@ -334,9 +334,30 @@ pub fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-pub fn file_url(path: &Path) -> String {
-    let text = path.to_string_lossy();
-    let mut url = String::from("file://");
+#[derive(Clone, Copy)]
+enum FileUrlPlatform {
+    Unix,
+    Windows,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FileUrlError {
+    UnsupportedWindowsPath,
+    RelativePath,
+}
+
+impl std::fmt::Display for FileUrlError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedWindowsPath => formatter.write_str("unsupported Windows file path"),
+            Self::RelativePath => formatter.write_str("relative Unix file path"),
+        }
+    }
+}
+
+impl std::error::Error for FileUrlError {}
+
+fn push_percent_encoded_path(url: &mut String, text: &str) {
     for byte in text.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
@@ -345,7 +366,88 @@ pub fn file_url(path: &Path) -> String {
             _ => url.push_str(&format!("%{byte:02X}")),
         }
     }
-    url
+}
+
+fn unix_file_url(text: &str) -> Result<String, FileUrlError> {
+    if !text.starts_with('/') {
+        return Err(FileUrlError::RelativePath);
+    }
+    let mut url = String::from("file://");
+    push_percent_encoded_path(&mut url, text);
+    Ok(url)
+}
+
+fn strip_ascii_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.get(..prefix.len())
+        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        .map(|_| &text[prefix.len()..])
+}
+
+fn windows_drive_file_url(text: &str) -> Result<String, FileUrlError> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'/' {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    }
+
+    let mut url = String::from("file:///");
+    url.push(char::from(bytes[0]));
+    url.push(':');
+    push_percent_encoded_path(&mut url, &text[2..]);
+    Ok(url)
+}
+
+fn windows_unc_file_url(text: &str) -> Result<String, FileUrlError> {
+    let Some((server, share_and_path)) = text.split_once('/') else {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    };
+    let (share, path) = share_and_path.split_once('/').unwrap_or((share_and_path, ""));
+    if server.is_empty()
+        || share.is_empty()
+        || !server
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_'))
+    {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    }
+
+    let mut url = String::from("file://");
+    url.push_str(server);
+    url.push('/');
+    push_percent_encoded_path(&mut url, share);
+    if !path.is_empty() {
+        url.push('/');
+        push_percent_encoded_path(&mut url, path);
+    }
+    Ok(url)
+}
+
+fn windows_file_url(text: &str) -> Result<String, FileUrlError> {
+    let normalized = text.replace('\\', "/");
+    if let Some(unc) = strip_ascii_prefix(&normalized, "//?/UNC/") {
+        return windows_unc_file_url(unc);
+    }
+    if let Some(verbatim) = normalized.strip_prefix("//?/") {
+        return windows_drive_file_url(verbatim);
+    }
+    if normalized.starts_with("//./") {
+        return Err(FileUrlError::UnsupportedWindowsPath);
+    }
+    if let Some(unc) = normalized.strip_prefix("//") {
+        return windows_unc_file_url(unc);
+    }
+    windows_drive_file_url(&normalized)
+}
+
+fn file_url_text(text: &str, platform: FileUrlPlatform) -> Result<String, FileUrlError> {
+    match platform {
+        FileUrlPlatform::Unix => unix_file_url(text),
+        FileUrlPlatform::Windows => windows_file_url(text),
+    }
+}
+
+pub fn file_url(path: &Path) -> Result<String, FileUrlError> {
+    let platform = if cfg!(windows) { FileUrlPlatform::Windows } else { FileUrlPlatform::Unix };
+    file_url_text(&path.to_string_lossy(), platform)
 }
 
 #[cfg(test)]
@@ -471,6 +573,72 @@ mod tests {
 
     #[test]
     fn creates_percent_encoded_file_url() {
-        assert_eq!(file_url(Path::new("/tmp/a file#1.md")), "file:///tmp/a%20file%231.md");
+        assert_eq!(file_url(Path::new("/tmp/a file#1.md")).unwrap(), "file:///tmp/a%20file%231.md");
+    }
+
+    #[test]
+    fn windows_launch_creates_drive_file_urls() {
+        assert_eq!(
+            file_url_text(r"C:\a b#\100%\界.txt", FileUrlPlatform::Windows).unwrap(),
+            "file:///C:/a%20b%23/100%25/%E7%95%8C.txt"
+        );
+    }
+
+    #[test]
+    fn windows_launch_creates_unc_file_urls() {
+        assert_eq!(
+            file_url_text(r"\\server\share\a b#\界.txt", FileUrlPlatform::Windows).unwrap(),
+            "file://server/share/a%20b%23/%E7%95%8C.txt"
+        );
+    }
+
+    #[test]
+    fn windows_launch_normalizes_verbatim_file_paths() {
+        assert_eq!(
+            file_url_text(r"\\?\C:\long\界.txt", FileUrlPlatform::Windows).unwrap(),
+            "file:///C:/long/%E7%95%8C.txt"
+        );
+        assert_eq!(
+            file_url_text(r"\\?\UNC\server\share\long\界.txt", FileUrlPlatform::Windows,).unwrap(),
+            "file://server/share/long/%E7%95%8C.txt"
+        );
+    }
+
+    #[test]
+    fn windows_launch_rejects_device_and_non_absolute_paths() {
+        for path in [
+            r"\\.\PhysicalDrive0",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\file.txt",
+            r"C:relative\file.txt",
+            r"relative\file.txt",
+        ] {
+            assert!(
+                file_url_text(path, FileUrlPlatform::Windows).is_err(),
+                "unexpected URL for {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn file_url_errors_are_standard_errors_with_stable_messages() {
+        let error = FileUrlError::UnsupportedWindowsPath;
+        assert_eq!(error.to_string(), "unsupported Windows file path");
+        let _: &dyn std::error::Error = &error;
+    }
+
+    #[test]
+    fn windows_launch_keeps_unix_file_url_behavior() {
+        assert_eq!(
+            file_url_text("/tmp/a file#100%/界.md", FileUrlPlatform::Unix).unwrap(),
+            "file:///tmp/a%20file%23100%25/%E7%95%8C.md"
+        );
+    }
+
+    #[test]
+    fn unix_launch_rejects_relative_file_urls() {
+        assert!(
+            file_url_text("docs/x.md", FileUrlPlatform::Unix).is_err(),
+            "relative Unix paths must not become file URL authorities"
+        );
     }
 }

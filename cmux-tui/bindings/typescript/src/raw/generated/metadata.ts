@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529. */
+/* cmux-tui mux protocol 12, IR df830f6904ce11526857fee757f7c1521253b0ceccd40e71fdcdd51062aba0f7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529" as const;
+export const SDK_IR_SHA256 = "df830f6904ce11526857fee757f7c1521253b0ceccd40e71fdcdd51062aba0f7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -850,7 +850,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "A stored hook report outranks later socket reports until another hook report or surface close."
+      "A socket report with a conflicting structured source session is rejected without changing the projection, resource revision, or session.events. The legacy report path retains an active hook projection when source_session is absent and still commits that retained value. Direct journal projection transitions reject an omitted active source session."
     ]
   },
   "resize-attached-view": {
@@ -1698,6 +1698,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "blocked",
       "idle",
       "done",
+      "interrupted",
       "unknown"
     ]
   },

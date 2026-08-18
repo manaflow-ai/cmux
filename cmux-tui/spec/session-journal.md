@@ -12,7 +12,11 @@ browser lifecycle; continuous terminal output and geometry; frontend focus,
 viewport, and geometry observations; frontend projections; explicit agent
 reports; and normalized native agent-hook observations. A pure restoration
 reducer can preview the state reconstructed from a checkpoint and its tail.
-Verified root ownership leases and live application of a restored model remain
+Persistent startup restores journal-owned agent projections by default. The
+per-invocation `--no-restore` startup option skips that replay without
+disabling journal storage or explicit journal commands. Explicit restore
+applies a fully reducible agent projection and records a durable receipt.
+Verified root ownership leases and full live resource/process adoption remain
 pending.
 
 ## Invariants
@@ -348,9 +352,44 @@ redacted outcome needed for diagnostics.
 An agent adapter maps one agent runtime's native hooks into the semantic event
 vocabulary. The built-in `cmux_agent` producer accepts native JSON through the
 CLI, preserves only structural string fields and non-string structure before
-it stores the provider shape under `payload.native`, and stores common session,
-turn, directory, transcript, tool, and agent topology fields under
+it stores the bounded canonical provider record under `payload.native`, and
+stores common session, turn, directory, transcript, tool, and agent topology
+fields under
 `payload.normalized`. Content strings and credential fields are redacted.
+
+### Canonical native payload
+
+The `cmux_agent` producer emits the `cmux.agent-hook.v1` envelope. Its
+`payload.native` member is a bounded canonical record with the
+`cmux.agent-native.canonical.v1` format and exactly seven top-level keys:
+`format`, `provider`, `native_event`, `identifiers`, `checkpoint`, `topology`,
+and `lifecycle`.
+
+```json
+{
+  "format": "cmux.agent-native.canonical.v1",
+  "provider": "codex",
+  "native_event": "Stop",
+  "identifiers": {},
+  "checkpoint": {},
+  "topology": {},
+  "lifecycle": {}
+}
+```
+
+`identifiers` carries stable provider IDs. `checkpoint` carries safe resume
+hints such as `cwd` and `transcript_path`. `topology` carries agent tree and
+parent relationships. `lifecycle` carries safe tool, agent, and depth labels.
+Unknown fields and sensitive content are omitted or redacted before the
+canonical record is stored.
+
+Projection readers use the envelope's top-level `payload.native_event` and
+`payload.normalized` fields. They do not read arbitrary provider-specific
+fields from `payload.native`, so producers must put stable projection fields
+in `normalized`. Older records without the nested canonical member remain
+readable when their top-level event and normalized fields follow the legacy
+envelope. New records must emit the canonical member.
+
 Unknown native events become `agent.state.changed`:
 
 ```bash
@@ -374,9 +413,10 @@ record and can fetch one tree through its indexed subject instead of scanning
 payload JSON.
 
 Native agent, parent, root, session, depth, name, and type fields remain in
-the normalized projection. The provider object remains under `payload.native`
-after recursive content and credential-field redaction. Adapters accept common
-snake-case, camel-case, and nested event/context forms. When a provider
+the normalized projection. The bounded canonical provider record remains under
+`payload.native` after recursive content and credential-field redaction.
+Adapters accept common snake-case, camel-case, and nested event/context forms.
+When a provider
 omits parent identity, the event is marked `agent_relation: "unknown"` and no
 parent edge is invented. This keeps parallel or nested children as explicit
 orphans until a later provider event supplies the relationship.
@@ -567,9 +607,15 @@ Restoration starts from the newest compatible checkpoint, then applies every
 required record through the target sequence. The implemented v1 reducer is
 pure and deterministic. A checkpoint contains its source sequence, reducer
 version, public session projection, producer and hook manifests, and terminal
-content references. `journal restore preview` returns the projected model,
-digest, applied count, and every unsupported required record. It never mutates
-the live session.
+content references. `journal list` inventories the journal head, checkpoints,
+sealed segments, and derived projection progress. `journal inspect` combines
+that progress with a selected checkpoint and its pure restore preview.
+`journal restore preview` returns the projected model, digest, applied count,
+and every unsupported required record. It never mutates the live session.
+`journal restore` is the explicit mutation counterpart. It applies the reduced
+agent projection only after a fully reducible preview, records a durable
+idempotent receipt, and leaves the append-only journal intact. Unsupported
+required records fail closed with repair instructions.
 
 External effects are not repeated during replay. Their recorded outcomes
 materialize state. Live-process adoption separately verifies process identity
@@ -596,21 +642,27 @@ writer instead of waiting without a limit. The transaction continues to own the
 registry and its atomic idempotency receipt until SQLite returns; a later retry
 therefore observes the committed receipt or performs the request once.
 
-Live restoration will consume this inert complete model. Process adoption,
-fresh process spawning, browser reconnect, and agent resume are explicit
-post-replay actions with their own journal outcomes. A partially supported
-record fails with a compatibility error or becomes an explicit degraded
-projection. It is never silently discarded.
+The reducer's complete model remains the source for future full-session
+adoption. Current startup replay and explicit restore apply the journal-owned
+agent projection only; they do not spawn processes, reconnect browsers, or
+resume agents. Those actions remain explicit post-replay outcomes. A partially
+supported record fails with a compatibility error or becomes an explicit
+degraded projection. It is never silently discarded.
 
-Create and inspect checkpoints, preview a reduction, then seal a covered
-prefix:
+List journal state, inspect and preview a checkpoint, explicitly restore a
+fully reducible projection, then seal a covered prefix:
 
 ```bash
 cmux --session main --jsonl session current journal checkpoint create \
   --idempotency-key checkpoint-1
 cmux --session main --jsonl session current journal checkpoint list
+cmux --session main --jsonl session current journal list
+cmux --session main --jsonl session current journal inspect \
+  --checkpoint latest
 cmux --session main --jsonl session current journal restore preview \
   --checkpoint latest
+cmux --session main --jsonl session current journal restore \
+  --checkpoint latest --idempotency-key restore-1
 cmux --session main --jsonl session current journal segment seal \
   --through <checkpoint-source-sequence> --idempotency-key segment-1
 cmux --session main --jsonl session current journal segment list
@@ -667,8 +719,9 @@ redaction markers are reserved for a later storage version.
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |
 | Checkpoint writer and restoration preview reducer | Implemented in storage v1 |
+| Agent projection startup replay and explicit restore | Implemented in storage v1 |
 | Checkpoint-aligned immutable segments | Implemented in storage v1 |
-| Live restoration application | Pending |
+| Full live resource/process restoration | Pending |
 
 The in-memory `MuxEvent` broadcaster remains a lossy presentation mechanism.
 It may wake consumers after commit, but it is never a journal or restoration

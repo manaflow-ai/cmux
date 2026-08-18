@@ -807,6 +807,26 @@ pub struct NotificationListOptions {
     pub limit: Option<u32>,
 }
 
+/// A public agent lifecycle state.
+///
+/// Future protocol states may be added without another source-compatibility
+/// break for downstream Rust applications.
+///
+/// ```compile_fail
+/// use cmux::AgentState;
+///
+/// fn render(state: AgentState) -> &'static str {
+///     match state {
+///         AgentState::Working => "working",
+///         AgentState::Blocked => "blocked",
+///         AgentState::Idle => "idle",
+///         AgentState::Done => "done",
+///         AgentState::Interrupted => "interrupted",
+///         AgentState::Unknown => "unknown",
+///     }
+/// }
+/// ```
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentState {
@@ -814,6 +834,7 @@ pub enum AgentState {
     Blocked,
     Idle,
     Done,
+    Interrupted,
     Unknown,
 }
 
@@ -824,6 +845,7 @@ impl AgentState {
             Self::Blocked => "blocked",
             Self::Idle => "idle",
             Self::Done => "done",
+            Self::Interrupted => "interrupted",
             Self::Unknown => "unknown",
         }
     }

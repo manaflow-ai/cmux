@@ -31,11 +31,12 @@ use cmux_remote::provider::{
     RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
     sanitized_route,
 };
-use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
+use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
 };
+use cmux_tui_core::DISTRIBUTION_VERSION;
 use serde_json::Value;
 use url::Url;
 use zeroize::Zeroizing;
@@ -1687,28 +1688,31 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 }
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
-    let value = serde_json::json!({
-        "app": "cmux-tui",
-        "version": env!("CARGO_PKG_VERSION"),
-        "distribution_version": DISTRIBUTION_VERSION,
-        "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
-        "build_identity": BUILD_IDENTITY,
-        "remote_protocol": REMOTE_PROTOCOL_VERSION,
-        "os": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-    });
+    let value = probe_value();
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
     } else {
         println!(
-            "cmux-tui {} remote-protocol={} {}-{}",
-            env!("CARGO_PKG_VERSION"),
+            "cmux-tui {DISTRIBUTION_VERSION} remote-protocol={} {}-{}",
             REMOTE_PROTOCOL_VERSION,
             std::env::consts::OS,
             std::env::consts::ARCH
         );
     }
     Ok(())
+}
+
+fn probe_value() -> Value {
+    serde_json::json!({
+        "app": "cmux-tui",
+        "version": DISTRIBUTION_VERSION,
+        "distribution_version": DISTRIBUTION_VERSION,
+        "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
+        "build_identity": BUILD_IDENTITY,
+        "remote_protocol": REMOTE_PROTOCOL_VERSION,
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+    })
 }
 
 struct PendingInstall {
@@ -2107,6 +2111,8 @@ fn ensure_daemon(
     link: &Path,
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
+    cmux_tui_core::server::validate_session_name(session)
+        .map_err(|_| anyhow!(catalog().startup.invalid_session))?;
     let _lock = lock_daemon_start(session_state)?;
     if UnixStream::connect(link).is_ok() {
         return Ok(());
@@ -2114,10 +2120,13 @@ fn ensure_daemon(
 
     let executable = std::env::current_exe()?;
     let log_path = session_state.join("daemon.log");
-    let mux_socket = mux_socket_override
+    let mux_socket = match mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
+    {
+        Some(path) => path,
+        None => default_mux_socket_path(session)?,
+    };
     if UnixStream::connect(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);
@@ -2153,6 +2162,11 @@ fn ensure_daemon(
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+}
+
+fn default_mux_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    cmux_tui_core::server::default_socket_path(session)
+        .map_err(|_| anyhow!(catalog().startup.invalid_session))
 }
 
 fn wait_for_detached_socket(
@@ -2469,6 +2483,20 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_mux_socket_path_uses_catalog_error_for_resolution_failures() {
+        let error = default_mux_socket_path("../escape")
+            .expect_err("invalid session should fail socket resolution");
+        assert_eq!(error.to_string(), catalog().startup.invalid_session);
+    }
+
+    #[test]
+    fn remote_probe_uses_one_canonical_distribution_version() {
+        let value = probe_value();
+        assert_eq!(value["version"].as_str(), Some(DISTRIBUTION_VERSION));
+        assert_eq!(value["distribution_version"].as_str(), Some(DISTRIBUTION_VERSION));
+    }
 
     fn seed_legacy_authorization_state(state_dir: &Path) {
         let auth_state_dir = state_dir.join("auth");

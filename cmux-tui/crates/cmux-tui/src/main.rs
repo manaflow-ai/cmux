@@ -86,7 +86,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
+use cmux_tui_core::{DISTRIBUTION_VERSION, Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -383,6 +383,7 @@ START OPTIONS
   --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
+  --no-restore       Skip startup journal projection replay for this run.
   --machine-provider <path>
                      Use a dynamic machine provider Unix socket.
   --machine-provider-command <program> [arg ...] --
@@ -412,7 +413,7 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: xterm-256color).
+  --term <value>     TERM for child shells (default: xterm-ghostty when available, otherwise xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -445,6 +446,7 @@ struct Args {
     terminal: Option<String>,
     state: Option<PathBuf>,
     ephemeral: bool,
+    no_restore: bool,
     machine_provider: Option<PathBuf>,
     machine_provider_command: Option<Vec<String>>,
     cloud: bool,
@@ -519,6 +521,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         terminal: None,
         state: None,
         ephemeral: false,
+        no_restore: false,
         machine_provider: None,
         machine_provider_command: None,
         cloud: false,
@@ -623,6 +626,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().unwrap_or_else(|| usage_exit("--state needs a value")).into());
             }
             "--ephemeral" => out.ephemeral = true,
+            "--no-restore" => out.no_restore = true,
             "--headless" => out.headless = true,
             "--ws" => {
                 out.ws = Some(args.next().ok_or_else(|| "--ws needs a value".to_string())?);
@@ -758,27 +762,33 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
     }
+    if out.no_restore && out.attach {
+        return Err("--no-restore applies only when starting a session".to_string());
+    }
     #[cfg(not(unix))]
     if out.agent_browser_provider {
         return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
+    cmux_tui_core::server::validate_session_name(&out.session)
+        .map_err(|_| localization::catalog().startup.invalid_session.to_string())?;
     Ok(out)
 }
 
 fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
-    // it enters an app bundle. Local builds report the crate version alone.
+    // it enters an app bundle. The version follows the canonical distribution
+    // stamp and falls back to the Cargo version for local builds.
     let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
         .filter(|commit| !commit.is_empty());
     let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
     match (commit, ghostty) {
         (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
+            format!("{DISTRIBUTION_VERSION} ({commit}; ghostty {ghostty})")
         }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
+        (Some(commit), None) => format!("{DISTRIBUTION_VERSION} ({commit})"),
+        (None, _) => DISTRIBUTION_VERSION.to_string(),
     }
 }
 
@@ -1123,6 +1133,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.ephemeral {
         conflicts.push("--ephemeral");
     }
+    if args.no_restore {
+        conflicts.push("--no-restore");
+    }
     if args.headless {
         conflicts.push("--headless");
     }
@@ -1317,6 +1330,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--term" => index += 2,
             "--json" | "--jsonl" | "--quiet" => index += 1,
             "--ephemeral"
+            | "--no-restore"
             | "--cloud"
             | "--headless"
             | "--ws-insecure-bind"
@@ -1439,6 +1453,9 @@ fn main() {
         discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, &usage()));
     }
+    // cmux-tui is a color terminal application. Crossterm otherwise treats an
+    // inherited NO_COLOR variable as a request to disable its own rendering.
+    crossterm::style::force_color_output(true);
     let args = parse_args(raw_args);
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
@@ -1503,8 +1520,10 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     let config = config::load();
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1591,11 +1610,16 @@ fn relay_daemon_options(
 /// `ssh -T machine cmux-tui relay` is one consumer; cloud providers can run
 /// the same command through their authenticated process transport.
 fn run_relay(args: Args) -> anyhow::Result<()> {
+    if args.no_restore {
+        anyhow::bail!("--no-restore applies only when starting a session");
+    }
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
         anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
     })?;
@@ -1776,10 +1800,10 @@ fn run_server(
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
-    let socket_path = args
-        .socket
-        .clone()
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket.clone() {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
@@ -1818,7 +1842,8 @@ fn run_server(
         (Vec::new(), None, None)
     };
 
-    let mut surface_options = SurfaceOptions::default();
+    let mut surface_options =
+        SurfaceOptions { term: SurfaceOptions::detect_term(), ..SurfaceOptions::default() };
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
@@ -1850,23 +1875,31 @@ fn run_server(
         );
     }
     let provider_management_pending = provider_management_listener.is_some();
+    let restore_journal = !args.no_restore;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
-            (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
-                args.session.clone(),
-                surface_options,
-                root,
-                authority,
-            ),
-            (Some(root), None, true) => Mux::open_persistent_provider_managed_pending(
+            (Some(root), Some(authority), false) => {
+                Mux::open_persistent_provider_managed_with_restore(
+                    args.session.clone(),
+                    surface_options,
+                    root,
+                    authority,
+                    restore_journal,
+                )
+            }
+            (Some(root), None, true) => Mux::open_persistent_provider_managed_pending_with_restore(
                 args.session.clone(),
                 surface_options,
                 root,
                 new_mux_generation()?,
+                restore_journal,
             ),
-            (Some(root), None, false) => {
-                Mux::open_persistent(args.session.clone(), surface_options, root)
-            }
+            (Some(root), None, false) => Mux::open_persistent_with_restore(
+                args.session.clone(),
+                surface_options,
+                root,
+                restore_journal,
+            ),
             (None, Some(authority), false) => {
                 Ok(Mux::new_provider_managed(args.session.clone(), surface_options, authority))
             }
@@ -2350,11 +2383,14 @@ fn run_provider_machine_client(
     connect_external: bool,
 ) -> anyhow::Result<()> {
     let state_root = cmux_tui_core::platform::workspace_state_dir();
+    let surface_options =
+        SurfaceOptions { term: SurfaceOptions::detect_term(), ..SurfaceOptions::default() };
     let mut runtime = ProviderMachineController::connect_with(
         connector,
         local_machines,
         connect_external,
         state_root,
+        surface_options,
     )?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
@@ -2575,6 +2611,32 @@ mod remote_args_tests {
     }
 
     #[test]
+    fn session_names_reject_path_components_and_control_characters() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+        ] {
+            let arguments = ["--session", session].map(str::to_string);
+            let error = parse_args_result(arguments)
+                .expect_err("unsafe session name was accepted before socket resolution");
+            assert!(error.contains("session"), "unexpected error for {session:?}: {error}");
+        }
+
+        for session in ["legacy name", "名前", "_legacy", "-legacy", &"x".repeat(200)] {
+            let arguments = ["--session", session].map(str::to_string);
+            parse_args_result(arguments).unwrap_or_else(|error| {
+                panic!("legacy-safe session name {session:?} was rejected: {error}")
+            });
+        }
+    }
+
+    #[test]
     fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
         let error = relay_daemon_options(
             vec!["relay+wss://dont-leak-me@[".into()],
@@ -2595,6 +2657,16 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn version_output_uses_the_canonical_distribution_stamp() {
+        let output = version_string();
+        assert!(
+            output == DISTRIBUTION_VERSION
+                || output.starts_with(&format!("{DISTRIBUTION_VERSION} (")),
+            "version output {output:?} does not use distribution version {DISTRIBUTION_VERSION:?}"
+        );
     }
 
     #[test]
@@ -3265,6 +3337,15 @@ mod tests {
     }
 
     #[test]
+    fn startup_restore_is_enabled_by_default_and_can_be_disabled_once() {
+        let default = args(&[]);
+        assert!(!default.no_restore);
+        let skipped = args(&["--no-restore"]);
+        assert!(skipped.no_restore);
+        assert!(!is_cli_invocation(&["--no-restore"].map(str::to_string)));
+    }
+
+    #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux machine-agent"));
@@ -3358,6 +3439,29 @@ mod tests {
         ] {
             assert!(error.contains(conflict), "missing {conflict:?} in {error:?}");
         }
+    }
+
+    #[test]
+    fn provider_mode_rejects_no_restore_before_connecting() {
+        for provider in [
+            ["--machine-provider", "/tmp/provider.sock", "--no-restore"].as_slice(),
+            ["--cloud", "--no-restore"].as_slice(),
+        ] {
+            let parsed = args(provider);
+            let error = validate_provider_process_args(&parsed).unwrap_err().to_string();
+            assert!(error.contains("--no-restore"), "{provider:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn relay_rejects_no_restore_before_connecting() {
+        let mut parsed = args(&["--no-restore"]);
+        parsed.socket = Some(
+            std::env::temp_dir()
+                .join(format!("cmux-relay-no-restore-contract-{}.sock", std::process::id())),
+        );
+        let error = run_relay(parsed).expect_err("relay accepted --no-restore").to_string();
+        assert!(error.contains("--no-restore"), "{error}");
     }
 
     #[test]

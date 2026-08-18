@@ -1192,6 +1192,9 @@ Result<Json::Object> AgentReportOptions::to_params() const {
         case AgentState::done:
             wire_state = "done";
             break;
+        case AgentState::interrupted:
+            wire_state = "interrupted";
+            break;
         case AgentState::unknown:
             wire_state = "unknown";
             break;

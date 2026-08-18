@@ -2,6 +2,7 @@ import { Client as ResourceClient, type ClientOptions as ResourceClientOptions }
 import {
   defaultSocketPath,
   envSocketPath,
+  validateSessionName,
   UnixSocketTransport,
   type UnixSocketTransportOptions,
 } from "./node-transport.js";
@@ -10,6 +11,7 @@ export * from "./index.js";
 export {
   defaultSocketPath,
   envSocketPath,
+  validateSessionName,
   UnixSocketTransport,
   type UnixSocketTransportOptions,
 } from "./node-transport.js";

@@ -4,7 +4,6 @@
 //! internal fields and receives no public compatibility guarantees.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -31,7 +30,13 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = resolve_socket(&global);
+    let socket = match super::wire::resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(error) => {
+            eprintln!("cmux: {}", socket_resolution_error_message(&error));
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -102,6 +107,10 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     }
 }
 
+fn socket_resolution_error_message(_error: &str) -> String {
+    crate::localization::catalog().startup.invalid_session.to_string()
+}
+
 fn read_line_limited(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
 ) -> Result<Option<String>, String> {
@@ -132,28 +141,48 @@ fn read_line_limited(
         .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
-    if let Some(path) = &global.socket {
-        return path.clone();
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
-        {
-            return PathBuf::from(path);
-        }
-    }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn socket_resolution_errors_use_the_catalog_message() {
+        assert_eq!(
+            socket_resolution_error_message("private socket resolution details"),
+            crate::localization::catalog().startup.invalid_session
+        );
+    }
 
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
         let plan = RawCommandPlan { request: request.clone() };
         assert_eq!(plan.request, request);
+    }
+
+    #[test]
+    fn raw_session_selection_precedes_inherited_socket_environment() {
+        let _guard = crate::config::test_environment_lock().lock().unwrap();
+        let previous_tui_socket = std::env::var_os("CMUX_TUI_SOCKET");
+        let previous_mux_socket = std::env::var_os("CMUX_MUX_SOCKET");
+        unsafe {
+            std::env::set_var("CMUX_TUI_SOCKET", "/tmp/raw-inherited.sock");
+            std::env::remove_var("CMUX_MUX_SOCKET");
+        }
+        let result = run(
+            GlobalArgs { session: Some("../escape".into()), ..GlobalArgs::default() },
+            RawCommandPlan { request: json!({"id": 1, "cmd": "private-operation"}) },
+        );
+        unsafe {
+            match previous_tui_socket {
+                Some(value) => std::env::set_var("CMUX_TUI_SOCKET", value),
+                None => std::env::remove_var("CMUX_TUI_SOCKET"),
+            }
+            match previous_mux_socket {
+                Some(value) => std::env::set_var("CMUX_MUX_SOCKET", value),
+                None => std::env::remove_var("CMUX_MUX_SOCKET"),
+            }
+        }
+        assert_eq!(result, 2);
     }
 }

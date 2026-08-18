@@ -1072,18 +1072,25 @@ impl Mux {
     }
 }
 
-fn ordered_terminal_tab_ids(
+pub(super) fn ordered_terminal_tab_ids(
     state: &State,
 ) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
-            let surface = state
+            // Restored tabs are indexed before their live terminal or browser
+            // surfaces are adopted. Use the durable tab/content indexes during
+            // that startup window, then prefer the live identity once present.
+            let identity = state
                 .surfaces
                 .get(surface_slot)
-                .with_context(|| format!("pane references missing surface {surface_slot}"))?;
-            let identity = surface
-                .resource_identity()
+                .and_then(|surface| surface.resource_identity().cloned())
+                .or_else(|| {
+                    Some(TabResourceIdentity::new(
+                        state.resource_indexes.tab_ids.get(surface_slot)?.clone(),
+                        state.resource_indexes.content_ids.get(surface_slot)?.clone(),
+                    ))
+                })
                 .with_context(|| format!("pane surface {surface_slot} has no resource identity"))?;
             if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
                 tabs.push((

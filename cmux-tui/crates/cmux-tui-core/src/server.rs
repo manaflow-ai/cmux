@@ -468,9 +468,35 @@ pub(crate) fn decode_terminal_host_clear_history(
     fallback_key.map(KeyInput::try_from).transpose()
 }
 
+/// Validate the component used to identify a local session.
+///
+/// Session names become socket file names. Keep legacy names that are still a
+/// single path component, but reject values that can escape the socket root or
+/// carry control and line-separator characters.
+pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
+    let invalid = session.is_empty()
+        || matches!(session, "." | "..")
+        || session.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+                || matches!(character as u32, 0xFDD0..=0xFDEF)
+                || matches!((character as u32) & 0xFFFF, 0xFFFE | 0xFFFF)
+                || matches!(character, ':' | '"' | '<' | '>' | '|' | '*' | '?')
+        });
+    anyhow::ensure!(
+        !invalid,
+        "session name must be a non-empty path component without separators or control characters"
+    );
+    Ok(())
+}
+
 /// Default socket path for a session.
-pub fn default_socket_path(session: &str) -> PathBuf {
-    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+pub fn default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -478,7 +504,14 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        return platform::fallback_runtime_dir().join(file_name);
+        let fallback = platform::fallback_runtime_dir().join(file_name);
+        if unix_socket_path_fits(&fallback) {
+            return fallback;
+        }
+        let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+        let hashed = platform::hashed_runtime_dir().join(format!("{digest}.sock"));
+        debug_assert!(unix_socket_path_fits(&hashed));
+        return hashed;
     }
     preferred
 }
@@ -4675,11 +4708,11 @@ impl Drop for PendingServer {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        platform::restrict_directory(dir)?;
-    }
+    let path = match path {
+        Some(path) => path,
+        None => default_socket_path(&mux.session)?,
+    };
+    let _socket_directory = path.parent().map(platform::prepare_socket_directory).transpose()?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
         match transport::connect(&path) {
@@ -5548,6 +5581,9 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::SessionJournalHookPut
             | ResourceOperation::SessionJournalCheckpointCreate
             | ResourceOperation::SessionJournalCheckpointList
+            | ResourceOperation::SessionJournalInspect
+            | ResourceOperation::SessionJournalList
+            | ResourceOperation::SessionJournalRestore
             | ResourceOperation::SessionJournalRestorePreview
             | ResourceOperation::SessionJournalSegmentList
             | ResourceOperation::SessionJournalSegmentSeal
@@ -5785,6 +5821,9 @@ fn handle_resource_connection_message(
         | ResourceOperation::SessionJournalHookPut
         | ResourceOperation::SessionJournalCheckpointCreate
         | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalInspect
+        | ResourceOperation::SessionJournalList
+        | ResourceOperation::SessionJournalRestore
         | ResourceOperation::SessionJournalRestorePreview
         | ResourceOperation::SessionJournalSegmentList
         | ResourceOperation::SessionJournalSegmentSeal => {
@@ -8075,11 +8114,44 @@ fn handle_journal_extension_request(
                 })).collect::<Vec<_>>()})
             })
             .map_err(|error| journal_extension_error("session.journal.checkpoint.list", error)),
+        ResourceOperation::SessionJournalList => mux
+            .journal_list()
+            .map_err(|error| journal_extension_error("session.journal.list", error)),
+        ResourceOperation::SessionJournalInspect => {
+            let checkpoint = request.fields.get("checkpoint").and_then(Value::as_str);
+            mux.journal_inspect(checkpoint)
+                .map_err(|error| journal_extension_error("session.journal.inspect", error))
+        }
         ResourceOperation::SessionJournalRestorePreview => {
             let selector =
                 request.fields.get("checkpoint").and_then(Value::as_str).unwrap_or("latest");
             mux.journal_restore_preview(selector)
                 .map_err(|error| journal_extension_error("session.journal.restore.preview", error))
+        }
+        ResourceOperation::SessionJournalRestore => {
+            let selector =
+                request.fields.get("checkpoint").and_then(Value::as_str).unwrap_or("latest");
+            let plan = mux
+                .prepare_journal_restore(selector)
+                .map_err(|error| journal_extension_error("session.journal.restore", error))?;
+            if plan.preview["fully_reducible"] != Value::Bool(true) {
+                return Err(journal_restore_blocked_error(&plan.preview));
+            }
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.restore_journal_projections_with_receipt(plan, origin, idempotency_key)
+                .map(|(value, commit)| {
+                    json!({
+                        "value":value,
+                        "generation":session_id,
+                        "revision":commit.journal.sequence.to_string(),
+                        "replayed":commit.journal.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.restore", error))
         }
         ResourceOperation::SessionJournalSegmentList => mux
             .journal_segments()
@@ -8118,6 +8190,19 @@ fn handle_journal_extension_request(
         }
         _ => unreachable!("journal extension handler received another operation"),
     }
+}
+
+fn journal_restore_blocked_error(preview: &Value) -> ResourceError {
+    ResourceError::operation_failed(
+        "session.journal.restore",
+        "journal restore is not fully reducible; no projection was changed",
+        json!({
+            "action":"run session <selector> journal inspect --checkpoint <checkpoint-id>, then repair or remove the unsupported required record before retrying",
+            "checkpoint_id":preview["checkpoint_id"].clone(),
+            "unsupported_required_record_count":preview["unsupported_required_record_count"].clone(),
+            "unsupported_required_records":preview["unsupported_required_records"].clone(),
+        }),
+    )
 }
 
 fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
@@ -9825,6 +9910,7 @@ fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
         "blocked" => Ok(AgentState::Blocked),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
+        "interrupted" => Ok(AgentState::Interrupted),
         "unknown" => Ok(AgentState::Unknown),
         other => anyhow::bail!("bad state {other}"),
     }
@@ -12934,6 +13020,39 @@ mod tests {
     }
 
     #[test]
+    fn session_name_validation_rejects_path_components_and_control_characters() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+            "bad\u{2028}name",
+            "bad\u{2029}name",
+            "bad\u{fdd0}name",
+            "bad\u{1fffe}_name",
+            "bad\u{10ffff}_name",
+            "bad:session",
+            "bad\"session",
+            "bad<session",
+            "bad>session",
+            "bad|session",
+            "bad*session",
+            "bad?session",
+        ] {
+            assert!(validate_session_name(session).is_err(), "accepted {session:?}");
+        }
+        assert!(validate_session_name("main").is_ok());
+        for session in ["legacy name", "名前", "_legacy", "-legacy"] {
+            assert!(validate_session_name(session).is_ok(), "rejected {session:?}");
+        }
+        assert!(validate_session_name(&format!("legacy-{}", "x".repeat(200))).is_ok());
+    }
+
+    #[test]
     fn journal_filter_rejects_secret_max_sensitivity() {
         let error = JournalStreamFilter::parse(Some(&json!({
             "max_sensitivity":"secret",
@@ -12992,6 +13111,59 @@ mod tests {
         );
         assert!(unix_socket_path_fits(&path));
         assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn long_session_default_socket_path_is_bindable() {
+        const EXPECTED_DIGEST: &str =
+            "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+        let session = format!("legacy-{}", "x".repeat(200));
+        let path = default_socket_path_in_runtime_dir(
+            &session,
+            PathBuf::from("/run/user/501/cmux-tui-501"),
+        );
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
+
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
+        assert!(unix_socket_path_fits(&path), "unusable socket path: {path:?}");
+
+        let bind_session = format!("server-bind-{}-{}", std::process::id(), "x".repeat(200));
+        let bind_path = default_socket_path_in_runtime_dir(
+            &bind_session,
+            PathBuf::from("/run/user/501/cmux-tui-501"),
+        );
+        std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&bind_path);
+        let listener = std::os::unix::net::UnixListener::bind(&bind_path)
+            .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
+        drop(listener);
+        std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_ascii_long_session_uses_shared_utf8_sha256_digest() {
+        const EXPECTED_DIGEST: &str =
+            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+        let session = "名前".repeat(100);
+        let path = default_socket_path_in_runtime_dir(
+            &session,
+            PathBuf::from("/run/user/501/cmux-tui-501"),
+        );
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
+
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
     }
 
     #[cfg(unix)]
@@ -16736,7 +16908,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 32);
+        assert_eq!(connection_operations, 35);
     }
 
     #[test]
@@ -21912,6 +22084,40 @@ mod tests {
         assert_eq!(served, path);
         assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"], true);
         cleanup(&served);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_explicit_path_bypasses_session_name_derivation_validation() {
+        // Use a private short directory. `serve_paused` restricts its parent,
+        // so the shared system temporary directory is not a valid fixture.
+        let socket = TestSocket::new("explicit");
+        let path = socket.path.clone();
+        let mut mux = test_mux();
+        Arc::get_mut(&mut mux).expect("test mux must be uniquely owned").session =
+            "../escape".into();
+
+        let pending = serve_paused(mux, Some(path.clone())).unwrap();
+        assert!(path.exists());
+        drop(pending);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_rejects_symlinked_socket_directory_before_bind() {
+        use std::os::unix::fs::symlink;
+
+        let target = TestSocket::new("target");
+        let alias_root = TestSocket::new("alias-root");
+        let alias = alias_root.directory.join("linked");
+        symlink(&target.directory, &alias).unwrap();
+        let path = alias.join("mux.sock");
+
+        assert!(serve_paused(test_mux(), Some(path)).is_err());
+        assert!(!target.directory.join("mux.sock").exists());
+
+        std::fs::remove_file(alias).unwrap();
     }
 
     #[test]
