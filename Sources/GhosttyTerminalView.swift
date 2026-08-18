@@ -7856,7 +7856,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        let dragTypes = NSPasteboard(name: .drag).types ?? []
+        let dragTypes = NSPasteboard(name: .drag).types
         let durableURLs = TerminalImageTransferPlanner.durableDroppedFileURLs(
             urls,
             pasteboardService: GhosttyApp.terminalPasteboard,

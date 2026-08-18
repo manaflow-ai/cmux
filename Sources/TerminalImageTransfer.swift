@@ -435,7 +435,7 @@ enum TerminalImageTransferPlanner {
             fileURLs(from: pasteboard),
             pasteboardService: pasteboardService,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                pasteboard.types ?? []
+                pasteboard.types
             )
         )
         if !fileURLs.isEmpty {
@@ -503,7 +503,7 @@ enum TerminalImageTransferPlanner {
             fileURLs(from: pasteboard),
             pasteboardService: pasteboardService,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                pasteboard.types ?? []
+                pasteboard.types
             )
         )
         if !urls.isEmpty {
