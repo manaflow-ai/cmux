@@ -1217,6 +1217,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */; };
 		C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */; };
 		793800000000000000000008 /* GhosttyTerminalView+Sizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793800000000000000000007 /* GhosttyTerminalView+Sizing.swift */; };
+		A500100A /* GhosttyTerminalView+ThemeRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500101A /* GhosttyTerminalView+ThemeRepair.swift */; };
 		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
 		D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */; };
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
@@ -4006,6 +4007,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollSpeed.swift; sourceTree = "<group>"; };
 		C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalStartupEnvironmentTests.swift; sourceTree = "<group>"; };
 		793800000000000000000007 /* GhosttyTerminalView+Sizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyTerminalView+Sizing.swift"; sourceTree = "<group>"; };
+		A500101A /* GhosttyTerminalView+ThemeRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyTerminalView+ThemeRepair.swift"; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
 		D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewSupport.swift; sourceTree = "<group>"; };
 		D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewVisibilityPolicyTests.swift; sourceTree = "<group>"; };
@@ -6599,6 +6601,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
 				C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */,
 				E89950010000000000000002 /* GhosttyFlashOverlayView.swift */,
+				A500101A /* GhosttyTerminalView+ThemeRepair.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
 				9612B0010000000000000001 /* TerminalPortalReconciliation.swift */,
 				E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */,
@@ -9646,6 +9649,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */,
 				D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */,
 				793800000000000000000008 /* GhosttyTerminalView+Sizing.swift in Sources */,
+				A500100A /* GhosttyTerminalView+ThemeRepair.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
 				D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */,
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,
