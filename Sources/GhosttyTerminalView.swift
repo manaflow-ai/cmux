@@ -5349,6 +5349,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
+            cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
