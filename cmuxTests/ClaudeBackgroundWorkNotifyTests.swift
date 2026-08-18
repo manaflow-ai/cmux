@@ -21,6 +21,13 @@ struct ClaudeBackgroundWorkNotifyTests {
         snapshot.first { $0.hasPrefix("set_agent_lifecycle claude_code \(value) ") }
     }
 
+    /// The pane state a hook sequence LEFT behind: the socket verbs are
+    /// last-write-wins, so only the final `set_status` / `set_agent_lifecycle`
+    /// of a run describes what the sidebar ends up showing.
+    private func lastLine(_ snapshot: [String], prefix: String) -> String? {
+        snapshot.last { $0.hasPrefix(prefix) }
+    }
+
     private func runStopHook(
         name: String,
         sessionId: String,
@@ -299,6 +306,18 @@ struct ClaudeBackgroundWorkNotifyTests {
             ttyName: "ttys-notif-subagent",
             storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
         )
+        // Seed the working pane the parent agent is mid-turn in, so the
+        // assertions below distinguish "left the pane Running" from "published
+        // some other state" or "published nothing at all".
+        let promptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-subagent-session","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(promptResult)
         let result = harness.runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "notification"],
@@ -315,6 +334,18 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "A finished subagent must not publish a needs-input lifecycle; saw \(snapshot)")
         #expect(snapshot.first { $0.hasPrefix("notify_target_async ") } == nil,
                 "A finished subagent must not fire a turn-complete ping; saw \(snapshot)")
+        let lastStatus = try #require(
+            lastLine(snapshot, prefix: "set_status claude_code "),
+            "Expected the seeded Running pill in \(snapshot)"
+        )
+        #expect(lastStatus.hasPrefix("set_status claude_code Running "),
+                "The pane must be left Running after a subagent finishes; saw \(lastStatus)")
+        let lastLifecycle = try #require(
+            lastLine(snapshot, prefix: "set_agent_lifecycle claude_code "),
+            "Expected the seeded running lifecycle in \(snapshot)"
+        )
+        #expect(lastLifecycle.hasPrefix("set_agent_lifecycle claude_code running "),
+                "The lifecycle must be left running after a subagent finishes; saw \(lastLifecycle)")
     }
 
     @Test func agentCompletedNotificationDoesNotSwallowTheParentStop() throws {

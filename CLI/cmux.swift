@@ -25623,14 +25623,19 @@ struct CMUXCLI {
             // The Stop hook stays the sole owner of the turn-complete transition,
             // so a subagent that finishes last still hands the pane whatever state
             // that Stop produces. https://github.com/manaflow-ai/cmux/issues/10233
-            let isAgentCompletionNotification = (notifyCategory == .turnComplete)
+            //
+            // Deliberately keyed on the CATEGORY, not on the `agent_completed`
+            // tag: the untyped fallback above classifies an older client's
+            // completion cue the same way, and the Notification hook never owns
+            // turn completion regardless of which path resolved it.
+            let isTurnCompleteCategoryNotification = (notifyCategory == .turnComplete)
 
             // An idle reminder while background work is still pending is not a
             // real "waiting for input" state: the pane is still running (the Stop
             // hook set it to Running) and the app suppresses this banner. Skip the
             // "Needs input" pill/lifecycle so the idle nag can't undo the Running
             // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = isAgentCompletionNotification
+            let suppressNeedsInputState = isTurnCompleteCategoryNotification
                 || (notifyCategory == .idleReminder && notifyPending)
 
             // `.other` means "ungated, always deliver" — identical to an untagged
@@ -25674,7 +25679,7 @@ struct CMUXCLI {
                     color: "#4C8DFF", pid: claudePid
                 )
             }
-            if !isAgentCompletionNotification {
+            if !isTurnCompleteCategoryNotification {
                 _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             }
             printClaudeHookAck()
