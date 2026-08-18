@@ -30,6 +30,14 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
         let expiresAt: Date?
     }
 
+    /// What a resolution is in flight *for*. The signature belongs in the key:
+    /// two callers reading the stack either side of a ref update are asking
+    /// different questions, and neither should clear the other's slot.
+    private struct ResolutionKey: Hashable {
+        let workTreeRoot: String
+        let stackSignature: String
+    }
+
     private let base: any GitReftableHeadReading
     private let unresolvedTimeToLive: TimeInterval
     private let maximumEntryCount: Int
@@ -40,7 +48,7 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
     private let condition = NSCondition()
     private var entriesByWorkTreeRoot: [String: Entry] = [:]
     private var insertionOrder: [String] = []
-    private var resolvingWorkTreeRoots: Set<String> = []
+    private var resolutionsInFlight: Set<ResolutionKey> = []
     private var waitingCallCount = 0
 
     init(
@@ -56,6 +64,7 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
     }
 
     func head(workTreeRoot: String, stackSignature: String) -> GitReftableHead? {
+        let key = ResolutionKey(workTreeRoot: workTreeRoot, stackSignature: stackSignature)
         condition.lock()
         while true {
             if let entry = entriesByWorkTreeRoot[workTreeRoot],
@@ -64,19 +73,19 @@ final class MemoizedGitReftableHeadReader: GitReftableHeadReading, @unchecked Se
                 condition.unlock()
                 return entry.head
             }
-            guard resolvingWorkTreeRoots.contains(workTreeRoot) else { break }
+            guard resolutionsInFlight.contains(key) else { break }
             waitingCallCount += 1
             condition.wait()
             waitingCallCount -= 1
         }
-        resolvingWorkTreeRoots.insert(workTreeRoot)
+        resolutionsInFlight.insert(key)
         condition.unlock()
 
         let head = base.head(workTreeRoot: workTreeRoot, stackSignature: stackSignature)
 
         condition.lock()
         store(head, workTreeRoot: workTreeRoot, stackSignature: stackSignature)
-        resolvingWorkTreeRoots.remove(workTreeRoot)
+        resolutionsInFlight.remove(key)
         condition.broadcast()
         condition.unlock()
         return head
