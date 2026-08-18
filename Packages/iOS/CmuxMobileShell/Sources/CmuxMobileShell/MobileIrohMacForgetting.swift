@@ -14,9 +14,8 @@ public protocol MobileIrohMacForgetting: Sendable {
     /// - Parameters:
     ///   - macDeviceID: The Mac device id to forget. Canonicalized before
     ///     matching, so a raw id or a pairing-id form both resolve.
-    ///   - instanceTag: When non-nil, only the matching tagged app instance is
-    ///     revoked; sibling instances on the same Mac stay bound. When nil,
-    ///     every instance sharing the device id is revoked.
+    ///   - instanceTag: When non-nil, it must match the running app's build
+    ///     lane. A nil value still revokes only the running build's Mac binding.
     ///   - expectedAccountID: The account that owns the row being forgotten,
     ///     captured by the caller when it read the row. The implementation must
     ///     revoke only while the live authenticated session still belongs to this
