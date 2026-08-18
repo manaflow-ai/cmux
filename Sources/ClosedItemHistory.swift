@@ -142,6 +142,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// capped, so closed panels grew for the life of the file.
     static let defaultTotalCapacity = 100
     static let shared = ClosedItemHistoryStore(
+        capacity: defaultTotalCapacity,
         workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
