@@ -1346,7 +1346,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationRetryMacIDs: Set<String> = []
     var secondaryAggregationRetryNeedsFullRefresh = false
     private var secondaryAggregationRetryEvidenceGeneration: UInt64 = 0
-    private var secondaryAggregationRetryState = MobileControlPoolRetryState()
+    var secondaryAggregationRetryState = MobileControlPoolRetryState()
     /// One timer owner for the whole online control pool. Each tick reasserts
     /// every lightweight subscription, avoiding one long-lived timer per Mac.
     private var secondaryControlKeepaliveTask: Task<Void, Never>?
