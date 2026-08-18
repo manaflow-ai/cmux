@@ -215,6 +215,7 @@ if (( before_list_status != 0 )); then
   echo "refusing to warm a Testbox without a baseline inventory" >&2
   exit "$before_list_status"
 fi
+DISPATCH_EPOCH=$(date -u +%s)   # binds the approval below to this dispatch
 set +e
 ./scripts/blacksmith-bounded-command.sh 1200 \
   blacksmith testbox warmup "$WORKFLOW" \
@@ -286,9 +287,36 @@ if (( receipt_status != 0 )); then
 fi
 TBX="$warmup_testbox_id"
 printf 'Testbox ID: %s\n' "$TBX" | tee "$OUT/testbox-id.txt"
-if (( warmup_status != 0 )); then
-  exit "$warmup_status"
+
+# Approve the deployment gate BEFORE waiting. The run parks before its first
+# step, so `status --wait` below would otherwise burn its full 15 minutes and
+# leave this warmed box running. GitHub does not surface the run instantly, so
+# poll; zero runs means "not yet", two or more means genuinely ambiguous.
+approval_run=""
+for attempt in $(seq 1 30); do
+  waiting="$(gh api "repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting" \
+    --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $DISPATCH_EPOCH - 120) | .id")"
+  waiting_count="$(printf '%s' "$waiting" | grep -c .)"
+  if (( waiting_count > 1 )); then
+    echo "$waiting_count runs waiting since your dispatch; approve yours in the UI, then rerun from the wait step" >&2
+    exit 1
+  fi
+  if (( waiting_count == 1 )); then
+    approval_run="$waiting"
+    break
+  fi
+  sleep 5
+done
+if [[ -z "$approval_run" ]]; then
+  echo "no run appeared within 150s; Testbox $TBX is running and you own it" >&2
+  exit 1
 fi
+approval_env="$(gh api "repos/manaflow-ai/cmux/actions/runs/$approval_run/pending_deployments" --jq '.[0].environment.id')"
+gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$approval_run/pending_deployments" \
+  --input - >"$OUT/approval-attempt-1.json" 2>&1 \
+  <<< "{\"environment_ids\":[$approval_env],\"state\":\"approved\",\"comment\":\"benchmark warmup\"}"
+printf 'approved run: %s\n' "$approval_run" | tee "$OUT/approval-run-id.txt"
+
 set +e
 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m \
   >"$OUT/status-ready.log" 2>&1

@@ -186,6 +186,13 @@ or `time_real_seconds` for build performance, and use the difference between the
 local and remote clocks for Testbox overhead. A pack without `cli-wall.txt`
 cannot measure overhead at all.
 
+Compare overhead only across `first-clean` and `incremental-noop`. The
+`changed-file` gap is several times larger (8.1 s against 1.2 s in one measured
+run, with all three stages syncing `strategy=skip`), because that stage's
+backup, edit, restore, and re-verify work runs inside the CLI call but outside
+`wall_seconds`. Its local-minus-remote figure is real but is not sync and
+transport, so do not read it as Testbox overhead.
+
 `first-clean` is target-clean but dependency-warm: warmup runs `cargo fetch` and
 `zig build --fetch`, and the workflow may restore registry, git, and Zig caches.
 `incremental-noop` measures a second build on the same VM. `changed-file` is a
