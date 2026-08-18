@@ -37,6 +37,8 @@ public struct CmxIrohSignOutPreparation: Equatable, Sendable {
             && lhs.wasPersisted == rhs.wasPersisted
             && lhs.bindingAuthorization?.bindingID
                 == rhs.bindingAuthorization?.bindingID
+            && lhs.bindingAuthorization?.clientNamespace
+                == rhs.bindingAuthorization?.clientNamespace
     }
 
     /// Revokes the captured binding with a broker authenticated from captured tokens.

@@ -13,7 +13,8 @@ public actor CmxIrohIdentityRepository {
     private let randomBytes: @Sendable () throws -> Data
     private let marker: @Sendable () -> String
     private var operationIsActive = false
-    private var operationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var operationWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var operationWaiterOrder: [UUID] = []
 
     /// Creates an identity repository with injectable persistence and entropy.
     public init(
@@ -76,20 +77,40 @@ public actor CmxIrohIdentityRepository {
             operationIsActive = true
             return
         }
-        guard operationWaiters.count < Self.maximumQueuedOperations else {
+        guard operationWaiterOrder.count < Self.maximumQueuedOperations else {
             throw CmxIrohIdentityRepositoryError.operationLimitExceeded
         }
-        await withCheckedContinuation { continuation in
-            operationWaiters.append(continuation)
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                operationWaiters[id] = continuation
+                operationWaiterOrder.append(id)
+            }
+        } onCancel: {
+            Task { await self.cancelOperationWaiter(id) }
         }
     }
 
     private func endOperation() {
-        guard !operationWaiters.isEmpty else {
+        guard let id = operationWaiterOrder.first else {
             operationIsActive = false
             return
         }
-        operationWaiters.removeFirst().resume()
+        operationWaiterOrder.removeFirst()
+        operationWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    private func cancelOperationWaiter(_ id: UUID) {
+        guard let continuation = operationWaiters.removeValue(forKey: id) else {
+            return
+        }
+        operationWaiterOrder.removeAll { $0 == id }
+        continuation.resume(throwing: CancellationError())
     }
 
     private func prepareScope(accountID: String, appInstanceID: String) async throws -> String {
