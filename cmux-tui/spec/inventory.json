@@ -399,6 +399,7 @@
     {"variant": "CopyPaneId", "classification": "presentation-only", "route": "tree snapshot + frontend clipboard"},
     {"variant": "CopyStatusMessage", "classification": "presentation-only", "route": "status snapshot + frontend clipboard"},
     {"variant": "NewPaneSmart", "classification": "composite", "route": "list-workspaces + new-pane"},
+    {"variant": "NewPaneRight", "classification": "direct", "route": "new-pane-right"},
     {"variant": "NewTab", "classification": "direct", "route": "new-tab"},
     {"variant": "NewBrowserTab", "classification": "composite", "route": "frontend omnibar + new-browser-tab"},
     {"variant": "SplitRight", "classification": "direct", "route": "split dir:right"},
