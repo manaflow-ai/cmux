@@ -270,13 +270,11 @@ if (( status_ready != 0 )); then
 fi
 ```
 
-The workflow validates that the dispatch ref exactly matches the protected
-reviewed branch, that `github.sha` exactly matches the protected reviewed SHA,
-and that the remote branch still resolves to that SHA. If a direct GitHub
-dispatch supplies the optional `source_sha` input, it is an assertion and must
-equal the protected SHA. The Blacksmith CLI path needs no arbitrary workflow
-input: it supplies `testbox_id`, while `--ref` selects the explicitly reviewed
-branch and `github.sha` carries the pinned candidate.
+The workflow refuses any dispatch ref except `refs/heads/main`, and it repeats
+that check after `begin-testbox` so a ref that changed during reviewer approval
+fails closed. `testbox_id` is the only input, so no caller can steer the job at
+a different revision, and `main` alone decides what code runs beside the auth
+token.
 The workflow concurrency group serializes setup requests by Testbox ID, even
 when source SHAs differ. The remote `flock` begins after Blacksmith's rsync, so
 it protects stage/build/artifact writes only. Blacksmith exposes no pre-rsync
