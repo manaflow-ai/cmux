@@ -148,4 +148,60 @@ struct WorkspaceGroupMoveToMenuStateTests {
         }
         #expect(manager.workspaceGroups.first?.name == expectedName)
     }
+
+    @Test func mobileWorkspaceGroupCreateWithStableIdentityIsIdempotent() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let params: [String: Any] = [
+            "title": "Ops",
+            "idempotency_key": "repo:cmux",
+        ]
+        let first = TerminalController.shared.v2MobileWorkspaceGroupCreate(params: params)
+        let firstGroupID = try #require(manager.workspaceGroups.first?.id)
+        let firstAnchorID = try #require(manager.workspaceGroups.first?.anchorWorkspaceId)
+        let workspaceCountAfterFirstCreate = manager.tabs.count
+
+        let second = TerminalController.shared.v2MobileWorkspaceGroupCreate(params: params)
+
+        guard case .ok = first, case .ok = second else {
+            return #expect(Bool(false), "repeated group create should succeed")
+        }
+        #expect(manager.workspaceGroups.count == 1)
+        #expect(manager.workspaceGroups.first?.id == firstGroupID)
+        #expect(manager.workspaceGroups.first?.anchorWorkspaceId == firstAnchorID)
+        #expect(manager.tabs.count == workspaceCountAfterFirstCreate)
+    }
+
+    @Test func mobileWorkspaceGroupUngroupCanRemoveOnlyGeneratedAnchor() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let groupID = try #require(
+            manager.createWorkspaceGroup(
+                name: "Orphan",
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            )
+        )
+        let anchorID = try #require(manager.workspaceGroups.first?.anchorWorkspaceId)
+
+        let result = TerminalController.shared.v2MobileWorkspaceGroupAction(params: [
+            "group_id": groupID.uuidString,
+            "action": "ungroup",
+            "remove_generated_anchor": true,
+        ])
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "generated-anchor cleanup should succeed")
+        }
+        #expect(!manager.workspaceGroups.contains { $0.id == groupID })
+        #expect(!manager.tabs.contains { $0.id == anchorID })
+    }
 }
