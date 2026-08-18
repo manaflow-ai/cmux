@@ -518,7 +518,7 @@ struct WorkspaceDetailView: View {
     /// with a working keyboard. Hidden retained details keep their raw
     /// status: the guard only applies to the selected workspace on the
     /// foreground connection.
-    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+    var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
             if store.connectionRecoveryFailed {

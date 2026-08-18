@@ -7039,23 +7039,6 @@
         }
       }
     },
-    "mobile.settings.betaFeatures": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beta Features"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ベータ機能"
-          }
-        }
-      }
-    },
     "mobile.settings.deleteAccount": {
       "extractionState": "manual",
       "localizations": {
@@ -8386,23 +8369,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "トーストギャラリー"
-          }
-        }
-      }
-    },
-    "mobile.settings.taskComposer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Task Composer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規タスク作成"
           }
         }
       }

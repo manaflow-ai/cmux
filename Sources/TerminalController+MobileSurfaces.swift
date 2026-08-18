@@ -28,6 +28,10 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .notifications:
+            // Notifications use the open-vocabulary fallback until the phone
+            // provides a native renderer for this panel kind.
+            return MobileSurfaceKind(rawValue: "notifications")
         case .cloudVMLoading:
             return .cloudVMLoading
         case .simulator:
@@ -38,8 +42,6 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
-        case .notifications:
-            return MobileSurfaceKind(rawValue: "notifications")
         }
     }
 
@@ -156,14 +158,14 @@ extension TerminalController {
                 message: "Surface not found",
                 data: ["surface_id": id.uuidString]
             )
+        case let .dockUnavailable(message):
+            return .err(code: "unavailable", message: message, data: nil)
         case let .focused(windowID, focusedWorkspaceID, focusedSurfaceID):
             return .ok([
                 "workspace_id": focusedWorkspaceID.uuidString,
                 "surface_id": focusedSurfaceID.uuidString,
                 "window_id": v2OrNull(windowID?.uuidString),
             ])
-        case let .dockUnavailable(message):
-            return .err(code: "unavailable", message: message, data: nil)
         }
     }
 
@@ -281,26 +283,11 @@ extension TerminalController {
                     path: nil
                 )
             case .permissionDenied:
-                return mobilePanelArtifactFileError(
-                    code: "permission_denied",
-                    key: "mobile.chat.artifact.error.permissionDenied",
-                    defaultValue: "cmux does not have permission to read that file.",
-                    path: v2RawString(params, "path")
-                )
+                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
             case .notRegularFile:
-                return mobilePanelArtifactFileError(
-                    code: "not_regular_file",
-                    key: "mobile.chat.artifact.error.notRegularFile",
-                    defaultValue: "That path is not a regular file.",
-                    path: v2RawString(params, "path")
-                )
+                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
             case .readFailed:
-                return mobilePanelArtifactFileError(
-                    code: "read_failed",
-                    key: "mobile.chat.artifact.error.readFailed",
-                    defaultValue: "The Mac found that file but could not read it.",
-                    path: v2RawString(params, "path")
-                )
+                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(
