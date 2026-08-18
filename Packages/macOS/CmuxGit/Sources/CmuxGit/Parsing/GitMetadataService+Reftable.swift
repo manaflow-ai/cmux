@@ -30,7 +30,11 @@ extension GitMetadataService {
         let roots = repository.gitDirectory == repository.commonDirectory
             ? [repository.gitDirectory]
             : [repository.gitDirectory, repository.commonDirectory]
+        // One component per root, present or not, so a stack that appears or
+        // disappears cannot produce the same signature as its neighbour holding
+        // the same contents.
         var components: [String] = []
+        var foundStack = false
         for root in roots {
             let tablesListPath = joinedPath(
                 root: root,
@@ -40,11 +44,13 @@ extension GitMetadataService {
                 contentsOf: URL(fileURLWithPath: tablesListPath),
                 encoding: .utf8
             ) else {
+                components.append("")
                 continue
             }
+            foundStack = true
             components.append(contents.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return components.isEmpty ? nil : components.joined(separator: "\n")
+        return foundStack ? components.joined(separator: "\n") : nil
     }
 
     /// The branch a full symbolic ref name refers to, or `nil` when it names

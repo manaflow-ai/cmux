@@ -39,7 +39,10 @@ struct SystemGitReftableHeadReader: GitReftableHeadReading {
         let symbolicFullName: String?
         switch symbolicRef.exitCode {
         case 0:
-            symbolicFullName = symbolicRef.text.isEmpty ? nil : symbolicRef.text
+            // Success with nothing to show would contradict itself; treat it as
+            // unresolved rather than as a detached HEAD.
+            guard !symbolicRef.text.isEmpty else { return nil }
+            symbolicFullName = symbolicRef.text
         case 1:
             symbolicFullName = nil
         default:
