@@ -55,7 +55,7 @@ import Testing
 
     @Test func resolvedConfigUsesRepairedManagedThemePair() throws {
         let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-theme-repair-(UUID().uuidString)", isDirectory: false)
+            .appendingPathComponent("cmux-theme-repair-\(UUID().uuidString)", isDirectory: false)
         defer { try? FileManager.default.removeItem(at: path) }
         try """
         # cmux themes start
