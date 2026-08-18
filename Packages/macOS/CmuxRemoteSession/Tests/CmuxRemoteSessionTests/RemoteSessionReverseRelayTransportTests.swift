@@ -94,6 +94,46 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("An unresolved cmux template reaches the shared master without a config probe")
+    func unresolvedTemplateUsesOpenSSHExpansionWithoutConfigProbe() async throws {
+        let runner = RecordingProcessRunner { request in
+            if request.arguments.first == "-G" {
+                return RemoteCommandResult(
+                    status: 0,
+                    stdout: "",
+                    stderr: ""
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let fixture = try await RemoteSessionReverseRelayStartupTests
+            .makeCoordinator(
+                runner: runner,
+                providesResolvedControlPath: false
+            )
+        let coordinator = fixture.coordinator
+        defer {
+            try? FileManager.default.removeItem(at: fixture.scratchDirectory)
+        }
+
+        let outcome = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
+                relayPort: 64_044
+            )
+        }
+
+        guard case .started = outcome else {
+            Issue.record("Expected the unresolved template to use OpenSSH's native %C expansion")
+            return
+        }
+        #expect(!runner.requests.contains(where: { $0.arguments.first == "-G" }))
+        #expect(runner.requests.contains(where: {
+            Self.isControlCommand("forward", in: $0.arguments)
+        }))
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("An explicitly disabled ControlMaster uses the standalone fallback")
     func disabledControlMasterUsesStandaloneFallback() async throws {
         let runner = RecordingProcessRunner()
