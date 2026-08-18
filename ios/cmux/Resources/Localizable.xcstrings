@@ -10721,6 +10721,27 @@
         }
       }
     },
+    "mobile.taskComposer.agent.error.claudeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claudeを利用できません" } }
+      }
+    },
+    "mobile.taskComposer.agent.error.codexUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codexを利用できません" } }
+      }
+    },
+    "mobile.taskComposer.agent.error.openCodeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCodeを利用できません" } }
+      }
+    },
     "mobile.taskComposer.button.accessibilityHint": {
       "extractionState": "manual",
       "localizations": {
@@ -12132,6 +12153,13 @@
         }
       }
     },
+    "mobile.taskComposer.effort.error.queryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t load efforts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "思考レベルを読み込めませんでした" } }
+      }
+    },
     "mobile.taskComposer.effort.accessibilityHint": {
       "extractionState": "manual",
       "localizations": {
@@ -12215,6 +12243,27 @@
             "value": "モデルを読み込み中"
           }
         }
+      }
+    },
+    "mobile.taskComposer.model.error.providerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent models unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントのモデルを利用できません" } }
+      }
+    },
+    "mobile.taskComposer.model.error.queryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t load models" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モデルを読み込めませんでした" } }
+      }
+    },
+    "mobile.taskComposer.model.error.hostUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Can’t reach selected Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したMacに接続できません" } }
       }
     },
     "mobile.taskComposer.openingShell": {

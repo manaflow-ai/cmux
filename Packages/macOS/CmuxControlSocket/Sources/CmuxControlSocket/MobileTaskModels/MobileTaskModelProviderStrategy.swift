@@ -53,7 +53,14 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             // prints the catalog. A cold invocation commonly exceeds five
             // seconds, while the result is cached above this strategy.
             let output = await commandRunner("opencode models --verbose", .seconds(30))
-            return discovered(output.map(parser.openCodeModels(from:)) ?? [])
+            let models = output.map(parser.openCodeModels(from:)) ?? []
+            guard !models.isEmpty else {
+                return await failedDiscovery(
+                    for: provider,
+                    commandReturnedOutput: output != nil
+                )
+            }
+            return discovered(models)
         case .codex:
             let output = await commandRunner(Self.codexModelsCommand, .seconds(5))
             let discoveredModels = output.map(parser.codexModels(from:)) ?? []
@@ -68,10 +75,14 @@ public struct MobileTaskModelProviderStrategy: Sendable {
                 .appendingPathComponent("models_cache.json")
             let models = await fileReader(url)
                 .map(parser.codexModels(from:)) ?? []
-            return discovered(
-                models,
-                defaultModel: await codexDefaultModel(in: models)
-            )
+            let defaultModel = await codexDefaultModel(in: models)
+            guard !models.isEmpty else {
+                return await failedDiscovery(
+                    for: provider,
+                    commandReturnedOutput: output != nil
+                )
+            }
+            return discovered(models, defaultModel: defaultModel)
         case .claude:
             let output = await commandRunner(
                 Self.claudeModelListCommand,
@@ -79,8 +90,35 @@ public struct MobileTaskModelProviderStrategy: Sendable {
             )
             let models = output.map(parser.claudeModels(from:)) ?? []
             let defaultModel = output.flatMap(parser.claudeDefaultModel(from:))
+            guard !models.isEmpty || defaultModel != nil else {
+                return await failedDiscovery(
+                    for: provider,
+                    commandReturnedOutput: output != nil
+                )
+            }
             return discovered(models, defaultModel: defaultModel)
         }
+    }
+
+    private func failedDiscovery(
+        for provider: MobileTaskModelProvider,
+        commandReturnedOutput: Bool
+    ) async -> MobileTaskModelListResult {
+        let error: MobileTaskModelListError
+        if commandReturnedOutput {
+            error = .queryFailed
+        } else {
+            let availability = await commandRunner(
+                "command -v \(provider.rawValue)",
+                .seconds(2)
+            )
+            error = availability == nil ? .providerUnavailable : .queryFailed
+        }
+        return MobileTaskModelListResult(
+            models: [],
+            source: .fallback,
+            error: error
+        )
     }
 
     private func discovered(

@@ -34,6 +34,7 @@ struct TaskComposerSheet: View {
     @State private var isModelLoadingIndicatorVisible = false
     @State var displayedModels: [MobileTaskAgentModel]
     @State var displayedDefaultModel: MobileTaskAgentModel?
+    @State var displayedModelError: MobileTaskModelListError?
     @State var directory: String
     @State var didEditDirectory = false
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
@@ -290,6 +291,7 @@ struct TaskComposerSheet: View {
         _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
         _displayedModels = State(initialValue: initialModelResult?.models ?? [])
         _displayedDefaultModel = State(initialValue: initialModelResult?.defaultModel)
+        _displayedModelError = State(initialValue: initialModelResult?.error)
         _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
@@ -444,6 +446,9 @@ struct TaskComposerSheet: View {
             selectedModelID: selectedModelID,
             efforts: availableEfforts,
             selectedEffortID: selectedEffortID,
+            modelErrorText: modelPickerErrorText,
+            effortErrorText: effortPickerErrorText,
+            agentErrorText: agentPickerErrorText,
             isModelLoading: isModelLoadingIndicatorVisible,
             isSubmitting: submissionPhase.showsProgress,
             isSubmitEnabled: selectedMachine != nil
@@ -626,7 +631,7 @@ struct TaskComposerSheet: View {
         )
     }
 
-    private var modelRefreshID: TaskComposerModelRefreshID {
+    var modelRefreshID: TaskComposerModelRefreshID {
         TaskComposerModelRefreshID(
             provider: selectedTemplate.flatMap {
                 MobileTaskAgentProvider(command: $0.command)
@@ -665,6 +670,7 @@ struct TaskComposerSheet: View {
               !selectedMacDeviceID.isEmpty else {
             displayedModels = []
             displayedDefaultModel = nil
+            displayedModelError = nil
             reconcileSelectedEffort()
             modelRefreshTask = nil
             return
@@ -683,6 +689,7 @@ struct TaskComposerSheet: View {
         // refreshed. An authoritative host result replaces it in place.
         displayedModels = cachedResult.models
         displayedDefaultModel = cachedResult.defaultModel
+        displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
             await store.refreshTaskModels(
@@ -695,6 +702,7 @@ struct TaskComposerSheet: View {
                       modelRefreshID == refreshID else { return }
                 displayedModels = result.models
                 displayedDefaultModel = result.defaultModel
+                displayedModelError = result.error
                 reconcileSelectedEffort()
             }
             guard !Task.isCancelled,
@@ -707,6 +715,7 @@ struct TaskComposerSheet: View {
             ) {
                 displayedModels = refreshedResult.models
                 displayedDefaultModel = refreshedResult.defaultModel
+                displayedModelError = refreshedResult.error
                 reconcileSelectedEffort()
             }
             modelRefreshOperationID = nil

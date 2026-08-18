@@ -73,6 +73,9 @@ extension TerminalController {
             },
             "source": result.source.rawValue,
         ]
+        if let error = result.error {
+            response["error"] = error.rawValue
+        }
         if let defaultModel = result.defaultModel {
             response["default_model"] = modelObject(
                 id: defaultModel.id,

@@ -19,6 +19,9 @@ struct TaskComposerLayout: View {
     let selectedModelID: String?
     let efforts: [MobileTaskAgentEffort]
     let selectedEffortID: String?
+    let modelErrorText: String?
+    let effortErrorText: String?
+    let agentErrorText: String?
     let isModelLoading: Bool
     let isSubmitting: Bool
     let isSubmitEnabled: Bool
@@ -148,12 +151,19 @@ struct TaskComposerLayout: View {
                             modelLoadingPill
                                 .fixedSize(horizontal: true, vertical: false)
                                 .transition(modelLoadingTransition)
-                        } else if !models.isEmpty || !efforts.isEmpty {
-                            modelPill
-                                .fixedSize(horizontal: true, vertical: false)
+                        } else if !models.isEmpty || !efforts.isEmpty || modelErrorText != nil {
+                            if models.isEmpty, modelErrorText != nil {
+                                modelErrorPill
+                                    .fixedSize(horizontal: true, vertical: false)
+                            } else {
+                                modelPill
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
 
-                            effortPill
-                                .fixedSize(horizontal: true, vertical: false)
+                            if !efforts.isEmpty || effortErrorText != nil {
+                                effortPill
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                         }
                     }
                 }
@@ -236,7 +246,7 @@ struct TaskComposerLayout: View {
                     TaskTemplateIcon(value: selectedTemplate.icon, size: 16)
                         .frame(width: 18, height: 18)
 
-                    Text(agentPillTitle(for: selectedTemplate))
+                    Text(agentErrorText ?? agentPillTitle(for: selectedTemplate))
                         .lineLimit(1)
                 } else {
                     Image(systemName: "person.crop.circle.badge.exclamationmark")
@@ -255,7 +265,7 @@ struct TaskComposerLayout: View {
                     .accessibilityHidden(true)
             }
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.primary)
+            .foregroundStyle(agentErrorText == nil ? Color.primary : Color.red)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
@@ -265,13 +275,13 @@ struct TaskComposerLayout: View {
         .tint(Color.primary)
         .disabled(isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
-        .accessibilityValue(selectedTemplate?.name ?? "")
+        .accessibilityValue(agentErrorText ?? selectedTemplate?.name ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerAgentPill")
         // Recreate the whole Menu when the title changes: the UIKit menu
         // button otherwise animates its frame to the new width on iOS 26 and
         // clips the label against the stale bounds until it settles.
-        .id(selectedTemplate.map(agentPillTitle(for:)))
+        .id((selectedTemplate.map(agentPillTitle(for:)) ?? "") + (agentErrorText ?? ""))
     }
 
     private var modelPill: some View {
@@ -280,7 +290,7 @@ struct TaskComposerLayout: View {
                 .font(.caption.weight(.semibold))
                 .accessibilityHidden(true)
 
-            Text(selectedModelName)
+            Text(modelErrorText ?? selectedModelName)
                 .lineLimit(1)
 
             Image(systemName: "chevron.down")
@@ -289,7 +299,7 @@ struct TaskComposerLayout: View {
                 .accessibilityHidden(true)
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.primary)
+        .foregroundStyle(modelErrorText == nil ? Color.primary : Color.red)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
         .background(Color.primary.opacity(0.07), in: Capsule())
@@ -308,7 +318,33 @@ struct TaskComposerLayout: View {
         }
         // See agentPill: identity-swap the pill so the new title cannot be
         // clipped by the old frame mid-animation.
-        .id(selectedModelName)
+        .id((modelErrorText ?? "") + selectedModelName)
+    }
+
+    private var modelErrorPill: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(modelErrorText ?? L10n.string(
+                "mobile.taskComposer.model.error.queryFailed",
+                defaultValue: "Couldn’t load models"
+            ))
+                .lineLimit(1)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(Color.red)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.red.opacity(0.12), in: Capsule())
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(modelErrorText ?? L10n.string(
+            "mobile.taskComposer.model.error.queryFailed",
+            defaultValue: "Couldn’t load models"
+        ))
+        .accessibilityIdentifier("MobileTaskComposerModelErrorPill")
     }
 
     private var modelLoadingPill: some View {
@@ -356,7 +392,7 @@ struct TaskComposerLayout: View {
                 .font(.caption.weight(.semibold))
                 .accessibilityHidden(true)
 
-            Text(selectedEffortName)
+            Text(effortErrorText ?? selectedEffortName)
                 .lineLimit(1)
 
             Image(systemName: "chevron.down")
@@ -365,7 +401,11 @@ struct TaskComposerLayout: View {
                 .accessibilityHidden(true)
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(efforts.isEmpty ? .secondary : .primary)
+        .foregroundStyle(
+            effortErrorText != nil
+                ? Color.red
+                : (efforts.isEmpty ? Color.secondary : Color.primary)
+        )
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
         .background(Color.primary.opacity(0.07), in: Capsule())
@@ -382,7 +422,7 @@ struct TaskComposerLayout: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .id(selectedEffortName)
+        .id((effortErrorText ?? "") + selectedEffortName)
     }
 
     private var submitButton: some View {

@@ -1,8 +1,62 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileShellModel
+import CmuxMobileSupport
 
 extension TaskComposerSheet {
+    var modelPickerErrorText: String? {
+        guard let displayedModelError else { return nil }
+        switch displayedModelError {
+        case .providerUnavailable:
+            return L10n.string(
+                "mobile.taskComposer.model.error.providerUnavailable",
+                defaultValue: "Agent models unavailable"
+            )
+        case .queryFailed:
+            return L10n.string(
+                "mobile.taskComposer.model.error.queryFailed",
+                defaultValue: "Couldn’t load models"
+            )
+        case .hostUnavailable:
+            return L10n.string(
+                "mobile.taskComposer.model.error.hostUnavailable",
+                defaultValue: "Can’t reach selected Mac"
+            )
+        }
+    }
+
+    var agentPickerErrorText: String? {
+        guard displayedModelError == .providerUnavailable,
+              let provider = modelRefreshID.provider else { return nil }
+        switch provider {
+        case .claude:
+            return L10n.string(
+                "mobile.taskComposer.agent.error.claudeUnavailable",
+                defaultValue: "Claude unavailable"
+            )
+        case .codex:
+            return L10n.string(
+                "mobile.taskComposer.agent.error.codexUnavailable",
+                defaultValue: "Codex unavailable"
+            )
+        case .openCode:
+            return L10n.string(
+                "mobile.taskComposer.agent.error.openCodeUnavailable",
+                defaultValue: "OpenCode unavailable"
+            )
+        }
+    }
+
+    var effortPickerErrorText: String? {
+        guard displayedModelError != nil,
+              !availableModels.isEmpty,
+              availableEfforts.isEmpty else { return nil }
+        return L10n.string(
+            "mobile.taskComposer.effort.error.queryFailed",
+            defaultValue: "Couldn’t load efforts"
+        )
+    }
+
     var modelAvailability: MobileTaskModelAvailability {
         guard let selectedTemplate,
               MobileTaskAgentProvider(
