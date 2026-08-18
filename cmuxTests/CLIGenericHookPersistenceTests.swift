@@ -4767,17 +4767,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         // Persist the rejection marker so reload cannot treat it as a plain default Codex hook.
-        if let data = try? Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json")),
-           let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessions = storeJSON["sessions"] as? [String: Any],
-           let persisted = sessions[sessionId] as? [String: Any] {
-            let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any]); XCTAssertEqual(launchCommand["source"] as? String, "rejected")
-            let env = launchCommand["environment"] as? [String: String]
-            XCTAssertNil(
-                env?["CODEX_HOME"],
-                "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
-            )
-        }
+        let data = try Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json"))
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any])
+        XCTAssertEqual(launchCommand["source"] as? String, "rejected")
+        XCTAssertEqual(
+            launchCommand["rejection_reason"] as? String,
+            "sanitizer-rejected-arguments",
+            "rejected launch captures must explain why the argv was not persisted: \(launchCommand)"
+        )
+        let env = launchCommand["environment"] as? [String: String]
+        XCTAssertNil(
+            env?["CODEX_HOME"],
+            "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+        )
     }
 
     private func writeCodexResumeTranscript(at url: URL, sessionID: String) throws {
