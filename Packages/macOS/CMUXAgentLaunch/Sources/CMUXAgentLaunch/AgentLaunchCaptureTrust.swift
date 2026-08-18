@@ -1,5 +1,13 @@
 import Foundation
 
+/// The outcome of judging one captured argv for an agent kind.
+public enum AgentLaunchCaptureArgvVerdict: Equatable, Sendable {
+    /// The argv describes a launch of the kind it was captured for.
+    case trusted([String])
+    /// The argv is not this agent's launch, on the named ground.
+    case rejected(AgentLaunchCaptureRejectionReason)
+}
+
 /// Decides whether a captured agent launch command can be trusted for the agent
 /// kind it is stored under.
 ///
@@ -95,6 +103,35 @@ public enum AgentLaunchCaptureTrust {
                 || nativeProcessAliasesByKind[expectedKind]?.contains(descriptor) == true
                 || descriptor == "\(expectedKind)-cli"
         }
+    }
+
+    /// Judges a PID-derived argv candidate for `kind`, naming the ground when
+    /// it cannot be trusted so a capture that stores no argv can record why.
+    ///
+    /// The order mirrors what the hook applied before this returned a reason:
+    /// process descriptors first, because an argv that does not describe the
+    /// kind is not this agent's at all, then the shell-dispatcher check for an
+    /// argv that does describe it (`codex` resolved by process name, `sh -c …`
+    /// in argv).
+    public static func nativeProcessArgvVerdict(
+        processName: String?,
+        arguments: [String]?,
+        kind: String
+    ) -> AgentLaunchCaptureArgvVerdict {
+        guard let arguments, !arguments.isEmpty else {
+            return .rejected(.argvUnavailable)
+        }
+        guard nativeProcessDescribesKind(
+            processName: processName,
+            arguments: arguments,
+            kind: kind
+        ) else {
+            return .rejected(.nativeProcessDoesNotDescribeKind)
+        }
+        guard !argvLooksLikeShellWrapper(arguments) else {
+            return .rejected(.argvLooksLikeShellWrapper)
+        }
+        return .trusted(arguments)
     }
 
     public static func nativeProcessDescribesKnownAgent(

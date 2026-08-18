@@ -28734,24 +28734,31 @@ struct CMUXCLI {
             envLauncher,
             kind: fallbackKind
         )
+        // The first ground on which an argv was discarded, kept so a record that
+        // ends up storing no argv says why instead of only that it has none.
+        var argvRejectionReason: AgentLaunchCaptureRejectionReason?
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
-        var processArguments = fallbackPID.flatMap { fallbackPID -> [String]? in
-            let pid = pid_t(fallbackPID)
-            let candidate = self.processArguments(for: pid)
-            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
-                processName: processName(for: pid),
-                arguments: candidate,
-                kind: fallbackKind
-            ) else { return nil }
-            return candidate
+        if !envCaptureIsTrusted, normalizedHookValue(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) != nil {
+            argvRejectionReason = .launcherDoesNotDescribeKind
         }
-        if let candidate = processArguments,
-           AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
-            // The PID fallback resolved to a shell dispatcher (e.g. the hook's own
-            // `sh -c …` wrapper), not the agent. That argv is not a launch.
-            processArguments = nil
+        var processArguments: [String]?
+        if let fallbackPID {
+            let pid = pid_t(fallbackPID)
+            switch AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
+                processName: processName(for: pid),
+                arguments: self.processArguments(for: pid),
+                kind: fallbackKind
+            ) {
+            case .trusted(let candidate):
+                processArguments = candidate
+            case .rejected(let reason):
+                // The PID fallback resolved to something that is not this
+                // agent's launch: an unrelated process, or a shell dispatcher
+                // (e.g. the hook's own `sh -c …` wrapper).
+                argvRejectionReason = argvRejectionReason ?? reason
+            }
         }
         let arguments = envArguments ?? processArguments
         let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
@@ -28777,9 +28784,11 @@ struct CMUXCLI {
         // resume command is produced (omx/omc and unknown kinds stay non-resumable). Empty selected env
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
-        func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
+        func environmentOnlyRecord(
+            rejectionReason: AgentLaunchCaptureRejectionReason
+        ) -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default", rejectionReason: rejectionReason) : nil
             }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
@@ -28789,12 +28798,13 @@ struct CMUXCLI {
                 environment: environment,
                 verificationHome: verificationHome,
                 capturedAt: Date().timeIntervalSince1970,
-                source: "environment"
+                source: "environment",
+                rejectionReason: rejectionReason
             )
         }
 
         guard let arguments, !arguments.isEmpty else {
-            return environmentOnlyRecord()
+            return environmentOnlyRecord(rejectionReason: argvRejectionReason ?? .argvUnavailable)
         }
 
         let executablePath = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) : nil)
@@ -28806,7 +28816,7 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected", rejectionReason: .sanitizerRejectedArgv)
         }
         let source = envArguments == nil ? "process" : "environment"
 

@@ -19,6 +19,10 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     public var capturedAt: TimeInterval?
     /// The capture source.
     public var source: String?
+    /// Why this capture carries no trustworthy argv, for a capture that carries
+    /// none. Optional so records written before the field existed keep
+    /// decoding, and omitted entirely when `arguments` is a usable launch.
+    public var rejectionReason: AgentLaunchCaptureRejectionReason?
 
     /// Creates a structured captured launch.
     ///
@@ -31,6 +35,7 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     ///   - verificationHome: The launch home used only for provider-state verification.
     ///   - capturedAt: The capture timestamp.
     ///   - source: The capture source.
+    ///   - rejectionReason: Why the capture carries no trustworthy argv.
     public init(
         launcher: String? = nil,
         executablePath: String? = nil,
@@ -39,7 +44,8 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         environment: [String: String]? = nil,
         verificationHome: String? = nil,
         capturedAt: TimeInterval? = nil,
-        source: String? = nil
+        source: String? = nil,
+        rejectionReason: AgentLaunchCaptureRejectionReason? = nil
     ) {
         self.launcher = launcher
         self.executablePath = executablePath
@@ -49,5 +55,6 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
         self.source = source
+        self.rejectionReason = rejectionReason
     }
 }
