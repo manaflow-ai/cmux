@@ -376,7 +376,7 @@ impl WorkspaceRegistry {
                     CASE
                       WHEN changed.terminal_id IS NULL THEN projection.result_json
                       ELSE changed.previous_result_json
-                    END AS result_json,
+                    END AS selected_result_json,
                     CASE
                       WHEN changed.terminal_id IS NULL THEN projection.committed_revision
                       ELSE changed.previous_committed_revision
@@ -389,7 +389,7 @@ impl WorkspaceRegistry {
              WHERE terminal.deleted_revision IS NULL
                AND (changed.terminal_id IS NULL
                     OR changed.previous_result_json IS NOT NULL)
-             ORDER BY json_extract(result_json, '$.id') ASC, projection.terminal_id ASC",
+             ORDER BY json_extract(selected_result_json, '$.id') ASC, projection.terminal_id ASC",
         )?;
         let rows = statement
             .query_map([], |row| {
