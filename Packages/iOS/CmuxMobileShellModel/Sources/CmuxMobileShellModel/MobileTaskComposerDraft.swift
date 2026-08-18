@@ -6,6 +6,8 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     public var prompt: String
     /// Optional CLI model identifier selected for the task template.
     public var modelID: String?
+    /// Optional effort selected from the exact model's reported catalog.
+    public var effortID: String?
     /// Selected template, validated against current templates when restored.
     public var templateID: MobileTaskTemplate.ID?
     /// Selected Mac, validated against current paired Macs when restored.
@@ -32,6 +34,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     public init(
         prompt: String,
         modelID: String? = nil,
+        effortID: String? = nil,
         templateID: MobileTaskTemplate.ID?,
         macDeviceID: String?,
         macInstanceTag: String? = nil,
@@ -44,6 +47,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     ) {
         self.prompt = prompt
         self.modelID = modelID
+        self.effortID = effortID
         self.templateID = templateID
         self.macDeviceID = macDeviceID
         self.macInstanceTag = macInstanceTag
