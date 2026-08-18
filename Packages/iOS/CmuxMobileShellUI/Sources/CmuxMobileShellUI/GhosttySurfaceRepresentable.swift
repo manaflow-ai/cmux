@@ -192,7 +192,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var outputConsumerRestartTask: Task<Void, Never>?
         private var outputConsumerStabilityTask: Task<Void, Never>?
         private var outputConsumerRestartAttempts = 0
-        private var outputConsumerRestartExhausted = false
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -311,7 +310,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard terminalPresentationIsActive else { return }
             guard outputTask == nil else { return }
             guard let store else { return }
-            guard !outputConsumerRestartExhausted else { return }
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
             outputConsumerRestartTask?.cancel()
@@ -627,7 +625,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     return
                 }
                 self.outputConsumerRestartAttempts = 0
-                self.outputConsumerRestartExhausted = false
             }
         }
 
@@ -639,23 +636,27 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: GhosttySurfaceView,
             generation: UInt64
         ) {
-            guard outputConsumerRestartTask == nil,
-                  !outputConsumerRestartExhausted else {
+            guard outputConsumerRestartTask == nil else {
                 return
             }
             guard outputConsumerRestartAttempts
                     < Self.maximumOutputConsumerRestartAttempts else {
-                outputConsumerRestartExhausted = true
                 outputConsumerStabilityTask?.cancel()
                 outputConsumerStabilityTask = nil
                 MobileDebugLog.anchormux(
-                    "terminal.output.consumer_restart_exhausted surface=\(surfaceID)"
+                    "terminal.output.consumer_restart_recovery surface=\(surfaceID)"
                 )
+                // The cap ends this failure episode, not the mounted
+                // consumer's lifetime. Re-establish the host subscription and
+                // start a fresh bounded episode so a transient replacement
+                // failure cannot strand the surface until a remount.
+                outputConsumerRestartAttempts = 0
                 store?.resyncTerminalOutput(
                     reason: "terminal_output_consumer_restart_exhausted",
                     restartEventStream: true,
                     surfaceIDs: [surfaceID]
                 )
+                startMountedTasks(surfaceView: surfaceView)
                 return
             }
             let attempt = outputConsumerRestartAttempts
@@ -705,7 +706,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputConsumerStabilityTask?.cancel()
             outputConsumerStabilityTask = nil
             outputConsumerRestartAttempts = 0
-            outputConsumerRestartExhausted = false
             verifiedReplayState.invalidate()
             pendingReplayViewportAnchor = nil
             liveFontTask?.cancel()
