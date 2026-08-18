@@ -1324,6 +1324,15 @@ fn journal_cli_fixture(
     args: &[&str],
     result: serde_json::Value,
 ) -> (Output, Option<serde_json::Value>) {
+    journal_cli_fixture_with_capture_delay(args, result, Duration::ZERO)
+}
+
+#[cfg(unix)]
+fn journal_cli_fixture_with_capture_delay(
+    args: &[&str],
+    result: serde_json::Value,
+    capture_delay: Duration,
+) -> (Output, Option<serde_json::Value>) {
     let dir = unique_temp_dir("journal-cli-contract");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("journal.sock");
@@ -1366,6 +1375,9 @@ fn journal_cli_fixture(
             });
             writeln!(stream, "{response}").unwrap();
             stream.flush().unwrap();
+            if !capture_delay.is_zero() {
+                std::thread::sleep(capture_delay);
+            }
             sender.send(request).unwrap();
             return;
         }
@@ -1383,6 +1395,33 @@ fn journal_cli_fixture(
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);
     (output, request)
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_cli_fixture_keeps_request_capture_open_until_accept_deadline() {
+    const SESSION: &str = "session_00000000000000000000000000000002";
+    let (output, request) = journal_cli_fixture_with_capture_delay(
+        &["session", SESSION, "journal", "list"],
+        serde_json::json!({
+            "head_sequence": "1",
+            "checkpoints": [],
+            "segments": [],
+            "projection": {
+                "head_sequence": "1",
+                "cursor_sequence": "1",
+                "candidate_sequence": null,
+                "target_sequence": "1",
+                "pending": false,
+            },
+        }),
+        Duration::from_millis(6500),
+    );
+    assert_success(&output);
+    assert_eq!(
+        request.as_ref().and_then(|request| request["operation"].as_str()),
+        Some("session.journal.list")
+    );
 }
 
 #[cfg(unix)]
