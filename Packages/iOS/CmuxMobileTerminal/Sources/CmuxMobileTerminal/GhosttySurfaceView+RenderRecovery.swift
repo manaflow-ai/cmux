@@ -141,6 +141,7 @@ extension GhosttySurfaceView {
         _ = completePendingSurfaceOperations(returning: false)
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
         pendingRenderRetryCount = 0
         resetRenderAdmissionStatePreservingSuppression()
@@ -265,6 +266,7 @@ extension GhosttySurfaceView {
         surface = nil
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
         pendingRenderRetryCount = 0
         resetRenderAdmissionStatePreservingSuppression()

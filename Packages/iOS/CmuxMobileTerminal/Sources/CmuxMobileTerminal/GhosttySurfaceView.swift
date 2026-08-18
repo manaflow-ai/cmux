@@ -129,6 +129,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// renderer failure. Keeping it outside the new token prevents the
     /// follow-up request from silently resetting the failure episode to zero.
     var pendingRenderRetryCount: UInt8 = 0
+    /// Geometry invalidation may replace a token only once while that
+    /// replacement is still queued on `outputQueue`. Later size changes mark
+    /// another frame instead of enqueueing another overlapping replacement.
+    var renderReplacementInFlight = false
     /// The one frame currently allowed to reach the renderer. The callback is
     /// delivered only after Ghostty assigns the matching IOSurface, so output,
     /// local scrolling, geometry, and verified replay share one barrier.
@@ -970,6 +974,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderingSuspended = false
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
         pendingRenderRetryCount = 0
         renderPresentationGate.reset()
@@ -3107,6 +3112,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderPipelineRecoveryPausedAt = nil
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
         pendingRenderRetryCount = 0
         renderPresentationGate.reset()
@@ -3749,6 +3755,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingRenderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
         pendingRenderRetryCount = 0
         needsDraw = true
@@ -3761,6 +3768,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let preserveSuppression = verifiedReplayRenderSuppressed
             || renderPresentationGate.isSuppressed
         renderPresentationGate.reset()
+        renderReplacementInFlight = false
         if preserveSuppression {
             _ = renderPresentationGate.setSuppressed(true)
         }
@@ -3843,6 +3851,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let submission = renderSubmission,
               submission.token == token,
               submission.generation == surfaceGeneration else { return }
+        // The disposition for a replacement is now authoritative. Any
+        // geometry changes coalesced while it was in flight can request one
+        // follow-up frame below, after this operation has left the queue.
+        renderReplacementInFlight = false
         let action = presented
             ? renderPresentationGate.complete(
                 token: token,
@@ -4597,6 +4609,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func restartInFlightRenderSubmissionForCurrentGeometry(
         countsAsRetry: Bool = false
     ) -> Bool {
+        if !countsAsRetry, renderReplacementInFlight {
+            // The prior replacement is still queued or running on the serial
+            // output queue. Coalesce this geometry revision behind its
+            // disposition instead of enqueueing another overlapping render.
+            needsAnotherRender = true
+            needsDraw = true
+            return true
+        }
         guard let current = renderSubmission,
               current.kind != .verifiedReplay,
               let surface,
@@ -4626,9 +4646,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayRead: current.verifiedReplayRead,
             presentationRetryCount: countsAsRetry
                 ? current.presentationRetryCount &+ 1
-                : 0
+                : current.presentationRetryCount
         )
-        return replaceInFlightRenderSubmission(with: replacement)
+        let replaced = replaceInFlightRenderSubmission(with: replacement)
+        if replaced {
+            renderReplacementInFlight = true
+        }
+        return replaced
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface

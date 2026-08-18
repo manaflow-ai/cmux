@@ -498,6 +498,14 @@ extension GhosttySurfaceView {
     func restartPendingVerifiedReplayPresentationForCurrentGeometry(
         countsAsRetry: Bool = false
     ) -> Bool {
+        if !countsAsRetry, renderReplacementInFlight {
+            // Keep at most one geometry replacement queued on the serial
+            // output queue. The current replacement's disposition will drive
+            // the coalesced follow-up once it is safe to submit.
+            needsAnotherRender = true
+            needsDraw = true
+            return true
+        }
         guard var pending = pendingVerifiedReplayPresentation,
               let surface,
               pending.surface == surface,
@@ -569,6 +577,7 @@ extension GhosttySurfaceView {
                 return false
             }
         }
+        renderReplacementInFlight = true
         return true
     }
 
