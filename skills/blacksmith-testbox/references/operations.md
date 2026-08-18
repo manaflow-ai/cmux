@@ -173,11 +173,18 @@ produce a `timings.json` at all.
 
 ## Timing interpretation
 
-The benchmark reports two clocks. The local CLI transcript measures sync,
-transport, queueing, and the remote command. The downloaded `/usr/bin/time -p`
-record measures the remote `cargo build -p cmux-tui --locked` command. Compare
-remote `real` or `time_real_seconds` values for build performance, and retain
-CLI wall time when evaluating Testbox overhead.
+The benchmark reports two clocks, and the stage record contains only one of
+them. `wall_seconds` in each stage JSON is measured **on the box**, around the
+cargo command, which is why it sits a few milliseconds above the
+`/usr/bin/time -p` `real` value rather than well above it. It is not the CLI
+clock.
+
+The second clock is local: the wall time of the `blacksmith testbox run`
+invocation itself, which also covers sync, transport, and queueing. The plan in
+`benchmark.md` writes it to `$OUT/<stage>.cli-wall.txt`. Compare remote `real`
+or `time_real_seconds` for build performance, and use the difference between the
+local and remote clocks for Testbox overhead. A pack without `cli-wall.txt`
+cannot measure overhead at all.
 
 `first-clean` is target-clean but dependency-warm: warmup runs `cargo fetch` and
 `zig build --fetch`, and the workflow may restore registry, git, and Zig caches.

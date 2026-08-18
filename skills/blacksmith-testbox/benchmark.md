@@ -309,7 +309,7 @@ clean status before it invokes Cargo, repeating the source checks after the
 build. Each stage JSON carries a `hydration` block with the warmed ref and
 commit plus `matches_benchmarked_source`, which is normally `false`. Keep the
 setup artifact URL or download it into `$OUT`. The workflow uploads it under the
-name `cmux-tui-testbox-<run-id>`, so with the approved run's ID in `$RUN_ID`:
+name `cmux-tui-testbox-setup-<run-id>`, so with the approved run's ID in `$RUN_ID`:
 `gh run download "$RUN_ID" --repo manaflow-ai/cmux --name "cmux-tui-testbox-setup-$RUN_ID" --dir "$OUT/setup-artifact"`.
 A successful setup copies the
 same JSON to `/tmp/.testbox/cmux-tui-rust-setup-identity.json`; the stage helper
@@ -362,10 +362,16 @@ run_stage() {
     'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
     "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
     "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
+  # The second clock. The stage record's wall_seconds is measured on the box
+  # around cargo; this one includes sync, transport, and queueing, and the gap
+  # between them is the Testbox overhead.
+  cli_start="$(python3 -c 'import time; print(time.time())')"
   ./scripts/blacksmith-bounded-command.sh 1500 blacksmith testbox run --id "$TBX" --debug \
     "$remote_command" >"$OUT/$stage.run.log" 2>&1
   run_status=$?
   set -e
+  python3 -c "import sys; print(round(float(sys.argv[2]) - float(sys.argv[1]), 3))" \
+    "$cli_start" "$(python3 -c 'import time; print(time.time())')" >"$OUT/$stage.cli-wall.txt"
   cat "$OUT/$stage.run.log"
 
   # rsync --delete can remove remote output before the next run. Download each
@@ -498,8 +504,9 @@ Record these fields alongside `timings.json`:
    clean-status result before each stage.
 2. Requested runner label and catalog output. The setup job rejects any
    actual architecture or CPU count other than x64 and 32.
-3. Blacksmith CLI version, Testbox ID, setup workflow run/job IDs, identity run
-   ID, and each stage run/sync ID from raw transcripts.
+3. Blacksmith CLI version, Testbox ID, and the setup workflow run and job IDs.
+   There is no separate identity run: this plan forbids issuing one, and the
+   identity transcripts are the setup artifact plus each stage's own record.
 4. Whether the comparison was target-clean, registry/git-cache warm,
    Zig-cache warm, or a genuinely cold VM. Warmup deliberately hydrates
    dependencies, so `first-clean` is target-cold and dependency-warm.
