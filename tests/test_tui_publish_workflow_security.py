@@ -2140,6 +2140,83 @@ def test_release_cut_does_not_mask_waiter_failure() -> None:
         assert not summary.exists()
 
 
+def test_release_cut_recovers_when_dispatch_returns_no_run_url() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    document = yaml.load(release_cut, Loader=yaml.BaseLoader)
+    dispatch_step = next(
+        step
+        for step in document["jobs"]["tag"]["steps"]
+        if step.get("name") == "Dispatch release workflows"
+    )
+    run_text = dispatch_step["run"]
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-release-cut-empty-dispatch-") as raw:
+        temporary = Path(raw)
+        scripts = temporary / ".github" / "scripts"
+        scripts.mkdir(parents=True)
+        resolver_args = temporary / "resolver-args"
+        resolver = scripts / "resolve-workflow-run-id.sh"
+        resolver.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" > \"$RESOLVER_ARGS\"\n"
+            "printf '%s\\n' 42\n"
+        )
+        resolver.chmod(0o755)
+        waiter_args = temporary / "waiter-args"
+        waiter = scripts / "wait-for-workflow-run.sh"
+        waiter.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" > \"$WAITER_ARGS\"\n"
+            "printf '%s\\n' '42\\tsuccess'\n"
+        )
+        waiter.chmod(0o755)
+        dispatch_called = temporary / "dispatch-called"
+        bin_dir = temporary / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "case \"${1:-}\" in\n"
+            "  api) printf '%s\\n' '{\"workflow_runs\":[{\"id\":41}]}' ;;\n"
+            "  workflow) : > \"$DISPATCH_CALLED\" ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        gh.chmod(0o755)
+        summary = temporary / "summary"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "TAG": "cmux-tui-v1.2.3",
+                "VERSION": "1.2.3",
+                "PATH": f"{bin_dir}:{environment['PATH']}",
+                "RESOLVER_ARGS": str(resolver_args),
+                "WAITER_ARGS": str(waiter_args),
+                "DISPATCH_CALLED": str(dispatch_called),
+            }
+        )
+        result = subprocess.run(
+            ("bash", "-c", "set -euo pipefail\n" + run_text),
+            cwd=temporary,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert dispatch_called.exists()
+        assert "cmux-tui-release.yml" in resolver_args.read_text()
+        assert "42" in waiter_args.read_text()
+        assert "- Build/package run: 42 (success)" in summary.read_text()
+
+
 def test_dispatch_waiter_requires_explicit_run_id_and_uses_watch() -> None:
     script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
     sha = "e" * 40
