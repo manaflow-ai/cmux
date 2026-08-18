@@ -34,13 +34,23 @@ enum TerminalImageTransferPreparedContent: Codable, Equatable, Sendable {
 
 enum PasteboardFileURLReader {
     static let legacyFilenamesPboardType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
+    static let promisedFileURLPasteboardType = NSPasteboard.PasteboardType(
+        rawValue: "com.apple.pasteboard.promised-file-url"
+    )
     static let fileURLPasteboardTypes: Set<NSPasteboard.PasteboardType> = [
         .fileURL,
-        legacyFilenamesPboardType
+        legacyFilenamesPboardType,
+        promisedFileURLPasteboardType,
     ]
 
     static func hasFileURLType(_ pasteboardTypes: [NSPasteboard.PasteboardType]) -> Bool {
         return pasteboardTypes.contains { fileURLPasteboardTypes.contains($0) }
+    }
+
+    static func hasPromisedFileURLType(
+        _ pasteboardTypes: [NSPasteboard.PasteboardType]
+    ) -> Bool {
+        pasteboardTypes.contains(promisedFileURLPasteboardType)
     }
 
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
@@ -67,6 +77,14 @@ enum PasteboardFileURLReader {
         if let rawFileURL = pasteboard.string(forType: .fileURL),
            let url = URL(string: rawFileURL),
            url.isFileURL {
+            fileURLs.append(url.standardizedFileURL)
+        }
+
+        if let rawPromisedFileURL = pasteboard.string(
+            forType: promisedFileURLPasteboardType
+        ),
+        let url = URL(string: rawPromisedFileURL),
+        url.isFileURL {
             fileURLs.append(url.standardizedFileURL)
         }
 
@@ -415,7 +433,10 @@ enum TerminalImageTransferPlanner {
     ) -> TerminalImageTransferPreparedContent {
         let fileURLs = durableDroppedFileURLs(
             fileURLs(from: pasteboard),
-            pasteboardService: pasteboardService
+            pasteboardService: pasteboardService,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
+                pasteboard.types ?? []
+            )
         )
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
@@ -480,7 +501,10 @@ enum TerminalImageTransferPlanner {
     ) -> [URL] {
         let urls = durableDroppedFileURLs(
             fileURLs(from: pasteboard),
-            pasteboardService: pasteboardService
+            pasteboardService: pasteboardService,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
+                pasteboard.types ?? []
+            )
         )
         if !urls.isEmpty {
             return urls
@@ -500,12 +524,14 @@ enum TerminalImageTransferPlanner {
     /// by image providers need an owned copy to survive the drag/paste handoff.
     static func durableDroppedFileURLs(
         _ fileURLs: [URL],
-        pasteboardService: TerminalPasteboardService
+        pasteboardService: TerminalPasteboardService,
+        sourceIsTransient: Bool = false
     ) -> [URL] {
         fileURLs.compactMap { fileURL in
             guard isTransientImageFileURL(
                 fileURL,
-                pasteboardService: pasteboardService
+                pasteboardService: pasteboardService,
+                sourceIsTransient: sourceIsTransient
             ) else {
                 return fileURL
             }
@@ -515,7 +541,8 @@ enum TerminalImageTransferPlanner {
 
     private static func isTransientImageFileURL(
         _ fileURL: URL,
-        pasteboardService: TerminalPasteboardService
+        pasteboardService: TerminalPasteboardService,
+        sourceIsTransient: Bool
     ) -> Bool {
         let normalizedURL = fileURL.standardizedFileURL
         guard normalizedURL.isFileURL,
@@ -542,7 +569,7 @@ enum TerminalImageTransferPlanner {
         guard isTemporaryPath else { return false }
 
         let filename = normalizedURL.lastPathComponent.lowercased()
-        return filename.hasPrefix("cmux-drop-")
+        return sourceIsTransient || filename.hasPrefix("cmux-drop-")
     }
 
     private static func finishUpload(
