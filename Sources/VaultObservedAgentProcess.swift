@@ -138,11 +138,15 @@ struct VaultObservedAgentProcess: Sendable {
         let normalized = argument.replacingOccurrences(of: "\\", with: "/")
         let basename = (normalized as NSString).lastPathComponent
         if basename.compare("hermes", options: [.caseInsensitive, .literal]) == .orderedSame
-            || basename.compare("hermes-agent", options: [.caseInsensitive, .literal]) == .orderedSame {
+            || basename.compare("hermes-agent", options: [.caseInsensitive, .literal]) == .orderedSame
+            || basename.compare("run_agent.py", options: [.caseInsensitive, .literal]) == .orderedSame {
             return true
         }
         return normalized.range(
             of: "hermes-agent/hermes",
+            options: [.caseInsensitive, .literal]
+        ) != nil || normalized.range(
+            of: "hermes-agent/run_agent.py",
             options: [.caseInsensitive, .literal]
         ) != nil
     }
@@ -163,6 +167,10 @@ struct VaultObservedAgentProcess: Sendable {
             || argument.hasPrefix("-z")
             || argument == "--oneshot"
             || argument.hasPrefix("--oneshot=")
+            || argument == "-q"
+            || argument.hasPrefix("-q")
+            || argument == "--query"
+            || argument.hasPrefix("--query=")
     }
 
     private static func isHermesChatQueryOption(_ argument: String) -> Bool {

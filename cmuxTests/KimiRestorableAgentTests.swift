@@ -26,7 +26,7 @@ struct KimiRestorableAgentTests {
         let registration = CmuxVaultAgentRegistration.builtInKimi
         #expect(registration.id == "kimi")
         #expect(registration.name == "Kimi Code")
-        #expect(registration.detect.processNames == ["kimi", "kimi-cli", "kimi-code"])
+        #expect(registration.detect.processNames == ["kimi", "kimi-cli", "kimi-code", "Kimi Code"])
         #expect(registration.sessionIdSource == .argvOption("--resume"))
         #expect(registration.resumeCommand == "{{executable}} --resume {{sessionId}}")
     }

@@ -72,11 +72,12 @@ extension CmuxVaultAgentDetectRule {
     }
 
     private func alternateMatches(_ process: VaultObservedAgentProcess) -> Bool {
-        let alternateProcessNameMatch = alternateProcessNames.isEmpty || alternateProcessNames.contains { expected in
-            process.executableBasenames.contains { candidate in
-                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
+        let alternateProcessNameMatch = alternateProcessNames.isEmpty
+            || alternateProcessNames.contains { expected in
+                process.executableBasenames.contains { candidate in
+                    processBasename(candidate, matches: expected)
+                }
             }
-        }
         let allNeedlesMatch = !alternateArgvContains.isEmpty
             && alternateProcessNameMatch
             && process.argumentsContainAll(alternateArgvContains)
@@ -151,8 +152,23 @@ extension CmuxVaultAgentDetectRule {
     }
 
     private func isPythonRuntimeBasename(_ basename: String) -> Bool {
-        basename.compare("python", options: [.caseInsensitive, .literal]) == .orderedSame
-            || basename.compare("python3", options: [.caseInsensitive, .literal]) == .orderedSame
+        let normalized = basename.lowercased()
+        if normalized == "python" || normalized == "python3" {
+            return true
+        }
+        guard normalized.hasPrefix("python3.") else { return false }
+        let suffix = normalized.dropFirst("python3.".count)
+        return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
+    }
+
+    private func processBasename(_ candidate: String, matches expected: String) -> Bool {
+        if isPythonRuntimeBasename(expected) {
+            return isPythonRuntimeBasename(candidate)
+        }
+        return candidate.compare(
+            expected,
+            options: [.caseInsensitive, .literal]
+        ) == .orderedSame
     }
 
     private func pythonOptionRunsWithoutScript(_ argument: String) -> Bool {

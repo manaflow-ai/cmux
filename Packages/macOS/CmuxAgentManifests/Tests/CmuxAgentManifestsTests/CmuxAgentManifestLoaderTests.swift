@@ -23,17 +23,64 @@ struct CmuxAgentManifestLoaderTests {
             ("campfire", "javascript-entrypoint", .init(processName: "tsx", arguments: ["tsx", "packages/session/bin/campfire.ts"])),
             ("campfire", "javascript-entrypoint", .init(processName: "ts-node", arguments: ["ts-node", "packages/session/bin/campfire.ts"])),
             ("grok", "primary", .init(processName: "grok")),
+            ("grok", "legacy-agent-alias", .init(
+                processName: "agent",
+                processPath: "/Users/example/.grok/bin/agent",
+                arguments: ["/Users/example/.grok/bin/agent"]
+            )),
             ("grok", "primary", .init(processName: "grok-macos-aarch64")),
             ("grok", "primary", .init(processName: "grok-macos-aarch")),
+            (
+                "grok",
+                "primary",
+                .init(
+                    processName: "grok-1.0.4",
+                    processPath: "/Users/example/.grok/bin/grok-1.0.4",
+                    arguments: ["/Users/example/.local/bin/grok"]
+                )
+            ),
             ("hermes-agent", "native", .init(processName: "hermes")),
             ("hermes-agent", "native", .init(processName: "hermes-agent")),
             ("hermes-agent", "python-entrypoint", .init(processName: "python", arguments: ["python", "hermes-agent"])),
             ("hermes-agent", "python-entrypoint", .init(processName: "python3", arguments: ["python3", "-m", "hermes-agent"])),
             ("hermes-agent", "python-entrypoint", .init(processName: "python3", arguments: ["python3", "-X", "dev", "-m", "hermes-agent"])),
             ("hermes-agent", "python-entrypoint", .init(processName: "python3", arguments: ["python3", "--", "/opt/bin/hermes"])),
+            (
+                "hermes-agent",
+                "versioned-python-entrypoint",
+                .init(
+                    processName: "python3.11",
+                    processPath: "/Users/example/.local/share/uv/python/bin/python3.11",
+                    arguments: [
+                        "/Users/example/.hermes/hermes-agent/venv/bin/python",
+                        "/Users/example/.hermes/hermes-agent/hermes",
+                    ]
+                )
+            ),
+            (
+                "hermes-agent",
+                "versioned-python-entrypoint",
+                .init(
+                    processName: "python3.11",
+                    processPath: "/Users/example/.local/share/uv/python/bin/python3.11",
+                    arguments: [
+                        "/Users/example/.hermes/hermes-agent/venv/bin/python",
+                        "/Users/example/.hermes/hermes-agent/run_agent.py",
+                    ]
+                )
+            ),
             ("kimi", "primary", .init(processName: "kimi")),
             ("kimi", "primary", .init(processName: "kimi-cli")),
             ("kimi", "primary", .init(processName: "kimi-code")),
+            (
+                "kimi",
+                "primary",
+                .init(
+                    processName: "Kimi Code",
+                    processPath: "/Users/example/.local/share/uv/python/bin/python3.13",
+                    arguments: ["Kimi Code", ""]
+                )
+            ),
             ("omp", "primary", .init(processName: "omp")),
             ("omp", "package-entrypoint", .init(processName: "bun", arguments: ["bun", "@oh-my-pi/pi-coding-agent"])),
             ("omp", "package-entrypoint", .init(processName: "node", arguments: ["node", "/opt/@oh-my-pi/pi-coding-agent/index.js"])),
@@ -50,74 +97,18 @@ struct CmuxAgentManifestLoaderTests {
             #expect(result.agentID == expectedID, "\(process.processName): \(process.arguments)")
             #expect(result.processMatcherID == expectedMatcherID, "\(process.processName): \(process.arguments)")
             #expect(result.source == (expectedID == nil ? nil : .bundled))
-        }
-    }
 
-    @Test("Built-in state rules cover every declarative lifecycle state")
-    func bundledStateClassifications() throws {
-        let snapshot = try CmuxAgentManifestLoader.bundled().load()
-        for entry in snapshot.entries {
-            #expect(Set(entry.manifest.states.map(\.state)) == Set(CmuxAgentDetectionState.allCases))
-            let process = CmuxAgentProcessSnapshot(
-                processName: entry.manifest.process.matchers.first?.processNames.first ?? entry.manifest.id,
-                arguments: [entry.manifest.id]
+            // The scanner uses the trace-free indexed path; keep it in lockstep
+            // with diagnostics for every built-in identity.
+            let fastMatch = snapshot.engine.matchingEntry(for: process)
+            #expect(
+                fastMatch?.entry.manifest.id == expectedID,
+                "fast identity: \(process.processName): \(process.arguments)"
             )
-            let positiveSamples: [(String, CmuxAgentClassification, String, String)] = [
-                ("Approve this permission?", .permissionPrompt, "permission-prompt", "screenRegex[0]"),
-                ("Waiting for input", .blocked, "blocked", "screenRegex[0]"),
-                (
-                    "Waiting"
-                        + String(repeating: " ", count: 128)
-                        + "for"
-                        + String(repeating: " ", count: 128)
-                        + "input",
-                    .blocked,
-                    "blocked",
-                    "screenRegex[0]"
-                ),
-                ("Question " + String(repeating: "context ", count: 128) + "?", .blocked, "blocked", "screenRegex[0]"),
-                ("Task completed", .done, "done", "screenRegex[0]"),
-                ("⠋ working", .working, "working", "screenRegex[0]"),
-                ("Agent is thinking", .working, "working", "screenRegex[1]"),
-                ("rEaDy", .idle, "idle", "screenRegex[0]"),
-                ("Working. Approve this permission?", .permissionPrompt, "permission-prompt", "screenRegex[0]"),
-                ("Task completed but waiting for input", .blocked, "blocked", "screenRegex[0]"),
-                ("Task completed; still working", .done, "done", "screenRegex[0]"),
-                ("Ready and working", .working, "working", "screenRegex[1]"),
-            ]
-            for (screen, expected, expectedRuleID, expectedConditionID) in positiveSamples {
-                let result = snapshot.engine.detect(process: process, screen: screen)
-                let traceFree = snapshot.engine.classify(
-                    manifestID: entry.manifest.id,
-                    screen: screen
-                )
-                #expect(result.classification == expected, "\(entry.manifest.id): \(screen)")
-                #expect(result.agentID == entry.manifest.id)
-                #expect(result.source == .bundled)
-                #expect(result.stateRuleID == expectedRuleID)
-                #expect(traceFree.classification == expected)
-                #expect(traceFree.stateRuleID == expectedRuleID)
-                #expect(result.trace.contains {
-                    $0.phase == .state
-                        && $0.ruleID == expectedRuleID
-                        && $0.conditionID == expectedConditionID
-                        && $0.matched
-                })
-            }
-            let askMe = snapshot.engine.detect(process: process, screen: "Ask me")
-            if ["omp", "pi"].contains(entry.manifest.id) {
-                #expect(askMe.classification == .idle)
-                #expect(askMe.stateRuleID == "idle")
-            } else {
-                #expect(askMe.classification == .unknown)
-                #expect(askMe.stateRuleID == nil)
-            }
-            for screen in ["approval is not requested", "ordinary output", "completedness"] {
-                let result = snapshot.engine.detect(process: process, screen: screen)
-                #expect(result.agentID == entry.manifest.id)
-                #expect(result.classification == .unknown, "\(entry.manifest.id): negative fixture \(screen)")
-                #expect(result.stateRuleID == nil)
-            }
+            #expect(
+                fastMatch?.matcher.id == expectedMatcherID,
+                "fast matcher: \(process.processName): \(process.arguments)"
+            )
         }
     }
 

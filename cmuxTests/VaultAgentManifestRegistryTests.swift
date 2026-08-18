@@ -34,11 +34,22 @@ struct VaultAgentManifestRegistryTests {
             process(name: "python3", arguments: ["python3", "packages/session/bin/campfire.ts"]),
             process(name: "agy", arguments: ["agy"]),
             process(name: "antigravity", arguments: ["antigravity"]),
+            process(name: "agent", arguments: ["agent"]),
             process(name: "grok-macos-aarch64", arguments: ["grok-macos-aarch64"]),
             process(name: "kimi-code", arguments: ["kimi-code"]),
+            process(name: "Kimi Code", arguments: ["Kimi Code", ""]),
             process(name: "hermes-agent", arguments: ["hermes-agent"]),
             process(name: "python3", arguments: ["python3", "-m", "hermes-agent"]),
             process(name: "python3", arguments: ["python3", "-X", "dev", "-m", "hermes-agent"]),
+            VaultObservedAgentProcess(
+                processName: "python3.11",
+                processPath: "/Users/example/.local/share/uv/python/bin/python3.11",
+                arguments: [
+                    "/Users/example/.hermes/hermes-agent/venv/bin/python",
+                    "/Users/example/.hermes/hermes-agent/run_agent.py",
+                ],
+                environment: [:]
+            ),
             process(name: "python3", arguments: ["python3", "-c", "print('hermes-agent')"]),
             process(name: "unrelated", arguments: ["unrelated"]),
         ]
@@ -53,6 +64,50 @@ struct VaultAgentManifestRegistryTests {
                 #expect(declarative == compiled, "\(id): \(fixture.arguments)")
             }
         }
+    }
+
+    @Test("Installed Hermes Python launchers are detected without restoring one-shot queries")
+    func installedHermesPythonLaunchers() throws {
+        let snapshot = try CmuxAgentManifestLoader.bundled().load()
+        let registry = CmuxVaultAgentRegistry.load(manifestSnapshot: snapshot)
+        let interpreter = "/Users/example/.hermes/hermes-agent/venv/bin/python"
+        let processPath = "/Users/example/.local/share/uv/python/bin/python3.11"
+        let interactiveEntrypoints = ["hermes", "run_agent.py"]
+
+        for entrypoint in interactiveEntrypoints {
+            let observed = VaultObservedAgentProcess(
+                processName: "python3.11",
+                processPath: processPath,
+                arguments: [
+                    interpreter,
+                    "/Users/example/.hermes/hermes-agent/\(entrypoint)",
+                ],
+                environment: [:]
+            )
+            let diagnostic = registry.matchingRegistrationDiagnostic(for: observed)
+
+            #expect(diagnostic.registration?.id == "hermes-agent")
+            #expect(diagnostic.manifestResult?.processMatcherID == "versioned-python-entrypoint")
+            #expect(diagnostic.manifestResult?.source == .bundled)
+            #expect(observed.isInteractiveHermesAgentInvocation)
+            #expect(diagnostic.registration?.processDetectedSnapshotIsRestorable(for: observed) == true)
+        }
+
+        let query = VaultObservedAgentProcess(
+            processName: "python3.11",
+            processPath: processPath,
+            arguments: [
+                interpreter,
+                "/Users/example/.hermes/hermes-agent/run_agent.py",
+                "--query",
+                "one shot",
+            ],
+            environment: [:]
+        )
+
+        #expect(registry.matchingRegistration(for: query)?.id == "hermes-agent")
+        #expect(!query.isInteractiveHermesAgentInvocation)
+        #expect(registry.registration(id: "hermes-agent")?.processDetectedSnapshotIsRestorable(for: query) == false)
     }
 
     @Test("Bundled manifests preserve specialized registration capabilities")
@@ -102,6 +157,38 @@ struct VaultAgentManifestRegistryTests {
         #expect(result.manifestResult == nil)
     }
 
+    @Test("A project override keeps unrelated manifest agents indexed")
+    func projectOverridePreservesOtherManifestDetectors() throws {
+        let overridden = makeManifest(id: "overridden-agent", matcherID: "overridden", processName: "shared")
+        let survivor = makeManifest(id: "survivor-agent", matcherID: "survivor", processName: "survivor")
+        let base = CmuxVaultAgentRegistry(
+            registrations: [
+                CmuxVaultAgentRegistration(manifest: overridden, fallback: nil),
+                CmuxVaultAgentRegistration(manifest: survivor, fallback: nil),
+            ],
+            manifestEntries: [
+                .init(manifest: overridden, source: .bundled),
+                .init(manifest: survivor, source: .bundled),
+            ]
+        )
+        let projectRegistration = makeRegistration(id: "project-agent", processName: "shared")
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-project-override-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = CmuxConfigFile(vault: CmuxVaultConfigDefinition(agents: [projectRegistration]))
+        try JSONEncoder().encode(config).write(to: root.appendingPathComponent("cmux.json"))
+
+        let merged = base.mergingProjectConfig(workingDirectory: root.path)
+        let projectResult = merged.matchingRegistration(for: process(name: "shared"))
+        let survivorResult = merged.matchingRegistrationDiagnostic(for: process(name: "survivor"))
+
+        #expect(projectResult?.id == "project-agent")
+        #expect(survivorResult.registration?.id == "survivor-agent")
+        #expect(survivorResult.manifestResult?.agentID == "survivor-agent")
+        #expect(survivorResult.manifestResult?.processMatcherID == "survivor")
+    }
+
     @Test("Manifest source precedence is independent of registration order")
     func manifestEngineOwnsCatalogPrecedence() {
         let user = makeManifest(id: "user-agent", matcherID: "user", processName: "shared")
@@ -121,8 +208,10 @@ struct VaultAgentManifestRegistryTests {
             for: process(name: "shared"),
             screen: "task completed"
         )
+        let scanResult = registry.matchingRegistration(for: process(name: "shared"))
 
         #expect(result.registration?.id == "user-agent")
+        #expect(scanResult?.id == result.registration?.id)
         #expect(result.manifestEntry?.manifest.id == "user-agent")
         #expect(result.manifestResult?.agentID == "user-agent")
         #expect(result.manifestResult?.processMatcherID == "user")

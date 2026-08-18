@@ -10,7 +10,7 @@ extension CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "kimi",
             name: RestorableAgentKind.kimi.displayName,
-            detect: CmuxVaultAgentDetectRule(processNames: ["kimi", "kimi-cli", "kimi-code"]),
+            detect: CmuxVaultAgentDetectRule(processNames: ["kimi", "kimi-cli", "kimi-code", "Kimi Code"]),
             sessionIdSource: .argvOption("--resume"),
             resumeCommand: RegisteredAgentResumeKind.kimi.commandTemplate,
             cwd: .preserve

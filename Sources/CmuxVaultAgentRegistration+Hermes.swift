@@ -13,7 +13,7 @@ extension CmuxVaultAgentRegistration {
             detect: CmuxVaultAgentDetectRule(
                 processNames: ["hermes", "hermes-agent"],
                 alternateProcessNames: ["python", "python3"],
-                alternateArgvBasenamesAny: ["hermes", "hermes-agent"]
+                alternateArgvBasenamesAny: ["hermes", "hermes-agent", "run_agent.py"]
             ),
             sessionIdSource: .persistedStore(.hermesStateDB),
             resumeCommand: "{{executable}} --resume {{sessionId}}",

@@ -4,15 +4,46 @@
   "displayName": "Kimi Code",
   "process": {
     "matchers": [
-      { "id": "primary", "processNames": ["kimi", "kimi-cli", "kimi-code"] }
+      { "id": "primary", "processNames": ["kimi", "kimi-cli", "kimi-code", "Kimi Code"] }
     ]
   },
   "states": [
-    { "id": "permission-prompt", "state": "permission-prompt", "screenRegex": ["(?i)\\b(?:allow|approve|approval|confirm)\\b[^\\n]{0,120}(?:\\?|\\b(?:yes|no|y/n|request|permission|command|tool|action)\\b)|\\bpermission\\b[^\\n]{0,120}(?:\\?|\\b(?:needed|required|request|prompt|grant|run|execute|tool|command|action)\\b)"] },
-    { "id": "blocked", "state": "blocked", "screenRegex": ["\\b(?:wait(?:ing)?|awaiting)\\s+(?:for\\s+)?(?:input|answer|response|reply)\\b|\\bneeds?\\s+(?:input|answer|response|reply)\\b|\\b(?:error|failed|failure|exception)\\b|\\b(?:question|choose|select|confirm)\\b[^\\n]*\\?"] },
-    { "id": "done", "state": "done", "screenRegex": ["\\b(done|complete(?:d)?|finish(?:ed)?|succeed(?:ed)?|success)\\b"] },
-    { "id": "working", "state": "working", "screenRegex": ["[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]", "\\b(working|running|thinking)\\b"] },
-    { "id": "idle", "state": "idle", "screenRegex": ["\\b(?:idle|ready|prompt)\\b"] }
+    {
+      "id": "permission-prompt",
+      "state": "permission-prompt",
+      "screenRegex": [
+        "(?im)^[ \\t]*(?:allow|approve|confirm|deny)[^\\n]{0,120}\\?$",
+        "(?im)^[ \\t]*(?:do you|would you|should we)[^\\n]{0,120}\\b(?:allow|approve|authorize|authorise|confirm)\\b[^\\n]{0,120}\\?$",
+        "(?im)^[ \\t]*(?:permission|approval)[^\\n]{0,120}\\b(?:requested|required|needed)\\b[^\\n]{0,80}\\b(?:yes|no|allow|deny|approve)\\b"
+      ]
+    },
+    {
+      "id": "blocked",
+      "state": "blocked",
+      "screenRegex": [
+        "(?im)^[ \\t]*+(?:waiting|wait|awaiting)[ \\t]++for[ \\t]++(?:input|answer|response|reply)\\b[ \\t]*+$",
+        "(?im)^[ \\t]*+(?:waiting|wait|awaiting)[ \\t]++(?:input|answer|response|reply)\\b[ \\t]*+$",
+        "(?im)^[ \\t]*+(?:need|needs|needed|require|requires|required)[ \\t]++(?:your[ \\t]++)?(?:input|answer|response|reply)\\b[ \\t]*+$",
+        "(?im)^[ \\t]*+(?:error|failed|failure|exception)\\b[^\\n]{0,240}$"
+      ]
+    },
+    {
+      "id": "done",
+      "state": "done",
+      "screenRegex": [
+        "(?im)^[ \\t]*+(?:done|complete|completed|finish|finished|succeed|succeeded|success)\\b[.!]?[ \\t]*+$",
+        "(?im)^[ \\t]*+[✓✔☑][ \\t]++(?:done|complete|completed|finish|finished|succeed|succeeded|success)\\b[.!]?[ \\t]*+$",
+        "(?im)^[ \\t]*+(?:task|turn|request)[ \\t]++(?:complete|completed|finish|finished|succeed|succeeded)\\b[.!]?[ \\t]*+$",
+        "(?im)^[ \\t]*+[✓✔☑][ \\t]++(?:task|turn|request)[ \\t]++(?:complete|completed|finish|finished|succeed|succeeded)\\b[.!]?[ \\t]*+$"
+      ]
+    },
+    { "id": "working", "state": "working", "screenRegex": ["[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"] },
+    {
+      "id": "idle",
+      "state": "idle",
+      "screenContains": ["Send /help for help information."],
+      "screenRegex": ["(?im)^[ \\t]*+[─╌━-]{2,}+[ \\t]++input\\b[^\\n]*+$"]
+    }
   ],
   "session": {
     "sessionIdSource": "--resume",
