@@ -652,8 +652,10 @@ import Testing
     // that queue entry is still in flight; terminalOutputDidProcess owns the
     // follow-up decision once the exact chunk is visible.
     let replayCountWhileChunkIsInFlight = await router.count(of: "mobile.terminal.replay")
-    for _ in 0..<3 { await Task.yield() }
-    #expect(await router.count(of: "mobile.terminal.replay") == replayCountWhileChunkIsInFlight)
+    let replayStartedBeforeAcknowledgement = await router.waitForReplayRequestStart(
+        after: replayCountWhileChunkIsInFlight
+    )
+    #expect(!replayStartedBeforeAcknowledgement)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 3)

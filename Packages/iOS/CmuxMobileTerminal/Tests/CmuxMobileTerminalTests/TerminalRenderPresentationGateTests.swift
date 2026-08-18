@@ -42,7 +42,7 @@ struct TerminalRenderPresentationGateTests {
             kind: .ordinary
         )
 
-        gate.setSuppressed(true)
+        #expect(gate.setSuppressed(true) == .idle)
         #expect(gate.enqueue(ordinary) == .queued(ordinary))
         #expect(gate.inFlight == nil)
         #expect(gate.pending == ordinary)
@@ -94,6 +94,32 @@ struct TerminalRenderPresentationGateTests {
         #expect(gate.complete(token: old.token, generation: old.generation) == .ignored)
         #expect(gate.inFlight == replacement)
         #expect(gate.complete(token: replacement.token, generation: replacement.generation) == .idle)
+    }
+
+    @Test("a pending verified replay is not superseded by ordinary frames")
+    func pendingReplaySurvivesOrdinaryFrames() {
+        var gate = TerminalRenderPresentationGate()
+        let inFlight = TerminalRenderSubmission(
+            token: 50,
+            generation: 7,
+            kind: .ordinary
+        )
+        let replay = TerminalRenderSubmission(
+            token: 51,
+            generation: 7,
+            kind: .verifiedReplay
+        )
+        let newerOrdinary = TerminalRenderSubmission(
+            token: 52,
+            generation: 7,
+            kind: .ordinary
+        )
+
+        #expect(gate.enqueue(inFlight) == .started(inFlight))
+        #expect(gate.enqueue(replay) == .queued(replay))
+        #expect(gate.enqueue(newerOrdinary) == .queued(newerOrdinary))
+        #expect(gate.pending == replay)
+        #expect(gate.complete(token: inFlight.token, generation: inFlight.generation) == .started(replay))
     }
 }
 #endif

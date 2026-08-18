@@ -1,32 +1,5 @@
 import Foundation
 
-/// The kind of state transition represented by one render submission.
-///
-/// The renderer can receive output, a local scroll mutation, and a verified
-/// replay request from different producers. They all have the same lifetime:
-/// a request is not complete until its exact token reaches the presentation
-/// layer.
-enum TerminalRenderSubmissionKind: Equatable, Sendable {
-    case ordinary
-    case localScroll
-    case verifiedReplay
-}
-
-/// Metadata used to match an asynchronous presentation callback to its owner.
-struct TerminalRenderSubmission: Equatable, Sendable {
-    let token: UInt64
-    let generation: UInt64
-    let kind: TerminalRenderSubmissionKind
-}
-
-/// The action produced by a presentation-gate transition.
-enum TerminalRenderPresentationGateAction: Equatable {
-    case started(TerminalRenderSubmission)
-    case queued(TerminalRenderSubmission)
-    case ignored
-    case idle
-}
-
 /// Serializes frame ownership at the surface boundary.
 ///
 /// The gate deliberately stores only value metadata. `GhosttySurfaceView`

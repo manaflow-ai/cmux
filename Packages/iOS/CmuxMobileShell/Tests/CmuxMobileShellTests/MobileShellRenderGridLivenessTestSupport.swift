@@ -197,6 +197,22 @@ actor LivenessHostRouter {
         return reached
     }
 
+    /// Waits for the transport's real replay-request admission signal. This
+    /// is used by tests that need to distinguish an already-started request
+    /// from one that must wait for an output acknowledgement.
+    @discardableResult
+    func waitForReplayRequestStart(
+        after existingCount: Int,
+        timeoutNanoseconds: UInt64 = 250_000_000
+    ) async -> Bool {
+        await waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: existingCount + 1,
+            timeoutNanoseconds: timeoutNanoseconds,
+            recordIssueOnTimeout: false
+        )
+    }
+
     private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
         guard count(of: method) < expectedCount else { return }
         let waiterID = UUID()

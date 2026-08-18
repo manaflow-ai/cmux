@@ -210,6 +210,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     static let renderPipelineRecoveryResumeInterval: TimeInterval = 5.0
     static let visibleSnapshotTimeout: CFTimeInterval = 0.6
     static let copyableTextTimeout: CFTimeInterval = 2.0
+    /// A prompt reveal must not keep probing a permanently busy renderer on
+    /// every display-link tick. Retries are short and bounded; a later user
+    /// interaction starts a fresh attempt.
+    static let maximumScrollToBottomRetries: UInt8 = 8
+    static let scrollToBottomRetryBaseDelay: CFTimeInterval = 1.0 / 60.0
+    static let scrollToBottomRetryMaximumDelay: CFTimeInterval = 0.25
     static let maxPendingSurfaceFrees = 4
     // Timer-forced recovery may leak wedged libghostty surfaces, but only up to this hard cap.
     static let maxForcedRecoveryPendingSurfaceFrees = 8
@@ -2065,6 +2071,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localScrollApplyToken = nil
         scrollToBottomInFlight = false
         scrollToBottomRequested = false
+        scrollToBottomRetryCount = 0
+        scrollToBottomRetryAt = nil
         completePendingLocalScrollDrains(returning: false)
     }
 
@@ -2803,6 +2811,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
         recordFollowBottomInteraction()
+        if !scrollToBottomRequested && !scrollToBottomInFlight {
+            scrollToBottomRetryCount = 0
+            scrollToBottomRetryAt = nil
+        }
         scrollToBottomRequested = true
         pumpScrollToBottomIfNeeded()
     }
@@ -2814,6 +2826,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the display link retries it on a later frame; no output operation waits
     /// behind an unbounded Ghostty binding action.
     var scrollToBottomRequested = false
+    /// Number of failed try-only attempts in the current prompt-reveal episode.
+    var scrollToBottomRetryCount: UInt8 = 0
+    /// Earliest display-link time at which the next try-only attempt may run.
+    var scrollToBottomRetryAt: CFTimeInterval?
 
     private func pumpScrollToBottomIfNeeded() {
         guard scrollToBottomRequested,
@@ -2821,6 +2837,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               !renderingSuspended,
               !isDismantled,
               let surface else { return }
+        if let retryAt = scrollToBottomRetryAt,
+           CACurrentMediaTime() < retryAt {
+            return
+        }
+        scrollToBottomRetryAt = nil
         scrollToBottomRequested = false
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
@@ -2848,9 +2869,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.scrollToBottomInFlight = false
                 if !applied {
-                    self.scrollToBottomRequested = true
+                    if self.scrollToBottomRetryCount >= Self.maximumScrollToBottomRetries {
+                        self.scrollToBottomRequested = false
+                        self.scrollToBottomRetryAt = nil
+                        MobileDebugLog.anchormux("scroll_to_bottom.retry_exhausted")
+                    } else {
+                        self.scrollToBottomRetryCount &+= 1
+                        let exponent = min(Int(self.scrollToBottomRetryCount) - 1, 3)
+                        let multiplier = 1 << max(exponent, 0)
+                        let delay = min(
+                            Self.scrollToBottomRetryMaximumDelay,
+                            Self.scrollToBottomRetryBaseDelay * CFTimeInterval(multiplier)
+                        )
+                        self.scrollToBottomRetryAt = CACurrentMediaTime() + delay
+                        self.scrollToBottomRequested = true
+                    }
                     self.needsDraw = true
                 } else {
+                    self.scrollToBottomRetryCount = 0
+                    self.scrollToBottomRetryAt = nil
                     self.needsDraw = true
                     self.scheduleVisibleArtifactCountUpdate()
                 }
@@ -3653,7 +3690,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     return
                 }
                 let observed = verifiedReplayExportThenSubmit(
-                    export: { Self.exportVerifiedReplayGridSynchronously(read) },
+                    export: { read.exportGridSynchronously() },
                     submit: {
                         ghostty_surface_render_now_with_token(
                             submission.surface,
@@ -3700,44 +3737,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Clears an invalid token without accidentally thawing a verified replay
     /// that is still holding the last-good presentation above the live layer.
-    private func resetRenderAdmissionStatePreservingSuppression() {
+    func resetRenderAdmissionStatePreservingSuppression() {
         let preserveSuppression = verifiedReplayRenderSuppressed
             || renderPresentationGate.isSuppressed
         renderPresentationGate.reset()
         if preserveSuppression {
             _ = renderPresentationGate.setSuppressed(true)
         }
-    }
-
-    /// Exports the locally reconstructed Ghostty grid for a verified replay.
-    ///
-    /// This is deliberately owned by the surface type and nonisolated because
-    /// the export runs on the serial surface queue, alongside
-    /// `ghostty_surface_process_output`, rather than on the main actor.
-    private nonisolated static func exportVerifiedReplayGridSynchronously(
-        _ read: VerifiedReplaySurfaceRead
-    ) -> MobileTerminalRenderGridFrame? {
-        let exported = read.surfaceID.withCString { pointer in
-            // Screen-anchored frames verify against the ACTIVE area so a
-            // locally scrolled viewport cannot fail the read-back;
-            // viewport-anchored frames keep the historical viewport read.
-            ghostty_surface_render_grid_json_v2(
-                read.surface,
-                pointer,
-                UInt(read.surfaceID.utf8.count),
-                read.stateSeq,
-                0,
-                false,
-                read.anchor == .screen
-            )
-        }
-        defer { ghostty_string_free(exported) }
-        guard let pointer = exported.ptr, exported.len > 0 else { return nil }
-        let data = Data(bytes: pointer, count: Int(exported.len))
-        guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
-        frame.renderEpoch = read.renderEpoch
-        frame.renderRevision = read.renderRevision
-        return frame
     }
 
     /// Called only from the render-presented bridge callback. A stale callback
