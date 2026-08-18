@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     VIEWPORT_SPLITS_CAPABILITY,
@@ -415,10 +415,20 @@ impl Session {
     /// Best-effort focus report: the client already navigated optimistically,
     /// so failures are ignored and remote sends are never awaited. The mux's
     /// `pane.focus` adopts the pane's workspace and screen and persists all
-    /// three; `select-tab` persists the tab within the pane.
-    pub(crate) fn report_focus(&self, previous: Option<ClientFocus>, focus: ClientFocus) {
+    /// three; `select-tab` persists the tab within the pane. With a client id
+    /// and a `client-focus-v1` server, one `report-focus` command additionally
+    /// remembers the focus per client for that client's own reconnection.
+    pub(crate) fn report_focus(
+        &self,
+        previous: Option<ClientFocus>,
+        focus: ClientFocus,
+        client_id: Option<&str>,
+    ) {
         let pane_changed = previous.map(|value| value.pane) != Some(focus.pane);
         let tab_changed = previous != Some(focus);
+        if !pane_changed && !tab_changed {
+            return;
+        }
         match self {
             Session::Local(mux) => {
                 if pane_changed {
@@ -427,8 +437,22 @@ impl Session {
                 if tab_changed {
                     mux.select_tab(Some(focus.pane), Some(focus.tab), None);
                 }
+                if let Some(client_id) = client_id {
+                    mux.remember_client_focus(client_id.to_string(), focus.pane, Some(focus.tab));
+                }
             }
             Session::Remote(remote) => {
+                let combined =
+                    client_id.filter(|_| remote.supports_capability(CLIENT_FOCUS_CAPABILITY));
+                if let Some(client_id) = combined {
+                    let _ = remote.notify(json!({
+                        "cmd": "report-focus",
+                        "client_id": client_id,
+                        "pane": focus.pane,
+                        "tab": focus.tab,
+                    }));
+                    return;
+                }
                 if pane_changed {
                     let _ = remote.notify(json!({"cmd": "focus-pane", "pane": focus.pane}));
                 }
@@ -437,6 +461,28 @@ impl Session {
                         json!({"cmd": "select-tab", "pane": focus.pane, "index": focus.tab}),
                     );
                 }
+            }
+        }
+    }
+
+    /// This client's remembered focus on this session, if the server has one
+    /// and its pane is still alive.
+    pub(crate) fn client_focus(&self, client_id: &str) -> Option<ClientFocus> {
+        match self {
+            Session::Local(mux) => mux
+                .client_focus(client_id)
+                .map(|(pane, tab)| ClientFocus { pane, tab: tab.unwrap_or(0) }),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {
+                    return None;
+                }
+                let value = remote
+                    .request(json!({"cmd": "client-focus", "client_id": client_id}))
+                    .ok()?;
+                let pane: PaneId =
+                    serde_json::from_value(value.get("pane")?.clone()).ok()?;
+                let tab = value.get("tab").and_then(|tab| tab.as_u64()).unwrap_or(0) as usize;
+                Some(ClientFocus { pane, tab })
             }
         }
     }
