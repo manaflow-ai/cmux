@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "新開啟純文字編輯器的預設字型大小（點）。使用 Cmd-+ / Cmd-- / Cmd-0 縮放目前的編輯器。",
+          "fontFamily": "新開啟純文字編輯器的預設字型系列。留白以使用系統等寬字型。",
+          "lineHeight": "純文字編輯器的行高倍數。1.0 保留字型的自然間距。",
+          "wordWrap": "在編輯器右邊緣換行長行，而不是水平捲動。"
+        },
         "sidebar": {
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "新開啟純文字編輯器的預設字型大小（點）。",
+      "exampleFileEditorFontSizeZoom": "使用 Cmd-+ / Cmd-- / Cmd-0 即時縮放目前的編輯器。",
+      "exampleFileEditorFontFamily": "預設字型系列。留白以使用系統等寬字型。",
+      "exampleFileEditorLineHeight": "行高倍數。1.0 保留字型的自然間距。",
+      "exampleFileEditorWordWrap": "在編輯器右邊緣換行長行，而不是水平捲動。",
       "exampleFileExplorerDoubleClickAction": "按兩下檔案：preview（預設）、defaultEditor（macOS 預設 App）或 preferredEditor（app.preferredEditor 命令）。",
       "shortcutsWhenIntro": "每個動作可選的內容述詞（VS Code 風格的 when 子句），依 cmux 動作 id 建立索引。只有在其子句成立時，綁定才會觸發，也只會在這種情況下與同一按鍵上的其他綁定衝突。省略子句即保留動作的內建內容。子句可用的詞彙：",
       "shortcutsWhenBooleanKeys": "布林鍵。未知或不存在的鍵視為 false；也接受常值 true 和 false。",

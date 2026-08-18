@@ -31,6 +31,57 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test("file editor typography settings clamp and resolve defaults")
+    func editorTypographySettingsResolveDefaults() throws {
+        #expect(FilePreviewFontSizeSettings.clamp(4) == FilePreviewFontSizeSettings.minimumPointSize)
+        #expect(FilePreviewFontSizeSettings.clamp(100) == FilePreviewFontSizeSettings.maximumPointSize)
+        #expect(FilePreviewLineHeightSettings.clamp(0.1) == FilePreviewLineHeightSettings.minimumMultiplier)
+        #expect(FilePreviewLineHeightSettings.clamp(10) == FilePreviewLineHeightSettings.maximumMultiplier)
+
+        let suiteName = "cmux.fileEditorTypographyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(FilePreviewFontSizeSettings.resolvedDefault(defaults: defaults) == 13)
+        #expect(FilePreviewFontFamilySettings.resolvedDefault(defaults: defaults).isEmpty)
+        #expect(FilePreviewLineHeightSettings.resolvedDefault(defaults: defaults) == 1)
+
+        defaults.set(19, forKey: FilePreviewFontSizeSettings.key)
+        defaults.set("  Helvetica  ", forKey: FilePreviewFontFamilySettings.key)
+        defaults.set(1.7, forKey: FilePreviewLineHeightSettings.key)
+        #expect(FilePreviewFontSizeSettings.resolvedDefault(defaults: defaults) == 19)
+        #expect(FilePreviewFontFamilySettings.resolvedDefault(defaults: defaults) == "Helvetica")
+        #expect(FilePreviewLineHeightSettings.resolvedDefault(defaults: defaults) == 1.7)
+    }
+
+    @Test("file editor applies configured family, size, and line height")
+    func editorAppliesConfiguredTypography() throws {
+        let textView = SavingTextView.makeFilePreviewTextView(
+            fontFamily: "Helvetica",
+            fontSize: 17,
+            lineHeight: 1.5
+        )
+        textView.string = "first line\nsecond line"
+        textView.applyCurrentPreviewLineHeight()
+
+        let font = try #require(textView.font)
+        #expect(font.familyName?.localizedCaseInsensitiveCompare("Helvetica") == .orderedSame)
+        #expect(abs(font.pointSize - GlobalFontMagnification.scaledSize(17)) < 0.01)
+
+        let paragraphStyle = try #require(
+            textView.textStorage?.attribute(
+                .paragraphStyle,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSParagraphStyle
+        )
+        #expect(abs(paragraphStyle.lineHeightMultiple - 1.5) < 0.01)
+
+        #expect(textView.zoomPreviewFontIn())
+        #expect(textView.resetPreviewFontSize())
+        #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()

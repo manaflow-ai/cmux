@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "Yeni açılan düz metin düzenleyicileri için nokta cinsinden varsayılan yazı tipi boyutu. Cmd-+ / Cmd-- / Cmd-0 geçerli düzenleyiciyi yakınlaştırır.",
+          "fontFamily": "Yeni açılan düz metin düzenleyicileri için varsayılan yazı tipi ailesi. Sistem monospace yazı tipini kullanmak için boş bırakın.",
+          "lineHeight": "Düz metin düzenleyicileri için satır yüksekliği çarpanı. 1.0 yazı tipinin doğal aralığını korur.",
+          "wordWrap": "Yatay kaydırmak yerine uzun satırları düzenleyicinin sağ kenarında kaydırın."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "Yeni açılan düz metin düzenleyicileri için varsayılan yazı tipi boyutu (nokta).",
+      "exampleFileEditorFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0 ile geçerli düzenleyiciyi canlı olarak yakınlaştırın.",
+      "exampleFileEditorFontFamily": "Varsayılan yazı tipi ailesi. Boş değer sistem monospace yazı tipini kullanır.",
+      "exampleFileEditorLineHeight": "Satır yüksekliği çarpanı. 1.0 yazı tipinin doğal aralığını korur.",
+      "exampleFileEditorWordWrap": "Yatay kaydırmak yerine uzun satırları düzenleyicinin sağ kenarında kaydırın.",
       "exampleFileExplorerDoubleClickAction": "Bir dosyaya çift tıklama: preview (varsayılan), defaultEditor (macOS varsayılan uygulaması) veya preferredEditor (app.preferredEditor komutu).",
       "shortcutsWhenIntro": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı when koşulları), cmux eylem kimliğiyle anahtarlanır. Bir atama yalnızca koşulu sağlandığında tetiklenir ve aynı tuş vuruşundaki başka bir atamayla yalnızca o zaman çakışır. Eylemin yerleşik bağlamını korumak için koşulu atlayın. Koşul söz varlığı:",
       "shortcutsWhenBooleanKeys": "boolean anahtarlar. Bilinmeyen veya bulunmayan bir anahtar false kabul edilir; true ve false sabitleri de kabul edilir.",

@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "حجم الخط الافتراضي، بالنقاط، للمحررات النصية العادية التي تُفتح حديثًا. كبّر أو صغّر المحرر الحالي باستخدام Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "عائلة الخط الافتراضية للمحررات النصية العادية التي تُفتح حديثًا. اتركها فارغة لاستخدام خط النظام أحادي المسافة.",
+          "lineHeight": "مضاعف ارتفاع السطر للمحررات النصية العادية. يحافظ 1.0 على التباعد الطبيعي للخط.",
+          "wordWrap": "لفّ الأسطر الطويلة عند الحافة اليمنى للمحرر بدلًا من التمرير أفقيًا."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "الحد الأقصى لعدد الأسطر المعروضة لأحدث إشعار أسفل عنوان كل مساحة عمل.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "حجم الخط الافتراضي (بالنقاط) للمحررات النصية العادية التي تُفتح حديثًا.",
+      "exampleFileEditorFontSizeZoom": "كبّر أو صغّر المحرر الحالي مباشرة باستخدام Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleFileEditorFontFamily": "عائلة الخط الافتراضية. اتركها فارغة لاستخدام خط النظام أحادي المسافة.",
+      "exampleFileEditorLineHeight": "مضاعف ارتفاع السطر. يحافظ 1.0 على التباعد الطبيعي للخط.",
+      "exampleFileEditorWordWrap": "لفّ الأسطر الطويلة عند الحافة اليمنى للمحرر بدلًا من التمرير أفقيًا.",
       "exampleFileExplorerDoubleClickAction": "النقر المزدوج على ملف: preview (الافتراضي)، أو defaultEditor (تطبيق macOS الافتراضي)، أو preferredEditor (أمر app.preferredEditor).",
       "shortcutsWhenIntro": "مسندات سياق اختيارية لكل إجراء (عبارات when على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. لا يعمل الارتباط — ولا يتعارض مع ارتباط آخر على نفس الضغطة — إلا عندما تتحقق عبارته. احذف العبارة للإبقاء على السياق المضمّن للإجراء. مفردات العبارات:",
       "shortcutsWhenBooleanKeys": "مفاتيح منطقية. المفتاح غير المعروف أو الغائب يُقرأ على أنه false؛ وتُقبل أيضًا القيمتان الحرفيتان true و false.",

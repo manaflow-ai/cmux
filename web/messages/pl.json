@@ -1148,6 +1148,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "Domyślny rozmiar czcionki w punktach dla nowo otwieranych edytorów zwykłego tekstu. Cmd-+ / Cmd-- / Cmd-0 powiększają bieżący edytor.",
+          "fontFamily": "Domyślna rodzina czcionek dla nowo otwieranych edytorów zwykłego tekstu. Pozostaw puste, aby użyć systemowej czcionki monospace.",
+          "lineHeight": "Mnożnik wysokości wiersza dla edytorów zwykłego tekstu. 1.0 zachowuje naturalne odstępy czcionki.",
+          "wordWrap": "Zawijaj długie wiersze przy prawej krawędzi edytora zamiast przewijać poziomo."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
@@ -1168,6 +1174,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "Domyślny rozmiar czcionki (punkty) dla nowo otwieranych edytorów zwykłego tekstu.",
+      "exampleFileEditorFontSizeZoom": "Powiększaj lub pomniejszaj bieżący edytor na żywo za pomocą Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleFileEditorFontFamily": "Domyślna rodzina czcionek. Pusta wartość używa systemowej czcionki monospace.",
+      "exampleFileEditorLineHeight": "Mnożnik wysokości wiersza. 1.0 zachowuje naturalne odstępy czcionki.",
+      "exampleFileEditorWordWrap": "Zawijaj długie wiersze przy prawej krawędzi edytora zamiast przewijać poziomo.",
       "exampleFileExplorerDoubleClickAction": "Dwukrotne kliknięcie pliku: preview (domyślne), defaultEditor (domyślna aplikacja macOS) albo preferredEditor (polecenie app.preferredEditor).",
       "shortcutsWhenIntro": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule when w stylu VS Code), indeksowane identyfikatorem akcji cmux. Przypisanie uruchamia się — i koliduje z innym przypisaniem tego samego skrótu — tylko wtedy, gdy jego klauzula jest spełniona. Pomiń klauzulę, aby zachować wbudowany kontekst akcji. Słownictwo klauzul:",
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",

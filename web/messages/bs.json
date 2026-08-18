@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "Zadana veličina fonta, u tačkama, za novootvorene uređivače običnog teksta. Cmd-+ / Cmd-- / Cmd-0 zumiraju trenutni uređivač.",
+          "fontFamily": "Zadana porodica fonta za novootvorene uređivače običnog teksta. Ostavite prazno za sistemski monospace font.",
+          "lineHeight": "Množilac visine reda za uređivače običnog teksta. 1.0 čuva prirodni razmak fonta.",
+          "wordWrap": "Prelamaj duge redove na desnoj ivici uređivača umjesto horizontalnog pomjeranja."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "Zadana veličina fonta (tačke) za novootvorene uređivače običnog teksta.",
+      "exampleFileEditorFontSizeZoom": "Zumirajte trenutni uređivač uživo pomoću Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleFileEditorFontFamily": "Zadana porodica fonta. Prazno koristi sistemski monospace font.",
+      "exampleFileEditorLineHeight": "Množilac visine reda. 1.0 čuva prirodni razmak fonta.",
+      "exampleFileEditorWordWrap": "Prelamaj duge redove na desnoj ivici uređivača umjesto horizontalnog pomjeranja.",
       "exampleFileExplorerDoubleClickAction": "Dvaput klik na datoteku: preview (zadano), defaultEditor (zadana macOS aplikacija) ili preferredEditor (komanda app.preferredEditor).",
       "shortcutsWhenIntro": "Opcionalni kontekstni predikati po radnji (when klauzule u VS Code stilu), indeksirani cmux ID-jem radnje. Vezivanje se pokreće — i sukobljava s drugim vezivanjem na istom pritisku — samo kada je njegova klauzula ispunjena. Izostavite klauzulu da radnja zadrži ugrađeni kontekst. Rječnik klauzula:",
       "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",

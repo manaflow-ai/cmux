@@ -1148,6 +1148,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "ขนาดแบบอักษรเริ่มต้นเป็นพอยต์สำหรับตัวแก้ไขข้อความธรรมดาที่เปิดใหม่ Cmd-+ / Cmd-- / Cmd-0 ใช้ซูมกับตัวแก้ไขปัจจุบัน",
+          "fontFamily": "ตระกูลแบบอักษรเริ่มต้นสำหรับตัวแก้ไขข้อความธรรมดาที่เปิดใหม่ เว้นว่างเพื่อใช้แบบอักษร monospace ของระบบ",
+          "lineHeight": "ตัวคูณความสูงบรรทัดสำหรับตัวแก้ไขข้อความธรรมดา ค่า 1.0 คงระยะห่างตามธรรมชาติของแบบอักษร",
+          "wordWrap": "ตัดบรรทัดยาวที่ขอบขวาของตัวแก้ไขแทนการเลื่อนในแนวนอน"
+        },
         "sidebar": {
           "notificationMessageLineLimit": "จำนวนบรรทัดสูงสุดที่แสดงสำหรับการแจ้งเตือนล่าสุดใต้ชื่อของแต่ละพื้นที่ทำงาน",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
@@ -1168,6 +1174,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "ขนาดแบบอักษรเริ่มต้น (พอยต์) สำหรับตัวแก้ไขข้อความธรรมดาที่เปิดใหม่",
+      "exampleFileEditorFontSizeZoom": "ซูมตัวแก้ไขปัจจุบันแบบสดด้วย Cmd-+ / Cmd-- / Cmd-0",
+      "exampleFileEditorFontFamily": "ตระกูลแบบอักษรเริ่มต้น เว้นว่างเพื่อใช้แบบอักษร monospace ของระบบ",
+      "exampleFileEditorLineHeight": "ตัวคูณความสูงบรรทัด ค่า 1.0 คงระยะห่างตามธรรมชาติของแบบอักษร",
+      "exampleFileEditorWordWrap": "ตัดบรรทัดยาวที่ขอบขวาของตัวแก้ไขแทนการเลื่อนในแนวนอน",
       "exampleFileExplorerDoubleClickAction": "ดับเบิลคลิกไฟล์: preview (ค่าเริ่มต้น), defaultEditor (แอปเริ่มต้นของ macOS) หรือ preferredEditor (คำสั่ง app.preferredEditor)",
       "shortcutsWhenIntro": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส when แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ การผูกจะทำงาน — และชนกับการผูกอื่นบนปุ่มเดียวกัน — เฉพาะเมื่อคลอสของมันเป็นจริงเท่านั้น หากไม่ระบุคลอส แอ็กชันจะใช้บริบทในตัวตามเดิม คำศัพท์ที่ใช้ในคลอส:",
       "shortcutsWhenBooleanKeys": "คีย์บูลีน คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false และยอมรับลิเทอรัล true กับ false ด้วย",

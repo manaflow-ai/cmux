@@ -107,6 +107,13 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // },
 
   // "fileEditor": {
+  //   // ${t("exampleFileEditorFontSize")}
+  //   // ${t("exampleFileEditorFontSizeZoom")}
+  //   "fontSize": 13,
+  //   // ${t("exampleFileEditorFontFamily")}
+  //   "fontFamily": "",
+  //   // ${t("exampleFileEditorLineHeight")}
+  //   "lineHeight": 1.0,
   //   // ${t("exampleFileEditorWordWrap")}
   //   "wordWrap": false
   // },

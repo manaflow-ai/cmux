@@ -8,6 +8,41 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        // Accept numeric doubles (for example 13 or 13.0) and round to the
+        // whole-point representation used by the settings catalog.
+        if let value = jsonDouble(section["fontSize"]) {
+            if value >= FilePreviewFontSizeSettings.minimumPointSize,
+               value <= FilePreviewFontSizeSettings.maximumPointSize {
+                snapshot.managedUserDefaults[FilePreviewFontSizeSettings.key] = .int(Int(value.rounded()))
+            } else {
+                logInvalid("fileEditor.fontSize", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("fontSize") {
+            logInvalid("fileEditor.fontSize", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["fontFamily"]) {
+            snapshot.managedUserDefaults[FilePreviewFontFamilySettings.key] =
+                .string(FilePreviewFontFamilySettings.normalized(value))
+        } else if section.keys.contains("fontFamily") {
+            logInvalid("fileEditor.fontFamily", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["lineHeight"]) {
+            if value >= FilePreviewLineHeightSettings.minimumMultiplier,
+               value <= FilePreviewLineHeightSettings.maximumMultiplier,
+               value.isFinite {
+                let clamped = FilePreviewLineHeightSettings.clamp(value)
+                let rounded = (clamped / FilePreviewLineHeightSettings.stepMultiplier).rounded()
+                    * FilePreviewLineHeightSettings.stepMultiplier
+                snapshot.managedUserDefaults[FilePreviewLineHeightSettings.key] = .double(rounded)
+            } else {
+                logInvalid("fileEditor.lineHeight", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("lineHeight") {
+            logInvalid("fileEditor.lineHeight", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["wordWrap"]) {
             snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
         } else if section.keys.contains("wordWrap") {

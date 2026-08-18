@@ -1612,6 +1612,28 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "fontSize": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 36,
+          "default": 13,
+          "description": "Default font size, in points, for newly opened plain-text editors. Cmd-+ / Cmd-- / Cmd-0 zoom the current editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.fontSize"
+        },
+        "fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Default font family for newly opened plain-text editors. Leave empty for the system monospaced font.",
+          "descriptionKey": "schemaDescriptions.fileEditor.fontFamily"
+        },
+        "lineHeight": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 3,
+          "default": 1,
+          "description": "Line-height multiplier for plain-text editors. 1.0 preserves the font's natural spacing.",
+          "descriptionKey": "schemaDescriptions.fileEditor.lineHeight"
+        },
         "wordWrap": {
           "type": "boolean",
           "default": false,

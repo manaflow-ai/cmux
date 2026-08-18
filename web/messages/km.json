@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "ទំហំ​ពុម្ពអក្សរ​លំនាំដើម ជា​ពិន្ទុ សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា​ដែល​បើក​ថ្មី។ Cmd-+ / Cmd-- / Cmd-0 ពង្រីក​កម្មវិធី​កែ​បច្ចុប្បន្ន។",
+          "fontFamily": "គ្រួសារ​ពុម្ពអក្សរ​លំនាំដើម​សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា​ដែល​បើក​ថ្មី។ ទុក​ទទេ​ដើម្បី​ប្រើ​ពុម្ពអក្សរ monospace របស់​ប្រព័ន្ធ។",
+          "lineHeight": "មេគុណ​កម្ពស់​បន្ទាត់​សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា។ 1.0 រក្សា​គម្លាត​ធម្មជាតិ​របស់​ពុម្ពអក្សរ។",
+          "wordWrap": "បត់​បន្ទាត់​វែង​នៅ​គែម​ខាងស្តាំ​របស់​កម្មវិធី​កែ ជំនួស​ការ​រមូរ​ផ្ដេក។"
+        },
         "sidebar": {
           "notificationMessageLineLimit": "ចំនួនបន្ទាត់អតិបរមាដែលបង្ហាញសម្រាប់ការជូនដំណឹងចុងក្រោយនៅខាងក្រោមចំណងជើងកន្លែងធ្វើការនីមួយៗ។",
           "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "ទំហំ​ពុម្ពអក្សរ​លំនាំដើម (ពិន្ទុ) សម្រាប់​កម្មវិធី​កែ​អត្ថបទ​ធម្មតា​ដែល​បើក​ថ្មី។",
+      "exampleFileEditorFontSizeZoom": "ពង្រីក​កម្មវិធី​កែ​បច្ចុប្បន្ន​ផ្ទាល់​ដោយ Cmd-+ / Cmd-- / Cmd-0។",
+      "exampleFileEditorFontFamily": "គ្រួសារ​ពុម្ពអក្សរ​លំនាំដើម។ ទទេ​ប្រើ​ពុម្ពអក្សរ monospace របស់​ប្រព័ន្ធ។",
+      "exampleFileEditorLineHeight": "មេគុណ​កម្ពស់​បន្ទាត់។ 1.0 រក្សា​គម្លាត​ធម្មជាតិ​របស់​ពុម្ពអក្សរ។",
+      "exampleFileEditorWordWrap": "បត់​បន្ទាត់​វែង​នៅ​គែម​ខាងស្តាំ​របស់​កម្មវិធី​កែ ជំនួស​ការ​រមូរ​ផ្ដេក។",
       "exampleFileExplorerDoubleClickAction": "ចុចពីរដងលើឯកសារ៖ preview (លំនាំដើម), defaultEditor (កម្មវិធីលំនាំដើមរបស់ macOS), ឬ preferredEditor (ពាក្យបញ្ជា app.preferredEditor)។",
       "shortcutsWhenIntro": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា when រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ ការចងនឹងដំណើរការ — និងទាស់ជាមួយការចងផ្សេងទៀតលើការចុចដូចគ្នា — តែពេលឃ្លារបស់វាពិតប៉ុណ្ណោះ។ បើមិនដាក់ឃ្លា សកម្មភាពនឹងរក្សាបរិបទដើមរបស់វា។ វាក្យសព្ទក្នុងឃ្លា៖",
       "shortcutsWhenBooleanKeys": "គន្លឹះ boolean។ គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false ហើយក៏អាចប្រើ true និង false ផងដែរ។",

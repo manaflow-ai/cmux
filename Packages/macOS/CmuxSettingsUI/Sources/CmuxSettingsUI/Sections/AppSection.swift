@@ -8,7 +8,7 @@ import SwiftUI
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
+/// Markdown Viewer typography, File Editor typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
 /// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
@@ -41,6 +41,9 @@ public struct AppSection: View {
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
     @State private var canvasPaneGap: DefaultsValueModel<Int>
     @State private var canvasSnapping: DefaultsValueModel<Bool>
+    @State private var fileEditorFontSize: DefaultsValueModel<Int>
+    @State private var fileEditorFontFamily: DefaultsValueModel<String>
+    @State private var fileEditorLineHeight: DefaultsValueModel<Double>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
@@ -98,6 +101,9 @@ public struct AppSection: View {
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
         _canvasPaneGap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.paneGap))
         _canvasSnapping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.snappingEnabled))
+        _fileEditorFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.fontSize))
+        _fileEditorFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.fontFamily))
+        _fileEditorLineHeight = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.lineHeight))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
@@ -145,7 +151,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorFontSize, fileEditorFontFamily, fileEditorLineHeight, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
@@ -508,6 +514,68 @@ public struct AppSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
                 .accessibilityIdentifier("SettingsMarkdownFontFamilyTextField")
+            }
+            SettingsCardDivider()
+
+            // File Editor Font Size
+            SettingsCardRow(
+                configurationReview: .json("fileEditor.fontSize"),
+                String(localized: "settings.app.fileEditorFontSize", defaultValue: "File Editor Font Size"),
+                subtitle: String(localized: "settings.app.fileEditorFontSize.subtitle", defaultValue: "Default font size, in points, for newly opened plain-text editors. Cmd-+ / Cmd-- / Cmd-0 zoom the current editor."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { fileEditorFontSize.current }, set: { fileEditorFontSize.set($0) }),
+                    in: 8...36
+                ) {
+                    Text(verbatim: "\(fileEditorFontSize.current)")
+                        .monospacedDigit()
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsFileEditorFontSizeStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.fileEditorFontSize", defaultValue: "File Editor Font Size")
+                )
+            }
+            SettingsCardDivider()
+
+            // File Editor Font Family
+            SettingsCardRow(
+                configurationReview: .json("fileEditor.fontFamily"),
+                String(localized: "settings.app.fileEditorFontFamily", defaultValue: "File Editor Font"),
+                subtitle: String(localized: "settings.app.fileEditorFontFamily.subtitle", defaultValue: "Default font family for newly opened plain-text editors. Leave empty for the system monospaced font.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.fileEditorFontFamily.placeholder", defaultValue: "System Mono"),
+                    text: Binding(get: { fileEditorFontFamily.current }, set: { fileEditorFontFamily.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsFileEditorFontFamilyTextField")
+            }
+            SettingsCardDivider()
+
+            // File Editor Line Height
+            SettingsCardRow(
+                configurationReview: .json("fileEditor.lineHeight"),
+                String(localized: "settings.app.fileEditorLineHeight", defaultValue: "File Editor Line Height"),
+                subtitle: String(localized: "settings.app.fileEditorLineHeight.subtitle", defaultValue: "Line-height multiplier for plain-text editors. 1.0 preserves the font's natural spacing.")
+            ) {
+                Stepper(
+                    value: Binding(get: { fileEditorLineHeight.current }, set: { fileEditorLineHeight.set($0) }),
+                    in: 0.5...3.0,
+                    step: 0.1
+                ) {
+                    Text(verbatim: String(format: "%.1f", fileEditorLineHeight.current))
+                        .monospacedDigit()
+                        .frame(width: 32, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsFileEditorLineHeightStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.fileEditorLineHeight", defaultValue: "File Editor Line Height")
+                )
             }
             SettingsCardDivider()
 

@@ -161298,6 +161298,125 @@
         }
       }
     },
+    "settings.app.fileEditorFontFamily": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Font"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのフォント"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorFontFamily.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Mono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムモノ"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorFontFamily.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default font family for newly opened plain-text editors. Leave empty for the system monospaced font."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しく開くプレーンテキストエディタの既定フォントファミリーです。空のままにするとシステムの等幅フォントを使います。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorFontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Font Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのフォントサイズ"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorFontSize.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default font size, in points, for newly opened plain-text editors. Cmd-+ / Cmd-- / Cmd-0 zoom the current editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しく開くプレーンテキストエディタの既定フォントサイズ（ポイント単位）。Cmd-+ / Cmd-- / Cmd-0 で現在のエディタを拡大・縮小できます。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorLineHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Line Height"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタの行の高さ"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorLineHeight.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line-height multiplier for plain-text editors. 1.0 preserves the font's natural spacing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレーンテキストエディタの行の高さの倍率です。1.0 ではフォント本来の間隔を維持します。"
+          }
+        }
+      }
+    },
     "settings.app.focusHistoryIncludesPanesAndTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -195718,6 +195837,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.wordWrap ファイル エディタ 行折り返し ワードラップ 折り返し 改行 テキスト 横スクロール プレビュー"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-font-size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize file editor font size points zoom scale text bigger smaller larger default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontSize ファイル エディタ フォント サイズ ポイント ズーム 拡大 縮小 文字"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-font-family": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily file editor font family typeface system mono custom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.fontFamily ファイル エディタ フォント ファミリー 書体 システム 等幅 カスタム"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-line-height": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight file editor line height leading spacing paragraph line multiplier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineHeight ファイル エディタ 行の高さ 行間 段落 倍率 スペース"
           }
         }
       }

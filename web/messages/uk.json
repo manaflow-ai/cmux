@@ -1131,6 +1131,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "Типовий розмір шрифту в пунктах для щойно відкритих редакторів звичайного тексту. Cmd-+ / Cmd-- / Cmd-0 змінюють масштаб поточного редактора.",
+          "fontFamily": "Типова гарнітура для щойно відкритих редакторів звичайного тексту. Залиште порожнім, щоб використовувати системний моноширинний шрифт.",
+          "lineHeight": "Множник висоти рядка для редакторів звичайного тексту. 1.0 зберігає природний інтервал шрифту.",
+          "wordWrap": "Переносьте довгі рядки біля правого краю редактора замість горизонтального прокручування."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "Максимальна кількість рядків останнього сповіщення, що відображаються під заголовком кожного робочого простору.",
           "rightMaxWidth": "Максимальна ширина правої бічної панелі в пунктах. Якщо пропущено, застосовується вбудоване динамічне обмеження."
@@ -1151,6 +1157,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "Типовий розмір шрифту (пункти) для щойно відкритих редакторів звичайного тексту.",
+      "exampleFileEditorFontSizeZoom": "Змінюйте масштаб поточного редактора наживо за допомогою Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleFileEditorFontFamily": "Типова гарнітура. Порожнє значення використовує системний моноширинний шрифт.",
+      "exampleFileEditorLineHeight": "Множник висоти рядка. 1.0 зберігає природний інтервал шрифту.",
+      "exampleFileEditorWordWrap": "Переносьте довгі рядки біля правого краю редактора замість горизонтального прокручування.",
       "exampleFileExplorerDoubleClickAction": "Подвійне клацання файлу: preview (типово), defaultEditor (типова програма macOS) або preferredEditor (команда app.preferredEditor).",
       "shortcutsWhenIntro": "Необов'язкові контекстні предикати для кожної дії (клаузи when у стилі VS Code), індексовані за ідентифікатором дії cmux. Прив'язка спрацьовує — і конфліктує з іншою прив'язкою на тому самому натисканні — лише тоді, коли її клауза істинна. Пропустіть клаузу, щоб зберегти вбудований контекст дії. Словник клауз:",
       "shortcutsWhenBooleanKeys": "булеві ключі. Невідомий або відсутній ключ вважається false; також приймаються літерали true і false.",

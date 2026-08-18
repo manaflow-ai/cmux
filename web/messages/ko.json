@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "새로 여는 일반 텍스트 편집기의 기본 글꼴 크기(포인트)입니다. Cmd-+ / Cmd-- / Cmd-0으로 현재 편집기를 확대하거나 축소합니다.",
+          "fontFamily": "새로 여는 일반 텍스트 편집기의 기본 글꼴 모음입니다. 비워 두면 시스템 고정폭 글꼴을 사용합니다.",
+          "lineHeight": "일반 텍스트 편집기의 줄 높이 배율입니다. 1.0은 글꼴의 자연스러운 간격을 유지합니다.",
+          "wordWrap": "가로로 스크롤하는 대신 편집기 오른쪽 가장자리에서 긴 줄을 줄바꿈합니다."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "새로 여는 일반 텍스트 편집기의 기본 글꼴 크기(포인트)입니다.",
+      "exampleFileEditorFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0으로 현재 편집기를 실시간 확대하거나 축소합니다.",
+      "exampleFileEditorFontFamily": "기본 글꼴 모음입니다. 비워 두면 시스템 고정폭 글꼴을 사용합니다.",
+      "exampleFileEditorLineHeight": "줄 높이 배율입니다. 1.0은 글꼴의 자연스러운 간격을 유지합니다.",
+      "exampleFileEditorWordWrap": "가로로 스크롤하는 대신 편집기 오른쪽 가장자리에서 긴 줄을 줄바꿈합니다.",
       "exampleFileExplorerDoubleClickAction": "파일 더블클릭 동작: preview(기본값), defaultEditor(macOS 기본 앱) 또는 preferredEditor(app.preferredEditor 명령).",
       "shortcutsWhenIntro": "액션별 선택적 컨텍스트 조건자(VS Code 스타일 when 절)이며 cmux 액션 ID를 키로 사용합니다. 바인딩은 해당 절이 참일 때만 실행되고, 같은 키 입력의 다른 바인딩과도 그때만 충돌합니다. 절을 생략하면 액션의 기본 컨텍스트가 유지됩니다. 절에서 사용할 수 있는 어휘:",
       "shortcutsWhenBooleanKeys": "불리언 키. 알 수 없거나 존재하지 않는 키는 false로 평가되며, 리터럴 true와 false도 사용할 수 있습니다.",

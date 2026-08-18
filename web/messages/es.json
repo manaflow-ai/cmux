@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "Tamaño de fuente predeterminado, en puntos, para editores de texto plano recién abiertos. Cmd-+ / Cmd-- / Cmd-0 amplían el editor actual.",
+          "fontFamily": "Familia de fuente predeterminada para editores de texto plano recién abiertos. Déjalo vacío para usar la fuente monoespaciada del sistema.",
+          "lineHeight": "Multiplicador de altura de línea para editores de texto plano. 1.0 conserva el espaciado natural de la fuente.",
+          "wordWrap": "Ajusta las líneas largas en el borde derecho del editor en lugar de desplazarte horizontalmente."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "Tamaño de fuente predeterminado (puntos) para editores de texto plano recién abiertos.",
+      "exampleFileEditorFontSizeZoom": "Amplía o reduce el editor actual en directo con Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleFileEditorFontFamily": "Familia de fuente predeterminada. Vacío usa la fuente monoespaciada del sistema.",
+      "exampleFileEditorLineHeight": "Multiplicador de altura de línea. 1.0 conserva el espaciado natural de la fuente.",
+      "exampleFileEditorWordWrap": "Ajusta las líneas largas en el borde derecho del editor en lugar de desplazarte horizontalmente.",
       "exampleFileExplorerDoubleClickAction": "Doble clic en un archivo: preview (predeterminado), defaultEditor (app predeterminada de macOS) o preferredEditor (el comando app.preferredEditor).",
       "shortcutsWhenIntro": "Predicados de contexto opcionales por acción (cláusulas when al estilo de VS Code), indexados por el id de acción de cmux. Una asignación solo se activa —y solo entra en conflicto con otra asignación de la misma pulsación— cuando su cláusula se cumple. Omite la cláusula para conservar el contexto integrado de la acción. El vocabulario de las cláusulas:",
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",

@@ -1147,6 +1147,12 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileEditor": {
+          "fontSize": "Standard-Schriftgröße in Punkten für neu geöffnete Klartext-Editoren. Cmd-+ / Cmd-- / Cmd-0 zoomt den aktuellen Editor.",
+          "fontFamily": "Standardschriftfamilie für neu geöffnete Klartext-Editoren. Leer lassen, um die systemweite Monospace-Schrift zu verwenden.",
+          "lineHeight": "Zeilenhöhenmultiplikator für Klartext-Editoren. 1.0 bewahrt den natürlichen Abstand der Schrift.",
+          "wordWrap": "Lange Zeilen am rechten Rand des Editors umbrechen, statt horizontal zu scrollen."
+        },
         "sidebar": {
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
@@ -1167,6 +1173,11 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileEditorFontSize": "Standard-Schriftgröße (Punkte) für neu geöffnete Klartext-Editoren.",
+      "exampleFileEditorFontSizeZoom": "Den aktuellen Editor mit Cmd-+ / Cmd-- / Cmd-0 live zoomen.",
+      "exampleFileEditorFontFamily": "Standardschriftfamilie. Leer verwendet die systemweite Monospace-Schrift.",
+      "exampleFileEditorLineHeight": "Zeilenhöhenmultiplikator. 1.0 bewahrt den natürlichen Abstand der Schrift.",
+      "exampleFileEditorWordWrap": "Lange Zeilen am rechten Rand des Editors umbrechen, statt horizontal zu scrollen.",
       "exampleFileExplorerDoubleClickAction": "Doppelklick auf eine Datei: preview (Standard), defaultEditor (macOS-Standard-App) oder preferredEditor (der app.preferredEditor-Befehl).",
       "shortcutsWhenIntro": "Optionale Kontextprädikate pro Aktion (VS-Code-artige when-Klauseln), nach cmux-Aktions-ID indiziert. Eine Belegung wird nur ausgelöst — und kollidiert nur mit einer anderen Belegung auf demselben Tastendruck — wenn ihre Klausel erfüllt ist. Ohne Klausel behält die Aktion ihren eingebauten Kontext. Das Klausel-Vokabular:",
       "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
