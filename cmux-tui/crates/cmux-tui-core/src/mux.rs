@@ -25175,7 +25175,15 @@ mod tests {
         ));
         let session = "no-restore-agents";
         {
-            let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
             let surface = mux.new_workspace(None, None).unwrap();
             mux.report_agent(
                 surface.id,
