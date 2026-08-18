@@ -49,6 +49,34 @@ def test_host_npm_target_rejects_unknown_cpu(monkeypatch: pytest.MonkeyPatch) ->
         host_npm_target()
 
 
+def test_direct_runner_executes_unknown_cpu_regression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = sys.modules[__name__]
+    called = False
+
+    def marker(_patch: object) -> None:
+        nonlocal called
+        called = True
+
+    def noop(*_args: object) -> None:
+        return None
+
+    for name in (
+        "test_npm_contract_packs_and_installs_matching_platform",
+        "test_npm_contract_rejects_missing_hook",
+        "test_npm_contract_rejects_extra_file",
+        "test_pypi_contract_requires_all_six_wheels_and_metadata",
+        "test_pypi_contract_rejects_non_executable_hook",
+    ):
+        monkeypatch.setattr(module, name, noop)
+    monkeypatch.setattr(module, "test_host_npm_target_rejects_unknown_cpu", marker)
+
+    main()
+
+    assert called, "direct package-contract runner skipped unknown-CPU regression"
+
+
 def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
