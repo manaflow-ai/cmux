@@ -15,6 +15,7 @@ public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
         let trimmed = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               trimmed == bundleIdentifier,
+              trimmed == trimmed.lowercased(),
               trimmed.count <= 255,
               trimmed.contains("."),
               trimmed.range(

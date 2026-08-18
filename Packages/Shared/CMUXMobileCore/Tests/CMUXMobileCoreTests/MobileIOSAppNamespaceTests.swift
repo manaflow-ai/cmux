@@ -60,6 +60,7 @@ import Testing
     @Test func rejectsMissingOrUnsafeBundleIdentifiers() {
         #expect(MobileIOSAppNamespace(bundleIdentifier: nil) == nil)
         #expect(MobileIOSAppNamespace(bundleIdentifier: "") == nil)
+        #expect(MobileIOSAppNamespace(bundleIdentifier: "Dev.cmux.ios.feature-a") == nil)
         #expect(MobileIOSAppNamespace(bundleIdentifier: "dev.cmux.ios.*") == nil)
         #expect(MobileIOSAppNamespace(bundleIdentifier: "dev cmux ios") == nil)
     }
