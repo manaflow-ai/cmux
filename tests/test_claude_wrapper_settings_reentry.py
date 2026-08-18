@@ -71,7 +71,13 @@ class ReentryRun:
         self.real_argv = real_argv
 
 
-def run_reentry(*, argv: list[str], break_after: int | None, timeout: float = 30.0) -> ReentryRun:
+def run_reentry(
+    *,
+    argv: list[str],
+    break_after: int | None,
+    scrub_env_marker: bool = False,
+    timeout: float = 30.0,
+) -> ReentryRun:
     """Launch cmux's shim `claude` with a re-entrant custom Claude Binary Path.
 
     The custom binary path is a script that hands off to a launcher which
@@ -79,6 +85,8 @@ def run_reentry(*, argv: list[str], break_after: int | None, timeout: float = 30
     cmux's shim directory first, so every hand-off lands back in the wrapper.
     `break_after` passes lets the launcher escape the loop and reach the real
     binary; `None` keeps the loop running so the wrapper's guard has to stop it.
+    `scrub_env_marker` drops every cmux env marker the way a launcher that
+    rebuilds the environment would, leaving argv as the only re-entry signal.
     """
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-") as td:
@@ -118,6 +126,7 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
         # Resolves `claude` through PATH the way `shutil.which` / `command -v` /
         # `execvp` do in a user launcher, which is what finds cmux's shim.
         break_after_literal = "None" if break_after is None else str(break_after)
+        scrub_literal = "True" if scrub_env_marker else "False"
         make_executable(
             launcher_dir / "claude-launcher",
             f"""#!/usr/bin/env python3
@@ -125,7 +134,10 @@ import json, os, shutil, sys
 
 pass_dir = {str(pass_dir)!r}
 break_after = {break_after_literal}
+scrub_env_marker = {scrub_literal}
 argv = sys.argv[2:]
+if scrub_env_marker:
+    os.environ.pop("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", None)
 index = len(os.listdir(pass_dir)) + 1
 with open(os.path.join(pass_dir, "pass-%03d.json" % index), "w") as handle:
     json.dump(argv, handle)
@@ -278,6 +290,40 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
             failures.append(f"pass {index} settings diverged from the first pass")
 
 
+def test_merge_converges_without_the_env_marker(failures: list[str]) -> None:
+    """The merge alone must converge, so a launcher that rebuilds the
+    environment still cannot grow the injected block one copy per pass."""
+
+    user_settings = {"model": "user-selected-model"}
+    run = run_reentry(
+        argv=["--settings", json.dumps(user_settings)],
+        break_after=3,
+        scrub_env_marker=True,
+    )
+
+    if len(run.passes) < 3:
+        failures.append(f"expected at least 3 wrapper passes without the env marker, got {len(run.passes)}: stderr={run.stderr!r}")
+        return
+
+    baseline = settings_from_argv(run.passes[0])
+    if baseline is None:
+        failures.append(f"first pass carried no --settings: {run.passes[0]!r}")
+        return
+
+    for index, pass_argv in enumerate(run.passes[1:], start=2):
+        settings = settings_from_argv(pass_argv)
+        if settings is None:
+            failures.append(f"pass {index} carried no --settings without the env marker")
+            continue
+        hook_count = count_cmux_hook_commands(settings)
+        if hook_count != 3:
+            failures.append(f"pass {index} carried {hook_count} cmux hook-feed commands without the env marker, expected 3")
+        if settings.get("model") != "user-selected-model":
+            failures.append(f"pass {index} lost the user's model setting without the env marker")
+        if settings != baseline:
+            failures.append(f"pass {index} settings diverged from the first pass without the env marker")
+
+
 def test_unbounded_reentry_loop_is_stopped(failures: list[str]) -> None:
     run = run_reentry(argv=[], break_after=None, timeout=30.0)
 
@@ -301,6 +347,7 @@ def main() -> int:
     failures: list[str] = []
     test_reentry_does_not_duplicate_injected_hooks(failures)
     test_reentry_preserves_user_settings(failures)
+    test_merge_converges_without_the_env_marker(failures)
     test_unbounded_reentry_loop_is_stopped(failures)
     if failures:
         print("FAIL: claude wrapper --settings re-entry checks failed")
