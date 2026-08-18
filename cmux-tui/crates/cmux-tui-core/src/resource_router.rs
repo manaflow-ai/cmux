@@ -1494,7 +1494,9 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
             json!({"reason_code":"agent_session_required"}),
         );
     }
-    if message.starts_with("agent socket report session") {
+    if message.starts_with("agent socket report session")
+        || message.starts_with("this terminal already has an active agent hook session")
+    {
         return ResourceError::operation_failed(
             "resource.runtime",
             "agent projection session conflict",

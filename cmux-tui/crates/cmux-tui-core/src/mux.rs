@@ -9036,7 +9036,7 @@ impl Mux {
             && existing_session != source_session
         {
             anyhow::bail!(
-                "agent socket report session {source_session:?} conflicts with active hook session {existing_session:?}"
+                "this terminal already has an active agent hook session; stop the hook session, then report again"
             );
         }
         let record = match records.get(&terminal_id) {
