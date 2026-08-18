@@ -6,6 +6,7 @@ public actor CmxIrohIdentityRepository {
     private static let installMarkerKey = "cmux.iroh.identity.install-marker.v1"
     private static let activeScopeKey = "cmux.iroh.identity.active-scope.v1"
     private static let recordVersion: UInt8 = 1
+    private static let maximumQueuedOperations = 64
 
     private let secureStore: any CmxIrohSecureIdentityStoring
     private let installState: any CmxIrohInstallStateStoring
@@ -35,7 +36,7 @@ public actor CmxIrohIdentityRepository {
     /// uninstall. Changing account scope removes the prior account key before
     /// creating a new EndpointID.
     public func identity(accountID: String, appInstanceID: String) async throws -> CmxIrohIdentityMaterial {
-        await beginOperation()
+        try await beginOperation()
         defer { endOperation() }
         try Task.checkCancellation()
         let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
@@ -47,7 +48,7 @@ public actor CmxIrohIdentityRepository {
 
     /// Replaces the active account key and increments its identity generation.
     public func rotate(accountID: String, appInstanceID: String) async throws -> CmxIrohIdentityMaterial {
-        await beginOperation()
+        try await beginOperation()
         defer { endOperation() }
         try Task.checkCancellation()
         let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
@@ -63,17 +64,20 @@ public actor CmxIrohIdentityRepository {
 
     /// Removes all endpoint identity when signing out or locally revoking it.
     public func deactivate() async throws {
-        await beginOperation()
+        try await beginOperation()
         defer { endOperation() }
         try Task.checkCancellation()
         try await secureStore.deleteAll()
         installState.set(nil, forKey: Self.activeScopeKey)
     }
 
-    private func beginOperation() async {
+    private func beginOperation() async throws {
         guard operationIsActive else {
             operationIsActive = true
             return
+        }
+        guard operationWaiters.count < Self.maximumQueuedOperations else {
+            throw CmxIrohIdentityRepositoryError.operationLimitExceeded
         }
         await withCheckedContinuation { continuation in
             operationWaiters.append(continuation)

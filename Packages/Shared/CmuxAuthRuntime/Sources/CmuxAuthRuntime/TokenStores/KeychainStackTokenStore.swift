@@ -157,7 +157,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         if let current = keychainRead(account: account) {
             return current
         }
-        guard let legacyAccount,
+        // Legacy account-only items are ambiguous without the exact signed
+        // access group. Never let a caller using the current-token-only API
+        // adopt another installed cmux bundle's Stack session.
+        guard accessGroup != nil,
+              let legacyAccount,
               let legacy = keychainReadLegacy(account: legacyAccount),
               keychainWrite(legacy, account: account) else {
             return nil
