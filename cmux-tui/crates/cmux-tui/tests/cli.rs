@@ -1320,6 +1320,9 @@ fn json_socket_request(path: &std::path::Path, request: serde_json::Value) -> se
 }
 
 #[cfg(unix)]
+const JOURNAL_CLI_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[cfg(unix)]
 fn journal_cli_fixture(
     args: &[&str],
     result: serde_json::Value,
@@ -1340,7 +1343,7 @@ fn journal_cli_fixture_with_capture_delay(
     let (sender, receiver) = mpsc::channel();
     let server = std::thread::spawn(move || {
         let mut stream =
-            accept_with_timeout(&listener, Duration::from_secs(15)).unwrap_or_else(|error| {
+            accept_with_timeout(&listener, JOURNAL_CLI_TIMEOUT).unwrap_or_else(|error| {
                 panic!("journal fixture did not receive the CLI connection: {error}")
             });
         // On Darwin, an accepted socket can retain the listener's nonblocking
@@ -1390,7 +1393,7 @@ fn journal_cli_fixture_with_capture_delay(
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
-    let request = receiver.recv_timeout(Duration::from_secs(6)).ok();
+    let request = receiver.recv_timeout(JOURNAL_CLI_TIMEOUT).ok();
     server.join().unwrap();
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);
