@@ -3262,7 +3262,8 @@ mod tests {
     }
 
     #[test]
-    fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {        let mut config = config::Config::default();
+    fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {
+        let mut config = config::Config::default();
         let parsed = args(&["--machine-provider", "/tmp/provider.sock", "--cloud"]);
         let error = resolve_provider_launch(&parsed, &config).unwrap_err().to_string();
         assert!(error.contains("choose only one provider mode"), "{error}");
