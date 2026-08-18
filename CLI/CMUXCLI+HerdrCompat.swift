@@ -17,14 +17,22 @@ extension CMUXCLI {
         guard let command = commandArgs.first else {
             throw CLIError(message: usage, exitCode: 2)
         }
+        let arguments = Array(commandArgs.dropFirst())
+        // Herdr accepts `--json` only on `status`. Alias-local `--json` on the
+        // JSON-only aliases would be forwarded and rejected by the provider;
+        // fail here with the compatibility usage instead.
+        if Self.herdrCompatJSONOnlyCommandNames.contains(command), arguments.contains("--json") {
+            throw CLIError(message: usage, exitCode: 2)
+        }
         guard let translated = Self.herdrCompatArguments(
             command: command,
-            arguments: Array(commandArgs.dropFirst()),
+            arguments: arguments,
             jsonOutput: jsonOutput
         ) else {
             let format = String(
                 localized: "cli.herdrCompat.error.unknownCommand",
-                defaultValue: "Unknown compatibility command '%1$@'. Supported commands: %2$@."
+                defaultValue: "Unknown compatibility command '%1$@'. Supported commands: %2$@.",
+                bundle: Self.herdrCompatLocalizationBundle
             )
             throw CLIError(
                 message: String(format: format, command, Self.herdrCompatCommandList),
@@ -86,12 +94,23 @@ extension CMUXCLI {
         herdrCompatCommands.map(\.name).joined(separator: ", ")
     }
 
+    private static var herdrCompatJSONOnlyCommandNames: Set<String> {
+        Set(herdrCompatCommands.map(\.name).filter { $0 != "status" })
+    }
+
+    /// Catalog lives on the enclosing app bundle when the CLI is launched from
+    /// `Contents/Resources/bin`; `Bundle.main` would miss those translations.
+    private static var herdrCompatLocalizationBundle: Bundle {
+        CLIExecutableLocator.enclosingAppBundle() ?? .main
+    }
+
     /// Builds the provider-neutral error returned when discovery or launch fails.
     private func herdrCompatLaunchError(exitCode: Int32) -> CLIError {
         CLIError(
             message: String(
                 localized: "cli.herdrCompat.error.launchFailed",
-                defaultValue: "Couldn't start the required command. Verify it is installed and try again."
+                defaultValue: "Couldn't start the required command. Verify it is installed and try again.",
+                bundle: Self.herdrCompatLocalizationBundle
             ),
             exitCode: exitCode
         )
@@ -117,7 +136,8 @@ extension CMUXCLI {
               - `status` accepts cmux `--json` (mapped to provider `status --json`).
               - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;
                 cmux `--json` is accepted and ignored for those aliases.
-            """
+            """,
+            bundle: herdrCompatLocalizationBundle
         )
         return String(format: format, herdrCompatCommandList)
     }
