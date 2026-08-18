@@ -10249,7 +10249,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         with newValue: MobileCoreRPCClient?
     ) async {
         let previous = replaceRemoteClientOwnership(with: newValue)
-        await previous?.disconnect()
+        // Pairing/reconnect is about to admit a replacement on the same
+        // physical route. A plain disconnect only schedules the Iroh control
+        // lease release; the replacement can race that release and receive
+        // `Route already connecting`. Wait until the session has transferred
+        // its lease to the bounded cleanup registry before dialing again.
+        await previous?.disconnectAndWaitForTransportDrain()
     }
 
     /// Release the current foreground owner before a same-Mac or same-route
@@ -10272,7 +10277,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// teardown before the replacement reaches transport admission.
     private func releaseConnectionAttemptClientForReplacement() async {
         let previous = replaceConnectionAttemptClientOwnership(with: nil)
-        await previous?.disconnect()
+        await previous?.disconnectAndWaitForTransportDrain()
     }
 
     private func clearConnectionAttemptClient(
