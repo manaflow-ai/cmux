@@ -3588,6 +3588,8 @@ Errors:
 | `surface <id> has no durable resource identity` | Surface is not durably registered |
 | `bad state <state>` | State is not allowed |
 | `bad source <source>` | Source is not allowed |
+| `agent projection session conflict` | Structured source session conflicts with the active agent projection |
+| `agent projection requires a session identity` | Direct journal projection transition omits the active source session |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:

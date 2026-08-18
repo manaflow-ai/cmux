@@ -260,6 +260,64 @@ fn ensure_resource_agent_projection_rebuild_snapshot(
             [],
         )?;
     }
+    if !resource_agent_projection_rebuild_changes_has_pairing_check(transaction)? {
+        rebuild_resource_agent_projection_rebuild_changes(transaction)?;
+    }
+    Ok(())
+}
+
+fn resource_agent_projection_rebuild_changes_has_pairing_check(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<bool> {
+    let definition = transaction
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'table' AND name = 'resource_agent_projection_rebuild_changes'",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )?
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    Ok(definition.contains(
+        "previous_result_json is null and previous_committed_revision is null",
+    ) && definition.contains(
+        "previous_result_json is not null and previous_committed_revision is not null",
+    ))
+}
+
+fn rebuild_resource_agent_projection_rebuild_changes(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE resource_agent_projection_rebuild_changes_canonical (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           previous_result_json TEXT CHECK (
+             previous_result_json IS NULL OR json_valid(previous_result_json)
+           ),
+           previous_committed_revision INTEGER CHECK (
+             previous_committed_revision IS NULL OR previous_committed_revision >= 0
+           ),
+           CHECK (
+             (previous_result_json IS NULL AND previous_committed_revision IS NULL)
+             OR (
+               previous_result_json IS NOT NULL
+               AND previous_committed_revision IS NOT NULL
+             )
+           )
+         );
+         INSERT INTO resource_agent_projection_rebuild_changes_canonical(
+           terminal_id, previous_result_json, previous_committed_revision
+         )
+         SELECT terminal_id, previous_result_json, previous_committed_revision
+         FROM resource_agent_projection_rebuild_changes;
+         DROP TABLE resource_agent_projection_rebuild_changes;
+         ALTER TABLE resource_agent_projection_rebuild_changes_canonical
+           RENAME TO resource_agent_projection_rebuild_changes;",
+    )?;
     Ok(())
 }
 

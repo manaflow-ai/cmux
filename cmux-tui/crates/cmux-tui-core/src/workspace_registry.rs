@@ -59,7 +59,7 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalRestoreCommit, JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub(crate) use public_projection_store::RegistryAgentProjection;
+pub use public_projection_store::RegistryAgentProjection;
 #[cfg(test)]
 pub(crate) use public_projection_store::RegistryNotificationProjection;
 pub use public_projection_store::RegistryPublicProjections;
