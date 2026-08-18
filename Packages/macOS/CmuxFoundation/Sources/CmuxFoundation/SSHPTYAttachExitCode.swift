@@ -94,7 +94,10 @@ public enum SSHPTYAttachExitCode: Int32 {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
-        if description.contains("permission denied") ||
+        if description.range(
+            of: #"[^[:space:]]+@[^[:space:]]+: permission denied"#,
+            options: .regularExpression
+        ) != nil ||
             description.contains("authentication failed") ||
             description.contains("host key verification failed") ||
             description.contains("too many authentication failures") {
