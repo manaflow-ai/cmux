@@ -106,15 +106,31 @@ final class ReftableRepositoryFixture {
         environment["GIT_TERMINAL_PROMPT"] = "0"
         process.environment = environment
 
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.standardOutput = standardOutput
-        process.standardError = standardError
+        // Both streams go to files rather than pipes: a pipe read sequence
+        // deadlocks whenever the stream being read second fills its buffer
+        // first, and a fixture has no reason to risk it.
+        let captureDirectory = try makeTemporaryDirectory(prefix: "cmuxgit-reftable-capture")
+        defer { try? FileManager.default.removeItem(at: captureDirectory) }
+        let outputURL = captureDirectory.appendingPathComponent("stdout")
+        let errorURL = captureDirectory.appendingPathComponent("stderr")
+        for url in [outputURL, errorURL] {
+            guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        let errorHandle = try FileHandle(forWritingTo: errorURL)
+        process.standardOutput = outputHandle
+        process.standardError = errorHandle
+
         try process.run()
-        let outputData = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        try? outputHandle.close()
+        try? errorHandle.close()
+
+        let outputData = (try? Data(contentsOf: outputURL)) ?? Data()
         guard process.terminationStatus == 0 else {
+            let errorData = (try? Data(contentsOf: errorURL)) ?? Data()
             throw Failure(
                 arguments: arguments,
                 exitCode: process.terminationStatus,
