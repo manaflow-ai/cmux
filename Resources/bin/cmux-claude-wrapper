@@ -119,12 +119,12 @@ cmux_claude_wrapper_argv_has_injected_settings() {
 cmux_claude_wrapper_fail_hook_reentry_guard() {
     cat >&2 <<'EOF'
 cmux: stopped a claude launch loop before it could spin.
-cmux already injected its hook --settings for this launch, and control returned
-to cmux's per-surface claude shim instead of starting Claude.
-This usually means Settings > Automation > Claude Binary Path points at a script
-that resolves `claude` through PATH and finds that shim. Point it at the real
-claude binary, or drop */cmux-cli-shims/* entries from PATH inside that script
-before it hands off.
+cmux prepared this launch, then control came back to cmux instead of Claude
+starting. This usually means Settings > Automation > Claude Binary Path points at
+a script that starts Claude by name rather than by its full path, so the launch
+returns to cmux each time.
+Point that setting at the real claude executable, or make the script start Claude
+by full path, then open a new terminal.
 EOF
     exit 126
 }
