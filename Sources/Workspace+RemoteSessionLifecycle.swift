@@ -135,6 +135,9 @@ extension Workspace {
         syncRemotePortScanTTYs()
         syncRemoteRelayIDAliasesToController()
         controller.start()
+        if remoteControllerConnectionState == .connected {
+            _ = reattachPersistentRemotePTYPanels()
+        }
     }
 
     @discardableResult

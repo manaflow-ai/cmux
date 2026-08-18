@@ -59,22 +59,22 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
         #expect(workspace.terminalPanel(for: panel.id)?.surface === disconnectedSurface)
 
+        runner.blockNextCleanup()
         let reattachedBeforeControllerReady = workspace.reconnectRemoteConnection(surfaceId: panel.id)
-
-        #expect(!reattachedBeforeControllerReady)
-        #expect(workspace.terminalPanel(for: panel.id)?.surface === disconnectedSurface)
-        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
-
-        _ = try #require(await Self.nextCleanupCommand(runner))
-        _ = try #require(await Self.nextBootstrapRequest(runner))
-        await workspace.remoteSessionTransitionTask?.value
-        #expect(workspace.remoteSessionController != nil)
-
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini",
             target: "cmux-macmini"
         )
+        _ = try #require(await Self.nextCleanupCommand(runner))
+
+        #expect(!reattachedBeforeControllerReady)
+        #expect(workspace.terminalPanel(for: panel.id)?.surface === disconnectedSurface)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+
+        runner.releaseBlockedCleanup()
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(workspace.remoteSessionController != nil)
 
         #expect(workspace.terminalPanel(for: panel.id)?.surface !== disconnectedSurface)
         #expect(!workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
