@@ -59,6 +59,85 @@ EOF
     exit 126
 }
 
+# Hook-injection re-entry, which the re-exec guard above cannot see: the wrapper
+# hands off with `exec`, so a custom Claude Binary Path script that resolves
+# `claude` through PATH re-enters this wrapper through cmux's own per-surface
+# shim inside the SAME pid. That script is not a recognizable shim, so
+# cmux_claude_wrapper_exec_resolved_claude treats it as the real-binary boundary
+# and clears the hop counter before every re-entry, leaving the bounce unbounded.
+# https://github.com/manaflow-ai/cmux/issues/10230
+cmux_claude_wrapper_hook_reentry_limit=16
+
+cmux_claude_wrapper_settings_value_is_cmux_injected() {
+    # cmux is the only writer of CMUX_CLAUDE_HOOK_CMUX_BIN, and every command in
+    # the injected block references it, so a --settings value carrying it was
+    # produced by an earlier pass of this wrapper. Only the head of the value is
+    # inspected: the injected block always carries the marker in its first hook
+    # entry, and pattern-matching an unbounded argument is exactly the cost this
+    # guard exists to avoid.
+    [[ "${1:0:4096}" == *"CMUX_CLAUDE_HOOK_CMUX_BIN"* ]]
+}
+
+cmux_claude_wrapper_argv_has_injected_settings() {
+    local arg
+    local want_settings_value=false
+    local skip_option_value=false
+    for arg in "$@"; do
+        if [[ "$want_settings_value" == true ]]; then
+            want_settings_value=false
+            cmux_claude_wrapper_settings_value_is_cmux_injected "$arg" && return 0
+            continue
+        fi
+        if [[ "$skip_option_value" == true ]]; then
+            skip_option_value=false
+            continue
+        fi
+        if [[ "$arg" == "--" ]]; then
+            return 1
+        fi
+        if [[ "$arg" == "--settings" ]]; then
+            want_settings_value=true
+            continue
+        fi
+        if [[ "${arg:0:11}" == "--settings=" ]]; then
+            cmux_claude_wrapper_settings_value_is_cmux_injected "${arg:11}" && return 0
+            continue
+        fi
+        # Value-taking options only ever match their bare form here, so a value
+        # that happens to read like `--settings` is never mistaken for the flag.
+        if claude_option_consumes_value "$arg"; then
+            skip_option_value=true
+        fi
+    done
+    return 1
+}
+
+cmux_claude_wrapper_fail_hook_reentry_guard() {
+    cat >&2 <<'EOF'
+cmux: stopped a claude launch loop before it could spin.
+cmux already injected its hook --settings for this launch, and control returned
+to cmux's per-surface claude shim instead of starting Claude.
+This usually means Settings > Automation > Claude Binary Path points at a script
+that resolves `claude` through PATH and finds that shim. Point it at the real
+claude binary, or drop */cmux-cli-shims/* entries from PATH inside that script
+before it hands off.
+EOF
+    exit 126
+}
+
+# Count one re-entry pass. The counter rides in the environment, so it bounds the
+# bounce whenever the environment is inherited (the normal exec chain); when a
+# launcher scrubs the environment the argv-side marker still makes each pass a
+# no-op, so the injected --settings stays a fixed size instead of growing.
+cmux_claude_wrapper_note_hook_reentry() {
+    local seen="${CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED:-1}"
+    cmux_claude_wrapper_is_nonnegative_integer "$seen" || seen=1
+    if (( seen >= cmux_claude_wrapper_hook_reentry_limit )); then
+        cmux_claude_wrapper_fail_hook_reentry_guard
+    fi
+    export CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED=$((seen + 1))
+}
+
 cmux_claude_wrapper_init_reexec_guard() {
     local guard="${cmux_claude_wrapper_reexec_guard:-}"
     local hops
@@ -874,11 +953,25 @@ should_inject_claude_hooks() {
     return 0
 }
 
-if (( cmux_claude_wrapper_reexec_hops > 0 )); then
+# Hooks this wrapper already injected, coming back in on argv, mean control
+# re-entered after the hand-off (a custom Claude Binary Path resolving `claude`
+# through PATH into cmux's shim). Both markers are required: the environment
+# marker alone would also be present in an ordinary `claude` started BY Claude
+# Code, which must still get its own fresh injection.
+cmux_claude_wrapper_hook_reentry=0
+if [[ -n "${CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED:-}" ]] &&
+   cmux_claude_wrapper_argv_has_injected_settings "$@"; then
+    cmux_claude_wrapper_hook_reentry=1
+fi
+
+if (( cmux_claude_wrapper_reexec_hops > 0 || cmux_claude_wrapper_hook_reentry == 1 )); then
     # A previous wrapper pass already made the cmux launch decision and may have
     # injected --session-id/--settings. While resolving a finite shim chain,
     # refresh per-process hook metadata, then forward argv unchanged so hooks are
     # not merged again on re-entry.
+    if (( cmux_claude_wrapper_hook_reentry == 1 )); then
+        cmux_claude_wrapper_note_hook_reentry
+    fi
     unset CLAUDECODE
     clear_inherited_claude_auth_selection_env
     export CMUX_CLAUDE_PID=$$
@@ -1036,6 +1129,38 @@ if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
         node -e '
 const fs=require("fs"),os=require("os"),path=require("path");
 const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
+// Every command in HOOKS_JSON references CMUX_CLAUDE_HOOK_CMUX_BIN, and cmux is
+// the only writer of that variable, so it doubles as the marker identifying
+// cmux-injected hooks. An incoming --settings that carries them is cmux output
+// from an earlier wrapper pass (re-entry through a PATH-resolving custom Claude
+// Binary Path, https://github.com/manaflow-ai/cmux/issues/10230). Drop them
+// before merging so the current block REPLACES the previous one instead of
+// concatenating onto it: injecting the same block twice converges to one copy,
+// while every user-authored hook and key is merged untouched.
+const CMUX_HOOK_MARKER="CMUX_CLAUDE_HOOK_CMUX_BIN";
+const isCmuxHook=h=>isObj(h)&&typeof h.command==="string"&&h.command.includes(CMUX_HOOK_MARKER);
+const stripCmuxHooks=s=>{
+  if(!isObj(s)||!isObj(s.hooks))return s;
+  const hooks={};
+  let changed=false;
+  for(const event of Object.keys(s.hooks)){
+    const entries=s.hooks[event];
+    if(!Array.isArray(entries)){hooks[event]=entries;continue;}
+    const kept=[];
+    for(const entry of entries){
+      if(!isObj(entry)||!Array.isArray(entry.hooks)){kept.push(entry);continue;}
+      const userHooks=entry.hooks.filter(h=>!isCmuxHook(h));
+      if(userHooks.length===entry.hooks.length){kept.push(entry);continue;}
+      changed=true;
+      // Keep a mixed entry, minus the cmux commands; drop a purely cmux one.
+      if(userHooks.length>0)kept.push(Object.assign({},entry,{hooks:userHooks}));
+    }
+    if(kept.length>0)hooks[event]=kept;
+    else if(entries.length>0)changed=true;
+    else hooks[event]=entries;
+  }
+  return changed?Object.assign({},s,{hooks}):s;
+};
 const merge=(a,b)=>{
   if(Array.isArray(a)&&Array.isArray(b))return a.concat(b);
   if(isObj(a)&&isObj(b)){const o=Object.assign({},a);for(const k of Object.keys(b))o[k]=(k in a)?merge(a[k],b[k]):b[k];return o;}
@@ -1057,7 +1182,7 @@ const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString(
 // <=2.1.168, last-wins >=2.1.169, undocumented) is irrelevant here. Among
 // repeated USER --settings, reverse() makes the earliest-listed value win the
 // scalar conflict (issue #2816).
-try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
+try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,stripCmuxHooks(load(it)));}
 catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
 process.stdout.write(JSON.stringify(acc));
 '
@@ -1075,6 +1200,11 @@ process.stdout.write(JSON.stringify(acc));
     fi
     unset CMUX_MERGED_SETTINGS cmux_merge_status
 fi
+
+# Mark this launch as carrying cmux-injected hooks. A wrapper pass that sees the
+# marker AND finds the injected block on argv knows it is a re-entry and forwards
+# argv untouched; a fresh injection resets the count to 1.
+export CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED=1
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
