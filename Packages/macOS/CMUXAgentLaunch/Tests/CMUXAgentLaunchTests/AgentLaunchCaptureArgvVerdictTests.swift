@@ -39,6 +39,48 @@ struct AgentLaunchCaptureArgvVerdictTests {
         #expect(verdict == .rejected(.argvLooksLikeShellWrapper))
     }
 
+    /// An argv that trips both grounds at once: `zsh -lc "claude …"` read by the
+    /// codex hook is a shell dispatcher AND another agent. The record must name
+    /// the ground that stands on its own — the `-c` invocation is not a launch
+    /// for any kind, while the kind mismatch is only true of this hook — rather
+    /// than whichever check the implementation happens to run first.
+    @Test func namesTheGroundThatHoldsWhenTwoGroundsApply() {
+        let arguments = ["/bin/zsh", "-lc", "claude --resume abc"]
+        // Both grounds really do hold for this capture, not just the one asserted.
+        #expect(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments))
+        #expect(!AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+            processName: "claude",
+            arguments: arguments,
+            kind: "codex"
+        ))
+
+        let verdict = AgentLaunchCaptureArgvVerdict(
+            processName: "claude",
+            arguments: arguments,
+            kind: "codex"
+        )
+        #expect(verdict == .rejected(.argvLooksLikeShellWrapper))
+    }
+
+    /// The same argv under the kind it does describe still names the shell
+    /// ground, which is what makes it the unconditional one: removing the
+    /// mismatch does not change the answer.
+    @Test func theShellGroundSurvivesRemovingTheOtherGround() {
+        let arguments = ["/bin/zsh", "-lc", "claude --resume abc"]
+        #expect(AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+            processName: "claude",
+            arguments: arguments,
+            kind: "claude"
+        ))
+
+        let verdict = AgentLaunchCaptureArgvVerdict(
+            processName: "claude",
+            arguments: arguments,
+            kind: "claude"
+        )
+        #expect(verdict == .rejected(.argvLooksLikeShellWrapper))
+    }
+
     /// The PID was unresolved or the process had already exited.
     @Test(arguments: [nil, []] as [[String]?])
     func namesTheGroundWhenThereIsNoArgvToJudge(arguments: [String]?) {

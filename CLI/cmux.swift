@@ -28734,8 +28734,12 @@ struct CMUXCLI {
             envLauncher,
             kind: fallbackKind
         )
-        // The first ground on which an argv was discarded, kept so a record that
-        // ends up storing no argv says why instead of only that it has none.
+        // The ground an argv was discarded on, kept so a record that ends up storing no argv says
+        // why instead of only that it has none. The env capture and the PID fallback are two
+        // different candidates rather than two grounds for one, so the env capture — the one cmux
+        // itself recorded at launch — names the record when both were discarded; the fallback only
+        // speaks when there was no cmux capture to reject. Grounds competing over the SAME argv are
+        // ordered inside AgentLaunchCaptureArgvVerdict.
         var argvRejectionReason: AgentLaunchCaptureRejectionReason?
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
@@ -28783,15 +28787,14 @@ struct CMUXCLI {
             rejectionReason: AgentLaunchCaptureRejectionReason
         ) -> AgentHookLaunchCommandRecord {
             AgentHookLaunchCommandRecord(
+                rejectedOn: rejectionReason,
                 launcher: launcher,
                 executablePath: executablePath,
-                arguments: [],
                 workingDirectory: workingDirectory,
                 environment: environment,
                 verificationHome: verificationHome,
                 capturedAt: Date().timeIntervalSince1970,
-                source: source,
-                rejectionReason: rejectionReason
+                source: source
             )
         }
 

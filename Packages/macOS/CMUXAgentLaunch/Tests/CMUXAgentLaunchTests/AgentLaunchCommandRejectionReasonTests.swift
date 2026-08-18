@@ -42,6 +42,56 @@ struct AgentLaunchCommandRejectionReasonTests {
         #expect(object["rejectionReason"] as? String == "groundThisBuildDoesNotKnow")
     }
 
+    /// A record cannot say "rejected, here is why" and still hand a reader a
+    /// launch it could replay. The reason is only reachable through the rejected
+    /// initializer, which fixes `arguments` to empty, and neither property can
+    /// be reassigned afterwards.
+    @Test func aRejectionGroundNeverSitsBesideAUsableArgv() {
+        let rejected = AgentLaunchCommand(
+            rejectedOn: .sanitizerRejectedArgv,
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            source: "rejected"
+        )
+        #expect(rejected.arguments.isEmpty)
+        #expect(rejected.rejectionReason == .sanitizerRejectedArgv)
+
+        let captured = AgentLaunchCommand(
+            launcher: "codex",
+            arguments: ["/usr/local/bin/codex", "--yolo"],
+            source: "process"
+        )
+        #expect(captured.rejectionReason == nil)
+
+        // Repair paths mutate a record's argv in place, so the invariant has to
+        // hold after construction too.
+        var repaired = rejected
+        repaired.arguments = ["/usr/local/bin/codex", "resume"]
+        #expect(repaired.rejectionReason == nil)
+    }
+
+    /// The one combination cmux never writes, if a hand-edited or foreign record
+    /// carries it: the argv is the actionable half, so it survives and the
+    /// ground that contradicts it does not reach `sessions --json`.
+    @Test func aGroundBesideAUsableArgvDoesNotSurviveDecoding() throws {
+        let stored = """
+        {
+          "arguments": ["/usr/local/bin/codex", "--yolo"],
+          "source": "rejected",
+          "rejectionReason": "sanitizerRejectedArgv"
+        }
+        """
+        let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: Data(stored.utf8))
+        #expect(command.arguments == ["/usr/local/bin/codex", "--yolo"])
+        #expect(command.rejectionReason == nil)
+
+        let rewritten = try JSONEncoder().encode(command)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
+        )
+        #expect(object["rejectionReason"] == nil)
+    }
+
     /// Records written before the field existed must still decode, and must not
     /// grow the key when the capture produced a usable argv.
     @Test func recordWithoutARejectionGroundStillDecodes() throws {

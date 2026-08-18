@@ -10,11 +10,17 @@ public enum AgentLaunchCaptureArgvVerdict: Equatable, Sendable {
     /// Judges a PID-derived argv candidate for `kind`, naming the ground when it
     /// cannot be trusted so a capture that stores no argv can record why.
     ///
-    /// The grounds are checked most specific first, not in the order the hook
-    /// happened to run them: a shell dispatcher (`sh -c …`) is not an agent
-    /// launch whatever its process name resolves to, so it names itself instead
-    /// of coming back as a kind mismatch. Trust is unaffected either way — an
-    /// argv is `.trusted` only when both checks pass.
+    /// More than one ground can hold for the same argv — `zsh -lc "claude …"`
+    /// read by the codex hook is both a shell dispatcher and another agent — so
+    /// the order is a rule, not an accident of how the checks were written:
+    /// **the record names the ground that stands on its own.** A `-c`
+    /// invocation is not an agent launch for any kind, and would still be
+    /// rejected if the descriptors matched; a kind mismatch is only a statement
+    /// about this hook, and would disappear under another one. The unconditional
+    /// ground is the one worth storing, so it is checked first.
+    ///
+    /// Trust does not depend on the order — an argv is `.trusted` only when
+    /// every check passes, which `trustDecisionMatchesTheChecksItWraps` pins.
     public init(processName: String?, arguments: [String]?, kind: String) {
         guard let arguments, !arguments.isEmpty else {
             self = .rejected(.argvUnavailable)
