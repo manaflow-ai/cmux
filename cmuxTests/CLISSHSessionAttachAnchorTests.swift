@@ -126,13 +126,13 @@ struct CLISSHSessionAttachAnchorTests {
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
+            let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
             case "workspace.remote.pty_sessions":
                 // ssh-session-attach resolves the session's owning workspace
                 // before creating anything. A workspace-scoped lookup cannot see
                 // sessions owned elsewhere, so a session is only returned to the
                 // cross-workspace form.
-                let params = Self.jsonObject(line)?["params"] as? [String: Any] ?? [:]
                 guard params["all_workspaces"] as? Bool == true else {
                     return Self.v2Response(id: id, ok: true, result: [
                         "all_workspaces": false,
@@ -154,7 +154,7 @@ struct CLISSHSessionAttachAnchorTests {
                     "errors": [[String: Any]](),
                 ])
             case "surface.list":
-                let workspaceId = (Self.jsonObject(line)?["params"] as? [String: Any])?["workspace_id"] as? String
+                let workspaceId = params["workspace_id"] as? String
                 let surfaces: [[String: Any]] = workspaceId == sessionWorkspaceId
                     ? [["id": Self.targetSurfaceId, "ref": "surface:7", "index": 1]]
                     : []
