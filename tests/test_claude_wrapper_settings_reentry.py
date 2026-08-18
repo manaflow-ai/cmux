@@ -11,6 +11,7 @@ per pass, and a user's own `--settings` must survive unchanged.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -23,8 +24,22 @@ from node_runtime import ensure_node_on_path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 CMUX_HOOK_FEED_COMMAND = "hooks feed --source claude"
-# cmux pins the hook commands it injects; anything without the pin is the user's.
-CMUX_HOOK_PIN = ": cmux-claude-hook-v1; "
+
+
+def read_hook_pin() -> str:
+    """The pin cmux marks its own hook commands with, read from the wrapper.
+
+    Kept out of the tests as a literal so the two cannot drift: a wrapper that
+    stops pinning, or pins with a different token, fails these tests instead of
+    silently disabling hook ownership.
+    """
+    match = re.search(r"^cmux_claude_hook_pin='([^']+)'", SOURCE_WRAPPER.read_text(encoding="utf-8"), re.M)
+    if match is None:
+        raise AssertionError("cmux_claude_hook_pin is not defined in the wrapper")
+    return match.group(1)
+
+
+CMUX_HOOK_PIN = f"{read_hook_pin()} "
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -152,7 +167,8 @@ scrub_state_file = {scrub_state_literal}
 reserialize_settings = {reserialize_literal}
 argv = sys.argv[2:]
 if scrub_env_marker:
-    os.environ.pop("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", None)
+    for key in ("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", "cmux_claude_wrapper_reexec_guard", "cmux_claude_wrapper_reexec_targets"):
+        os.environ.pop(key, None)
 if scrub_state_file:
     for name in glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-claude-hook-reentry", "*")):
         os.unlink(name)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import os
 import shutil
 import socket
@@ -20,11 +21,21 @@ from node_runtime import ensure_node_on_path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 
-# cmux pins every hook command it injects with a `:` shell no-op carrying this
-# token, so a later wrapper pass can tell its own hooks from the user's without
-# guessing from the command text. Keep in step with cmux_claude_hook_pin in the
-# wrapper.
-CMUX_HOOK_PIN = ": cmux-claude-hook-v1; "
+
+def read_hook_pin() -> str:
+    """The pin cmux marks its own hook commands with, read from the wrapper.
+
+    Kept out of the tests as a literal so the two cannot drift: a wrapper that
+    stops pinning, or pins with a different token, fails these tests instead of
+    silently disabling hook ownership.
+    """
+    match = re.search(r"^cmux_claude_hook_pin='([^']+)'", SOURCE_WRAPPER.read_text(encoding="utf-8"), re.M)
+    if match is None:
+        raise AssertionError("cmux_claude_hook_pin is not defined in the wrapper")
+    return match.group(1)
+
+
+CMUX_HOOK_PIN = f"{read_hook_pin()} "
 
 
 def make_executable(path: Path, content: str) -> None:

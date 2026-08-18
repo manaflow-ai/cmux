@@ -73,7 +73,7 @@ cmux_claude_wrapper_hook_reentry_limit=16
 # uses to recognize cmux-owned Hermes hooks. Identity is this pin and nothing
 # else -- never what a command happens to look like -- so a hook cmux did not
 # write is always the user's, even when it runs the very same cmux command.
-# HOOKS_JSON below writes it; keep the two in step.
+# HOOKS_JSON below is templated from this one definition, so the two cannot drift.
 cmux_claude_hook_pin=': cmux-claude-hook-v1;'
 
 cmux_claude_wrapper_settings_value_is_cmux_injected() {
@@ -1112,7 +1112,10 @@ install_cmux_node_options
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":": cmux-claude-hook-v1; \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"__CMUX_HOOK_PIN__ \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+# The single definition of the pin lives in cmux_claude_hook_pin; the template
+# above only marks where it goes, so the two cannot drift apart.
+HOOKS_JSON="${HOOKS_JSON//__CMUX_HOOK_PIN__/$cmux_claude_hook_pin}"
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #
@@ -1184,9 +1187,11 @@ if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
         node -e '
 const fs=require("fs"),os=require("os"),path=require("path");
 const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
-// Same literal as cmux_claude_hook_pin above; the fallback keeps identity working
-// if this helper is ever invoked without that variable in its environment.
-const CMUX_HOOK_PIN=process.env.CMUX_HOOK_PIN||": cmux-claude-hook-v1;";
+// The wrapper passes its one definition of the pin in; without it ownership
+// cannot be decided, and guessing would either strip user hooks or grow the
+// block, so fail into the caller-visible merge fallback instead.
+const CMUX_HOOK_PIN=process.env.CMUX_HOOK_PIN;
+if(!CMUX_HOOK_PIN){process.stderr.write("cmux: --settings merge error: hook pin unavailable\n");process.exit(1);}
 // An incoming --settings that already carries cmux-pinned hooks is cmux output
 // from an earlier wrapper pass (re-entry through a custom Claude Binary Path that
 // resolves `claude` by name, https://github.com/manaflow-ai/cmux/issues/10230).
