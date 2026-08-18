@@ -151169,10 +151169,52 @@
     "settings.app.keepExpandedOnNewTab": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء اللوحة موسّعة عند فتح علامة تبويب جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadrži panel proširen pri otvaranju nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold ruden udvidet ved ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich bei neuem Tab erweitert lassen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Keep Pane Expanded on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener el panel ampliado al abrir una pestaña nueva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder le volet agrandi lors d’un nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni il pannello espanso quando apri una nuova scheda"
           }
         },
         "ja": {
@@ -151180,16 +151222,124 @@
             "state": "translated",
             "value": "新しいタブでもペインの拡大を維持"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាផ្ទាំងពង្រីកនៅពេលបើកផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에서 창 영역 확장 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold ruten utvidet ved ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowaj rozwinięcie panelu przy nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter o painel ampliado ao abrir uma nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранять панель раскрытой при открытии новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คงการขยายบานหน้าต่างไว้เมื่อเปิดแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sekmede bölmeyi genişletilmiş tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберігати панель розгорнутою для нової вкладки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建标签页时保持窗格放大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立新分頁時維持窗格放大"
+          }
         }
       }
     },
     "settings.app.keepExpandedOnNewTab.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي إنشاء علامة تبويب جديدة إلى إعادة مساحة العمل إلى تخطيط التقسيم العادي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kreiranje nove kartice vraća radni prostor na uobičajeni podijeljeni raspored."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oprettelse af en ny fane vender arbejdsområdet tilbage til det normale delte layout."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Erstellen eines neuen Tabs wird der Arbeitsbereich auf das normale Split-Layout zurückgesetzt."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Creating a new tab returns the workspace to the normal split layout."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear una pestaña nueva devuelve el espacio de trabajo al diseño dividido normal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La création d’un nouvel onglet rétablit la disposition fractionnée normale de l’espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La creazione di una nuova scheda riporta l'area di lavoro al normale layout diviso."
           }
         },
         "ja": {
@@ -151197,22 +151347,196 @@
             "state": "translated",
             "value": "新しいタブを作成すると、ワークスペースを通常の分割レイアウトに戻します。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបង្កើតផ្ទាំងថ្មីនឹងត្រឡប់កន្លែងធ្វើការទៅប្លង់បែងចែកធម្មតា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭을 만들면 작업 공간이 일반 분할 레이아웃으로 돌아갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du oppretter en ny fane, går arbeidsområdet tilbake til vanlig delt layout."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utworzenie nowej karty przywraca zwykły układ podzielonego obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar uma nova aba retorna o espaço de trabalho ao layout dividido normal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создание новой вкладки возвращает рабочее пространство к обычному разделённому макету."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสร้างแท็บใหม่จะคืนพื้นที่ทำงานไปยังเลย์เอาต์แบบแบ่งตามปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sekme oluşturmak çalışma alanını normal bölünmüş düzene döndürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Створення нової вкладки повертає робочий простір до звичайного розділеного макета."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建新标签页会将工作区恢复为普通分屏布局。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立新分頁會將工作區恢復為一般分割版面。"
+          }
         }
       }
     },
     "settings.app.keepExpandedOnNewTab.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحافظ علامات التبويب الجديدة التي تُنشأ في لوحة مكبّرة على توسيع اللوحة وتنتقل إليها البؤرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nove kartice kreirane u uvećanom panelu zadržavaju panel proširenim i dobijaju fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner, der oprettes i en zoomet rude, holder ruden udvidet og får fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Tabs in einem vergrößerten Bereich lassen den Bereich erweitert und erhalten den Fokus."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "New tabs created in a zoomed pane keep that pane expanded and take focus."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas nuevas creadas en un panel ampliado mantienen el panel ampliado y reciben el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux onglets créés dans un volet agrandi conservent le volet agrandi et reçoivent le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nuove schede create in un pannello ingrandito mantengono il pannello espanso e ricevono il focus."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "拡大中のペインで新しいタブを作成すると、そのペインの拡大を維持して新しいタブにフォーカスします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងថ្មីដែលបង្កើតក្នុងផ្ទាំងពង្រីក នឹងរក្សាផ្ទាំងនោះឱ្យពង្រីក ហើយទទួលការផ្តោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확대된 창 영역에서 만든 새 탭은 창 영역을 확장된 상태로 유지하고 포커스를 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner som opprettes i en zoomet rute, holder ruten utvidet og får fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe karty utworzone w powiększonym panelu zachowują jego rozwinięcie i otrzymują fokus."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novas abas criadas em um painel ampliado mantêm o painel expandido e recebem foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые вкладки, созданные в увеличенной панели, сохраняют панель раскрытой и получают фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บใหม่ที่สร้างในบานหน้าต่างที่ขยายจะคงบานหน้าต่างไว้ในสถานะขยายและได้รับโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genişletilmiş bir bölmede oluşturulan yeni sekmeler bölmeyi genişletilmiş tutar ve odağı alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нові вкладки, створені в розгорнутій панелі, залишають панель розгорнутою та отримують фокус."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在已放大的窗格中创建的新标签页会保持窗格放大，并获得焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在已放大的窗格中建立的新分頁會維持窗格放大，並取得焦點。"
           }
         }
       }
@@ -190409,16 +190733,124 @@
     "settings.search.alias.setting.app.keep-expanded-on-new-tab": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab لوحة تكبير توسيع علامة تبويب جديدة سطح الحفاظ على التخطيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab panel zum proširen nova kartica površina sačuvaj raspored"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab rude zoom udvidet ny fane overflade bevar layout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab Bereich Zoom erweitert neuer Tab Oberfläche Layout beibehalten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "app.keepExpandedOnNewTab pane zoom expanded new tab surface terminal preserve layout"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab panel zoom ampliado pestaña nueva superficie conservar diseño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab volet zoom agrandi nouvel onglet surface conserver disposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab pannello zoom espanso nuova scheda superficie mantieni layout"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "app.keepExpandedOnNewTab ペイン ズーム 拡大 新しいタブ サーフェス レイアウト 維持"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab ផ្ទាំង ពង្រីក ផ្ទាំងថ្មី រក្សាប្លង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab 창 영역 확대 새 탭 표면 레이아웃 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab rute zoom utvidet ny fane overflate behold layout"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab panel zoom powiększony nowa karta powierzchnia zachowaj układ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab painel zoom ampliado nova aba superfície manter layout"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab панель масштаб раскрытая новая вкладка поверхность сохранить макет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab บานหน้าต่าง ขยาย แท็บใหม่ พื้นผิว รักษาเลย์เอาต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab bölme zoom genişletilmiş yeni sekme yüzey düzeni koru"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab панель масштаб розгорнута нова вкладка поверхня зберегти макет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab 窗格 放大 新标签页 表面 保持 布局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.keepExpandedOnNewTab 窗格 放大 新分頁 表面 維持 版面"
           }
         }
       }
