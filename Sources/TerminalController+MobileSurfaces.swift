@@ -29,9 +29,8 @@ extension TerminalController {
         case .workspaceTodo:
             return .todo
         case .notifications:
-            // Notifications have no dedicated mobile renderer yet; preserve
-            // the panel kind as an open wire value so clients can show their
-            // generic fallback instead of dropping the surface.
+            // Notifications use the open-vocabulary fallback until the phone
+            // provides a native renderer for this panel kind.
             return MobileSurfaceKind(rawValue: "notifications")
         case .cloudVMLoading:
             return .cloudVMLoading
@@ -284,26 +283,11 @@ extension TerminalController {
                     path: nil
                 )
             case .permissionDenied:
-                return mobilePanelArtifactFileError(
-                    code: "permission_denied",
-                    key: "mobile.chat.artifact.error.permissionDenied",
-                    defaultValue: "cmux could not read that file.",
-                    path: v2RawString(params, "path")
-                )
+                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
             case .notRegularFile:
-                return mobilePanelArtifactFileError(
-                    code: "not_regular_file",
-                    key: "mobile.chat.artifact.error.notRegularFile",
-                    defaultValue: "That path is not a regular file.",
-                    path: v2RawString(params, "path")
-                )
+                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
             case .readFailed:
-                return mobilePanelArtifactFileError(
-                    code: "read_failed",
-                    key: "mobile.chat.artifact.error.readFailed",
-                    defaultValue: "cmux could not read that file.",
-                    path: v2RawString(params, "path")
-                )
+                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(
