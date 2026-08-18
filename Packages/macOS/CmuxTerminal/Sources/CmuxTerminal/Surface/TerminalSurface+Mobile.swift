@@ -51,7 +51,8 @@ extension TerminalSurface {
         let posX = (Double(col) + 0.5) * cellWidthPt
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        let precisePixelDelta = deltaLines * Double(size.cell_height_px)
+        ghostty_surface_mouse_scroll(surface, 0, precisePixelDelta, 0b0000_0001)
         didAcceptExplicitInput()
     }
 

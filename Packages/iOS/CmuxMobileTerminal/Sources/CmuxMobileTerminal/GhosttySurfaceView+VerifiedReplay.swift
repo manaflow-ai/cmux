@@ -399,7 +399,11 @@ extension GhosttySurfaceView {
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        frozenLayer.frame = layer.bounds
+        // The container can carry the native-scroll translation, and setting
+        // .frame under a non-identity transform derives wrong geometry; size
+        // via bounds/position instead.
+        frozenLayer.bounds = layer.bounds
+        frozenLayer.position = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
         let oldViewport = verifiedReplayFrozenViewportRect ?? viewportRect
         let contentRect = verifiedReplayFrozenContentLayer?.frame ?? .null
         backgroundLayer.frame = oldViewport.union(viewportRect).union(contentRect)

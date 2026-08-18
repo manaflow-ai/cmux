@@ -69,14 +69,15 @@ extension GhosttySurfaceView {
         let workQueue = outputQueue
         let gate = viewportRestoreGate
         workQueue.async { [weak self] in
-            let scale = max(Double(displayScale), 1)
             let size = ghostty_surface_size(operation.surface)
+            let scale = max(Double(displayScale), 1)
             let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
             let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
             let posX = (Double(max(0, cell.col)) + 0.5) * cellWidthPt
             let posY = (Double(max(0, cell.row)) + 0.5) * cellHeightPt
             ghostty_surface_mouse_pos(operation.surface, posX, posY, GHOSTTY_MODS_NONE)
-            ghostty_surface_mouse_scroll(operation.surface, 0, lines, 0)
+            let precisePixelDelta = lines * Double(size.cell_height_px)
+            ghostty_surface_mouse_scroll(operation.surface, 0, precisePixelDelta, 0b0000_0001)
             gate.withLock {
                 $0.appliedInteractionGeneration = max(
                     $0.appliedInteractionGeneration,
@@ -96,6 +97,12 @@ extension GhosttySurfaceView {
                 self.scheduleVisibleArtifactCountUpdate()
                 self.completePendingLocalScrollDrains()
                 self.pumpLocalScrollbackScroll()
+                if !self.localScrollApplyInFlight {
+                    // The in-flight flag deferred idle resync while this batch
+                    // applied; a drained pump must run the settle it blocked,
+                    // because no further scrollbar action is guaranteed.
+                    self.settleBoundedScrollMechanicsIfPossible()
+                }
             }
         }
     }
