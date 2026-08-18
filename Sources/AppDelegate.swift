@@ -9276,6 +9276,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cmux persists and restores main windows itself. Disable AppKit window
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
+        // Disable AppKit's automatic key-view-loop recalculation. Every pane is wrapped in its own
+        // NSHostingController (bonsplit's SinglePaneWrapper), so a many-pane workspace stacks ~15
+        // nested NSHostingViews. AppKit rebuilds the default key view loop on *every* subview
+        // insertion (AppKitPlatformViewHost.viewDidMoveToSuperview -> -[NSView _setDefaultKeyViewLoop]),
+        // and SwiftUI answers each nested host's acceptsFirstResponder by running a fresh
+        // FocusNavigationSequence over the subtree below it. That work multiplies across the nesting
+        // levels, so mounting a 21-pane workspace pins the main thread for 9s+ and the window never
+        // becomes visible - both on session restore and on workspace switch.
+        // cmux never reads this loop (no nextKeyView / selectNextKeyView / canBecomeKeyView anywhere):
+        // Tab belongs to the shell and pane focus is driven by our own focus system, so turning the
+        // recalculation off removes the trigger without changing observable focus behavior.
+        // Must be set before `contentView` is assigned below, i.e. before any pane mounts.
+        window.autorecalculatesKeyViewLoop = false
         configureCmuxMainWindowDragBehavior(window)
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
