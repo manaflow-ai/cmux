@@ -371,6 +371,7 @@ jobs:
       - typescript-preflight
       - python-preflight
       - registry-preflight
+      - credential-environment-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read
@@ -529,10 +530,8 @@ jobs:
 
   credential-environment-preflight:
     name: verify credential environment policy
-    needs:
-      - revalidate-tags
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -554,7 +553,6 @@ jobs:
     needs:
       - validate-release
       - revalidate-tags
-      - credential-environment-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions: {}
