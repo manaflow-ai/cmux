@@ -53,7 +53,7 @@ use cmux_tui_cdp::BrowserMode;
 
 #[cfg(test)]
 mod color_environment_tests {
-    use super::resolve_terminal_name;
+    use super::{SurfaceOptions, resolve_terminal_name};
 
     #[test]
     fn prefers_ghostty_term_when_terminfo_is_available() {
@@ -68,6 +68,57 @@ mod color_environment_tests {
     #[test]
     fn explicit_term_always_wins() {
         assert_eq!(resolve_terminal_name(Some("screen-256color"), true), "screen-256color");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_preserves_explicit_term_without_running_infocmp() {
+        const CHILD_ENV: &str = "CMUX_SURFACE_DEFAULT_TERM_CHILD";
+        const MARKER_ENV: &str = "CMUX_SURFACE_DEFAULT_TERM_MARKER";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let term = SurfaceOptions::default().term;
+            assert_eq!(term, "surface-test-term");
+            let marker = std::env::var_os(MARKER_ENV).expect("infocmp marker path");
+            assert!(!std::path::Path::new(&marker).exists(), "Default ran infocmp");
+            return;
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-surface-default-infocmp-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let infocmp = root.join("infocmp");
+        let marker = root.join("invoked");
+        std::fs::write(
+            &infocmp,
+            "#!/bin/sh\nprintf invoked > \"$CMUX_SURFACE_DEFAULT_TERM_MARKER\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&infocmp, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg(
+                "surface::color_environment_tests::default_preserves_explicit_term_without_running_infocmp",
+            )
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .env(MARKER_ENV, &marker)
+            .env("PATH", &root)
+            .env("CMUX_TUI_TERM", "surface-test-term")
+            .env_remove("CMUX_MUX_TERM")
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            output.status.success(),
+            "SurfaceOptions default child failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
 
