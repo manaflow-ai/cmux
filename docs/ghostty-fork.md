@@ -12,12 +12,30 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
-saved cursors while formatter replay restores the active cursor after margins,
-origin mode, and tabstop state. The pin includes the prior fork changes below,
-including VT stream-boundary visibility at `9513174f2` and Hangul canonical
-font resolution at `3fbdd078d`.
+The submodule pinned by this branch is `987780a132`, which is on fork `main`
+after https://github.com/manaflow-ai/ghostty/pull/201. It includes the prior
+fork changes below, including the `f76c132e5` formatter/cursor line, VT
+stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
+at `3fbdd078d`.
+
+### Conditional cmux theme encoding
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/201
+- Commits:
+  - `afd50666b` (test: cover two-sided cmux theme encoding)
+  - `987780a13` (fix: emit both sides for cmux theme selections)
+- File: `src/cli/list_themes.zig`
+- Summary:
+  - Ghostty's conditional `theme` syntax requires both `light:` and `dark:`
+    entries. The cmux picker now duplicates a selected side when the opposite
+    side is unavailable, so live preview and Enter apply a parser-valid value.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/10068
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-987780a132a33fd69ab800b09e254b4584537d04-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `6f7a62fbc9ae63e85f12b78e42c0f8a8d7abecb07df13cf6d2a7d0c95dad91fd`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### VT formatter cursor restoration after margins
 
