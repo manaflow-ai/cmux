@@ -17,6 +17,7 @@ import Foundation
 public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hashable, Sendable {
     public let rawValue: String
 
+    /// Wraps a stored token, including one this build does not know.
     public init(rawValue: String) {
         self.rawValue = rawValue
     }

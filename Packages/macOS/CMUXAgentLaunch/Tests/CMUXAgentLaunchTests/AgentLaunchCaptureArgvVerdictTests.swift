@@ -4,8 +4,9 @@ import Testing
 
 @Suite("Agent launch capture argv verdict")
 struct AgentLaunchCaptureArgvVerdictTests {
+    /// The ordinary case: the PID resolved to the agent the hook belongs to.
     @Test func trustsAnArgvThatDescribesTheKind() {
-        let verdict = AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
+        let verdict = AgentLaunchCaptureArgvVerdict(
             processName: "codex",
             arguments: ["/usr/local/bin/codex", "resume", "abc"],
             kind: "codex"
@@ -17,7 +18,7 @@ struct AgentLaunchCaptureArgvVerdictTests {
     /// test host, the cmux app itself). The record must say so rather than only
     /// that it holds no argv.
     @Test func namesTheGroundWhenTheProcessDescribesAnotherAgent() {
-        let verdict = AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
+        let verdict = AgentLaunchCaptureArgvVerdict(
             processName: "claude",
             arguments: ["/usr/local/bin/claude", "--resume", "abc"],
             kind: "codex"
@@ -25,20 +26,23 @@ struct AgentLaunchCaptureArgvVerdictTests {
         #expect(verdict == .rejected(.nativeProcessDoesNotDescribeKind))
     }
 
-    /// The PID resolved to the hook's own dispatch shell. The process name still
-    /// describes the kind, so only the argv gives it away.
-    @Test func namesTheGroundWhenTheArgvIsAShellDispatcher() {
-        let verdict = AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
-            processName: "codex",
+    /// The PID resolved to a shell dispatcher, typically the hook's own. The
+    /// ground holds whether the process name still points at the agent or has
+    /// already become the shell: a `-c` invocation is not a launch either way.
+    @Test(arguments: ["codex", "zsh", nil] as [String?])
+    func namesTheGroundWhenTheArgvIsAShellDispatcher(processName: String?) {
+        let verdict = AgentLaunchCaptureArgvVerdict(
+            processName: processName,
             arguments: ["/bin/zsh", "-lc", "codex resume abc"],
             kind: "codex"
         )
         #expect(verdict == .rejected(.argvLooksLikeShellWrapper))
     }
 
+    /// The PID was unresolved or the process had already exited.
     @Test(arguments: [nil, []] as [[String]?])
     func namesTheGroundWhenThereIsNoArgvToJudge(arguments: [String]?) {
-        let verdict = AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
+        let verdict = AgentLaunchCaptureArgvVerdict(
             processName: nil,
             arguments: arguments,
             kind: "codex"
@@ -63,7 +67,7 @@ struct AgentLaunchCaptureArgvVerdictTests {
                     arguments: arguments,
                     kind: kind
                 ) && !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments)
-                let verdict = AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
+                let verdict = AgentLaunchCaptureArgvVerdict(
                     processName: processName,
                     arguments: arguments,
                     kind: kind

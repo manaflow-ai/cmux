@@ -28746,7 +28746,7 @@ struct CMUXCLI {
         var processArguments: [String]?
         if let fallbackPID {
             let pid = pid_t(fallbackPID)
-            switch AgentLaunchCaptureTrust.nativeProcessArgvVerdict(
+            switch AgentLaunchCaptureArgvVerdict(
                 processName: processName(for: pid),
                 arguments: self.processArguments(for: pid),
                 kind: fallbackKind
@@ -28774,6 +28774,27 @@ struct CMUXCLI {
             ? normalizedHookValue(env["HOME"])
             : nil
 
+        // A record that carries no argv. The three branches that build one differ only in what they
+        // can still salvage (an executable path, a replay environment) and in the ground they name.
+        func argvLessRecord(
+            executablePath: String?,
+            environment: [String: String]?,
+            source: String,
+            rejectionReason: AgentLaunchCaptureRejectionReason
+        ) -> AgentHookLaunchCommandRecord {
+            AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                executablePath: executablePath,
+                arguments: [],
+                workingDirectory: workingDirectory,
+                environment: environment,
+                verificationHome: verificationHome,
+                capturedAt: Date().timeIntervalSince1970,
+                source: source,
+                rejectionReason: rejectionReason
+            )
+        }
+
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
         // The argv is gone, but the agent's launch env may still carry a non-default home that
@@ -28788,16 +28809,17 @@ struct CMUXCLI {
             rejectionReason: AgentLaunchCaptureRejectionReason
         ) -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default", rejectionReason: rejectionReason) : nil
+                guard fallbackKind == "codex" else { return nil }
+                return argvLessRecord(
+                    executablePath: nil,
+                    environment: nil,
+                    source: "default",
+                    rejectionReason: rejectionReason
+                )
             }
-            return AgentHookLaunchCommandRecord(
-                launcher: launcher,
+            return argvLessRecord(
                 executablePath: nil,
-                arguments: [],
-                workingDirectory: workingDirectory,
                 environment: environment,
-                verificationHome: verificationHome,
-                capturedAt: Date().timeIntervalSince1970,
                 source: "environment",
                 rejectionReason: rejectionReason
             )
@@ -28816,7 +28838,12 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected", rejectionReason: .sanitizerRejectedArgv)
+            return argvLessRecord(
+                executablePath: executablePath,
+                environment: nil,
+                source: "rejected",
+                rejectionReason: .sanitizerRejectedArgv
+            )
         }
         let source = envArguments == nil ? "process" : "environment"
 

@@ -3982,22 +3982,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         // Persist the rejection marker so reload cannot treat it as a plain default Codex hook.
-        if let data = try? Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json")),
-           let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessions = storeJSON["sessions"] as? [String: Any],
-           let persisted = sessions[sessionId] as? [String: Any] {
-            let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any]); XCTAssertEqual(launchCommand["source"] as? String, "rejected")
-            XCTAssertEqual(
-                launchCommand["rejectionReason"] as? String,
-                "sanitizerRejectedArgv",
-                "a rejected capture must record the ground it was rejected on; launchCommand=\(launchCommand)"
-            )
-            let env = launchCommand["environment"] as? [String: String]
-            XCTAssertNil(
-                env?["CODEX_HOME"],
-                "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
-            )
-        }
+        // Unwrapped rather than pattern-matched: a store the hook never wrote is a failure of
+        // this test's subject, not a reason to skip its assertions.
+        let data = try Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json"))
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any])
+        XCTAssertEqual(launchCommand["source"] as? String, "rejected")
+        XCTAssertEqual(
+            launchCommand["rejectionReason"] as? String,
+            "sanitizerRejectedArgv",
+            "a rejected capture must record the ground it was rejected on; launchCommand=\(launchCommand)"
+        )
+        let env = launchCommand["environment"] as? [String: String]
+        XCTAssertNil(
+            env?["CODEX_HOME"],
+            "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+        )
     }
 
     private func writeHermesStateDatabase(
