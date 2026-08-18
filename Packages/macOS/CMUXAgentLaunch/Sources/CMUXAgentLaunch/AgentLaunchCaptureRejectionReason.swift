@@ -46,4 +46,28 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// rejected option, a wrapper launcher that cannot be replayed). This is
     /// the ground behind a stored `source: "rejected"`.
     public static let sanitizerRejectedArgv = Self(rawValue: "sanitizerRejectedArgv")
+
+    /// The ground a record names when a hook had two argv candidates and
+    /// discarded both: the `CMUX_AGENT_LAUNCH_*` capture cmux wrote at launch,
+    /// and the argv read back from the hook's PID.
+    ///
+    /// The cmux capture wins. Not because it comes first, but because the
+    /// fallback's ground is frequently an artefact of how the hook itself was
+    /// dispatched — hooks run under `sh -c …`, so its argv reads as a shell
+    /// wrapper for reasons that have nothing to do with the agent. Letting that
+    /// override the capture verdict would systematically hide
+    /// `launcherDoesNotDescribeKind`, the ancestor-leak case this field exists
+    /// to expose, behind a detail of cmux's own plumbing. The fallback speaks
+    /// only when there was no cmux capture to reject.
+    ///
+    /// - Parameters:
+    ///   - cmuxCapture: The ground the `CMUX_AGENT_LAUNCH_*` capture was discarded on, if it was.
+    ///   - processFallback: The ground the PID-derived argv was discarded on, if it was.
+    /// - Returns: The ground to store, defaulting to `argvUnavailable` when neither candidate existed.
+    public static func recorded(
+        cmuxCapture: Self?,
+        processFallback: Self?
+    ) -> Self {
+        cmuxCapture ?? processFallback ?? .argvUnavailable
+    }
 }

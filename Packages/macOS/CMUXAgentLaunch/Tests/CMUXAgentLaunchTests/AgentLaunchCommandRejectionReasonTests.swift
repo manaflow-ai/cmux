@@ -89,6 +89,9 @@ struct AgentLaunchCommandRejectionReasonTests {
         let object = try #require(
             try JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
         )
+        // The argv is what the rewrite must not lose: dropping the contradicting
+        // ground is the point, dropping the launch would be a new defect.
+        #expect(object["arguments"] as? [String] == ["/usr/local/bin/codex", "--yolo"])
         #expect(object["rejectionReason"] == nil)
     }
 

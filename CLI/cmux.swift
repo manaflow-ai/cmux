@@ -28734,18 +28734,18 @@ struct CMUXCLI {
             envLauncher,
             kind: fallbackKind
         )
-        // The ground an argv was discarded on, kept so a record that ends up storing no argv says
-        // why instead of only that it has none. The env capture and the PID fallback are two
-        // different candidates rather than two grounds for one, so the env capture — the one cmux
-        // itself recorded at launch — names the record when both were discarded; the fallback only
-        // speaks when there was no cmux capture to reject. Grounds competing over the SAME argv are
-        // ordered inside AgentLaunchCaptureArgvVerdict.
-        var argvRejectionReason: AgentLaunchCaptureRejectionReason?
+        // The ground each argv candidate was discarded on, kept so a record that ends up storing no
+        // argv says why instead of only that it has none. The two are tracked apart because they
+        // are different candidates rather than two grounds for one argv; which of them names the
+        // record is AgentLaunchCaptureRejectionReason.recorded's rule, and grounds competing over
+        // the SAME argv are ordered inside AgentLaunchCaptureArgvVerdict.
+        var cmuxCaptureRejectionReason: AgentLaunchCaptureRejectionReason?
+        var processFallbackRejectionReason: AgentLaunchCaptureRejectionReason?
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
         if !envCaptureIsTrusted, normalizedHookValue(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) != nil {
-            argvRejectionReason = .launcherDoesNotDescribeKind
+            cmuxCaptureRejectionReason = .launcherDoesNotDescribeKind
         }
         var processArguments: [String]?
         if let fallbackPID {
@@ -28761,7 +28761,7 @@ struct CMUXCLI {
                 // The PID fallback resolved to something that is not this
                 // agent's launch: an unrelated process, or a shell dispatcher
                 // (e.g. the hook's own `sh -c …` wrapper).
-                argvRejectionReason = argvRejectionReason ?? reason
+                processFallbackRejectionReason = reason
             }
         }
         let arguments = envArguments ?? processArguments
@@ -28829,7 +28829,12 @@ struct CMUXCLI {
         }
 
         guard let arguments, !arguments.isEmpty else {
-            return environmentOnlyRecord(rejectionReason: argvRejectionReason ?? .argvUnavailable)
+            return environmentOnlyRecord(
+                rejectionReason: AgentLaunchCaptureRejectionReason.recorded(
+                    cmuxCapture: cmuxCaptureRejectionReason,
+                    processFallback: processFallbackRejectionReason
+                )
+            )
         }
 
         let executablePath = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) : nil)

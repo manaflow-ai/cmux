@@ -92,6 +92,47 @@ struct AgentLaunchCaptureArgvVerdictTests {
         #expect(verdict == .rejected(.argvUnavailable))
     }
 
+    /// Two candidates, both discarded: the cmux launch capture names the record.
+    /// The fallback's ground is often an artefact of the hook's own dispatch —
+    /// hooks run under `sh -c …`, so a PID fallback reads as a shell wrapper for
+    /// reasons unrelated to the agent — and letting it win would bury the
+    /// ancestor-leak case the field exists to expose.
+    @Test func theCmuxCaptureNamesTheRecordWhenBothCandidatesWereDiscarded() {
+        #expect(
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: .launcherDoesNotDescribeKind,
+                processFallback: .argvLooksLikeShellWrapper
+            ) == .launcherDoesNotDescribeKind
+        )
+    }
+
+    /// With no cmux capture to reject, the fallback is the only candidate there
+    /// was, so its ground is the record's.
+    @Test func theFallbackNamesTheRecordWhenThereWasNoCmuxCapture() {
+        #expect(
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: nil,
+                processFallback: .argvLooksLikeShellWrapper
+            ) == .argvLooksLikeShellWrapper
+        )
+        #expect(
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: nil,
+                processFallback: .nativeProcessDoesNotDescribeKind
+            ) == .nativeProcessDoesNotDescribeKind
+        )
+    }
+
+    /// Neither candidate existed: nothing was rejected, there was nothing to read.
+    @Test func noCandidateAtAllIsItsOwnGround() {
+        #expect(
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: nil,
+                processFallback: nil
+            ) == .argvUnavailable
+        )
+    }
+
     /// The verdict only names grounds; it must not widen or narrow which argv
     /// the hook was already willing to trust.
     @Test func trustDecisionMatchesTheChecksItWraps() {
