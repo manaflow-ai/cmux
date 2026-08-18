@@ -244,6 +244,52 @@ final class FinderFileDropRegressionTests: XCTestCase {
         XCTAssertFalse(text.contains("/clipboard-"))
     }
 
+    func testTransientImageFileURLDropGetsAnOwnedCopyBeforeInsertion() throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-drop-\(UUID().uuidString).png")
+        try make1x1PNG(color: .systemPurple).write(to: sourceURL)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-drop-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-test-transient-image-drop-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([sourceURL as NSURL]))
+
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDirectory
+        )
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .drop,
+            pasteboardService: service
+        )
+
+        guard case .fileURLs(let fileURLs) = prepared,
+              let ownedURL = fileURLs.first else {
+            return XCTFail("expected a durable image file URL, got \(prepared)")
+        }
+        XCTAssertNotEqual(ownedURL.standardizedFileURL, sourceURL.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ownedURL.path))
+
+        try FileManager.default.removeItem(at: sourceURL)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: ownedURL.path),
+            "The terminal path must survive the source drag provider's cleanup"
+        )
+
+        service.cleanupTransferredTemporaryImageFiles([ownedURL])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ownedURL.path))
+    }
+
     func testImageFileURLDropUploadsOriginalFilesForRemoteTerminal() throws {
         let imageDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux remote image file drop \(UUID().uuidString)")

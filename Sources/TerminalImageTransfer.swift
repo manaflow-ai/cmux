@@ -413,7 +413,10 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent {
-        let fileURLs = fileURLs(from: pasteboard)
+        let fileURLs = durableDroppedFileURLs(
+            fileURLs(from: pasteboard),
+            pasteboardService: pasteboardService
+        )
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
         }
@@ -475,7 +478,10 @@ enum TerminalImageTransferPlanner {
         from pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> [URL] {
-        let urls = fileURLs(from: pasteboard)
+        let urls = durableDroppedFileURLs(
+            fileURLs(from: pasteboard),
+            pasteboardService: pasteboardService
+        )
         if !urls.isEmpty {
             return urls
         }
@@ -487,6 +493,50 @@ enum TerminalImageTransferPlanner {
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         PasteboardFileURLReader.fileURLs(from: pasteboard)
+    }
+
+    /// Rehomes transient image URLs before a terminal receives their path.
+    /// Finder-owned paths remain unchanged; only the temporary names emitted
+    /// by image providers need an owned copy to survive the drag/paste handoff.
+    static func durableDroppedFileURLs(
+        _ fileURLs: [URL],
+        pasteboardService: TerminalPasteboardService
+    ) -> [URL] {
+        fileURLs.compactMap { fileURL in
+            guard isTransientImageFileURL(
+                fileURL,
+                pasteboardService: pasteboardService
+            ) else {
+                return fileURL
+            }
+            return pasteboardService.copyTemporaryImageFile(fileURL)
+        }
+    }
+
+    private static func isTransientImageFileURL(
+        _ fileURL: URL,
+        pasteboardService: TerminalPasteboardService
+    ) -> Bool {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard normalizedURL.isFileURL,
+              let type = UTType(filenameExtension: normalizedURL.pathExtension),
+              type.conforms(to: .image) else {
+            return false
+        }
+
+        let path = normalizedURL.path
+        let serviceTemporaryPath = pasteboardService.temporaryDirectory
+            .standardizedFileURL.path
+        let systemTemporaryPath = FileManager.default.temporaryDirectory
+            .standardizedFileURL.path
+        let isTemporaryPath = path == serviceTemporaryPath
+            || path.hasPrefix(serviceTemporaryPath + "/")
+            || path == systemTemporaryPath
+            || path.hasPrefix(systemTemporaryPath + "/")
+        guard isTemporaryPath else { return false }
+
+        let filename = normalizedURL.lastPathComponent.lowercased()
+        return filename.hasPrefix("cmux-drop-")
     }
 
     private static func finishUpload(
