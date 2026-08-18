@@ -129,7 +129,18 @@ struct CLISSHSessionAttachAnchorTests {
             switch method {
             case "workspace.remote.pty_sessions":
                 // ssh-session-attach resolves the session's owning workspace
-                // before creating anything.
+                // before creating anything. A workspace-scoped lookup cannot see
+                // sessions owned elsewhere, so a session is only returned to the
+                // cross-workspace form.
+                let params = Self.jsonObject(line)?["params"] as? [String: Any] ?? [:]
+                guard params["all_workspaces"] as? Bool == true else {
+                    return Self.v2Response(id: id, ok: true, result: [
+                        "all_workspaces": false,
+                        "workspace_count": 1,
+                        "sessions": [[String: Any]](),
+                        "errors": [[String: Any]](),
+                    ])
+                }
                 return Self.v2Response(id: id, ok: true, result: [
                     "all_workspaces": true,
                     "workspace_count": 1,

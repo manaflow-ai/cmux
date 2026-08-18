@@ -284,6 +284,16 @@ struct CLISSHSessionAttachSessionValidationTests {
             let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
             case "workspace.remote.pty_sessions":
+                // A workspace-scoped lookup cannot see sessions owned elsewhere,
+                // so a session is only returned to the cross-workspace form.
+                guard params["all_workspaces"] as? Bool == true else {
+                    return Self.v2Response(id: id, ok: true, result: [
+                        "all_workspaces": false,
+                        "workspace_count": 1,
+                        "sessions": [[String: Any]](),
+                        "errors": [[String: Any]](),
+                    ])
+                }
                 return Self.v2Response(id: id, ok: true, result: [
                     "all_workspaces": true,
                     "workspace_count": 1,
