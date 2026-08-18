@@ -31,12 +31,12 @@ struct MobileTaskModelParserTests {
                 id: "anthropic/claude-sonnet-5",
                 displayName: "Claude Sonnet 5",
                 efforts: [
+                    MobileTaskModelEffort(id: "none", displayName: "None"),
                     MobileTaskModelEffort(id: "low", displayName: "Low"),
                     MobileTaskModelEffort(id: "medium", displayName: "Medium"),
                     MobileTaskModelEffort(id: "high", displayName: "High"),
                     MobileTaskModelEffort(id: "xhigh", displayName: "Xhigh"),
                     MobileTaskModelEffort(id: "max", displayName: "Max"),
-                    MobileTaskModelEffort(id: "none", displayName: "None"),
                 ]
             ),
             MobileTaskModel(id: "opencode/big-pickle", displayName: "Big Pickle"),

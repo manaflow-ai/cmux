@@ -49,7 +49,9 @@ public struct MobileTaskModelParser: Sendable {
             let name = (object["name"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let variants = object["variants"] as? [String: Any] ?? [:]
-            let efforts = variants.keys.sorted().compactMap(Self.effort(from:))
+            let efforts = variants.keys
+                .sorted(by: Self.effortPrecedes)
+                .compactMap(Self.effort(from:))
             models.append(MobileTaskModel(
                 id: id,
                 displayName: name.flatMap { $0.isEmpty ? nil : $0 } ?? id,
@@ -215,6 +217,32 @@ public struct MobileTaskModelParser: Sendable {
         let words = id.replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
         return MobileTaskModelEffort(id: id, displayName: words.capitalized)
+    }
+
+    /// Orders OpenCode's variant keys like the other providers' effort lists.
+    /// OpenCode emits variants as a JSON object, so dictionary iteration does
+    /// not carry the provider's intended low-to-max order into Swift.
+    private static func effortPrecedes(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsRank = effortRank(lhs)
+        let rhsRank = effortRank(rhs)
+        guard lhsRank == rhsRank else { return lhsRank < rhsRank }
+        return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+    }
+
+    private static func effortRank(_ rawValue: String) -> Int {
+        let normalized = rawValue
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+        switch normalized {
+        case "none": return 0
+        case "low": return 1
+        case "medium": return 2
+        case "high": return 3
+        case "xhigh": return 4
+        case "max": return 5
+        default: return 6
+        }
     }
 
     private func uniqueModels(_ models: [MobileTaskModel]) -> [MobileTaskModel] {
