@@ -96,6 +96,7 @@ enum GhosttyNotificationKey {
     static let explicitFocusIntent = "ghostty.explicitFocusIntent"
     static let focusTransactionId = "ghostty.focusTransactionId"
     static let title = "ghostty.title"
+    static let stableTitle = "ghostty.stableTitle"
     static let sourceSurfaceIdentifier = "ghostty.sourceSurfaceIdentifier"
     static let terminalLifecycleID = "ghostty.terminalLifecycleId"
     static let backgroundColor = "ghostty.backgroundColor"

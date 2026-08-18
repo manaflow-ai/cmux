@@ -40,7 +40,10 @@ struct GhosttyTitleUpdateIngressTests {
         ))
     }
 
-    @Test func spinnerFramesCollapseBeforeAsyncStreamEnqueue() {
+    /// Frames are forwarded, not collapsed, so the tab label keeps animating.
+    /// The saving comes from what they carry, not from dropping them.
+    /// https://github.com/manaflow-ai/cmux/issues/10348
+    @Test func spinnerFramesAreForwardedSoTheTabLabelKeepsAnimating() {
         let ingress = GhosttyTitleUpdateIngress()
         let tabId = UUID()
         let surfaceId = UUID()
@@ -48,15 +51,14 @@ struct GhosttyTitleUpdateIngressTests {
         let terminalLifecycleID = UUID()
         let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-        for (index, frame) in frames.enumerated() {
-            let submitted = ingress.submit(
+        for frame in frames {
+            #expect(ingress.submit(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 sourceSurfaceIdentifier: sourceIdentifier,
                 terminalLifecycleID: terminalLifecycleID,
                 title: "\(frame) pnpm install"
-            )
-            #expect(submitted == (index == 0))
+            ))
         }
 
         #expect(ingress.submit(
@@ -66,6 +68,71 @@ struct GhosttyTitleUpdateIngressTests {
             terminalLifecycleID: terminalLifecycleID,
             title: "⠋ pnpm run build"
         ))
+    }
+
+    /// A repeated identical frame still dedups; only genuinely new frames pass.
+    @Test func repeatedIdenticalFrameIsStillRejected() {
+        let ingress = GhosttyTitleUpdateIngress()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let sourceIdentifier = ObjectIdentifier(NSObject())
+        let terminalLifecycleID = UUID()
+
+        #expect(ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID,
+            title: "⠋ pnpm install"
+        ))
+        #expect(!ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID,
+            title: "⠋ pnpm install"
+        ))
+    }
+
+    /// The whole point: consecutive frames differ in `title` so the tab redraws,
+    /// and agree on `stableTitle` so every expensive consumer can skip them.
+    @Test func consecutiveFramesShareOneStableTitle() {
+        let frames = ["⠋", "⠙", "⠹"].map { frame in
+            GhosttyTitleChange(
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "\(frame) pnpm install",
+                stableTitle: "pnpm install"
+            )
+        }
+
+        #expect(Set(frames.map(\.title)).count == 3)
+        #expect(Set(frames.map(\.stableTitle)) == ["pnpm install"])
+        #expect(frames.allSatisfy(\.isSpinnerFrameOnly))
+    }
+
+    @Test func aRealLabelChangeIsNotMarkedSpinnerOnly() {
+        let change = GhosttyTitleChange(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "pnpm run build",
+            stableTitle: "pnpm run build"
+        )
+
+        #expect(!change.isSpinnerFrameOnly)
+    }
+
+    /// A payload from a legacy in-process post carries no stable title. Treating
+    /// it as a real change is the safe direction: stale chrome beats churn.
+    @Test func missingStableTitleFallsBackToTheRawTitle() {
+        let change = GhosttyTitleChange(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "⠋ pnpm install"
+        )
+
+        #expect(change.stableTitle == "⠋ pnpm install")
+        #expect(!change.isSpinnerFrameOnly)
     }
 
     @Test func retiringAttachmentAllowsItsFirstRepeatedTitleAfterReattach() {
