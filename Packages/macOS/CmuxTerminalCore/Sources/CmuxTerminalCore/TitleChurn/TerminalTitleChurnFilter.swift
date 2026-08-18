@@ -29,17 +29,29 @@ public struct TerminalTitleChurnFilter: Sendable {
         }
         guard !remainder.isEmpty else { return nil }
         guard let labelStart = remainder.first,
-              brailleScalarValue(for: labelStart) == nil else {
+              brailleScalarValue(for: labelStart) == nil,
+              !isKnownSpinnerFrame(labelStart) else {
             return rawTitle
         }
         return String(remainder)
     }
 
     private func isKnownSpinnerFrame(_ character: Character) -> Bool {
-        guard let value = brailleScalarValue(for: character) else { return false }
+        guard character.unicodeScalars.count == 1,
+              let value = character.unicodeScalars.first?.value else {
+            return false
+        }
         switch value {
+        // Braille "dots" frames.
         case 0x280B, 0x2819, 0x2839, 0x2838, 0x283C,
              0x2834, 0x2826, 0x2827, 0x2807, 0x280F:
+            return true
+        // Asterisk frames. Claude Code animates these, so on an agent-heavy
+        // window they are the frames that actually churn.
+        case 0x2731...0x273D:
+            return true
+        // Half-filled and quadrant circle frames.
+        case 0x25D0...0x25D3, 0x25F4...0x25F7:
             return true
         default:
             return false
