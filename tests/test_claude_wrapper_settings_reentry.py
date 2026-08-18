@@ -23,6 +23,8 @@ from node_runtime import ensure_node_on_path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 CMUX_HOOK_FEED_COMMAND = "hooks feed --source claude"
+# cmux pins the hook commands it injects; anything without the pin is the user's.
+CMUX_HOOK_PIN = ": cmux-claude-hook-v1; "
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -254,15 +256,15 @@ def test_reentry_does_not_duplicate_injected_hooks(failures: list[str]) -> None:
 
 
 def test_reentry_preserves_user_settings(failures: list[str]) -> None:
-    # These two run cmux's own hook binary with commands cmux never injects, the
-    # second one right next to an injected command shape. The wrapper must
-    # recognise its own block by the exact commands it is injecting, or it
-    # deletes a user hook on every merge.
+    # Hooks the user authored that resemble cmux's own to increasing degrees:
+    # same binary variable, then the same `hooks claude` shape, then the exact
+    # command cmux injects with a different timeout, then a byte-identical copy
+    # of an injected hook. None of them carries cmux's pin, so all four are the
+    # user's and must survive every pass untouched.
     user_bin_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" notify --title mine'
     user_hooks_claude_hook = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude audit'
-    # Same command cmux injects, but the user's own timeout: their configuration
-    # must survive rather than be replaced by cmux's copy of that command.
     cmux_stop_command = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude stop'
+    cmux_session_start_command = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude session-start'
     user_settings = {
         "model": "user-selected-model",
         "hooks": {
@@ -276,7 +278,16 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
                         {"type": "command", "command": cmux_stop_command, "timeout": 90},
                     ],
                 }
-            ]
+            ],
+            # Byte-identical to cmux's own SessionStart hook, pin excluded.
+            "SessionStart": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {"type": "command", "command": cmux_session_start_command, "timeout": 10},
+                    ],
+                }
+            ],
         },
     }
     run = run_reentry(argv=["--settings", json.dumps(user_settings)], break_after=3)
@@ -313,6 +324,23 @@ def test_reentry_preserves_user_settings(failures: list[str]) -> None:
         if len(user_timeouts) != 1:
             failures.append(
                 f"pass {index} kept {len(user_timeouts)} copies of the user's own timeout on cmux's stop command, expected 1"
+            )
+        # The user's unpinned twin of an injected hook survives alongside cmux's
+        # pinned one, exactly as it was written: two hooks run that command, one
+        # pinned by cmux and one the user's, and the user's is byte-identical to
+        # what they passed in.
+        session_start_hooks = [
+            hook for hook in collect_hooks(settings) if hook.get("command", "").endswith("hooks claude session-start")
+        ]
+        pinned = [hook for hook in session_start_hooks if hook.get("command", "").startswith(CMUX_HOOK_PIN)]
+        unpinned = [hook for hook in session_start_hooks if not hook.get("command", "").startswith(CMUX_HOOK_PIN)]
+        if unpinned != [{"type": "command", "command": cmux_session_start_command, "timeout": 10}]:
+            failures.append(
+                f"pass {index} did not keep the user's copy of cmux's session-start hook verbatim: {unpinned!r}"
+            )
+        if len(pinned) != 1:
+            failures.append(
+                f"pass {index} carried {len(pinned)} pinned session-start hooks alongside the user's copy, expected 1"
             )
         cmux_hook_count = count_cmux_hook_commands(settings)
         if cmux_hook_count != 3:
