@@ -1,6 +1,91 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.buildType.beta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータ"
+          }
+        }
+      }
+    },
+    "mobile.buildType.demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモ"
+          }
+        }
+      }
+    },
+    "mobile.buildType.dev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発"
+          }
+        }
+      }
+    },
+    "mobile.buildType.internal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "社内"
+          }
+        }
+      }
+    },
+    "mobile.buildType.prod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prod"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番"
+          }
+        }
+      }
+    },
     "auth.error.apple_config": {
       "extractionState": "manual",
       "localizations": {
@@ -10729,6 +10814,27 @@
         }
       }
     },
+    "mobile.taskComposer.agent.error.claudeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claudeを利用できません" } }
+      }
+    },
+    "mobile.taskComposer.agent.error.codexUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codexを利用できません" } }
+      }
+    },
+    "mobile.taskComposer.agent.error.openCodeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCodeを利用できません" } }
+      }
+    },
     "mobile.taskComposer.button.accessibilityHint": {
       "extractionState": "manual",
       "localizations": {
@@ -12123,6 +12229,47 @@
         }
       }
     },
+    "mobile.taskComposer.effort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考レベル"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.effort.error.queryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t load efforts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "思考レベルを読み込めませんでした" } }
+      }
+    },
+    "mobile.taskComposer.effort.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chooses the effort supported by the selected model."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したモデルが対応する思考レベルを選択します。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.model": {
       "extractionState": "manual",
       "localizations": {
@@ -12189,6 +12336,27 @@
             "value": "モデルを読み込み中"
           }
         }
+      }
+    },
+    "mobile.taskComposer.model.error.providerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent models unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントのモデルを利用できません" } }
+      }
+    },
+    "mobile.taskComposer.model.error.queryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t load models" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モデルを読み込めませんでした" } }
+      }
+    },
+    "mobile.taskComposer.model.error.hostUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macを利用できません" } }
       }
     },
     "mobile.taskComposer.openingShell": {

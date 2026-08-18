@@ -363,8 +363,8 @@ export const cloudVmBaseEvents = pgTable(
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
  * the mere presence of a row for a user means "this user wants phone pushes".
- * Keyed unique by `deviceToken` so a device re-registering (e.g. after an
- * account switch) updates its `userId` instead of duplicating.
+ * Keyed unique by `(bundleId, deviceToken)` so re-registering one exact app
+ * updates its user without allowing another installed app to overwrite it.
  */
 export const deviceTokens = pgTable(
   "device_tokens",
@@ -386,7 +386,11 @@ export const deviceTokens = pgTable(
   },
   (table) => [
     index("device_tokens_user_idx").on(table.userId),
-    uniqueIndex("device_tokens_device_token_unique").on(table.deviceToken),
+    index("device_tokens_user_bundle_idx").on(table.userId, table.bundleId),
+    uniqueIndex("device_tokens_bundle_token_unique").on(
+      table.bundleId,
+      table.deviceToken,
+    ),
   ],
 );
 
@@ -930,6 +934,7 @@ export const irohEndpointBindings = pgTable(
     userId: text("user_id").notNull(),
     deviceUuid: uuid("device_uuid").notNull(),
     appInstanceId: uuid("app_instance_id").notNull(),
+    clientNamespace: text("client_namespace").notNull().default("legacy"),
     tag: text("tag").notNull(),
     platform: text("platform").notNull(),
     displayName: text("display_name"),
@@ -952,6 +957,7 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
     check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_endpoint_bindings_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
@@ -961,7 +967,8 @@ export const irohEndpointBindings = pgTable(
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),
-    // One active binding per (user, device, tag) slot. A reinstall, sign-out/in,
+    // One active binding per (user, client namespace, device, tag) slot. A
+    // reinstall, sign-out/in,
     // or key rotation overwrites that slot in place instead of stacking a new row.
     // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
     // mints a fresh slot and orphans the old row (it stays active, wasting a
@@ -970,7 +977,7 @@ export const irohEndpointBindings = pgTable(
     // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
     // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
     uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
-      .on(table.userId, table.deviceUuid, table.tag)
+      .on(table.userId, table.clientNamespace, table.deviceUuid, table.tag)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
@@ -1013,6 +1020,7 @@ export const irohRegistrationChallenges = pgTable(
     userId: text("user_id").notNull(),
     deviceUuid: uuid("device_uuid").notNull(),
     appInstanceId: uuid("app_instance_id").notNull(),
+    clientNamespace: text("client_namespace").notNull().default("legacy"),
     tag: text("tag").notNull(),
     endpointId: text("endpoint_id").notNull(),
     identityGeneration: integer("identity_generation").notNull(),
@@ -1026,6 +1034,7 @@ export const irohRegistrationChallenges = pgTable(
     check("iroh_registration_challenges_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
     check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_registration_challenges_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_registration_challenges_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
     check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
     check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
     uniqueIndex("iroh_registration_challenges_nonce_hash_unique").on(table.nonceHash),

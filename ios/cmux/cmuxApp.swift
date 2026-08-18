@@ -50,6 +50,8 @@ struct cmuxApp: App {
             reachability: reachability,
             supportedKinds: supportedKinds,
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
             diagnosticLog: diagnosticLog
         )
         let connectivityInvalidationServiceURL = PresenceClient
