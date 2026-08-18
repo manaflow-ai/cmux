@@ -22772,7 +22772,7 @@ mod tests {
             app.handle(event).unwrap();
         }
 
-        assert!(app.session.has_surface(first.id));
+        assert!(!app.session.has_surface(first.id));
         assert!(app.session.has_surface(second.id));
         assert!(!app.tab_locations.contains_key(&first.id));
         assert!(app.tab_locations.contains_key(&second.id));
@@ -24449,8 +24449,8 @@ mod tests {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
         assert!(app.prompt.is_none());
-        assert!(mux.surface(right.id).is_some());
-        assert!(mux.surface(moved.id).is_some());
+        assert!(mux.surface(right.id).is_none());
+        assert!(mux.surface(moved.id).is_none());
         mux.with_state(|state| {
             assert!(!state.surfaces.contains_key(&right.id));
             assert!(!state.surfaces.contains_key(&moved.id));

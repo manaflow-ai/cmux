@@ -1306,78 +1306,81 @@ fn remove_reset_dir_children_from_handle(
             &child_display,
             &child_stat,
         )?;
-        if let Err(error) = ensure_reset_manifest_entry(
-            directory.as_raw_fd(),
-            &staged_child.name,
-            &child_relative,
-            &staged_child.display_path,
-            &staged_child.stat,
-            expected_entries,
-            ignored_root_child,
-        ) {
-            return Err(restore_changed_reset_child(
+        let delete_staged_child = (|| -> anyhow::Result<()> {
+            ensure_reset_manifest_entry(
                 directory.as_raw_fd(),
                 &staged_child.name,
-                &child_name,
-                &staged_child.display_path,
-                &child_display,
-                error,
-            ));
-        }
-        if reset_stat_is_dir(&staged_child.stat) {
-            let child_directory = open_reset_child_dir(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-            )?;
-            let opened = child_directory.metadata().with_context(|| {
-                format!("inspect {label} {}", staged_child.display_path.display())
-            })?;
-            if !opened.file_type().is_dir()
-                || opened.dev() != reset_stat_device(&staged_child.stat)
-                || opened.ino() != reset_stat_inode(&staged_child.stat)
-            {
-                anyhow::bail!(
-                    "reset path changed during reset: {}",
-                    staged_child.display_path.display()
-                );
-            }
-            remove_reset_dir_children_from_handle(
-                &child_directory,
-                &staged_child.display_path,
                 &child_relative,
-                label,
-                root_device,
+                &staged_child.display_path,
+                &staged_child.stat,
                 expected_entries,
                 ignored_root_child,
             )?;
-            let current = reset_child_stat(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-            )?;
-            if !reset_stat_is_dir(&current)
-                || reset_stat_device(&current) != reset_stat_device(&staged_child.stat)
-                || reset_stat_inode(&current) != reset_stat_inode(&staged_child.stat)
-            {
-                anyhow::bail!(
-                    "reset path changed during reset: {}",
-                    staged_child.display_path.display()
-                );
+            if reset_stat_is_dir(&staged_child.stat) {
+                let child_directory = open_reset_child_dir(
+                    directory.as_raw_fd(),
+                    &staged_child.name,
+                    &staged_child.display_path,
+                )?;
+                let opened = child_directory.metadata().with_context(|| {
+                    format!("inspect {label} {}", staged_child.display_path.display())
+                })?;
+                if !opened.file_type().is_dir()
+                    || opened.dev() != reset_stat_device(&staged_child.stat)
+                    || opened.ino() != reset_stat_inode(&staged_child.stat)
+                {
+                    anyhow::bail!(
+                        "reset path changed during reset: {}",
+                        staged_child.display_path.display()
+                    );
+                }
+                remove_reset_dir_children_from_handle(
+                    &child_directory,
+                    &staged_child.display_path,
+                    &child_relative,
+                    label,
+                    root_device,
+                    expected_entries,
+                    ignored_root_child,
+                )?;
+                let current = reset_child_stat(
+                    directory.as_raw_fd(),
+                    &staged_child.name,
+                    &staged_child.display_path,
+                )?;
+                if !reset_stat_is_dir(&current)
+                    || reset_stat_device(&current) != reset_stat_device(&staged_child.stat)
+                    || reset_stat_inode(&current) != reset_stat_inode(&staged_child.stat)
+                {
+                    anyhow::bail!(
+                        "reset path changed during reset: {}",
+                        staged_child.display_path.display()
+                    );
+                }
+                reset_unlink_child(
+                    directory.as_raw_fd(),
+                    &staged_child.name,
+                    &staged_child.display_path,
+                    libc::AT_REMOVEDIR,
+                )?;
+            } else {
+                reset_unlink_child(
+                    directory.as_raw_fd(),
+                    &staged_child.name,
+                    &staged_child.display_path,
+                    0,
+                )?;
             }
-            reset_unlink_child(
+            Ok(())
+        })();
+        if let Err(error) = delete_staged_child {
+            return Err(restore_staged_reset_child(
                 directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-                libc::AT_REMOVEDIR,
-            )?;
-        } else {
-            reset_unlink_child(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-                0,
-            )?;
+                &child_name,
+                &child_display,
+                &staged_child,
+                error,
+            ));
         }
     }
     let remaining = reset_dir_child_names(directory, display_path, label)?;
@@ -1425,6 +1428,30 @@ struct ResetStagedChild {
     name: std::ffi::OsString,
     display_path: PathBuf,
     stat: libc::stat,
+}
+
+#[cfg(unix)]
+fn restore_staged_reset_child(
+    parent_fd: std::os::fd::RawFd,
+    original_name: &std::ffi::OsStr,
+    original_display: &Path,
+    staged: &ResetStagedChild,
+    failure: anyhow::Error,
+) -> anyhow::Error {
+    match reset_rename_child_exclusive(
+        parent_fd,
+        &staged.name,
+        original_name,
+        &staged.display_path,
+        original_display,
+    ) {
+        Ok(()) => failure,
+        Err(restore_error) => anyhow::anyhow!(
+            "{failure:#}; changed reset entry remains at {} because it could not be restored to {}: {restore_error:#}",
+            staged.display_path.display(),
+            original_display.display(),
+        ),
+    }
 }
 
 #[cfg(unix)]

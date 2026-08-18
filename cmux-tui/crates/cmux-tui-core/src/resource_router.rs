@@ -1193,7 +1193,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         })
         .transpose()?;
     if let Some(terminal_id) = &terminal_id
-        && mux.resource_surface_for_terminal(terminal_id).is_none()
+        && mux.terminal_resource(terminal_id).is_none()
     {
         return Err(ResourceError::not_found("terminal", terminal_id.as_str()));
     }
@@ -1286,8 +1286,7 @@ fn execute_notification_effect(
                 json!({"error":error.to_string()}),
             )
         })?;
-    let surface =
-        terminal_id.as_ref().and_then(|terminal_id| mux.resource_surface_for_terminal(terminal_id));
+    let surface = terminal_id.as_ref().and_then(|terminal_id| mux.terminal_runtime_id(terminal_id));
     if let Some(terminal_id) = terminal_id.as_ref().filter(|_| surface.is_none()) {
         let error = ResourceError::not_found("terminal", terminal_id.as_str());
         let outcome = ResourceEffectOutcome::Failure(error.clone());

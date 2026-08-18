@@ -1,12 +1,10 @@
 //! Terminal multiplexer core.
 //!
-//! Owns the workspace → screen → pane → tab tree and each tab's runtime
-//! (a PTY child whose output feeds a libghostty-vt terminal). A workspace
-//! holds screens; each screen is a binary split tree of panes; each pane
-//! holds one or more tabs, and each tab is a [`Surface`]. Frontends (the
-//! bundled TUI, or the cmux app over the control socket) subscribe to
-//! [`MuxEvent`]s and read surface state; they never own terminal state
-//! themselves, which is what makes the backend attachable.
+//! Owns terminal resources and the independent workspace → screen → pane → tab
+//! view tree. A terminal resource owns one PTY and libghostty-vt state. Each
+//! terminal [`Surface`] is only a view placement with its own viewport.
+//! Frontends subscribe to [`MuxEvent`]s and read resource state; they never
+//! own terminal state themselves, which makes the backend attachable.
 
 mod agent_hooks;
 mod browser;
@@ -76,7 +74,7 @@ pub use surface::{
     ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
     PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
     SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
-    TerminalPointerSnapshot,
+    TerminalPointerSnapshot, TerminalResource,
 };
 pub use workspace_registry::{
     FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,

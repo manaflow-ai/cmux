@@ -414,7 +414,7 @@ pub(crate) fn terminal_tab_ids_in_canonical_order(
 pub(crate) fn public_terminal_snapshot(
     terminal_id: &TerminalPublicId,
     durable: &RegistryTerminal,
-    surface: Option<&crate::Surface>,
+    runtime: Option<&crate::TerminalResource>,
     tab_ids: Vec<TabPublicId>,
 ) -> anyhow::Result<Value> {
     let lifecycle = match durable.lifecycle {
@@ -432,20 +432,20 @@ pub(crate) fn public_terminal_snapshot(
             .filter(|value| *value > 0)
             .unwrap_or(fallback)
     };
-    let (cols, rows) = surface
-        .map(crate::Surface::size)
+    let (cols, rows) = runtime
+        .map(crate::TerminalResource::size)
         .unwrap_or_else(|| (durable_size("cols", 80), durable_size("rows", 24)));
     let mut terminal = json!({
         "id": terminal_id,
         "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
-        "title": surface.map(crate::Surface::title).unwrap_or_default(),
+        "title": runtime.map(crate::TerminalResource::title).unwrap_or_default(),
         "cols": cols.max(1),
         "rows": rows.max(1),
         "running": durable.lifecycle == TerminalLifecycle::Running,
         "lifecycle": lifecycle,
     });
-    if let Some(cwd) = surface.and_then(crate::Surface::spawn_cwd) {
+    if let Some(cwd) = runtime.and_then(crate::TerminalResource::spawn_cwd) {
         terminal["cwd"] = json!(cwd);
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
@@ -645,13 +645,13 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
-                let surface = state.terminal_catalog.get(&terminal_id);
+                let terminal = state.terminal_catalog.get(&terminal_id).cloned();
                 let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
                     format!("terminal {terminal_id} omitted its durable identity")
                 })?;
-                if let Some(surface) = surface {
+                if let Some(terminal) = terminal.as_ref() {
                     let runtime_host =
-                        mux.resource_terminal_host_identity(surface).with_context(|| {
+                        mux.terminal_resource_host_identity(terminal).with_context(|| {
                             format!("terminal {terminal_id} runtime omitted its durable identity")
                         })?;
                     anyhow::ensure!(
@@ -663,7 +663,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                     format!("terminal {terminal_id} references missing {host_id}")
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
-                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                public_terminal_snapshot(&terminal_id, durable, terminal.as_deref(), tab_ids)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 

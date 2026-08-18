@@ -29,7 +29,9 @@ pub(super) fn restore_public_projections(
                 .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
                 .first()
                 .copied()
-                .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
+                .or_else(|| {
+                    state.terminal_catalog.get(terminal_id).map(|terminal| terminal.runtime_id())
+                })
         });
         let level = notification_level(&notification.level)?;
         if notification.unread {
@@ -181,13 +183,14 @@ mod tests {
             frontend_projections: Vec::new(),
         };
         let mut state = empty_state();
+        let runtime = runtime.terminal_resource().unwrap();
         state.terminal_catalog.insert(terminal.clone(), runtime.clone());
-        state.terminal_catalog_by_runtime.insert(runtime.terminal_runtime_id().unwrap(), terminal);
+        state.terminal_catalog_by_runtime.insert(runtime.runtime_id(), terminal);
         let restored = restore_public_projections(&state, projections).unwrap();
         let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
         assert_eq!(restored.agent_records.get(&terminal).unwrap().state, AgentState::Working);
         assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
-        assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
+        assert_eq!(restored.notification_ledger[0].surface, Some(runtime.runtime_id()));
         assert!(restored.terminal_notifications[&terminal].unread);
         mux.shutdown();
     }

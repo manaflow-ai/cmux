@@ -8,14 +8,14 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    WorkspacePublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation, WorkspaceRegistry,
+    TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget};
 
@@ -37,7 +37,7 @@ impl Mux {
             "name": name,
         });
         let mux = std::sync::Arc::clone(self);
-        self.commit_resource_mutation_plan(
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
@@ -79,13 +79,13 @@ impl Mux {
                     .cloned()
                     .context("destination pane has no durable projection")?;
                 let host = mux
-                    .resource_terminal_host_identity(&terminal)
+                    .terminal_resource_host_identity(&terminal)
                     .context("terminal omitted its durable host identity")?;
                 let host_id = host.terminal_id;
                 let tab_id = TabPublicId::random()?;
                 let surface_id = mux.next_id();
                 let content_id = ContentPublicId::Terminal(terminal_id.clone());
-                let projected = terminal.project_terminal(
+                let projected = terminal.project(
                     surface_id,
                     TabResourceIdentity::new(tab_id.clone(), content_id.clone()),
                 )?;
@@ -148,7 +148,7 @@ impl Mux {
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
-                    Some(terminal.as_ref()),
+                    Some(&terminal),
                     terminal_tab_ids,
                 )?;
                 let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
@@ -234,7 +234,18 @@ impl Mux {
                     },
                 ))
             },
-        )
+        )?;
+        if !commit.replayed
+            && let Some(surface) = commit.result["tab"]
+                .as_str()
+                .and_then(|tab| TabPublicId::parse(tab.to_string()).ok())
+                .and_then(|tab| {
+                    self.with_state(|state| state.resource_indexes.tabs.get(&tab).copied())
+                })
+        {
+            self.emit_terminal_view_snapshot(surface);
+        }
+        Ok(commit)
     }
 
     pub(crate) fn resource_move_terminal_selected(
@@ -274,10 +285,6 @@ impl Mux {
                         &destination,
                     )
                     .map_err(anyhow::Error::new)?;
-                let surface =
-                    source.tab.context("terminal selector did not resolve a live surface")?;
-                let source_pane_slot =
-                    source.pane.context("terminal selector did not resolve a source pane")?;
                 let target_pane_slot =
                     target.pane.context("destination did not resolve a live pane")?;
                 let terminal_id = source
@@ -285,8 +292,48 @@ impl Mux {
                     .terminal
                     .clone()
                     .context("terminal selector omitted its public identity")?;
-                let source_tab_id =
-                    source.path.tab.context("terminal move requires a projected tab")?;
+                let topology = registry.resource_topology_snapshot()?;
+                let source_tab_id = if let Some(tab_id) = source.path.tab {
+                    tab_id
+                } else {
+                    let mut tab_ids = terminal_tab_ids_in_canonical_order(
+                        topology.tabs.iter().filter_map(|tab| match &tab.content_id {
+                            ContentPublicId::Terminal(candidate) => Some((
+                                candidate.clone(),
+                                tab.pane_id.clone(),
+                                tab.position,
+                                tab.public_id.clone(),
+                            )),
+                            ContentPublicId::Browser(_) => None,
+                        }),
+                    );
+                    tab_ids
+                        .remove(&terminal_id)
+                        .and_then(|tab_ids| tab_ids.into_iter().next())
+                        .context("terminal move requires a projected tab")?
+                };
+                let source_tab = topology
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.public_id == source_tab_id)
+                    .cloned()
+                    .context("selected terminal view has no durable tab")?;
+                anyhow::ensure!(
+                    source_tab.content_id == ContentPublicId::Terminal(terminal_id.clone()),
+                    "selected terminal view belongs to another resource"
+                );
+                let surface = state
+                    .resource_indexes
+                    .tabs
+                    .get(&source_tab.public_id)
+                    .copied()
+                    .context("selected terminal view has no live surface")?;
+                let source_pane_slot = state
+                    .resource_indexes
+                    .tab_pane
+                    .get(&surface)
+                    .copied()
+                    .context("selected terminal view has no live source pane")?;
                 let target_workspace_slot =
                     target.workspace.context("destination did not resolve a workspace")?;
                 let target_workspace_index = state
@@ -300,28 +347,22 @@ impl Mux {
                     target.path.screen.clone().context("destination omitted its screen id")?;
                 let target_pane_id = target.path.pane.context("destination omitted its pane id")?;
 
-                let topology = registry.resource_topology_snapshot()?;
                 let snapshot = registry.snapshot()?;
-                let source_tab = topology
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.public_id == source_tab_id)
+                let terminal = state
+                    .terminal_catalog
+                    .get(&terminal_id)
                     .cloned()
-                    .context("selected terminal view has no durable tab")?;
-                let terminal_surface = state
-                    .surfaces
-                    .get(&surface)
-                    .context("terminal selector resolved a missing surface")?;
-                let (terminal_cols, terminal_rows) = terminal_surface.size();
+                    .context("selected terminal has no live runtime")?;
+                let (terminal_cols, terminal_rows) = terminal.size();
                 let mut terminal_value = json!({
                     "id":terminal_id,
                     "tab_id":source_tab.public_id,
-                    "title":terminal_surface.title(),
+                    "title":terminal.title(),
                     "cols":terminal_cols.max(1),
                     "rows":terminal_rows.max(1),
-                    "running":!terminal_surface.is_dead(),
+                    "running":!terminal.is_dead(),
                 });
-                if let Some(cwd) = terminal_surface.spawn_cwd() {
+                if let Some(cwd) = terminal.spawn_cwd() {
                     terminal_value["cwd"] = json!(cwd);
                 }
                 let source_pane_id = source_tab.pane_id.clone();
@@ -585,6 +626,63 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) result: Value,
 }
 
+impl ResourceEffectProjection {
+    /// Explicit terminal close is the only operation that retires an exited
+    /// receipt. Full tree projection cannot infer that intent because exited
+    /// terminals have no runtime or views.
+    pub(super) fn ensure_terminal_close(
+        &mut self,
+        terminal_id: &TerminalPublicId,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::UpsertTerminal { public_id, .. } if public_id == terminal_id
+            )),
+            "terminal close projection retained {terminal_id}"
+        );
+        if let Some(existing) = self.patch.changes.iter_mut().find_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, expected_incarnation }
+                if public_id == terminal_id =>
+            {
+                Some(expected_incarnation)
+            }
+            _ => None,
+        }) {
+            if existing.is_none() {
+                *existing = expected_incarnation.map(ToOwned::to_owned);
+            }
+        } else {
+            self.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: terminal_id.clone(),
+                expected_incarnation: expected_incarnation.map(ToOwned::to_owned),
+            });
+        }
+
+        let changes = self
+            .changes
+            .as_array_mut()
+            .context("terminal close topology changes are not an array")?;
+        anyhow::ensure!(
+            !changes.iter().any(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(terminal_id.as_str())
+            }),
+            "terminal close public projection retained {terminal_id}"
+        );
+        if !changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(terminal_id.as_str())
+        }) {
+            push_delete_delta(changes, "terminal", terminal_id.as_str());
+        }
+        Ok(())
+    }
+}
+
 impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
@@ -595,6 +693,19 @@ impl Mux {
         state: &mut State,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
+        self.resource_effect_projection_preserving_terminal_locked(registry, state, result, None)
+    }
+
+    /// Project live state while one terminal exit transaction retains its
+    /// durable receipt. The registry still reports that terminal as running
+    /// until the lifecycle and topology changes commit together.
+    pub(super) fn resource_effect_projection_preserving_terminal_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        result: Value,
+        retained_terminal_id: Option<&TerminalPublicId>,
+    ) -> anyhow::Result<ResourceEffectProjection> {
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
             .terminal_snapshot()?
@@ -602,6 +713,25 @@ impl Mux {
             .into_iter()
             .map(|terminal| (terminal.terminal_id.clone(), terminal))
             .collect::<HashMap<_, _>>();
+        // Terminals can have zero tabs, so the old topology tab list is not
+        // an exhaustive source for terminal tombstones or delete events.
+        // Exited terminals are durable receipts with no runtime. Their absence
+        // from live state is not an explicit close.
+        let terminal_resources = registry.live_terminal_resource_ids()?;
+        let mut preserved_terminal_ids = HashSet::new();
+        for (host_id, terminal_id) in &terminal_resources {
+            if terminal_records
+                .get(host_id)
+                .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
+            {
+                preserved_terminal_ids.insert(terminal_id.clone());
+            }
+        }
+        if let Some(terminal_id) = retained_terminal_id {
+            preserved_terminal_ids.insert(terminal_id.clone());
+        }
+        let before_terminal_ids =
+            terminal_resources.into_iter().map(|(_, terminal_id)| terminal_id).collect::<Vec<_>>();
         // Local UI mutations can attach resource-identified surfaces before
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
@@ -752,11 +882,18 @@ impl Mux {
                             ContentPublicId::Terminal(terminal_id) => {
                                 let first_terminal_placement =
                                     live_terminals.insert(terminal_id.clone());
-                                let runtime = state.terminal_catalog.get(terminal_id).or(surface);
-                                let host_id = runtime
-                                    .and_then(|surface| {
-                                        self.resource_terminal_host_identity(surface)
+                                let host_id = state
+                                    .terminal_catalog
+                                    .get(terminal_id)
+                                    .and_then(|terminal| {
+                                        self.terminal_resource_host_identity(terminal)
                                             .map(|host| host.terminal_id)
+                                    })
+                                    .or_else(|| {
+                                        surface.and_then(|surface| {
+                                            self.resource_terminal_host_identity(surface)
+                                                .map(|host| host.terminal_id)
+                                        })
                                     })
                                     .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
                                     .context("terminal view omitted its durable host identity")?;
@@ -850,7 +987,10 @@ impl Mux {
                         ));
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
-                                let runtime = state.terminal_catalog.get(id).or(surface);
+                                let runtime =
+                                    state.terminal_catalog.get(id).cloned().or_else(|| {
+                                        surface.and_then(|surface| surface.terminal_resource())
+                                    });
                                 let durable = tab
                                     .terminal_id
                                     .as_deref()
@@ -861,7 +1001,7 @@ impl Mux {
                                 let value = public_terminal_snapshot(
                                     id,
                                     durable,
-                                    runtime.map(std::sync::Arc::as_ref),
+                                    runtime.as_deref(),
                                     tab_ids,
                                 )?;
                                 public.push(("terminal", id.to_string(), value));
@@ -925,30 +1065,32 @@ impl Mux {
                 }
             }
         }
-        for (terminal_id, surface) in &state.terminal_catalog {
+        for (terminal_id, terminal_resource) in &state.terminal_catalog {
             if !live_terminals.insert(terminal_id.clone()) {
                 continue;
             }
             let host = self
-                .resource_terminal_host_identity(surface)
+                .terminal_resource_host_identity(terminal_resource)
                 .context("catalog terminal omitted its durable host identity")?;
-            let terminal = terminal_records
+            let terminal_record = terminal_records
                 .get(&host.terminal_id)
                 .cloned()
                 .context("catalog terminal has no durable host")?;
-            changes
-                .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
-            let (cols, rows) = surface.size();
+            changes.push(ResourceChange::UpsertTerminal {
+                public_id: terminal_id.clone(),
+                terminal: terminal_record,
+            });
+            let (cols, rows) = terminal_resource.size();
             let mut value = json!({
                 "id":terminal_id,
                 "tab_id":Value::Null,
                 "tab_ids":[],
-                "title":surface.title(),
+                "title":terminal_resource.title(),
                 "cols":cols.max(1),
                 "rows":rows.max(1),
-                "running":!surface.is_dead(),
+                "running":!terminal_resource.is_dead(),
             });
-            if let Some(cwd) = surface.spawn_cwd() {
+            if let Some(cwd) = terminal_resource.spawn_cwd() {
                 value["cwd"] = json!(cwd);
             }
             public.push(("terminal", terminal_id.to_string(), value));
@@ -969,6 +1111,17 @@ impl Mux {
 
         let mut tombstoned_terminals = HashSet::new();
         let mut tombstoned_browsers = HashSet::new();
+        for terminal_id in &before_terminal_ids {
+            if !live_terminals.contains(terminal_id)
+                && !preserved_terminal_ids.contains(terminal_id)
+                && tombstoned_terminals.insert(terminal_id.clone())
+            {
+                changes.push(ResourceChange::TombstoneTerminal {
+                    public_id: terminal_id.clone(),
+                    expected_incarnation: None,
+                });
+            }
+        }
         for tab in &before.tabs {
             if !live_tabs.contains(&tab.public_id) {
                 changes.push(ResourceChange::TombstoneTab {
@@ -978,7 +1131,9 @@ impl Mux {
             }
             match &tab.content_id {
                 ContentPublicId::Terminal(id)
-                    if !live_terminals.contains(id) && tombstoned_terminals.insert(id.clone()) =>
+                    if !live_terminals.contains(id)
+                        && !preserved_terminal_ids.contains(id)
+                        && tombstoned_terminals.insert(id.clone()) =>
                 {
                     changes.push(ResourceChange::TombstoneTerminal {
                         public_id: id.clone(),
@@ -1028,12 +1183,25 @@ impl Mux {
             }));
         }
         let mut deleted_content = HashSet::new();
+        for terminal_id in &before_terminal_ids {
+            if !live_terminals.contains(terminal_id)
+                && !preserved_terminal_ids.contains(terminal_id)
+                && deleted_content.insert(("terminal", terminal_id.as_str()))
+            {
+                push_delete_delta(&mut deltas, "terminal", terminal_id.as_str());
+            }
+        }
         for tab in &before.tabs {
+            let preserves_terminal_receipt = match &tab.content_id {
+                ContentPublicId::Terminal(id) => preserved_terminal_ids.contains(id),
+                ContentPublicId::Browser(_) => false,
+            };
             let (kind, id) = match &tab.content_id {
                 ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
                 ContentPublicId::Browser(id) => ("browser", id.as_str()),
             };
             if !live_keys.contains(&(kind.to_string(), id.to_string()))
+                && !preserves_terminal_receipt
                 && deleted_content.insert((kind, id))
             {
                 push_delete_delta(&mut deltas, kind, id);
@@ -1074,7 +1242,7 @@ impl Mux {
 
 fn ordered_terminal_tab_ids(
     state: &State,
-) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
+) -> anyhow::Result<HashMap<TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {

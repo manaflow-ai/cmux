@@ -246,6 +246,8 @@ struct QueueState {
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
     in_flight_surface_operations: HashMap<PtyInputLane, usize>,
+    // Shutdown includes failure delivery and completion callbacks.
+    pending_settlements: usize,
     failed_lanes: HashSet<PtyInputLane>,
     retired_in_flight_lanes: HashSet<PtyInputLane>,
     failed_remote_generations: HashSet<u64>,
@@ -262,6 +264,7 @@ impl Default for QueueState {
             release_reservations: ReleaseReservations::default(),
             in_flight: None,
             in_flight_surface_operations: HashMap::new(),
+            pending_settlements: 0,
             failed_lanes: HashSet::new(),
             retired_in_flight_lanes: HashSet::new(),
             failed_remote_generations: HashSet::new(),
@@ -423,7 +426,8 @@ impl PtyInputDispatcher {
         self.sender.queue.changed.notify_all();
         while (!state.events.is_empty()
             || state.in_flight.is_some()
-            || !state.in_flight_surface_operations.is_empty())
+            || !state.in_flight_surface_operations.is_empty()
+            || state.pending_settlements > 0)
             && Instant::now() < deadline
         {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -432,7 +436,8 @@ impl PtyInputDispatcher {
         }
         let drained = state.events.is_empty()
             && state.in_flight.is_none()
-            && state.in_flight_surface_operations.is_empty();
+            && state.in_flight_surface_operations.is_empty()
+            && state.pending_settlements == 0;
         let canceled = if drained {
             Vec::new()
         } else {
@@ -980,6 +985,12 @@ fn fail_surface_operation_spawn(
 ) {
     let lane = event.ordering_lane().expect("concurrent surface operation has an ordering lane");
     let after_operation = event.after_operation.take();
+    let mut state = queue.state.lock().unwrap();
+    state.pending_settlements += 1;
+    state.in_flight_surface_operations.remove(&lane);
+    state.retired_in_flight_lanes.remove(&lane);
+    queue.changed.notify_all();
+    drop(state);
     on_failure(PtyOperationFailure {
         session_generation: event.session_generation,
         surface_id: Some(lane.surface_id),
@@ -990,14 +1001,12 @@ fn fail_surface_operation_spawn(
         lane_failed: false,
         delivery: PtyOperationDelivery::KnownNotDelivered,
     });
-    let mut state = queue.state.lock().unwrap();
-    state.in_flight_surface_operations.remove(&lane);
-    state.retired_in_flight_lanes.remove(&lane);
-    queue.changed.notify_all();
-    drop(state);
     if let Some(after_operation) = after_operation {
         after_operation();
     }
+    let mut state = queue.state.lock().unwrap();
+    state.pending_settlements -= 1;
+    queue.changed.notify_all();
 }
 
 fn known_exited_input(kind: PtyInputKind, surface_dead: bool) -> bool {
@@ -1170,6 +1179,13 @@ fn process_event(
             ));
         }
     }
+    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
+        state.in_flight_surface_operations.remove(&lane);
+    } else {
+        state.in_flight = None;
+    }
+    state.pending_settlements += 1;
+    queue.changed.notify_all();
     drop(state);
     if let Some(failure) = failure {
         on_failure(failure);
@@ -1177,19 +1193,14 @@ fn process_event(
     for failure in canceled {
         on_failure(failure);
     }
-    let mut state = queue.state.lock().unwrap();
-    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
-        state.in_flight_surface_operations.remove(&lane);
-    } else {
-        state.in_flight = None;
-    }
-    queue.changed.notify_all();
-    drop(state);
     // Completion is a barrier: publish only after timeout pruning,
     // in-flight ownership, and failure delivery have all settled.
     if let Some(after_operation) = after_operation {
         after_operation();
     }
+    let mut state = queue.state.lock().unwrap();
+    state.pending_settlements -= 1;
+    queue.changed.notify_all();
 }
 
 fn requeue_ambiguous_release(state: &mut QueueState, event: PtyInputEvent) {

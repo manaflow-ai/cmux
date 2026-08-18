@@ -326,7 +326,11 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
+            resolve_terminal_wait_exit_id(mux, &request.selectors)?
+        } else {
+            resolve_terminal_surface(mux, &request.selectors)?.0
+        };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
@@ -352,27 +356,24 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
-    let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
-        return effects::commit_known_failure(
-            mux,
-            prepared,
-            ResourceError::not_found("terminal", terminal_id.as_str()),
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_terminal_close_effect(
+            &terminal_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
         );
-    };
-    let Some(surface) = mux.surface(surface_id) else {
-        return effects::commit_known_failure(
-            mux,
-            prepared,
-            ResourceError::not_found("terminal", terminal_id.as_str()),
-        );
-    };
-    if surface.kind() != SurfaceKind::Pty {
-        return effects::commit_known_failure(
-            mux,
-            prepared,
-            ResourceError::not_found("terminal", terminal_id.as_str()),
-        );
+        return finish_projection_commit(mux, prepared, commit);
     }
+
+    let Some(terminal) = mux.terminal_resource(&terminal_id) else {
+        return effects::commit_known_failure(
+            mux,
+            prepared,
+            ResourceError::not_found("terminal", terminal_id.as_str()),
+        );
+    };
+    let surface = terminal.compatibility_surface();
 
     let action = match prepared.operation.as_str() {
         "terminal.input.write" => terminal_write(&surface, &fields),
@@ -383,7 +384,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -392,16 +392,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_terminal_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
@@ -1020,12 +1010,9 @@ fn resolve_terminal_surface(
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
-    let surface_id = mux
-        .resource_surface_for_terminal(&terminal_id)
-        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
     let surface = mux
-        .surface(surface_id)
-        .filter(|surface| surface.kind() == SurfaceKind::Pty)
+        .terminal_resource(&terminal_id)
+        .map(|terminal| terminal.compatibility_surface())
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
     Ok((terminal_id, surface))
 }
@@ -1579,9 +1566,10 @@ mod tests {
         .unwrap();
         let terminal_id =
             TerminalPublicId::parse(created["value"]["terminal_id"].as_str().unwrap()).unwrap();
-        let surface_id =
-            mux.resource_surface_for_terminal(&terminal_id).expect("created terminal is live");
-        let surface = mux.surface(surface_id).expect("created terminal surface is live");
+        let surface = mux
+            .terminal_resource(&terminal_id)
+            .expect("created terminal resource is live")
+            .compatibility_surface();
         let selectors = ResourceSelectors {
             machine: Some("current".to_string()),
             session: Some("current".to_string()),
@@ -1676,7 +1664,7 @@ mod tests {
             pane: Some(pane_id.clone()),
             ..ResourceSelectors::default()
         };
-        super::super::topology::dispatch(
+        let keeper = super::super::topology::dispatch(
             &mux,
             parsed_request(
                 "tab.create_terminal",
@@ -1686,6 +1674,7 @@ mod tests {
             ),
         )
         .unwrap();
+        let keeper_tab = keeper["value"]["tab_id"].as_str().unwrap().to_string();
 
         let destination = public_session_snapshot(&mux).unwrap();
         let workspace_id = destination["workspaces"][0]["id"].as_str().unwrap();
@@ -1753,11 +1742,23 @@ mod tests {
             .unwrap();
         assert!(terminal["tab_id"].is_null());
         assert_eq!(terminal["tab_ids"], json!([]));
-        assert!(mux.surface(original.id).is_some());
+        assert!(mux.surface(original.id).is_none());
+        assert!(mux.terminal_resource(&terminal_id).is_some());
         assert!(
             dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None),)
                 .is_ok()
         );
+        let wrong_tab = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            tab: Some(keeper_tab),
+            terminal: Some(terminal_id.to_string()),
+            ..ResourceSelectors::default()
+        };
+        let error =
+            dispatch(&mux, parsed_request("terminal.screen.read", &wrong_tab, json!({}), None))
+                .unwrap_err();
+        assert_eq!(error.code, "selector.wrong_parent");
 
         let reprojected = dispatch(
             &mux,
@@ -1961,7 +1962,15 @@ mod tests {
     fn terminal_wait_exit_latches_one_public_event_without_host_identity() {
         let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
-        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].clone());
+        let tab_id = public_session_snapshot(&mux).unwrap()["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == public_id.as_str())
+            .unwrap()["tab_ids"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
         let durable = mux.terminal_registry_snapshot().unwrap();
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
@@ -2019,9 +2028,7 @@ mod tests {
             change["sequence"].as_u64() == u64::try_from(sequence).ok()
         }));
         assert!(changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "tab"
-                && change["id"] == tab_id.as_str()
+            change["kind"] == "delete" && change["resource"] == "tab" && change["id"] == tab_id
         }));
         assert!(!changes.iter().any(|change| {
             change["kind"] == "delete"
@@ -2047,9 +2054,55 @@ mod tests {
         assert!(mux.surface(surface.id).is_none());
     }
 
+    #[test]
+    fn terminal_close_tombstones_an_exited_receipt_without_a_live_runtime() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let host_id = mux
+            .terminal_registry_snapshot()
+            .unwrap()
+            .terminals
+            .into_iter()
+            .next()
+            .unwrap()
+            .terminal_id;
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+        assert!(mux.terminal_resource(&public_id).is_none());
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-exited-terminal-receipt"),
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(closed["replayed"], false);
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != public_id.as_str())
+        );
+        let tombstone = mux.resolve_terminal(&host_id).unwrap().unwrap();
+        assert_eq!(
+            tombstone.terminal.lifecycle,
+            crate::workspace_registry::TerminalLifecycle::Tombstoned
+        );
+        mux.shutdown();
+    }
+
     #[cfg(unix)]
     #[test]
-    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert() {
+    fn terminal_wait_exit_resolves_detached_id_and_retains_exited_receipt() {
         let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
         let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
@@ -2079,10 +2132,12 @@ mod tests {
         assert_eq!(exited["exited_at"], "3456789");
 
         let snapshot = public_session_snapshot(&mux).unwrap();
-        let terminals = snapshot["terminals"].as_array().unwrap();
-        assert_eq!(terminals.len(), 1);
-        let terminal = &terminals[0];
-        assert_eq!(terminal["id"], public_id.as_str());
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == public_id.as_str())
+            .expect("exited terminal receipt remains publicly addressable");
         assert_eq!(terminal["lifecycle"], "exited");
         assert_eq!(terminal["running"], false);
         assert_eq!(terminal["tab_id"], Value::Null);

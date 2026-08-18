@@ -7776,7 +7776,9 @@ mod unix {
 
         #[test]
         fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
-            let (record_path, record, lease) = record_fixture("legacy-fallback");
+            let (record_path, mut record, lease) = record_fixture("legacy-fallback");
+            record.record_version = HOST_RECORD_VERSION - 1;
+            write_record(&record_path, &record).unwrap();
             let endpoint = PathBuf::from(&record.endpoint);
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);

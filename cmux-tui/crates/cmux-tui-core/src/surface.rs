@@ -1,9 +1,9 @@
-//! Surface runtime: one tab inside a pane.
+//! Terminal content resources and the views that project them into panes.
 //!
-//! A surface is either a PTY backed by libghostty-vt state or a local CDP
-//! browser surface. PTY-only methods stay available for existing callers;
-//! browser-aware frontends should branch on [`SurfaceKind`] before using
-//! VT operations.
+//! A terminal [`Surface`] is a lightweight placement with a viewport. Its
+//! [`TerminalResource`] owns the PTY and libghostty-vt state independently.
+//! Browser surfaces still combine content and placement while browser
+//! multiview is not supported.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -27,11 +27,13 @@ use ghostty_vt::{
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 
+#[cfg(unix)]
+use crate::MuxEvent;
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
-use crate::{Mux, MuxEvent, SurfaceId};
+use crate::{Mux, SurfaceId};
 
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserFrameUpdate, BrowserSource,
@@ -1080,7 +1082,7 @@ impl TerminalHostReconnectBackoff {
         Some((Duration::from_millis(25) * multiplier).min(TERMINAL_HOST_RECONNECT_MAX_DELAY))
     }
 
-    fn wait_or_fail(&mut self, pty: &PtySurface) -> bool {
+    fn wait_or_fail(&mut self, pty: &PtyTerminalRuntime) -> bool {
         let Some(delay) = self.next_delay() else {
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
@@ -1099,7 +1101,7 @@ impl TerminalHostReconnectBackoff {
 #[cfg(unix)]
 fn wait_for_reconnect_after_geometry_failure(
     retry: &mut TerminalHostReconnectBackoff,
-    pty: &PtySurface,
+    pty: &PtyTerminalRuntime,
     geometry: std::sync::MutexGuard<'_, PtyGeometry>,
 ) -> bool {
     drop(geometry);
@@ -1145,11 +1147,7 @@ impl Deref for Surface {
     }
 }
 
-/// A single terminal surface: PTY child plus ghostty VT state.
-///
-/// The terminal is behind a mutex; the pty reader thread holds it only
-/// while feeding bytes, renderers hold it only while snapshotting into a
-/// [`RenderState`].
+/// Canonical terminal geometry shared by every view of one terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PtyGeometry {
     cols: u16,
@@ -1188,8 +1186,8 @@ type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
-    terminal: Arc<PtyTerminalRuntime>,
-    viewport: Mutex<TerminalViewportState>,
+    terminal: Arc<TerminalResource>,
+    viewport: Arc<Mutex<TerminalViewportState>>,
 }
 
 #[derive(Default)]
@@ -1219,6 +1217,144 @@ impl Deref for PtySurface {
 
     fn deref(&self) -> &Self::Target {
         &self.terminal
+    }
+}
+
+/// Session-owned terminal content, independent of every layout placement.
+///
+/// A layout [`Surface`] owns only its tab identity and viewport. Any number of
+/// surfaces can project this resource without becoming its lifetime owner.
+pub struct TerminalResource {
+    inner: Arc<PtyTerminalRuntime>,
+    compatibility_viewport: Arc<Mutex<TerminalViewportState>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalEventTarget {
+    Resource(TerminalPublicId),
+    Auxiliary(SurfaceId),
+}
+
+impl TerminalEventTarget {
+    fn new(terminal_id: Option<&TerminalPublicId>, auxiliary: SurfaceId) -> Self {
+        terminal_id.cloned().map(Self::Resource).unwrap_or(Self::Auxiliary(auxiliary))
+    }
+}
+
+impl TerminalResource {
+    fn new(runtime: PtyTerminalRuntime) -> Self {
+        Self {
+            inner: Arc::new(runtime),
+            compatibility_viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
+        }
+    }
+
+    pub fn public_id(&self) -> Option<&TerminalPublicId> {
+        self.inner.terminal_public_id.as_deref()
+    }
+
+    pub(crate) fn runtime_id(&self) -> SurfaceId {
+        self.inner.runtime_id
+    }
+
+    pub(crate) fn event_target(&self) -> &TerminalEventTarget {
+        &self.inner.event_target
+    }
+
+    pub(crate) fn shares_runtime(&self, other: &TerminalResource) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    pub(crate) fn size(&self) -> (u16, u16) {
+        let geometry = *self.inner.geometry.lock().unwrap();
+        (geometry.cols, geometry.rows)
+    }
+
+    pub(crate) fn title(&self) -> String {
+        self.inner.title.lock().unwrap().clone()
+    }
+
+    pub(crate) fn spawn_cwd(&self) -> Option<String> {
+        self.inner.cwd.clone()
+    }
+
+    pub(crate) fn terminal_exit(&self) -> Option<TerminalExit> {
+        self.inner.exit.lock().unwrap().clone()
+    }
+
+    pub(crate) fn is_dead(&self) -> bool {
+        self.inner.dead.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn terminal_host_identity(
+        &self,
+    ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
+        self.inner.host_identity.clone()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminal_host_exit_sidecar(
+        &self,
+    ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
+        let path = self.inner.host_exit_record_path.clone()?;
+        let identity = self.inner.host_identity.as_ref()?;
+        let exit = self.inner.exit.lock().unwrap().clone()?;
+        Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
+    }
+
+    /// Release parser and render graphics after the runtime can no longer
+    /// publish output. This does not contact an exited terminal host.
+    pub(crate) fn release_kitty_graphics_for_retirement(&self) -> anyhow::Result<()> {
+        self.inner.kitty_graphics_retired.store(true, Ordering::Release);
+        Surface::apply_local_kitty_graphics_limits(&self.inner, KittyGraphicsLimits::disabled())
+    }
+
+    pub(crate) fn project(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        resource_identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let projected_id = terminal_public_id_from_resource_identity(
+            &resource_identity,
+            "terminal placement requires a terminal content identity",
+        )?;
+        anyhow::ensure!(
+            self.public_id() == Some(&projected_id),
+            "terminal placement cannot change content identity"
+        );
+        Ok(Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(resource_identity),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
+            terminal: self.clone(),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
+        })))
+    }
+
+    /// Adapt terminal content to legacy surface-only runtime code without
+    /// inserting a fake placement into the layout tree.
+    pub(crate) fn compatibility_surface(self: &Arc<Self>) -> Arc<Surface> {
+        Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta {
+                id: self.runtime_id(),
+                resource_identity: None,
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
+            terminal: self.clone(),
+            viewport: self.compatibility_viewport.clone(),
+        }))
+    }
+}
+
+impl Deref for TerminalResource {
+    type Target = PtyTerminalRuntime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
@@ -1354,7 +1490,8 @@ impl PtyTerminalRuntime {
 /// canonical geometry. Keeping the two identities distinct makes a terminal
 /// projectable into any number of panes without cloning its PTY or VT state.
 pub struct PtyTerminalRuntime {
-    event_surface_id: SurfaceId,
+    runtime_id: SurfaceId,
+    event_target: TerminalEventTarget,
     /// Stable public content identity. This belongs to the terminal runtime,
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     terminal_public_id: Option<Arc<TerminalPublicId>>,
@@ -1409,6 +1546,7 @@ pub struct PtyTerminalRuntime {
     pwd: Mutex<Option<String>>,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
+    kitty_graphics_retired: AtomicBool,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
@@ -1471,6 +1609,7 @@ enum PtyLifetime {
 struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
+    runtime_id: SurfaceId,
     terminate_on_error: bool,
     defer_launch_activation: bool,
     lifetime: PtyLifetime,
@@ -1908,7 +2047,7 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
 
 #[cfg(unix)]
 fn hosted_terminal_callbacks(
-    id: SurfaceId,
+    event_target: TerminalEventTarget,
     mux: Weak<Mux>,
     title_changed: Arc<AtomicBool>,
 ) -> Callbacks {
@@ -1923,7 +2062,7 @@ fn hosted_terminal_callbacks(
         })),
         on_bell: Some(Box::new(move || {
             if let Some(mux) = mux.upgrade() {
-                mux.emit_terminal_bell(id);
+                mux.emit_terminal_bell(&event_target);
             }
         })),
     }
@@ -1931,7 +2070,7 @@ fn hosted_terminal_callbacks(
 
 #[cfg(unix)]
 fn mark_hosted_runtime_exited(
-    pty: &PtySurface,
+    pty: &PtyTerminalRuntime,
     identity: &crate::terminal_host_runtime::TerminalHostIdentity,
 ) {
     let mut runtime = pty.runtime.lock().unwrap();
@@ -1961,7 +2100,14 @@ fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     }
     pty.dead.store(true, Ordering::Release);
     if let Some(mux) = pty.mux.upgrade() {
-        mux.surface_exited(surface.id);
+        publish_terminal_runtime_exit(&mux, &pty.terminal);
+    }
+}
+
+fn publish_terminal_runtime_exit(mux: &Arc<Mux>, terminal: &Arc<TerminalResource>) {
+    match terminal.event_target() {
+        TerminalEventTarget::Resource(_) => mux.terminal_resource_exited(terminal),
+        TerminalEventTarget::Auxiliary(surface) => mux.surface_exited(*surface),
     }
 }
 
@@ -1992,6 +2138,12 @@ fn terminal_public_id_from_resource_identity(
     }
 }
 
+fn next_terminal_runtime_id(mux: &Weak<Mux>) -> anyhow::Result<SurfaceId> {
+    mux.upgrade()
+        .map(|mux| mux.next_id())
+        .ok_or_else(|| anyhow::anyhow!("terminal runtime identity requires a live mux"))
+}
+
 impl std::fmt::Debug for Surface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Surface").field("id", &self.id).field("kind", &self.kind()).finish()
@@ -2008,9 +2160,20 @@ impl Surface {
 
     pub fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
         match self {
-            Self::Pty(surface) => surface.terminal_public_id.as_deref(),
+            Self::Pty(surface) => surface.terminal.public_id(),
             Self::Browser(_) => None,
         }
+    }
+
+    pub(crate) fn terminal_resource(&self) -> Option<Arc<TerminalResource>> {
+        match self {
+            Self::Pty(surface) => Some(surface.terminal.clone()),
+            Self::Browser(_) => None,
+        }
+    }
+
+    pub(crate) fn terminal_mux(&self) -> Option<Arc<Mux>> {
+        self.as_pty()?.mux.upgrade()
     }
 
     /// Create another view placement for this terminal without creating a
@@ -2020,33 +2183,16 @@ impl Surface {
         id: SurfaceId,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        let projected_id = terminal_public_id_from_resource_identity(
-            &resource_identity,
-            "terminal placement requires a terminal content identity",
-        )?;
-        anyhow::ensure!(
-            self.terminal_public_id() == Some(&projected_id),
-            "terminal placement cannot change content identity"
-        );
         let Surface::Pty(surface) = self else {
             anyhow::bail!("browser content cannot be projected as a terminal");
         };
-        Ok(Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta {
-                id,
-                resource_identity: Some(resource_identity),
-                name: Mutex::new(None),
-                selection: Mutex::new(None),
-            },
-            terminal: surface.terminal.clone(),
-            viewport: Mutex::new(TerminalViewportState::default()),
-        })))
+        surface.terminal.project(id, resource_identity)
     }
 
     pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
         match (self, other) {
             (Surface::Pty(left), Surface::Pty(right)) => {
-                Arc::ptr_eq(&left.terminal, &right.terminal)
+                left.terminal.shares_runtime(&right.terminal)
             }
             _ => false,
         }
@@ -2054,7 +2200,14 @@ impl Surface {
 
     pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
         match self {
-            Surface::Pty(surface) => Some(surface.event_surface_id),
+            Surface::Pty(surface) => Some(surface.terminal.runtime_id()),
+            Surface::Browser(_) => None,
+        }
+    }
+
+    pub(crate) fn terminal_event_target(&self) -> Option<&TerminalEventTarget> {
+        match self {
+            Surface::Pty(surface) => Some(surface.terminal.event_target()),
             Surface::Browser(_) => None,
         }
     }
@@ -2174,6 +2327,7 @@ impl Surface {
                 )
             })
             .transpose()?;
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         if let Some(terminal_public_id) = terminal_public_id.as_ref() {
             set_surface_environment(&mut opts, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
             configure_agent_browser_session(&mut opts, terminal_public_id.as_str());
@@ -2186,7 +2340,7 @@ impl Surface {
             );
         }
         let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -2223,6 +2377,7 @@ impl Surface {
                 HostedSurfaceLaunch {
                     attachment,
                     kitty_reservation,
+                    runtime_id,
                     terminate_on_error: true,
                     defer_launch_activation,
                     lifetime,
@@ -2275,6 +2430,7 @@ impl Surface {
         // is fine, but keeping it queued makes the locking obvious).
         let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
+        let event_target = TerminalEventTarget::new(terminal_public_id.as_ref(), id);
 
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
@@ -2287,9 +2443,10 @@ impl Surface {
             })),
             on_bell: Some(Box::new({
                 let mux = mux.clone();
+                let event_target = event_target.clone();
                 move || {
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
+                        mux.emit_terminal_bell(&event_target);
                     }
                 }
             })),
@@ -2317,8 +2474,9 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            terminal: Arc::new(PtyTerminalRuntime {
-                event_surface_id: id,
+            terminal: Arc::new(TerminalResource::new(PtyTerminalRuntime {
+                runtime_id,
+                event_target,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!(
                     "local-{}",
@@ -2360,6 +2518,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -2384,8 +2543,8 @@ impl Surface {
                 frame_requests,
                 #[cfg(test)]
                 frame_producer_before_upgrade,
-            }),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            })),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
 
         if let Some(reservation) = kitty_reservation
@@ -2473,7 +2632,7 @@ impl Surface {
                                 let title = term.title().unwrap_or_default();
                                 *pty.title.lock().unwrap() = title.clone();
                                 if let Some(mux) = mux.upgrade() {
-                                    mux.emit_terminal_title(surface.id, title.into());
+                                    mux.emit_terminal_title(&pty.event_target, title.into());
                                 }
                             }
                             if let Some(pwd) = term.pwd() {
@@ -2505,7 +2664,7 @@ impl Surface {
                         if let Some((offset, at_bottom)) = scroll_changed
                             && let Some(mux) = mux.upgrade()
                         {
-                            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                            mux.emit_terminal_scroll(&pty.event_target, offset, at_bottom);
                         }
                         let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                         if !responses.is_empty() {
@@ -2649,9 +2808,9 @@ impl Surface {
             Ok(changed) => {
                 if let Some(mux) = pty.mux.upgrade() {
                     if changed {
-                        mux.emit_terminal_output(pty.event_surface_id);
+                        mux.emit_terminal_output(&pty.event_target);
                     }
-                    mux.reconcile_deferred_cell_pixel_ack(self.id, expected);
+                    mux.reconcile_deferred_cell_pixel_ack(pty.runtime_id, expected);
                 }
             }
             Err(_) => {
@@ -2663,12 +2822,7 @@ impl Surface {
     }
 
     #[cfg(unix)]
-    fn apply_hosted_clear_history_replay(
-        surface: &Arc<Surface>,
-        pty: &PtySurface,
-        replay: &[u8],
-        mux: &Weak<Mux>,
-    ) {
+    fn apply_hosted_clear_history_replay(pty: &PtyTerminalRuntime, replay: &[u8], mux: &Weak<Mux>) {
         let mut scroll_changed = None;
         let generation = {
             let mut term = pty.term.lock().unwrap();
@@ -2692,7 +2846,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom });
+            mux.emit_terminal_scroll(&pty.event_target, offset, at_bottom);
         }
     }
 
@@ -2706,6 +2860,7 @@ impl Surface {
         let HostedSurfaceLaunch {
             mut attachment,
             kitty_reservation,
+            runtime_id,
             terminate_on_error,
             defer_launch_activation,
             lifetime,
@@ -2740,7 +2895,9 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+        let event_target = TerminalEventTarget::new(terminal_public_id.as_ref(), id);
+        let callbacks =
+            hosted_terminal_callbacks(event_target.clone(), mux.clone(), title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         term.resize(
             snapshot.cols,
@@ -2775,7 +2932,7 @@ impl Surface {
         let mux_owner =
             mux.upgrade().ok_or_else(|| anyhow::anyhow!("terminal host has no mux owner"))?;
         let pending_host_binding =
-            mux_owner.register_pending_terminal_host(id, host_identity.clone())?;
+            mux_owner.register_pending_terminal_host(runtime_id, host_identity.clone())?;
         drop(mux_owner);
         let journal_generation = Arc::from(host_identity.incarnation.clone());
         let host_exit_record_path = attachment.exit_record_path();
@@ -2792,8 +2949,9 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            terminal: Arc::new(PtyTerminalRuntime {
-                event_surface_id: id,
+            terminal: Arc::new(TerminalResource::new(PtyTerminalRuntime {
+                runtime_id,
+                event_target,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
@@ -2835,6 +2993,7 @@ impl Surface {
                     cell_height: snapshot.cell_pixels.1,
                 }),
                 kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -2859,8 +3018,8 @@ impl Surface {
                 frame_requests,
                 #[cfg(test)]
                 frame_producer_before_upgrade,
-            }),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            })),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
@@ -2944,9 +3103,7 @@ impl Surface {
                             };
                             if !control_responses.resolve_after(&frame, || {
                                 if let Some(replay) = clear_replay {
-                                    Self::apply_hosted_clear_history_replay(
-                                        &surface, pty, replay, &mux,
-                                    );
+                                    Self::apply_hosted_clear_history_replay(pty, replay, &mux);
                                 }
                             }) {
                                 break;
@@ -3066,12 +3223,12 @@ impl Surface {
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit_terminal_title(surface.id, title.into());
+                                    mux.emit_terminal_title(&pty.event_target, title.into());
                                 }
                                 if let Some((offset, at_bottom)) = scroll_changed
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                                    mux.emit_terminal_scroll(&pty.event_target, offset, at_bottom);
                                 }
                             }
                             HostedTransition::Resized { cols, rows, cell_pixels } => {
@@ -3098,12 +3255,12 @@ impl Surface {
                                 if changed
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit(MuxEvent::SurfaceResized {
-                                        surface: surface.id,
+                                    mux.emit_terminal_resized(
+                                        &pty.event_target,
                                         cols,
                                         rows,
-                                        reservation_id: None,
-                                    });
+                                        None,
+                                    );
                                 }
                             }
                             HostedTransition::ResizedWithColors {
@@ -3127,7 +3284,7 @@ impl Surface {
                                     .map(|mux| mux.default_colors())
                                     .unwrap_or_default();
                                 let callbacks = hosted_terminal_callbacks(
-                                    id,
+                                    pty.event_target.clone(),
                                     mux.clone(),
                                     title_changed.clone(),
                                 );
@@ -3209,10 +3366,14 @@ impl Surface {
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
-                                    mux.emit_terminal_title(surface.id, title.into());
-                                    mux.emit_terminal_resized(surface.id, cols, rows, None);
+                                    mux.emit_terminal_title(&pty.event_target, title.into());
+                                    mux.emit_terminal_resized(&pty.event_target, cols, rows, None);
                                     if let Some((offset, at_bottom)) = scroll_changed {
-                                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                                        mux.emit_terminal_scroll(
+                                            &pty.event_target,
+                                            offset,
+                                            at_bottom,
+                                        );
                                     }
                                 }
                             }
@@ -3245,7 +3406,7 @@ impl Surface {
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
                         pty.stream_progress.notify();
                         if let Some(mux) = mux.upgrade() {
-                            mux.surface_exited(surface.id);
+                            publish_terminal_runtime_exit(&mux, &pty.terminal);
                         }
                         return;
                     }
@@ -3267,7 +3428,7 @@ impl Surface {
                             != TerminalHostConnectionState::Reconnecting as u8;
                     if first_loss
                         && let Some(mux) = mux.upgrade()
-                        && !mux.terminal_host_connection_lost(surface.id, &identity)
+                        && !mux.terminal_host_connection_lost(pty.runtime_id, &identity)
                     {
                         return;
                     }
@@ -3313,7 +3474,7 @@ impl Surface {
                                 );
                                 pty.stream_progress.notify();
                                 if let Some(mux) = mux.upgrade() {
-                                    mux.surface_exited(surface.id);
+                                    publish_terminal_runtime_exit(&mux, &pty.terminal);
                                 }
                                 return;
                             }
@@ -3416,8 +3577,11 @@ impl Surface {
                             cell_width: replacement_snapshot.cell_pixels.0,
                             cell_height: replacement_snapshot.cell_pixels.1,
                         };
-                        let callbacks =
-                            hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+                        let callbacks = hosted_terminal_callbacks(
+                            pty.event_target.clone(),
+                            mux.clone(),
+                            title_changed.clone(),
+                        );
                         let Ok(mut replacement_term) = Terminal::new(
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
@@ -3500,7 +3664,7 @@ impl Surface {
                         pty.stream_progress.notify_reconnect();
                         pty.request_frame(generation);
                         if !reconnect_mux.terminal_host_reconnected(
-                            surface.id,
+                            pty.runtime_id,
                             &identity,
                             replacement_snapshot.kitty_state.limits,
                         ) {
@@ -3514,7 +3678,9 @@ impl Surface {
                                 TerminalHostConnectionState::Reconnecting as u8,
                                 Ordering::Release,
                             );
-                            if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
+                            if !reconnect_mux
+                                .terminal_host_connection_lost(pty.runtime_id, &identity)
+                            {
                                 pty.host_connection_state.store(
                                     TerminalHostConnectionState::Failed as u8,
                                     Ordering::Release,
@@ -3554,7 +3720,7 @@ impl Surface {
                                     Ordering::Release,
                                 );
                                 if !reconnect_mux
-                                    .terminal_host_connection_lost(surface.id, &identity)
+                                    .terminal_host_connection_lost(pty.runtime_id, &identity)
                                 {
                                     return;
                                 }
@@ -3565,12 +3731,12 @@ impl Surface {
                             }
                         }
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
-                            surface.id,
+                            pty.runtime_id,
                             replacement_snapshot.cell_pixels,
                         );
-                        reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
+                        reconnect_mux.emit_terminal_title(&pty.event_target, title.into());
                         reconnect_mux.emit_terminal_resized(
-                            pty.event_surface_id,
+                            &pty.event_target,
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
                             None,
@@ -3668,8 +3834,9 @@ impl Surface {
             &resource_identity,
             "hosted terminal cannot use a browser resource identity",
         )?;
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -3686,6 +3853,7 @@ impl Surface {
             HostedSurfaceLaunch {
                 attachment,
                 kitty_reservation,
+                runtime_id,
                 terminate_on_error: false,
                 defer_launch_activation: false,
                 lifetime: PtyLifetime::SessionOwned,
@@ -3704,8 +3872,9 @@ impl Surface {
         record_path: PathBuf,
         terminal_public_id: TerminalPublicId,
     ) -> anyhow::Result<Arc<Surface>> {
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -3722,6 +3891,7 @@ impl Surface {
             HostedSurfaceLaunch {
                 attachment,
                 kitty_reservation,
+                runtime_id,
                 terminate_on_error: false,
                 defer_launch_activation: false,
                 lifetime: PtyLifetime::SessionOwned,
@@ -3800,8 +3970,10 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
+        let event_target = TerminalEventTarget::Resource(terminal_public_id.clone());
+        let callbacks = hosted_terminal_callbacks(event_target.clone(), mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -3832,8 +4004,9 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            terminal: Arc::new(PtyTerminalRuntime {
-                event_surface_id: id,
+            terminal: Arc::new(TerminalResource::new(PtyTerminalRuntime {
+                runtime_id,
+                event_target,
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_supported: true,
@@ -3873,6 +4046,7 @@ impl Surface {
                     cell_height: cell_pixels.1,
                 }),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -3897,8 +4071,8 @@ impl Surface {
                 frame_requests,
                 #[cfg(test)]
                 frame_producer_before_upgrade,
-            }),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            })),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
@@ -4008,8 +4182,9 @@ impl Surface {
                 )
             })
             .transpose()?;
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -4021,12 +4196,14 @@ impl Surface {
             cell_height: cell_pixels.1,
         };
         let initial_pty_size = initial_geometry.pty_size()?;
+        let event_target = TerminalEventTarget::new(terminal_public_id.as_ref(), id);
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
+                let event_target = event_target.clone();
                 move || {
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
+                        mux.emit_terminal_bell(&event_target);
                     }
                 }
             })),
@@ -4057,8 +4234,9 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            terminal: Arc::new(PtyTerminalRuntime {
-                event_surface_id: id,
+            terminal: Arc::new(TerminalResource::new(PtyTerminalRuntime {
+                runtime_id,
+                event_target,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
@@ -4102,6 +4280,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),
@@ -4121,8 +4300,8 @@ impl Surface {
                 render_generation: AtomicU64::new(1),
                 frame_requests,
                 frame_producer_before_upgrade,
-            }),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            })),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
         if let Some(reservation) = kitty_reservation {
             reservation.commit(&surface, initial_kitty_limits)?;
@@ -4296,6 +4475,40 @@ impl Surface {
         terminal.set_kitty_graphics_limits(limits).map_err(Into::into)
     }
 
+    fn apply_local_kitty_graphics_limits(
+        pty: &PtyTerminalRuntime,
+        next: KittyGraphicsLimits,
+    ) -> anyhow::Result<()> {
+        let next = if pty.kitty_graphics_retired.load(Ordering::Acquire) {
+            KittyGraphicsLimits::disabled()
+        } else {
+            next
+        };
+        let graphics_changed = {
+            let mut term = pty.term.lock().unwrap();
+            let mut limits = pty.kitty_graphics_limits.lock().unwrap();
+            if *limits == next {
+                return Ok(());
+            }
+            let graphics_changed = Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
+            *limits = next;
+            pty.resynchronize_attach_taps_locked(&mut term);
+            if graphics_changed {
+                let mut render = pty.render.lock().unwrap();
+                render.state.clear_kitty_graphics_cache();
+                render.latest = None;
+                render.initial_graphics = None;
+            }
+            graphics_changed
+        };
+        if !graphics_changed {
+            return Ok(());
+        }
+        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        pty.request_frame(generation);
+        Ok(())
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_kitty_graphics_limits(
         &self,
@@ -4319,6 +4532,11 @@ impl Surface {
     ) -> anyhow::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Ok(());
+        };
+        let requested = if pty.kitty_graphics_retired.load(Ordering::Acquire) {
+            KittyGraphicsLimits::disabled()
+        } else {
+            requested
         };
         let requested = requested
             .validate()
@@ -4345,29 +4563,7 @@ impl Surface {
         };
         #[cfg(not(unix))]
         let next = requested;
-        let graphics_changed = {
-            let mut term = pty.term.lock().unwrap();
-            let mut limits = pty.kitty_graphics_limits.lock().unwrap();
-            if *limits == next {
-                return Ok(());
-            }
-            let graphics_changed = Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
-            *limits = next;
-            pty.resynchronize_attach_taps_locked(&mut term);
-            if graphics_changed {
-                let mut render = pty.render.lock().unwrap();
-                render.state.clear_kitty_graphics_cache();
-                render.latest = None;
-                render.initial_graphics = None;
-            }
-            graphics_changed
-        };
-        if !graphics_changed {
-            return Ok(());
-        }
-        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        pty.request_frame(generation);
-        Ok(())
+        Self::apply_local_kitty_graphics_limits(pty, next)
     }
 
     /// Return the coalesced revision advanced after terminal output or another
@@ -4718,7 +4914,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+            mux.emit_terminal_scroll(&pty.event_target, offset, at_bottom);
         }
         Ok(scrollbar)
     }
@@ -4744,7 +4940,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+            mux.emit_terminal_scroll(&pty.event_target, offset, at_bottom);
         }
         Ok(())
     }
@@ -4868,7 +5064,7 @@ impl Surface {
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
-                mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+                mux.emit_terminal_scroll(&pty.event_target, offset, at_bottom);
             }
             pty.mark_output_dirty();
             return Ok(());
@@ -5170,10 +5366,7 @@ impl Surface {
 
     pub fn size(&self) -> (u16, u16) {
         match self {
-            Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
-                (geometry.cols, geometry.rows)
-            }
+            Surface::Pty(pty) => pty.terminal.size(),
             Surface::Browser(browser) => browser.size(),
         }
     }
@@ -5229,7 +5422,7 @@ impl Surface {
 
     pub fn title(&self) -> String {
         match self {
-            Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
+            Surface::Pty(pty) => pty.terminal.title(),
             Surface::Browser(browser) => browser.title(),
         }
     }
@@ -5259,11 +5452,11 @@ impl Surface {
     }
 
     pub fn spawn_cwd(&self) -> Option<String> {
-        self.as_pty().and_then(|pty| pty.cwd.clone())
+        self.terminal_resource().and_then(|terminal| terminal.spawn_cwd())
     }
 
     pub fn terminal_exit(&self) -> Option<TerminalExit> {
-        self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+        self.terminal_resource().and_then(|terminal| terminal.terminal_exit())
     }
 
     /// Terminate a hosted terminal through its existing owner connection and
@@ -5310,23 +5503,12 @@ impl Surface {
         }
     }
 
-    #[cfg(unix)]
-    pub(crate) fn terminal_host_exit_sidecar(
-        &self,
-    ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
-        let pty = self.as_pty()?;
-        let path = pty.host_exit_record_path.clone()?;
-        let identity = pty.host_identity.as_ref()?;
-        let exit = pty.exit.lock().unwrap().clone()?;
-        Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
-    }
-
     /// Process-stable identity for hosted terminals. Surface ids remain
     /// daemon-local compatibility handles and may change after adoption.
     pub fn terminal_host_identity(
         &self,
     ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
-        self.as_pty().and_then(|pty| pty.host_identity.clone())
+        self.terminal_resource()?.terminal_host_identity()
     }
 
     #[cfg(unix)]
@@ -5545,7 +5727,7 @@ impl Surface {
                 {
                     eprintln!(
                         "cmux-tui: terminal host {} detach fence failed: {error:#}",
-                        pty.event_surface_id
+                        pty.runtime_id
                     );
                     gap = pty.terminal_public_id.clone().map(|terminal_id| TerminalJournalGap {
                         terminal_id,
@@ -6061,6 +6243,60 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
+        let scrollbar = term.scrollbar()?;
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let had_anchor = viewport.anchor(screen).is_some();
+        let resolved = viewport
+            .anchor(screen)
+            .and_then(|anchor| term.tracked_screen_point(anchor))
+            .map(|(_, row)| u64::from(row).min(bottom));
+        let offset = match (had_anchor, resolved) {
+            (_, Some(offset)) => offset,
+            (false, None) => bottom,
+            (true, None) if bottom > 0 => {
+                *viewport.anchor_mut(screen) = term.track_screen_point(0, 0).ok();
+                if viewport.anchor(screen).is_some() { 0 } else { bottom }
+            }
+            (true, None) => {
+                *viewport.anchor_mut(screen) = None;
+                bottom
+            }
+        };
+        if offset == bottom {
+            *viewport.anchor_mut(screen) = None;
+        }
+        Some(Scrollbar { offset, ..scrollbar })
+    }
+
+    fn set_view_scroll_offset_locked(&self, term: &mut Terminal, offset: u64) {
+        let Some(scrollbar) = term.scrollbar() else { return };
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let target = offset.min(bottom);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let anchor = viewport.anchor_mut(screen);
+        if target == bottom {
+            *anchor = None;
+            return;
+        }
+        let Ok(target) = u32::try_from(target) else {
+            *anchor = None;
+            return;
+        };
+        if anchor
+            .as_mut()
+            .is_some_and(|anchor| term.set_tracked_screen_point(anchor, 0, target).is_ok())
+        {
+            return;
+        }
+        *anchor = term.track_screen_point(0, target).ok();
+    }
+}
+
+impl PtyTerminalRuntime {
     fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.upgrade()?;
@@ -6127,58 +6363,6 @@ impl PtySurface {
             geometry.cell_width,
             geometry.cell_height,
         );
-    }
-
-    fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
-        let scrollbar = term.scrollbar()?;
-        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
-        let screen = term.active_screen();
-        let mut viewport = self.viewport.lock().unwrap();
-        let had_anchor = viewport.anchor(screen).is_some();
-        let resolved = viewport
-            .anchor(screen)
-            .and_then(|anchor| term.tracked_screen_point(anchor))
-            .map(|(_, row)| u64::from(row).min(bottom));
-        let offset = match (had_anchor, resolved) {
-            (_, Some(offset)) => offset,
-            (false, None) => bottom,
-            (true, None) if bottom > 0 => {
-                *viewport.anchor_mut(screen) = term.track_screen_point(0, 0).ok();
-                if viewport.anchor(screen).is_some() { 0 } else { bottom }
-            }
-            (true, None) => {
-                *viewport.anchor_mut(screen) = None;
-                bottom
-            }
-        };
-        if offset == bottom {
-            *viewport.anchor_mut(screen) = None;
-        }
-        Some(Scrollbar { offset, ..scrollbar })
-    }
-
-    fn set_view_scroll_offset_locked(&self, term: &mut Terminal, offset: u64) {
-        let Some(scrollbar) = term.scrollbar() else { return };
-        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
-        let target = offset.min(bottom);
-        let screen = term.active_screen();
-        let mut viewport = self.viewport.lock().unwrap();
-        let anchor = viewport.anchor_mut(screen);
-        if target == bottom {
-            *anchor = None;
-            return;
-        }
-        let Ok(target) = u32::try_from(target) else {
-            *anchor = None;
-            return;
-        };
-        if anchor
-            .as_mut()
-            .is_some_and(|anchor| term.set_tracked_screen_point(anchor, 0, target).is_ok())
-        {
-            return;
-        }
-        *anchor = term.track_screen_point(0, target).ok();
     }
 
     #[cfg(test)]
@@ -6310,7 +6494,7 @@ impl PtySurface {
         if !self.dirty.swap(true, Ordering::AcqRel)
             && let Some(mux) = self.mux.upgrade()
         {
-            mux.emit_terminal_output(self.event_surface_id);
+            mux.emit_terminal_output(&self.event_target);
         }
     }
 
@@ -6768,7 +6952,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
     Ok(())
 }
 
-fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
+fn broadcast_render_scroll_locked(pty: &PtyTerminalRuntime, position: (u64, bool)) {
     let (offset, at_bottom) = position;
     let mut render = pty.render.lock().unwrap();
     render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
@@ -7013,12 +7197,27 @@ mod tests {
         assert_eq!(surface.resource_identity(), Some(&identity));
     }
 
+    #[test]
+    fn terminal_runtime_identity_requires_a_live_mux() {
+        let error = Surface::spawn_for_test_with_resource_identity(
+            1,
+            SurfaceOptions::default(),
+            Weak::new(),
+            Some(TabResourceIdentity::terminal(None).unwrap()),
+        )
+        .expect_err("terminal runtime identity must not fall back to a placement ID");
+        assert!(error.to_string().contains("live mux"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
         let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
-        let callbacks =
-            hosted_terminal_callbacks(1, Arc::downgrade(&mux), Arc::new(AtomicBool::new(false)));
+        let callbacks = hosted_terminal_callbacks(
+            TerminalEventTarget::Auxiliary(1),
+            Arc::downgrade(&mux),
+            Arc::new(AtomicBool::new(false)),
+        );
 
         assert!(
             callbacks.on_pty_write.is_none(),
@@ -8010,11 +8209,17 @@ mod tests {
 
     #[test]
     fn producer_without_render_taps_skips_frame_but_emits_output() {
-        let mux = Mux::new_for_test("producer-skip", SurfaceOptions::default());
+        let mux = Mux::new_for_test(
+            "producer-skip",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
         let events = mux.subscribe();
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pty = surface.as_pty().unwrap();
+        while events.try_recv().is_ok() {}
 
         let mut term = pty.term.lock().unwrap();
         assert!(!pty.build_frame_locked(&mut term, 2, true).unwrap());
@@ -8025,7 +8230,10 @@ mod tests {
         assert!(render.latest.is_none());
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
-        assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MuxEvent::SurfaceOutput(id)) if id == surface.id
+        ));
     }
 
     #[test]
@@ -8512,10 +8720,15 @@ mod tests {
 
     #[test]
     fn clear_history_updates_the_authoritative_terminal_and_attach_mirrors() {
-        let mux = Mux::new_for_test("clear-history", SurfaceOptions::default());
+        let mux = Mux::new_for_test(
+            "clear-history",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
         let events = mux.subscribe();
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.with_terminal(|term| {
             term.vt_write(b"\x1b]133;C\x07");
             for line in 0..40 {
@@ -8553,7 +8766,11 @@ mod tests {
         );
         assert_eq!(mirror.history_rows(), 0);
         assert_eq!(mirror.viewport_text().unwrap(), authoritative_after);
-        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, MuxEvent::SurfaceOutput(id) if id == surface.id))
+        );
     }
 
     #[test]

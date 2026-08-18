@@ -152,9 +152,14 @@ impl fmt::Display for Colored {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use crate::style::{Color, Colored};
 
+    static COLOR_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
     fn check_format_color(colored: Colored, expected: &str) {
+        let _guard = COLOR_STATE_TEST_LOCK.lock().unwrap();
         Colored::set_ansi_color_disabled(true);
         assert_eq!(colored.to_string(), "");
         Colored::set_ansi_color_disabled(false);
@@ -204,11 +209,13 @@ mod tests {
 
     #[test]
     fn test_parse_ansi_bg() {
-        test_parse_ansi(Colored::ForegroundColor)
+        test_parse_ansi(Colored::BackgroundColor)
     }
 
     /// Used for test_parse_ansi_fg and test_parse_ansi_bg
     fn test_parse_ansi(bg_or_fg: impl Fn(Color) -> Colored) {
+        let _guard = COLOR_STATE_TEST_LOCK.lock().unwrap();
+
         /// Formats a re-parses `color` to check the result.
         macro_rules! test {
             ($color:expr) => {
@@ -306,6 +313,7 @@ mod tests {
 
     #[test]
     fn test_no_color() {
+        let _guard = COLOR_STATE_TEST_LOCK.lock().unwrap();
         std::env::set_var("NO_COLOR", "1");
         assert!(Colored::ansi_color_disabled());
         std::env::set_var("NO_COLOR", "XXX");

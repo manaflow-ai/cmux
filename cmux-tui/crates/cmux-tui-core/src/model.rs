@@ -9,7 +9,9 @@ use crate::resource::{
     ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
 };
-use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
+use crate::{
+    PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, TerminalResource, WorkspaceId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewportColumn {
@@ -868,7 +870,7 @@ pub struct State {
     /// View placements keyed by daemon-local placement identity.
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
     /// Stable terminal content kept alive independently of view placement.
-    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<TerminalResource>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
     pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
@@ -1018,11 +1020,6 @@ impl State {
     }
 
     pub fn surface_by_content_public_id(&self, id: &ContentPublicId) -> Option<&Arc<Surface>> {
-        if let ContentPublicId::Terminal(terminal_id) = id
-            && let Some(surface) = self.terminal_catalog.get(terminal_id)
-        {
-            return Some(surface);
-        }
         self.single_placement_of_content(id).and_then(|slot| self.surfaces.get(&slot))
     }
 
@@ -1038,10 +1035,11 @@ impl State {
         Some(*placement)
     }
 
-    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
+    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.terminal_catalog_by_runtime
             .get(&id)
             .and_then(|terminal| self.terminal_catalog.get(terminal))
+            .map(|terminal| terminal.compatibility_surface())
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {

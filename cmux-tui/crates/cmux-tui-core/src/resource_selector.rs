@@ -278,7 +278,7 @@ pub(crate) fn resolve_resource_selectors(
                 supplied_workspace,
             )?;
             target_terminal = Some(id);
-            Some(slot)
+            slot
         }
         ResourceTarget::Browser => {
             let raw = selectors.browser.as_deref().expect("target selector checked");
@@ -323,6 +323,15 @@ pub(crate) fn resolve_resource_selectors(
     if target == ResourceTarget::Terminal && target_pane.is_none() {
         let terminal_id =
             target_terminal.as_ref().expect("resolved terminal target omitted its public identity");
+        if let Some(tab) = supplied_tab {
+            return Err(wrong_parent(
+                "target",
+                terminal_id.as_str(),
+                "tab",
+                public_tab_id(state, tab)?.to_string(),
+                None,
+            ));
+        }
         if let Some(pane) = supplied_pane {
             return Err(wrong_parent(
                 "target",
@@ -776,43 +785,44 @@ fn resolve_terminal(
     pane: Option<PaneId>,
     screen: Option<ScreenId>,
     workspace: Option<WorkspaceId>,
-) -> Result<(SurfaceId, TerminalPublicId), ResourceError> {
+) -> Result<(Option<SurfaceId>, TerminalPublicId), ResourceError> {
     match Selector::parse(raw)? {
         Selector::Id(id) => {
             let id = TerminalPublicId::parse(id)?;
             let content_id = ContentPublicId::Terminal(id.clone());
+            let placements = state.resource_indexes.content_placements.get(&content_id);
+            if placements.is_none_or(Vec::is_empty) && !state.terminal_catalog.contains_key(&id) {
+                return Err(ResourceError::not_found("terminal", raw));
+            }
+            if parent.is_none() && pane.is_none() && screen.is_none() && workspace.is_none() {
+                return Ok((None, id));
+            }
             let slot = parent
                 .filter(|parent| {
                     state.resource_indexes.content_ids.get(parent) == Some(&content_id)
                 })
                 .or_else(|| {
-                    state.resource_indexes.content_placements.get(&content_id).and_then(
-                        |placements| {
-                            placements
-                                .iter()
-                                .copied()
-                                .find(|placement| {
-                                    placement_matches_scope(
-                                        state, *placement, pane, screen, workspace,
-                                    )
-                                })
-                                // Keep a concrete out-of-scope placement so
-                                // the normal parent validator reports
-                                // selector.wrong_parent instead of hiding a
-                                // live terminal as not found.
-                                .or_else(|| placements.first().copied())
-                        },
-                    )
-                })
-                .or_else(|| state.terminal_catalog.get(&id).map(|surface| surface.id))
-                .ok_or_else(|| ResourceError::not_found("terminal", raw))?;
-            validate_content_parent(state, "terminal", id.as_str(), parent, slot)?;
+                    placements.and_then(|placements| {
+                        placements
+                            .iter()
+                            .copied()
+                            .find(|placement| {
+                                placement_matches_scope(state, *placement, pane, screen, workspace)
+                            })
+                            // Keep a concrete out-of-scope placement so the
+                            // normal parent validator reports wrong_parent.
+                            .or_else(|| placements.first().copied())
+                    })
+                });
+            if let Some(slot) = slot {
+                validate_content_parent(state, "terminal", id.as_str(), parent, slot)?;
+            }
             Ok((slot, id))
         }
         Selector::Current => {
             let parent = parent.ok_or_else(|| incomplete_chain("terminal", "tab"))?;
             match state.resource_indexes.content_ids.get(&parent) {
-                Some(ContentPublicId::Terminal(id)) => Ok((parent, id.clone())),
+                Some(ContentPublicId::Terminal(id)) => Ok((Some(parent), id.clone())),
                 _ => Err(ResourceError::not_found("terminal", raw)),
             }
         }
@@ -825,7 +835,7 @@ fn resolve_terminal(
             let title =
                 state.surfaces.get(&parent).map(|surface| surface.title()).unwrap_or_default();
             if title == name {
-                Ok((parent, id))
+                Ok((Some(parent), id))
             } else {
                 Err(ResourceError::not_found("terminal", &name))
             }
