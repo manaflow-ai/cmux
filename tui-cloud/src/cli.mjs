@@ -62,10 +62,19 @@ async function latestSnapshot() {
 async function ensureDaemon(vm) {
   // server start is idempotent for a live session; probe status first.
   const probe = await vm.exec({ command: "cmux server status --session " + SESSION + " >/dev/null 2>&1; echo $?", env: CMUX_ENV });
-  if ((probe.stdout ?? "").trim() !== "0") {
-    // `server start` runs foreground, so detach with setsid; a bare exec'd
-    // process is reaped when the exec session ends.
-    await sh(vm, `setsid nohup cmux server start --session ${SESSION} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null & sleep 5; cmux server status --session ${SESSION} >/dev/null`, { timeoutMs: 120_000, env: CMUX_ENV });
+  if ((probe.stdout ?? "").trim() === "0") return;
+  // `server start` runs foreground, so detach with setsid; a bare exec'd
+  // process is reaped when the exec session ends.
+  const start = `setsid nohup cmux server start --session ${SESSION} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null & sleep 5; cmux server status --session ${SESSION} >/dev/null`;
+  try {
+    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
+  } catch (first) {
+    // A daemon killed mid-enrollment wedges its state dir; the next start
+    // fails with a finalization error. Recover by resetting the identity.
+    const logTail = await vm.exec({ command: "tail -3 /var/log/cmux-tui.log 2>/dev/null", env: CMUX_ENV });
+    if (!/finalization|predecessor/.test(logTail.stdout ?? "")) throw first;
+    await sh(vm, "rm -rf /root/.local/state/cmux /tmp/cmux-tui-0", { env: CMUX_ENV });
+    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
   }
 }
 

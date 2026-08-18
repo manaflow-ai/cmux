@@ -113,8 +113,21 @@ function bridgeAlive(vmId) {
 
 async function ensureDaemon(vm) {
   const probe = await vm.exec({ command: `cmux server status --session ${SESSION} >/dev/null 2>&1; echo $?`, env: CMUX_ENV });
-  if ((probe.stdout ?? "").trim() !== "0") {
-    await sh(vm, `setsid nohup cmux server start --session ${SESSION} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null & sleep 5; cmux server status --session ${SESSION} >/dev/null`, { timeoutMs: 120_000, env: CMUX_ENV });
+  if ((probe.stdout ?? "").trim() === "0") return;
+  // `server start` runs foreground, so detach with setsid; a bare exec'd
+  // process is reaped when the exec session ends.
+  const start = `setsid nohup cmux server start --session ${SESSION} --iroh >/var/log/cmux-tui.log 2>&1 </dev/null & sleep 5; cmux server status --session ${SESSION} >/dev/null`;
+  try {
+    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
+  } catch (first) {
+    // A daemon killed mid-enrollment (platform incident, OOM) wedges its state
+    // dir: the next start fails with "could not verify previous remote daemon
+    // authorization finalization". The only recovery is a fresh identity.
+    const logTail = await vm.exec({ command: "tail -3 /var/log/cmux-tui.log 2>/dev/null", env: CMUX_ENV });
+    if (!/finalization|predecessor/.test(logTail.stdout ?? "")) throw first;
+    log(`daemon state wedged on ${SESSION}; resetting identity`);
+    await sh(vm, "rm -rf /root/.local/state/cmux /tmp/cmux-tui-0", { env: CMUX_ENV });
+    await sh(vm, start, { timeoutMs: 120_000, env: CMUX_ENV });
   }
 }
 
@@ -138,7 +151,9 @@ async function autoApprove(vm, { timeoutMs = 120_000 } = {}) {
 function spawnBridge(vmId, connectArgs) {
   const { sock, pid, log: logPath } = bridgePaths(vmId);
   try { unlinkSync(sock); } catch {}
-  const fd = openSync(logPath, "a");
+  // Truncate the log: a stale "connected" line from a dead bridge must not
+  // satisfy the readiness check of its replacement.
+  const fd = openSync(logPath, "w");
   const child = spawn(LOCAL_BIN, connectArgs, { stdio: ["ignore", fd, fd], detached: true });
   child.unref();
   writeFileSync(pid, String(child.pid), { mode: 0o600 });
@@ -218,16 +233,24 @@ async function runControl() {
 
   // Push snapshot_changed when the Freestyle catalog drifts.
   let lastHash = "";
+  let emptyPolls = 0;
   const poll = setInterval(async () => {
     try {
       const vms = await listMachines();
-      const hash = vms.map((v) => `${v.id}:${v.state}`).sort().join(",");
-      // reap bridges for deleted VMs
-      for (const f of readdirSync(BRIDGES)) {
-        if (!f.endsWith(".sock")) continue;
-        const vmId = f.slice(0, -5);
-        if (!vms.some((v) => v.id === vmId)) killBridge(vmId);
+      // The beta API briefly returned EMPTY lists during an incident while
+      // the VMs were actually alive. Reaping bridges on a phantom empty
+      // catalog kills live connections, so never reap on an empty list.
+      if (vms.length === 0) {
+        emptyPolls++;
+      } else {
+        emptyPolls = 0;
+        for (const f of readdirSync(BRIDGES)) {
+          if (!f.endsWith(".sock")) continue;
+          const vmId = f.slice(0, -5);
+          if (!vms.some((v) => v.id === vmId)) killBridge(vmId);
+        }
       }
+      const hash = vms.map((v) => `${v.id}:${v.state}`).sort().join(",");
       if (hash !== lastHash) {
         lastHash = hash;
         event("snapshot_changed", { revision: bumpRevision() });
