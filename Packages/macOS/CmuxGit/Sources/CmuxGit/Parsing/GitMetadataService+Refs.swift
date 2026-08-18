@@ -132,8 +132,8 @@ extension GitMetadataService {
         return nil
     }
 
-    /// The current commit SHA the repository's `HEAD` resolves to (40 lowercase
-    /// hex chars), or `nil` if it cannot be resolved to a commit.
+    /// The current commit id the repository's `HEAD` resolves to, lowercased,
+    /// or `nil` if it cannot be resolved to a commit.
     nonisolated static func gitCurrentCommit(repository: ResolvedGitRepository) -> String? {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -155,11 +155,15 @@ extension GitMetadataService {
         return normalizedCommitID(value)
     }
 
-    /// `value` as a commit id (40 lowercase hex chars), or `nil` when it is not
-    /// one.
+    /// `value` as a lowercased commit id, or `nil` when it is not one.
+    ///
+    /// Accepts both object-id widths git uses, 40 hex for SHA-1 and 64 for
+    /// SHA-256, matching ``isLikelyCommitSHA(_:)``. A SHA-256 repository would
+    /// otherwise classify its detached `HEAD` as detached and then fail to name
+    /// the commit it is detached at.
     nonisolated static func normalizedCommitID(_ value: String) -> String? {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard normalized.count == 40,
+        guard normalized.count == 40 || normalized.count == 64,
               normalized.allSatisfy({ $0.isHexDigit }) else {
             return nil
         }

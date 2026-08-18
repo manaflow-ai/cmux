@@ -453,6 +453,20 @@ import Testing
         #expect(GitMetadataService.gitRefValue(repository: repository, refName: "refs/heads/main") != nil)
     }
 
+    /// `gitCheckedOutBranch` already accepts a 64-hex `HEAD` as detached, so
+    /// the commit read has to name that commit rather than give up on it.
+    @Test func namesTheCommitOfADetachedSHA256Head() throws {
+        let fixture = try GitRepositoryFixture()
+        let commit = String(repeating: "a", count: 64)
+        try fixture.writeDetachedHead(commit: commit)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        #expect(GitMetadataService.gitCheckedOutBranch(repository: repository) == .detached)
+        #expect(GitMetadataService.gitCurrentCommit(repository: repository) == commit)
+    }
+
     @Test func watchedPathsRecurseIntoNestedSubmodules() throws {
         let parent = try GitRepositoryFixture()
         try parent.writeBranch("main")
