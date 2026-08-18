@@ -101,6 +101,9 @@ struct AgentFeedView: View {
             }
         }
         .listStyle(.plain)
+        // Swiping the feed lowers the keyboard, so an abandoned inline reply
+        // never pins it over the timeline.
+        .scrollDismissesKeyboard(.interactively)
         .refreshable {
             now = Date()
             await actions.refresh()

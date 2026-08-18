@@ -568,11 +568,13 @@ private struct AgentFeedInlineReplyField: View {
 }
 
 /// A bordered text field with a trailing send affordance. Submitting trims,
-/// sends through `onSend`, and clears the draft.
+/// sends through `onSend`, clears the draft, and drops keyboard focus so the
+/// keyboard lowers instead of pinning the feed.
 private struct AgentFeedSendableTextField: View {
     let placeholder: String
     @Binding var text: String
     let onSend: @MainActor (String) -> Void
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -580,6 +582,7 @@ private struct AgentFeedSendableTextField: View {
                 .font(.subheadline)
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
+                .focused($isFocused)
                 .onSubmit(send)
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -611,6 +614,7 @@ private struct AgentFeedSendableTextField: View {
         guard !trimmed.isEmpty else { return }
         onSend(trimmed)
         text = ""
+        isFocused = false
     }
 }
 
