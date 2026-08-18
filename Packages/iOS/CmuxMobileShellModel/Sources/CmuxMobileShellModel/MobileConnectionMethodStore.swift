@@ -59,6 +59,20 @@ public final class MobileConnectionMethodStore {
         } else {
             self.method = .automatic
         }
+        recordConfiguredMethodDiagnostic()
+    }
+
+    /// Records the currently configured method into the diagnostics ring.
+    ///
+    /// Called at composition and on every foreground so any shared report
+    /// window states the configuration even after the bounded ring has rolled
+    /// past app launch; `connectionMethodPreferenceChanged` alone only marks
+    /// transitions.
+    public func recordConfiguredMethodDiagnostic() {
+        diagnosticLog?.recordAppEvent(
+            .connectionMethodConfigured,
+            count: method == .automatic ? 0 : 1
+        )
     }
 
     /// Observes connection-method changes, beginning with the current method.

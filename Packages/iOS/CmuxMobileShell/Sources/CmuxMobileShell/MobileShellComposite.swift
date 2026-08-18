@@ -198,6 +198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 correlationID: foregroundMacDeviceID,
                 count: connectionState == .connected ? 1 : 0
             )
+            recordForegroundTransportSelected()
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
@@ -279,8 +280,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var activeRoute: CmxAttachRoute? {
         didSet {
             guard oldValue != activeRoute, connectionState == .connected else { return }
+            recordForegroundTransportSelected()
             restartTerminalLanesForMountedSurfaces()
         }
+    }
+
+    /// Records which transport actually carries the foreground connection, so
+    /// a shared report states Iroh vs Tailscale usage explicitly instead of
+    /// leaving it implied by whichever dial events survived the ring.
+    ///
+    /// Hooked to both the connected transition and active-route changes: some
+    /// connect flows pin the route before flipping the state and others after,
+    /// and a mid-connection promotion swaps the route with no state change.
+    private func recordForegroundTransportSelected() {
+        guard connectionState == .connected, let route = activeRoute else { return }
+        recordAppEvent(
+            .foregroundTransportSelected,
+            correlationID: foregroundMacDeviceID,
+            count: DiagnosticTransportKind(route.kind).rawValue
+        )
     }
     /// Authenticated Mac app-instance identity for the foreground connection.
     /// `nil` only for a fresh/legacy host that has not reported one.
