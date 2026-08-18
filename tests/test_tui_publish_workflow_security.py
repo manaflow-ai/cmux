@@ -2253,6 +2253,16 @@ def test_dispatch_waiter_fails_closed_when_watch_deadline_expires() -> None:
         assert "gh run watch" in timeout_call.read_text()
 
 
+def test_dispatch_waiter_keeps_errexit_while_capturing_watch_status() -> None:
+    script = (ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh").read_text()
+
+    assert "set +e" not in script
+    assert (
+        'watch_status=0\nwait "$watch_pid" || watch_status=$?\nwatch_pid=""'
+        in script
+    )
+
+
 def test_dispatch_waiter_cancels_watch_on_signal() -> None:
     script = ROOT / ".github" / "scripts" / "wait-for-workflow-run.sh"
     sha = "1" * 40
