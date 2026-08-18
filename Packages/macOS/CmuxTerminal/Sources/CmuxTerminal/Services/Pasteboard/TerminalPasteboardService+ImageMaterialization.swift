@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxTerminalCore
-internal import UniformTypeIdentifiers
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -91,55 +90,6 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
         }
         registerOwnedTemporaryImageFile(fileURL)
         return fileURL.path.terminalShellEscaped
-    }
-
-    /// Copies a source-owned temporary image into this service's owned storage.
-    ///
-    /// File URLs supplied by image drag providers can outlive the drag only
-    /// briefly. Callers that need to hand the path to a terminal or agent use
-    /// this method to establish process-owned lifetime before inserting it.
-    /// Existing files already owned by this service are returned unchanged.
-    ///
-    /// - Parameter sourceURL: A local regular image file to retain.
-    /// - Returns: An owned copy, or `nil` when the source is unavailable,
-    ///   invalid, or exceeds the clipboard image-size limit.
-    public func copyTemporaryImageFile(_ sourceURL: URL) -> URL? {
-        let source = sourceURL.standardizedFileURL
-        guard source.isFileURL else { return nil }
-        if isOwnedTemporaryImageFile(source) {
-            return source
-        }
-
-        guard let values = try? source.resourceValues(
-            forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
-        ),
-        values.isRegularFile == true,
-        values.isSymbolicLink != true,
-        let fileSize = values.fileSize,
-        fileSize > 0,
-        fileSize <= Self.maxClipboardImageSize,
-        let type = UTType(filenameExtension: source.pathExtension),
-        type.conforms(to: .image) else {
-            return nil
-        }
-
-        let destination = temporaryImageFileURL(
-            fileExtension: sanitizedImageFileExtension(
-                type.preferredFilenameExtension ?? source.pathExtension
-            )
-        ).standardizedFileURL
-        do {
-            try fileManager.copyItem(at: source, to: destination)
-            try fileManager.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: destination.path
-            )
-        } catch {
-            try? fileManager.removeItem(at: destination)
-            return nil
-        }
-        registerOwnedTemporaryImageFile(destination)
-        return destination
     }
 }
 

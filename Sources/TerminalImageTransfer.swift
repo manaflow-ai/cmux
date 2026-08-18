@@ -431,13 +431,14 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent {
-        let fileURLs = durableDroppedFileURLs(
+        guard let fileURLs = pasteboardService.durableDroppedFileURLs(
             fileURLs(from: pasteboard),
-            pasteboardService: pasteboardService,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
                 pasteboard.types
             )
-        )
+        ) else {
+            return .reject
+        }
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
         }
@@ -476,10 +477,12 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent {
-        let fileURLs = materializedFileURLs(
+        guard let fileURLs = materializedFileURLs(
             from: pasteboard,
             pasteboardService: pasteboardService
-        )
+        ) else {
+            return .reject
+        }
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
         }
@@ -498,14 +501,15 @@ enum TerminalImageTransferPlanner {
     private static func materializedFileURLs(
         from pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
-    ) -> [URL] {
-        let urls = durableDroppedFileURLs(
+    ) -> [URL]? {
+        guard let urls = pasteboardService.durableDroppedFileURLs(
             fileURLs(from: pasteboard),
-            pasteboardService: pasteboardService,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
                 pasteboard.types
             )
-        )
+        ) else {
+            return nil
+        }
         if !urls.isEmpty {
             return urls
         }
@@ -517,59 +521,6 @@ enum TerminalImageTransferPlanner {
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         PasteboardFileURLReader.fileURLs(from: pasteboard)
-    }
-
-    /// Rehomes transient image URLs before a terminal receives their path.
-    /// Finder-owned paths remain unchanged; only the temporary names emitted
-    /// by image providers need an owned copy to survive the drag/paste handoff.
-    static func durableDroppedFileURLs(
-        _ fileURLs: [URL],
-        pasteboardService: TerminalPasteboardService,
-        sourceIsTransient: Bool = false
-    ) -> [URL] {
-        fileURLs.compactMap { fileURL in
-            guard isTransientImageFileURL(
-                fileURL,
-                pasteboardService: pasteboardService,
-                sourceIsTransient: sourceIsTransient
-            ) else {
-                return fileURL
-            }
-            return pasteboardService.copyTemporaryImageFile(fileURL)
-        }
-    }
-
-    private static func isTransientImageFileURL(
-        _ fileURL: URL,
-        pasteboardService: TerminalPasteboardService,
-        sourceIsTransient: Bool
-    ) -> Bool {
-        let normalizedURL = fileURL.standardizedFileURL
-        guard normalizedURL.isFileURL,
-              let type = UTType(filenameExtension: normalizedURL.pathExtension),
-              type.conforms(to: .image) else {
-            return false
-        }
-
-        let path = normalizedURL.path
-        let serviceTemporaryPath = pasteboardService.temporaryDirectory
-            .standardizedFileURL.path
-        let systemTemporaryPath = FileManager.default.temporaryDirectory
-            .standardizedFileURL.path
-        let unixTemporaryPath = URL(fileURLWithPath: "/tmp")
-            .standardizedFileURL.path
-        let temporaryRoots = [
-            serviceTemporaryPath,
-            systemTemporaryPath,
-            unixTemporaryPath,
-        ]
-        let isTemporaryPath = temporaryRoots.contains { root in
-            path == root || path.hasPrefix(root + "/")
-        }
-        guard isTemporaryPath else { return false }
-
-        let filename = normalizedURL.lastPathComponent.lowercased()
-        return sourceIsTransient || filename.hasPrefix("cmux-drop-")
     }
 
     private static func finishUpload(
