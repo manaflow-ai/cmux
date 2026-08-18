@@ -57,10 +57,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            // The loading spinner is derived from agentActivity, so updating
+            // the authoritative projection refreshes the glyph immediately.
             agentActivity: snapshot.agentActivity,
-            // The loading spinner is a leading row glyph like mediaActivity, so
-            // it also updates immediately while the context menu is open.
-            activeCodingAgentCount: snapshot.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
