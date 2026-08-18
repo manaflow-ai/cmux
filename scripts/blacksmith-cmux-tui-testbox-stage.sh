@@ -236,7 +236,8 @@ restore_changed_file() {
 # Always restore the deliberately changed source, including when Cargo exits
 # non-zero. Do not let cleanup replace the build result unless restoration
 # itself fails.
-# shellcheck disable=SC2329 # invoked indirectly by the signal/EXIT traps
+# SC2317 is what shellcheck 0.9 (Ubuntu 24.04) calls this; SC2329 is the 0.10+ name.
+# shellcheck disable=SC2317,SC2329 # invoked indirectly by the signal/EXIT traps
 finish_source() {
   local result=$?
   if [[ -n "$changed_backup" ]]; then
@@ -249,7 +250,7 @@ finish_source() {
 }
 # Signals must remain failures even when they arrive after a successful command.
 # The EXIT trap performs the actual restoration exactly once.
-# shellcheck disable=SC2329 # invoked indirectly by signal traps
+# shellcheck disable=SC2317,SC2329 # invoked indirectly by signal traps
 interrupt_source() {
   local signal_name="$1"
   trap - TERM INT HUP
