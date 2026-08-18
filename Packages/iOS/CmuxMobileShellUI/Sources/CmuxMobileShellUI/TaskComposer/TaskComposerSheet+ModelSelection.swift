@@ -20,7 +20,7 @@ extension TaskComposerSheet {
         case .hostUnavailable:
             return L10n.string(
                 "mobile.taskComposer.model.error.hostUnavailable",
-                defaultValue: "Can’t reach selected Mac"
+                defaultValue: "Mac unavailable"
             )
         }
     }

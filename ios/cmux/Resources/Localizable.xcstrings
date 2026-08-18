@@ -12262,8 +12262,8 @@
     "mobile.taskComposer.model.error.hostUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Can’t reach selected Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "選択したMacに接続できません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Mac unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macを利用できません" } }
       }
     },
     "mobile.taskComposer.openingShell": {
