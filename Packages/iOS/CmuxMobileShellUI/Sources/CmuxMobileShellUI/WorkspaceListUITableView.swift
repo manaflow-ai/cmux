@@ -6,6 +6,7 @@ import UIKit
 final class WorkspaceListUITableView: UITableView {
     var layoutMetricsDidChange: (() -> Void)?
     var scrollEdgeRegistrationNeedsUpdate: (() -> Void)?
+    var viewportRestorationNeedsUpdate: (() -> Void)?
 
     private var measuredWidth: CGFloat = 0
 
@@ -28,6 +29,7 @@ final class WorkspaceListUITableView: UITableView {
         let previousWidth = measuredWidth
         super.layoutSubviews()
         measuredWidth = bounds.width
+        viewportRestorationNeedsUpdate?()
         if previousWidth > 0, abs(previousWidth - measuredWidth) > 0.5 {
             layoutMetricsDidChange?()
         }

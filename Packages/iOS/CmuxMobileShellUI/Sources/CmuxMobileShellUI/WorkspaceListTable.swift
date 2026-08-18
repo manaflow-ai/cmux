@@ -14,6 +14,10 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let filter: MobileWorkspaceListFilter
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let navigationStyle: WorkspaceNavigationStyle
+    /// Whether this table is currently the compact navigation root. The root
+    /// flips this value at the start/end of a workspace push so the coordinator
+    /// can preserve the exact row anchor across the transition.
+    var isNavigationRootVisible: Bool = true
     let wrapWorkspaceTitles: Bool
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
@@ -102,6 +106,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         _ uiViewController: WorkspaceListTableViewController,
         coordinator: WorkspaceListTableCoordinator
     ) {
+        uiViewController.tableView.viewportRestorationNeedsUpdate = nil
         coordinator.detach()
         uiViewController.detach()
     }

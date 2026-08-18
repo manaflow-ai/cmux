@@ -37,6 +37,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let previewLineLimit: Int
     }
 
+    /// Identifies the row at the top of the list and its fractional position.
+    /// Keeping the item identity (rather than only a pixel offset) lets UIKit
+    /// recalculate the exact row position when navigation bars change the
+    /// adjusted inset during a push/pop transition.
+    private struct ViewportAnchor {
+        let item: WorkspaceListTableItem
+        let offsetFromRowTop: CGFloat
+    }
+
     private enum GroupDropLanding {
         case visibleChild(IndexPath)
         case collapsedHeader(IndexPath)
@@ -79,6 +88,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         sourceView: UIView,
         contextMenuIdentifier: String
     )?
+    private var savedViewportAnchor: ViewportAnchor?
+    private var pendingViewportRestoration: ViewportAnchor?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -122,9 +133,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             self.heightCache.removeAll(keepingCapacity: true)
             tableView.reloadData()
         }
+        tableView.viewportRestorationNeedsUpdate = { [weak self, weak tableView] in
+            guard let self, let tableView else { return }
+            self.restorePendingViewport(in: tableView)
+        }
 
         previousConfiguration = nil
         appliedItems = []
+        savedViewportAnchor = nil
+        pendingViewportRestoration = nil
         apply(configuration: configuration, in: tableView)
     }
 
@@ -151,6 +168,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         in tableView: UITableView
     ) {
         let previous = previousConfiguration
+        handleNavigationRootVisibilityTransition(
+            from: previous?.isNavigationRootVisible,
+            to: next.isNavigationRootVisible,
+            in: tableView
+        )
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
@@ -272,6 +294,60 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         #if DEBUG
         recordPayloadApplyRoute(.tableReload)
         #endif
+    }
+
+    private func handleNavigationRootVisibilityTransition(
+        from previous: Bool?,
+        to next: Bool,
+        in tableView: WorkspaceListUITableView
+    ) {
+        guard let previous, previous != next else { return }
+        if previous, !next {
+            // The push transition starts with the root list still visible.
+            // Capture its top row before UIKit changes the navigation inset,
+            // then synchronously reset to the top so the reset is visible in
+            // the transition frame rather than one frame late.
+            savedViewportAnchor = captureViewport(in: tableView)
+            pendingViewportRestoration = nil
+            tableView.setContentOffset(
+                CGPoint(x: tableView.contentOffset.x, y: -tableView.adjustedContentInset.top),
+                animated: false
+            )
+        } else if !previous, next, let savedViewportAnchor {
+            // The pop transition restores the root. Keep the anchor pending
+            // through the next layout pass because UIKit applies the restored
+            // navigation-bar safe-area inset during that pass.
+            pendingViewportRestoration = savedViewportAnchor
+            tableView.setNeedsLayout()
+        }
+    }
+
+    private func captureViewport(in tableView: UITableView) -> ViewportAnchor? {
+        guard let indexPath = tableView.indexPathsForVisibleRows?
+            .sorted(by: { $0.row < $1.row }).first,
+            let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
+        let rowRect = tableView.rectForRow(at: indexPath)
+        return ViewportAnchor(
+            item: item,
+            offsetFromRowTop: tableView.contentOffset.y - rowRect.minY
+        )
+    }
+
+    private func restorePendingViewport(in tableView: UITableView) {
+        guard let anchor = pendingViewportRestoration,
+              let indexPath = dataSource?.indexPath(for: anchor.item),
+              tableView.numberOfRows(inSection: Self.section) > indexPath.row else {
+            return
+        }
+        let rowRect = tableView.rectForRow(at: indexPath)
+        let targetY = rowRect.minY + anchor.offsetFromRowTop
+        let target = CGPoint(x: tableView.contentOffset.x, y: targetY)
+        guard abs(tableView.contentOffset.y - targetY) > 0.5 else {
+            pendingViewportRestoration = nil
+            return
+        }
+        pendingViewportRestoration = nil
+        tableView.setContentOffset(target, animated: false)
     }
 
     private func setDragSessionActive(_ active: Bool, in tableView: UITableView) {
@@ -925,7 +1001,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         var hosting = UIHostingConfiguration { content }
             .margins(.all, 0)
         switch item {
-        case .workspace:
+        case .workspace(let workspaceID, _):
+            // Keep the row identity on the UIKit cell as well as the hosted
+            // SwiftUI content so transition tests and accessibility clients
+            // can identify the exact row while the table is moving.
+            cell.accessibilityIdentifier = "MobileWorkspaceRow-\(workspaceID.rawValue)"
             hosting = hosting
                 .margins(.top, 4)
                 .margins(.bottom, 4)

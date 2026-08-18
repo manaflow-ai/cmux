@@ -12,7 +12,7 @@ import UIKit
 /// recreated table opens at the top instead of the rows the user left.
 @MainActor
 @Suite struct WorkspaceListViewportRestorationTests {
-    @Test func navigationToolbarFlipKeepsTableViewportAcrossWorkspaceEnterExit() throws {
+    @Test func navigationToolbarFlipResetsOnEnterAndRestoresExactRowOnExit() throws {
         let filterState = WorkspaceListFilterState()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let controller = UIHostingController(
@@ -30,6 +30,7 @@ import UIKit
         table.setContentOffset(CGPoint(x: 0, y: 600), animated: false)
         table.layoutIfNeeded()
         let savedOffset = table.contentOffset
+        let savedRowID = try #require(firstVisibleWorkspaceRowID(in: table))
 
         // Entering a workspace hides the list toolbar…
         controller.rootView = WorkspaceListToolbarFlipHarness(
@@ -37,6 +38,15 @@ import UIKit
             filterState: filterState
         )
         controller.view.layoutIfNeeded()
+        let topOffset = -table.adjustedContentInset.top
+        #expect(
+            abs(table.contentOffset.y - topOffset) <= 0.5,
+            "Entering a workspace must reset the list immediately so the push transition starts from the top."
+        )
+        #expect(
+            firstVisibleWorkspaceRowID(in: table) != savedRowID,
+            "Entering a workspace must visibly leave the prior scrolled row behind."
+        )
 
         // …and exiting the workspace restores it.
         controller.rootView = WorkspaceListToolbarFlipHarness(
@@ -50,7 +60,14 @@ import UIKit
             tableAfterExit === table,
             "The toolbar flip recreated the workspace table, so the viewport cannot survive workspace exit."
         )
-        #expect(tableAfterExit.contentOffset == savedOffset)
+        #expect(
+            firstVisibleWorkspaceRowID(in: tableAfterExit) == savedRowID,
+            "Exiting a workspace must restore the same row at the top of the viewport."
+        )
+        #expect(
+            abs(tableAfterExit.contentOffset.y - savedOffset.y) <= 0.5,
+            "Exiting a workspace must restore the exact fractional row position."
+        )
         window.isHidden = true
     }
 
@@ -61,6 +78,30 @@ import UIKit
         for subview in view.subviews {
             if let table = firstWorkspaceTable(in: subview) {
                 return table
+            }
+        }
+        return nil
+    }
+
+    private func firstVisibleWorkspaceRowID(in table: UITableView) -> String? {
+        let visibleRows = (table.indexPathsForVisibleRows ?? [])
+            .sorted { $0.row < $1.row }
+        for indexPath in visibleRows {
+            guard let cell = table.cellForRow(at: indexPath),
+                  let identifier = accessibilityIdentifier(in: cell),
+                  identifier.hasPrefix("MobileWorkspaceRow-") else { continue }
+            return identifier
+        }
+        return nil
+    }
+
+    private func accessibilityIdentifier(in view: UIView) -> String? {
+        if let identifier = view.accessibilityIdentifier {
+            return identifier
+        }
+        for subview in view.subviews {
+            if let identifier = accessibilityIdentifier(in: subview) {
+                return identifier
             }
         }
         return nil

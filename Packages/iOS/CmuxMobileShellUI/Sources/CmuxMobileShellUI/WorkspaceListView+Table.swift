@@ -84,6 +84,7 @@ extension WorkspaceListView {
             filter: activeFilter,
             selectedWorkspaceID: selectedWorkspaceID,
             navigationStyle: navigationStyle,
+            isNavigationRootVisible: showsNavigationToolbar,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
