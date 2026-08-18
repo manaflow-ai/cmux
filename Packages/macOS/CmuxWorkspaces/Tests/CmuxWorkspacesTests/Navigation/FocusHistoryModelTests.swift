@@ -20,9 +20,11 @@ private final class FakeFocusHistoryHost: FocusHistoryHosting {
     var focusedPanels: [(workspaceId: UUID, panelId: UUID)] = []
     var flashedPanels: [(workspaceId: UUID, panelId: UUID)] = []
     var focusSelectedWorkspacePanelCalls = 0
+    var workspaceExistsCalls = 0
 
     func workspaceExists(_ workspaceId: UUID) -> Bool {
-        workspaces[workspaceId] != nil
+        workspaceExistsCalls += 1
+        return workspaces[workspaceId] != nil
     }
 
     func panelExists(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -367,6 +369,27 @@ struct FocusHistoryModelTests {
         #expect(limited.totalItemCount == 3)
         #expect(limited.isLimited)
         #expect(limited.items.allSatisfy { $0.position == .older })
+    }
+
+    /// The History menu is rebuilt on every App body evaluation, so the cost of
+    /// one snapshot is paid constantly. Each entry must be resolved once, not
+    /// once per navigability check.
+    /// https://github.com/manaflow-ai/cmux/issues/10348
+    @Test func menuSnapshotResolvesEachEntryOnce() {
+        let (model, host) = makeModel()
+        for index in 0..<10 {
+            let panel = UUID()
+            let ws = host.addWorkspace(title: "ws\(index)", panels: [panel: "panel\(index)"])
+            host.selectedWorkspaceId = ws
+            host.workspaces[ws]?.rememberedFocusedPanelId = panel
+            model.recordFocusInHistory(workspaceId: ws, panelId: panel, preservingForwardBranch: false)
+        }
+
+        host.workspaceExistsCalls = 0
+        let snapshot = model.focusHistoryMenuSnapshot(direction: .back)
+
+        #expect(snapshot.items.count == 9)
+        #expect(host.workspaceExistsCalls == 9)
     }
 
     @Test func menuSnapshotResolvesClosedPanelToWorkspaceLevelEntry() {
