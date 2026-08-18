@@ -103,9 +103,9 @@ enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .recency: return String(localized: "sessionIndex.group.recency", defaultValue: "All")
-        case .directory: return String(localized: "sessionIndex.group.directory", defaultValue: "By folder")
-        case .agent: return String(localized: "sessionIndex.group.agent", defaultValue: "By agent")
+        case .recency: return String(localized: "sessionIndex.group.recency", defaultValue: "Recent")
+        case .directory: return String(localized: "sessionIndex.group.directory", defaultValue: "Folder")
+        case .agent: return String(localized: "sessionIndex.group.agent", defaultValue: "Agent")
         }
     }
 

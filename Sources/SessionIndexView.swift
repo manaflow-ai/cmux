@@ -432,21 +432,27 @@ private struct GroupingButton: View {
     @State private var isHovered: Bool = false
 
     var body: some View {
-        // Icon-only: the sidebar gets narrow enough that text labels truncate
-        // into "By…"/"B…", which reads as broken chrome. The tooltip and
-        // accessibility label carry the full name.
+        // Short single-word labels ("Recent"/"Folder"/"Agent") so the pills
+        // keep their names without truncating in a narrow sidebar.
         Button(action: action) {
-            Image(systemName: mode.symbolName)
-                .symbolRenderingMode(.monochrome)
-                .cmuxFont(
-                    size: RightSidebarChromeControlStyle.secondaryIconSize,
-                    weight: RightSidebarChromeControlStyle.iconWeight
-                )
-                .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
+            HStack(spacing: 3) {
+                Image(systemName: mode.symbolName)
+                    .symbolRenderingMode(.monochrome)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.secondaryIconSize,
+                        weight: RightSidebarChromeControlStyle.iconWeight
+                    )
+                Text(mode.label)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
+                    )
+                    .fixedSize()
+            }
+            .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
         .titlebarInteractiveControl()
-        .accessibilityLabel(Text(mode.label))
         .onHover { isHovered = $0 }
         .help(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
