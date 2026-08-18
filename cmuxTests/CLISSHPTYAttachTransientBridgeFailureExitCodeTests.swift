@@ -31,6 +31,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testManagedSSHPTYAttachRetryLogsDiagnosticWithoutPrintingIt() throws {
+        let debugLogURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-managed-ssh-pty-retry-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: debugLogURL) }
+
+        try assertSSHPTYAttachBridgeRPCFailureExitCode(
+            socketName: "sshptyquiet",
+            error: [
+                "code": "remote_pty_error",
+                "message": "remote daemon is not ready",
+            ],
+            expectedStatus: 249,
+            managedReconnect: true,
+            debugLogURL: debugLogURL
+        )
+
+        let debugLog = try String(contentsOf: debugLogURL, encoding: .utf8)
+        XCTAssertTrue(debugLog.contains("remote daemon is not ready"), debugLog)
+    }
+
     func testSSHPTYAttachBridgeRPCTransientFailureWithoutPendingWrapperRetryCleansUp() throws {
         // Final wrapper attempt (or direct invocation): no retry is queued,
         // so the CLI must send pty_attach_end and release the surface.
@@ -65,7 +85,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         socketName: String,
         error: [String: Any],
         expectedStatus: Int32,
-        wrapperRetryPending: Bool = true
+        wrapperRetryPending: Bool = true,
+        managedReconnect: Bool = false,
+        debugLogURL: URL? = nil
     ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath(socketName)
@@ -120,6 +142,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } else {
             environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY")
         }
+        if managedReconnect {
+            environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] = "1"
+        }
+        if let debugLogURL {
+            environment["CMUX_DEBUG_LOG"] = debugLogURL.path
+        }
 
         let result = runProcess(
             executablePath: cliPath,
@@ -138,6 +166,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, expectedStatus, result.stderr)
+        if managedReconnect {
+            XCTAssertEqual(result.stderr, "")
+        }
 
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
