@@ -476,7 +476,7 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cd ghostty
-          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
+          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dcpu=baseline --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
