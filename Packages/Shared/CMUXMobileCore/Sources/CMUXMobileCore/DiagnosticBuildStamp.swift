@@ -5,6 +5,8 @@ import Foundation
 /// The git SHA and dev tag are signed bundle metadata, not runtime input. The
 /// helper keeps iOS and macOS reports comparable and applies the same bounded
 /// sanitization at their shared boundary.
+// `DiagnosticBuildStamp.make` is a stable API shared by the Mac and iOS shells.
+// lint:allow namespace-enum, namespace-type — stable stateless formatter API
 public enum DiagnosticBuildStamp {
     /// Returns a bounded `name version (build) tag sha` stamp from bundle data.
     public static func make(

@@ -153048,6 +153048,40 @@
         }
       }
     },
+    "settings.app.fileEditorSyntaxHighlighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Syntax Highlighting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタのシンタックスハイライト"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorSyntaxHighlighting.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colorize recognized source files in the built-in file preview, using a palette that follows the light or dark background. Large files render as plain text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組み込みのファイルプレビューで、認識されたソースファイルを背景の明暗に合わせたパレットで色分けします。大きなファイルはプレーンテキストとして表示されます。"
+          }
+        }
+      }
+    },
     "settings.app.focusHistoryIncludesPanesAndTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -185645,6 +185679,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.wordWrap ファイル エディタ 行折り返し ワードラップ 折り返し 改行 テキスト 横スクロール プレビュー"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-syntax-highlighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting file editor syntax highlighting colorize code colors source preview theme dark light keywords strings comments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting ファイル エディタ シンタックスハイライト 構文強調 色分け コード 色 ソース プレビュー テーマ ダーク ライト キーワード 文字列 コメント"
           }
         }
       }

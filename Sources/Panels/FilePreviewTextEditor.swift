@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewSyntax
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -23,6 +24,15 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    /// Language resolved from the preview filename, or `nil` for plain text.
+    let syntaxLanguage: FilePreviewSyntaxLanguage?
+    /// Whether the persisted syntax-highlighting preference is enabled.
+    let syntaxHighlightingEnabled: Bool
+
+    private var syntaxAppearance: FilePreviewSyntaxAppearance {
+        FilePreviewSyntaxAppearanceResolver()
+            .appearance(forForegroundColor: themeForegroundColor)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -52,6 +62,12 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
+        textView.configureSyntaxHighlighting(
+            language: syntaxLanguage,
+            appearance: syntaxAppearance,
+            enabled: syntaxHighlightingEnabled
+        )
+        textView.refreshSyntaxHighlighting()
         return scrollView
     }
 
@@ -69,27 +85,46 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
-        let selectedRanges = textView.selectedRanges
-        let visibleOrigin = scrollView.contentView.bounds.origin
-        context.coordinator.isApplyingPanelUpdate = true
-        textView.string = panel.textContent
-        context.coordinator.isApplyingPanelUpdate = false
-        let contentLength = (textView.string as NSString).length
-        let clampedRanges = selectedRanges.map { value -> NSValue in
-            let range = value.rangeValue
-            let location = min(range.location, contentLength)
-            let length = min(range.length, contentLength - location)
-            return NSValue(range: NSRange(location: location, length: length))
-        }
-        textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
-        scrollView.layoutSubtreeIfNeeded()
-        let clipView = scrollView.contentView
-        let constrained = clipView.constrainBoundsRect(
-            NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+        let highlightConfigChanged = textView.configureSyntaxHighlighting(
+            language: syntaxLanguage,
+            appearance: syntaxAppearance,
+            enabled: syntaxHighlightingEnabled
         )
-        clipView.scroll(to: constrained.origin)
-        scrollView.reflectScrolledClipView(clipView)
+
+        let textChanged = textView.string != panel.textContent
+        if textChanged {
+            let selectedRanges = textView.selectedRanges
+            let visibleOrigin = scrollView.contentView.bounds.origin
+            context.coordinator.isApplyingPanelUpdate = true
+            textView.string = panel.textContent
+            context.coordinator.isApplyingPanelUpdate = false
+            let contentLength = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.map { value -> NSValue in
+                let range = value.rangeValue
+                let location = min(range.location, contentLength)
+                let length = min(range.length, contentLength - location)
+                return NSValue(range: NSRange(location: location, length: length))
+            }
+            textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
+            scrollView.layoutSubtreeIfNeeded()
+            let clipView = scrollView.contentView
+            let constrained = clipView.constrainBoundsRect(
+                NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+            )
+            clipView.scroll(to: constrained.origin)
+            scrollView.reflectScrolledClipView(clipView)
+        }
+
+        if textChanged || highlightConfigChanged {
+            textView.refreshSyntaxHighlighting()
+        }
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? SavingTextView else { return }
+        textView.cancelSyntaxHighlightingWork()
+        textView.delegate = nil
+        textView.panel = nil
     }
 
     static func applyTheme(
@@ -243,6 +278,8 @@ final class SavingTextView: NSTextView {
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
+    private lazy var syntaxHighlightController = FilePreviewSyntaxHighlightController(textView: self)
+
     convenience init() {
         self.init(frame: .zero, textContainer: nil)
     }
@@ -257,7 +294,7 @@ final class SavingTextView: NSTextView {
         installFontMagnificationObserver()
     }
 
-    deinit {}
+    deinit { cancelSyntaxHighlightingWork() }
 
     private func installFontMagnificationObserver() {
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
@@ -346,6 +383,34 @@ final class SavingTextView: NSTextView {
         let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        syntaxHighlightController.textDidChange()
+    }
+
+    // MARK: - Syntax highlighting
+
+    @discardableResult
+    func configureSyntaxHighlighting(
+        language: FilePreviewSyntaxLanguage?,
+        appearance: FilePreviewSyntaxAppearance,
+        enabled: Bool
+    ) -> Bool {
+        syntaxHighlightController.configure(
+            language: language,
+            appearance: appearance,
+            enabled: enabled
+        )
+    }
+
+    func refreshSyntaxHighlighting() {
+        syntaxHighlightController.refresh()
+    }
+
+    func cancelSyntaxHighlightingWork() {
+        syntaxHighlightController.cancel()
     }
 
     private func clearPendingShortcutChordPrefixes() {

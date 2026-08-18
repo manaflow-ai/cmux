@@ -1460,6 +1460,7 @@ jobs:
             CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
+            CmuxFilePreviewSyntax
             CmuxFoundation
             CmuxGit
             CmuxNotifications

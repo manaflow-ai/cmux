@@ -19,6 +19,18 @@ public struct FileEditorCatalogSection: SettingCatalogSection {
         userDefaultsKey: "fileEditor.wordWrap"
     )
 
+    /// Whether recognized source files are colorized with syntax highlighting.
+    ///
+    /// `true` (the default) colorizes keywords, strings, comments, numbers, and
+    /// types using a palette that follows the editor's light or dark background.
+    /// `false` renders plain, uncolored text. Changing this applies live to open
+    /// editors. Very large files always render as plain text for performance.
+    public let syntaxHighlighting = DefaultsKey<Bool>(
+        id: "fileEditor.syntaxHighlighting",
+        defaultValue: true,
+        userDefaultsKey: "fileEditor.syntaxHighlighting"
+    )
+
     /// Creates the file editor settings section with its default keys.
     public init() {}
 }

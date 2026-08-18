@@ -172,8 +172,11 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(closeSummary.contains("Session"))
-        #expect(closeSummary.contains("9"))
+        #expect(closeSummary.contains("Initiator: Timed out"))
+        #expect(closeSummary.contains("Failure: Transport idle timed out"))
+        #expect(closeSummary.contains("Application error code: 7"))
+        #expect(!closeSummary.contains("Session"))
+        #expect(!closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
