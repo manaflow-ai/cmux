@@ -12,6 +12,8 @@ struct CmuxVaultAgentRegistry: Sendable {
     var registrations: [CmuxVaultAgentRegistration]
     /// The immutable manifest snapshot that supplied data-driven detectors.
     var manifestEntries: [CmuxAgentManifestEntry]
+    /// Compiled once for this registry and reused across every process in a scan.
+    var manifestEngine: CmuxAgentDetectionEngine?
     /// Registration ids generated from the accepted manifest snapshot.
     var manifestBackedIDs: Set<String>
     /// Registration ids supplied by global or project `cmux.json` configuration.
@@ -24,6 +26,7 @@ struct CmuxVaultAgentRegistry: Sendable {
     init(
         registrations: [CmuxVaultAgentRegistration],
         manifestEntries: [CmuxAgentManifestEntry] = [],
+        manifestEngine: CmuxAgentDetectionEngine? = nil,
         manifestBackedIDs: Set<String>? = nil,
         projectConfiguredIDs: Set<String> = [],
         manifestRestorableIDs: Set<String>? = nil,
@@ -41,6 +44,13 @@ struct CmuxVaultAgentRegistry: Sendable {
         }
         self.registrations = ordered
         self.manifestEntries = manifestEntries
+        self.manifestEngine = if manifestEntries.isEmpty {
+            nil
+        } else if let manifestEngine {
+            manifestEngine
+        } else {
+            CmuxAgentDetectionEngine(entries: manifestEntries)
+        }
         self.manifestBackedIDs = Set(manifestBackedIDs ?? Set(manifestEntries.map { $0.manifest.id }))
             .intersection(Set(ordered.map(\.id)))
         self.projectConfiguredIDs = projectConfiguredIDs.intersection(Set(ordered.map(\.id)))
@@ -68,9 +78,17 @@ struct CmuxVaultAgentRegistry: Sendable {
             return self
         }
         let overriddenIDs = Set(agents.map(\.id))
+        let activeManifestEntries = manifestEntries.filter {
+            !overriddenIDs.contains($0.manifest.id)
+        }
         return CmuxVaultAgentRegistry(
             registrations: registrations + agents,
-            manifestEntries: manifestEntries.filter { !overriddenIDs.contains($0.manifest.id) },
+            manifestEntries: activeManifestEntries,
+            manifestEngine: activeManifestEntries.count == manifestEntries.count
+                ? manifestEngine
+                : (activeManifestEntries.isEmpty
+                    ? nil
+                    : CmuxAgentDetectionEngine(entries: activeManifestEntries)),
             manifestBackedIDs: manifestBackedIDs.subtracting(overriddenIDs),
             projectConfiguredIDs: projectConfiguredIDs.union(overriddenIDs),
             manifestRestorableIDs: manifestRestorableIDs.subtracting(overriddenIDs),
@@ -96,6 +114,7 @@ struct CmuxVaultAgentRegistry: Sendable {
         ]
         var registrations = builtIns
         var manifestEntries: [CmuxAgentManifestEntry] = []
+        var manifestEngine: CmuxAgentDetectionEngine? = nil
         var manifestBackedIDs: Set<String> = []
         var manifestRestorableIDs: Set<String> = []
         var manifestLoadError: CmuxAgentManifestLoadError?
@@ -116,6 +135,7 @@ struct CmuxVaultAgentRegistry: Sendable {
                 manifestLoadError = outcome.rejectedOverrideError
             }
             manifestEntries = snapshot.entries
+            manifestEngine = snapshot.engine
             manifestBackedIDs = Set(snapshot.entries.map { $0.manifest.id })
             manifestRestorableIDs = Set(snapshot.entries.compactMap {
                 $0.manifest.session?.supportsRestoration == true ? $0.manifest.id : nil
@@ -159,9 +179,17 @@ struct CmuxVaultAgentRegistry: Sendable {
             configuredIDs.formUnion(agents.map(\.id))
             registrations.append(contentsOf: agents)
         }
+        let activeManifestEntries = manifestEntries.filter {
+            !configuredIDs.contains($0.manifest.id)
+        }
         return CmuxVaultAgentRegistry(
             registrations: registrations,
-            manifestEntries: manifestEntries.filter { !configuredIDs.contains($0.manifest.id) },
+            manifestEntries: activeManifestEntries,
+            manifestEngine: activeManifestEntries.count == manifestEntries.count
+                ? manifestEngine
+                : (activeManifestEntries.isEmpty
+                    ? nil
+                    : CmuxAgentDetectionEngine(entries: activeManifestEntries)),
             manifestBackedIDs: manifestBackedIDs.subtracting(configuredIDs),
             projectConfiguredIDs: configuredIDs,
             manifestRestorableIDs: manifestRestorableIDs.subtracting(configuredIDs),

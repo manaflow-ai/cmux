@@ -83,6 +83,8 @@ final class SharedLiveAgentIndex {
     private var activeForkSupportValidationRequestIdentities: [ForkProbeKey: Set<String>] = [:]
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
+    private var agentManifestRevision: UInt64 = 0
+    private var agentManifestReloadPending = false
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
@@ -446,7 +448,11 @@ final class SharedLiveAgentIndex {
     /// The next refresh therefore rebuilds process-backed snapshots with the
     /// same immutable catalog that future scans read from disk.
     func invalidateForAgentManifestReload() {
+        agentManifestRevision &+= 1
         loadedAt = nil
+        if refreshTask != nil || forkAvailabilityRefreshTask != nil {
+            agentManifestReloadPending = true
+        }
         scheduleRefreshIfStale()
     }
 
@@ -559,6 +565,9 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
+            if self.restartAgentManifestReloadIfPending() {
+                return
+            }
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
             if self.changePending {
@@ -575,6 +584,9 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             _ = await self.reload(forcePublish: true)
             self.refreshTask = nil
+            if self.restartAgentManifestReloadIfPending() {
+                return
+            }
             self.restartForkAvailabilityRefreshIfPending()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
@@ -582,6 +594,20 @@ final class SharedLiveAgentIndex {
                 self.handleHookStoreChange()
             }
         }
+    }
+
+    /// Coalesces any number of accepted generations that arrived during one
+    /// scan into exactly one follow-up scan using the newest snapshot.
+    private func restartAgentManifestReloadIfPending() -> Bool {
+        guard agentManifestReloadPending,
+              refreshTask == nil,
+              forkAvailabilityRefreshTask == nil else {
+            return false
+        }
+        agentManifestReloadPending = false
+        loadedAt = nil
+        startReload()
+        return true
     }
 
     @discardableResult
@@ -1060,12 +1086,20 @@ final class SharedLiveAgentIndex {
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> [UUID: Set<UUID>] {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
+        let loadedManifestRevision = agentManifestRevision
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
             indexLoader(manifestState.snapshot)
         }.value
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+            return [:]
+        }
+        // An accepted generation arrived after this scan captured its
+        // snapshot. Publishing it would let stale data briefly win and could
+        // mark the cache fresh; the invalidation path has already arranged a
+        // coalesced follow-up scan.
+        guard loadedManifestRevision == agentManifestRevision else {
             return [:]
         }
         let loadedAt = dateProvider()

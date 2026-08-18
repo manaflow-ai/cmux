@@ -13,7 +13,27 @@ extension CmuxVaultAgentRegistry {
     /// applies its own user-before-bundled order, followed by compiled
     /// compatibility registrations when no manifest identified the process.
     func matchingRegistration(for process: VaultObservedAgentProcess) -> CmuxVaultAgentRegistration? {
-        matchingRegistrationDiagnostic(for: process).registration
+        for registration in registrations.reversed()
+        where projectConfiguredIDs.contains(registration.id) {
+            if registration.detect.matches(process) {
+                return registration
+            }
+        }
+
+        if let match = manifestEngine?.matchingEntry(
+            for: CmuxAgentProcessSnapshot(process)
+        ) {
+            return registration(id: match.entry.manifest.id)
+        }
+
+        for registration in registrations.reversed()
+        where !projectConfiguredIDs.contains(registration.id)
+            && !manifestBackedIDs.contains(registration.id) {
+            if registration.detect.matches(process) {
+                return registration
+            }
+        }
+        return nil
     }
 
     /// Returns the selected registration and the exact manifest result, when

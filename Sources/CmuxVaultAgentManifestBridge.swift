@@ -136,8 +136,8 @@ extension CmuxVaultAgentRegistry {
         screen: String = "",
         osc: String = ""
     ) -> CmuxAgentDetectionResult? {
-        guard !manifestEntries.isEmpty else { return nil }
-        return CmuxAgentDetectionEngine(entries: manifestEntries).detect(
+        guard let manifestEngine else { return nil }
+        return manifestEngine.detect(
             process: CmuxAgentProcessSnapshot(process),
             screen: screen,
             osc: osc

@@ -58,7 +58,13 @@ actor CmuxAgentManifestRuntime {
                 initialSnapshot: initialOutcome.snapshot,
                 initialError: initialOutcome.rejectedOverrideError
             )
-            let fileWatcher = FileWatcher(path: userDirectory.path)
+            // Editors commonly implement one save as create/write/rename.
+            // Coalesce that burst before decoding the whole catalog while the
+            // watcher still remains fully event-driven.
+            let fileWatcher = FileWatcher(
+                path: userDirectory.path,
+                throttle: .milliseconds(250)
+            )
             store = liveStore
             watcher = fileWatcher
             startupError = nil

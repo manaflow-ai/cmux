@@ -155,16 +155,16 @@ enum AgentHookNotificationClassifier {
               let entry = snapshot.entry(id: agentID) else {
             return nil
         }
-        let result = snapshot.engine.detect(
+        let classification = snapshot.engine.classify(
             manifestID: agentID,
             screen: "\(signal)\n\(message)"
-        )
+        ).classification
         // The public manifest state vocabulary intentionally has no separate
         // `error` case. Preserve the existing hook contract for explicit error
         // cues, which are rendered as an ungated error notification rather
         // than as a generic blocked/needs-input state.
         let lower = "\(signal) \(message)".lowercased()
-        if result.classification == .blocked,
+        if classification == .blocked,
            lower.contains("error") || lower.contains("failed")
             || lower.contains("failure") || lower.contains("exception") {
             return classify(
@@ -175,7 +175,7 @@ enum AgentHookNotificationClassifier {
             )
         }
         let summary: AgentHookNotificationSummary
-        switch result.classification {
+        switch classification {
         case .permissionPrompt:
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
