@@ -83,10 +83,8 @@ mod color_environment_tests {
             return;
         }
 
-        let root = std::env::temp_dir().join(format!(
-            "cmux-surface-default-infocmp-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-surface-default-infocmp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir(&root).unwrap();
         let infocmp = root.join("infocmp");
