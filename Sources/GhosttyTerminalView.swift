@@ -1137,6 +1137,37 @@ class GhosttyApp {
         )
     }
 
+    private func loadCmuxManagedThemeRepairIfNeeded(_ config: ghostty_config_t) {
+        #if os(macOS)
+        let fileManager = FileManager.default
+        guard let appSupportDirectory = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else { return }
+
+        let configURLs = Self.cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+        var repairedThemeValue: String?
+        for url in configURLs {
+            guard let contents = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if let normalized = GhosttyConfig.normalizedCmuxManagedThemeValue(in: contents) {
+                repairedThemeValue = normalized
+            }
+        }
+
+        guard let repairedThemeValue else { return }
+        loadInlineGhosttyConfig(
+            "theme = \(repairedThemeValue)",
+            into: config,
+            prefix: "cmux-managed-theme-repair",
+            logLabel: "cmux managed theme repair"
+        )
+        #endif
+    }
+
     /// Loads the user's resolved Ghostty config with cmux's managed default appearance
     /// applied first, as the base: only an explicit user `theme` suppresses it, while
     /// individual color keys override just those colors (issue #7161).
@@ -1153,6 +1184,7 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadCmuxManagedThemeRepairIfNeeded(config)
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`

@@ -77,6 +77,13 @@ extension CMUXCLI {
     }
 
     private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
+        // Ghostty rejects a conditional theme unless both sides are present. A
+        // missing side means the on-disk value is either fresh or a stale
+        // single-sided value, so the picker must repair both sides together.
+        guard current.light != nil, current.dark != nil else {
+            return .both
+        }
+
         if let light = current.light,
            let dark = current.dark,
            light.caseInsensitiveCompare(dark) == .orderedSame {
@@ -529,9 +536,13 @@ extension CMUXCLI {
         case let (lightTheme?, darkTheme?):
             return "light:\(lightTheme),dark:\(darkTheme)"
         case let (lightTheme?, nil):
-            return "light:\(lightTheme)"
+            // Ghostty's conditional parser requires both sides. If the current
+            // opposite-side theme is unavailable, duplicate the selected side
+            // as the safe fallback.
+            return "light:\(lightTheme),dark:\(lightTheme)"
         case let (nil, darkTheme?):
-            return "dark:\(darkTheme)"
+            // Keep the encoding symmetric for a dark-only selection as well.
+            return "light:\(darkTheme),dark:\(darkTheme)"
         case (nil, nil):
             return nil
         }
