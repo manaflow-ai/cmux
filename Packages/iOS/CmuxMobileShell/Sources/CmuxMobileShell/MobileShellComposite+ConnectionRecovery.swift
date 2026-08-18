@@ -170,7 +170,7 @@ extension MobileShellComposite {
             guard failConnectionRecoveryReplacement(failure: .connectionClosed) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedReconnectContext(preservingForegroundPresentation: true)
             applyConnectionRecoveryOwnerState()
             return
         }
@@ -661,7 +661,7 @@ extension MobileShellComposite {
             if disconnectForAuthorizationFailureIfNeeded(error) { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedReconnectContext()
         }
     }
 
@@ -796,36 +796,58 @@ extension MobileShellComposite {
             ) != nil
         }
         if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
-            do {
-                let ticket = try Self.storedMacTicket(
-                    name: name,
-                    routes: pinnedRoutes,
-                    pairedMacDeviceID: pairedMacDeviceID
-                )
-                let noThrowFailure = try await connect(
-                    ticket: ticket,
-                    legacyTailscaleRoutes: legacyTailscaleRoutes,
-                    pairedMacDeviceID: pairedMacDeviceID,
-                    instanceTagExpectation: instanceTagExpectation,
-                    ifStillCurrent: ifStillCurrent
-                )
-                guard ifStillCurrent?() ?? true else { return .superseded }
-                if noThrowFailure == .noSupportedRoute {
-                    outcome = .failed(.unsupportedRoute)
-                }
-            } catch {
-                guard ifStillCurrent?() ?? true else { return .superseded }
-                outcome = .failed(Self.diagnosticFailureKind(for: error))
-                if let automaticReconnectAccountID {
-                    recordAutomaticReconnectBackoff(
-                        error: error,
-                        accountID: automaticReconnectAccountID
+            var remainingFreshDiscoveryRedials = firstRoute.kind == .iroh ? 1 : 0
+            while true {
+                do {
+                    let ticket = try Self.storedMacTicket(
+                        name: name,
+                        routes: pinnedRoutes,
+                        pairedMacDeviceID: pairedMacDeviceID
                     )
-                }
-                if !disconnectForAuthorizationFailureIfNeeded(error) {
-                    connectionState = .disconnected
-                    macConnectionStatus = .unavailable
-                    clearRemoteConnectionContext()
+                    let noThrowFailure = try await connect(
+                        ticket: ticket,
+                        legacyTailscaleRoutes: legacyTailscaleRoutes,
+                        pairedMacDeviceID: pairedMacDeviceID,
+                        instanceTagExpectation: instanceTagExpectation,
+                        ifStillCurrent: ifStillCurrent
+                    )
+                    guard ifStillCurrent?() ?? true else { return .superseded }
+                    if noThrowFailure == .noSupportedRoute {
+                        outcome = .failed(.unsupportedRoute)
+                    }
+                    break
+                } catch {
+                    guard ifStillCurrent?() ?? true else { return .superseded }
+                    let failure = Self.diagnosticFailureKind(for: error)
+                    if remainingFreshDiscoveryRedials > 0,
+                       Self.routeFailureIndicatesStaleDiscovery(failure) {
+                        remainingFreshDiscoveryRedials -= 1
+                        diagnosticLog?.record(DiagnosticEvent(
+                            .retryScheduled,
+                            ms: 0,
+                            a: DiagnosticTransportKind.iroh.rawValue,
+                            b: failure.rawValue
+                        ))
+                        MobileDebugLog.anchormux(
+                            "storedMacReconnect immediate fresh-discovery redial "
+                                + "mac=\(DiagnosticCorrelation().handle(for: pairedMacDeviceID)) "
+                                + "failure=\(failure.rawValue)"
+                        )
+                        continue
+                    }
+                    outcome = .failed(failure)
+                    if let automaticReconnectAccountID {
+                        recordAutomaticReconnectBackoff(
+                            error: error,
+                            accountID: automaticReconnectAccountID
+                        )
+                    }
+                    if !disconnectForAuthorizationFailureIfNeeded(error) {
+                        connectionState = .disconnected
+                        macConnectionStatus = .unavailable
+                        clearFailedReconnectContext()
+                    }
+                    break
                 }
             }
         } else {

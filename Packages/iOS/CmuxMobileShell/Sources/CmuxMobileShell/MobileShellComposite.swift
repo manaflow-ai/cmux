@@ -5633,14 +5633,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        // During a bounded foreground redial, `clearRemoteConnectionContext()`
-        // has already nil'd `foregroundMacDeviceID`, which would make the very
-        // Mac being redialed eligible as a "secondary". That opens a duplicate
-        // background-control session the redial must then drain — one wasted
-        // QUIC dial plus up to the handoff-drain timeout of added reconnect
-        // latency. Exclude the in-flight recovery target exactly like a live
-        // foreground; once recovery settles the normal exclusion (success) or
-        // eligibility (terminal failure) resumes.
+        // During a bounded foreground redial, the retained foreground identity
+        // or recovery target excludes that Mac from secondary aggregation. This
+        // prevents a duplicate control session from taking its route lease and
+        // adding a handoff-drain timeout to foreground recovery.
         let exclusionMacDeviceID: String?
         let exclusionTag: String?
         if let foregroundMacDeviceID {
@@ -9760,6 +9756,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     var pendingRecoveryTerminalInputByteCount: Int {
         rawTerminalInputBuffer.pendingByteCount
+    }
+
+    /// Failed recovery keeps the user's last rendered workspace mounted. The
+    /// recovery owner, rather than each transport catch site, decides whether
+    /// the foreground identity and presentation remain authoritative.
+    func clearFailedReconnectContext(
+        preservingForegroundPresentation explicitPreservation: Bool? = nil
+    ) {
+        let preservesPresentation = explicitPreservation
+            ?? connectionRecoveryOwner.isActive
+        clearRemoteConnectionContext(
+            preservingOtherMacWorkspaceState: preservesPresentation,
+            preservingForegroundPresentation: preservesPresentation
+        )
     }
 
     @discardableResult

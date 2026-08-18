@@ -340,19 +340,6 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   surfaceView.window != nil,
                   let store,
                   let viewportReportScheduler else { return }
-            if let outputStartContinuation {
-                guard let preparation = store.prepareTerminalViewport(
-                    surfaceID: surfaceID,
-                    columns: size.columns,
-                    rows: size.rows
-                ) else {
-                    return
-                }
-                preparedViewportReportsByReportID[reportID] = preparation
-                self.outputStartContinuation = nil
-                outputStartContinuation.yield()
-                outputStartContinuation.finish()
-            }
             viewportReportScheduler.submit(
                 .init(id: reportID, columns: size.columns, rows: size.rows)
             )

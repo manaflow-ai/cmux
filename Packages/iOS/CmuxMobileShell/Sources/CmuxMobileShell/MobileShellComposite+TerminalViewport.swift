@@ -58,11 +58,7 @@ extension MobileShellComposite {
         return await updatePreparedTerminalViewport(preparation)
     }
 
-    /// Commit the viewport locally before output registration starts.
-    ///
-    /// Registering an output sink immediately requests a cold replay. Its
-    /// request snapshots this cache and generation synchronously, so the Mac
-    /// can apply the current phone grid before capturing replay rows.
+    /// Commit the viewport locally before its asynchronous RPC starts.
     public func prepareTerminalViewport(
         surfaceID: String,
         columns: Int,
