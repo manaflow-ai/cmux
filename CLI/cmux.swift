@@ -7477,7 +7477,7 @@ struct CMUXCLI {
                 if let explicitSurfaceArg {
                     let targetWorkspace: String
                     let targetSurface: String
-                    if let windowHandle, explicitWorkspaceArg == nil, !isUUID(explicitSurfaceArg) {
+                    if let windowHandle, explicitWorkspaceArg == nil {
                         let target = try resolveSurfaceTargetInWindow(
                             explicitSurfaceArg,
                             windowHandle: windowHandle,
