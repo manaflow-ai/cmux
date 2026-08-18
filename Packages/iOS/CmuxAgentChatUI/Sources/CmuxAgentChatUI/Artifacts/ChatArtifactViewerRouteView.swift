@@ -19,6 +19,9 @@ struct ChatArtifactViewerRouteView: View {
     let snapshot: ChatArtifactViewerPageSnapshot
     let scope: ChatArtifactViewerScope
     let actions: ChatArtifactViewerPageActions
+    /// The host's live session state, so transport-failure copy can identify
+    /// whether the phone is disconnected or the Mac is unreachable.
+    var connectionHint: ChatArtifactConnectionHint = .connected
     let onDone: () -> Void
     let onImageMinimumZoomChanged: (Bool) -> Void
     let onImageAction: (@MainActor (ChatArtifactAction) -> Void)?
@@ -31,6 +34,7 @@ struct ChatArtifactViewerRouteView: View {
         snapshot: ChatArtifactViewerPageSnapshot,
         scope: ChatArtifactViewerScope,
         actions: ChatArtifactViewerPageActions,
+        connectionHint: ChatArtifactConnectionHint = .connected,
         onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
         onImageAction: (@MainActor (ChatArtifactAction) -> Void)? = nil,
         onDone: @escaping () -> Void
@@ -38,6 +42,7 @@ struct ChatArtifactViewerRouteView: View {
         self.snapshot = snapshot
         self.scope = scope
         self.actions = actions
+        self.connectionHint = connectionHint
         self.onDone = onDone
         self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
         self.onImageAction = onImageAction
@@ -197,9 +202,12 @@ struct ChatArtifactViewerRouteView: View {
                 scope: scope,
                 actualSize: actualSize
             )
+            let copy = error == .macUnreachable
+                ? connectionHint.unreachableCopy
+                : (title: failure.title, message: failure.message)
             unavailableView(
-                title: failure.title,
-                message: failure.message,
+                title: copy.title,
+                message: copy.message,
                 retry: failure.allowsRetry
             )
         }

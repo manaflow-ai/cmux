@@ -130,10 +130,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// local scrolling, geometry, and verified replay share one barrier.
     typealias RenderSubmissionKind = TerminalRenderSubmissionKind
     private static let maximumRenderPresentationRetries: UInt8 = 3
-    /// A replay reveal may absorb several coalesced native scroll batches, but
-    /// it must remain bounded if a producer keeps appending work while the
-    /// presentation is frozen.
-    private static let maximumReplayRevealScrollDrainPasses = 8
     /// Value-only render metadata captured by the serial surface queue.
     ///
     /// This type is explicitly nonisolated because its instances cross from
@@ -2109,35 +2105,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// revealing the verified renderer. Without this drain, a render-grid
     /// update can reveal the pre-scroll viewport for one frame while the
     /// display-link batch is still waiting behind the frozen presentation.
+    ///
+    /// This transaction owns only the work present when it is admitted. New
+    /// gesture callbacks belong to the next presentation. Chasing newly
+    /// produced scroll batches here can keep this main-actor task runnable for
+    /// the entire gesture and trip iOS's scene-update watchdog.
     @discardableResult
     public func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
-        var drained = false
-        var passes = 0
-        while passes < Self.maximumReplayRevealScrollDrainPasses {
-            if let flushed = flushPendingScrollIfNeeded() {
-                passes += 1
-                guard flushed.appliedLocally else { return drained }
-                guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
-                    return drained
-                }
-                drained = true
-                continue
-            }
-            guard let generation = pendingLocalScrollTargetGenerationForReveal() else {
-                return drained
-            }
-            passes += 1
-            guard await waitForLocalScrollApplied(upTo: generation) else {
-                return drained
-            }
-            drained = true
+        let targetGeneration: UInt64
+        if let flushed = flushPendingScrollIfNeeded() {
+            guard flushed.appliedLocally else { return false }
+            targetGeneration = flushed.generation
+        } else if let pendingGeneration = pendingLocalScrollTargetGenerationForReveal() {
+            targetGeneration = pendingGeneration
+        } else {
+            return false
         }
-        if pendingScrollLines != 0 || pendingLocalScrollTargetGenerationForReveal() != nil {
-            MobileDebugLog.anchormux(
-                "verified_replay.scroll_drain_capped passes=\(passes)"
-            )
-        }
-        return drained
+        return await waitForLocalScrollApplied(upTo: targetGeneration)
     }
 
     private func pendingLocalScrollTargetGenerationForReveal() -> UInt64? {

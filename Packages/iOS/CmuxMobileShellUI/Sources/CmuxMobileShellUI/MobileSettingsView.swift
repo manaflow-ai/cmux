@@ -51,6 +51,8 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var caffeineStatusLoadFailed = false
+    @State private var caffeineStatusRetryID = 0
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -62,7 +64,6 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 if initialFocus == .connectionMethod {
@@ -147,6 +148,7 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
+                caffeineSettingsSection
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -184,7 +186,7 @@ struct MobileSettingsView: View {
                             )
                         } label: {
                             Label(
-                                L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
+                                L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
                                 systemImage: "network"
                             )
                         }
@@ -235,16 +237,6 @@ struct MobileSettingsView: View {
                         "mobile.settings.hapticFeedbackFooter",
                         defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
                     ))
-                }
-
-                Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
-                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.taskComposer",
-                            defaultValue: "New Task Composer"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTaskComposer")
                 }
 
                 #if DEBUG
@@ -421,21 +413,10 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
-                    Toggle(
-                        L10n.string(
-                            "mobile.notifications.phoneEnabled",
-                            defaultValue: "Allow Push Alerts on This iPhone"
-                        ),
-                        isOn: Binding(
-                            get: { notificationsEnabled },
-                            set: { enabled in
-                                Task { @MainActor in
-                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
-                                }
-                            }
-                        )
+                    MobilePushToggle(
+                        isEnabled: $notificationsEnabled,
+                        applyEnabledIntent: setPhonePushEnabledIntent
                     )
-                    .accessibilityIdentifier("MobileSettingsNotifications")
 #endif
                 }
 
@@ -626,6 +607,15 @@ struct MobileSettingsView: View {
     }
 
     @MainActor
+    private func setPhonePushEnabledIntent(_ enabled: Bool) {
+        diagnosticLog?.recordAppEvent(
+            .notificationPreferenceChanged,
+            count: enabled ? 1 : 0
+        )
+        pushCoordinator.setEnabledIntent(enabled)
+    }
+
+    @MainActor
     private func updatePhonePushEnabled(_ enabled: Bool) async -> Bool {
         diagnosticLog?.recordAppEvent(
             .notificationPreferenceChanged,
@@ -750,6 +740,45 @@ struct MobileSettingsView: View {
     /// so they are hidden.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil
+    }
+
+    private var caffeineLoadID: String {
+        guard let store else { return "disconnected" }
+        return [
+            store.connectedMacDeviceID ?? "unknown",
+            String(store.supportsCaffeineControl),
+            String(describing: store.connectionState),
+        ].joined(separator: ":")
+    }
+
+    @ViewBuilder
+    private var caffeineSettingsSection: some View {
+        if let store, store.connectionState == .connected {
+            MobileCaffeineSettingsContent(
+                isEnabled: store.caffeineStatus?.enabled,
+                isSupported: store.supportsCaffeineControl,
+                isBusy: store.isCaffeineMutationInFlight,
+                statusLoadFailed: caffeineStatusLoadFailed,
+                onRetryStatus: {
+                    caffeineStatusLoadFailed = false
+                    caffeineStatusRetryID &+= 1
+                },
+                onSet: { enabled in
+                    await store.setCaffeineEnabled(enabled)
+                }
+            )
+            .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
+                let loadID = caffeineLoadID
+                guard store.supportsCaffeineControl else {
+                    caffeineStatusLoadFailed = false
+                    return
+                }
+                caffeineStatusLoadFailed = false
+                let didLoad = await store.refreshCaffeineStatus()
+                guard !Task.isCancelled, caffeineLoadID == loadID else { return }
+                caffeineStatusLoadFailed = !didLoad
+            }
+        }
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,

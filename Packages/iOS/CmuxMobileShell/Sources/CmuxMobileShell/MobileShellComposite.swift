@@ -59,7 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "phone_push.status.changed",
+                    "phone_push.status.changed", "caffeine.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -68,7 +68,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "phone_push.status.changed",
+                    "phone_push.status.changed", "caffeine.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -77,7 +77,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "phone_push.status.changed",
+                    "phone_push.status.changed", "caffeine.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -141,12 +141,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
+    static let panelArtifactCapability = "panel.artifact.v1"
     static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
     static let phonePushSettingsCapability = "phone_push.settings.v1"
     static let phonePushTestCapability = "phone_push.test.v1"
+    static let caffeineControlCapability = "caffeine.control.v1"
     nonisolated private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
@@ -504,6 +506,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// means no attached Mac has proved same-account ownership and exposed the
     /// independent Mac privacy gate.
     public internal(set) var phonePushMacStatus: MobileHostPhonePushStatus?
+    /// The connected Mac's current cmux-owned keep-awake state. `nil` means
+    /// the state has not been read or the current Mac is unavailable.
+    public internal(set) var caffeineStatus: MobileCaffeineStatus?
+    /// Whether a caffeine RPC mutation is currently awaiting the Mac.
+    public internal(set) var isCaffeineMutationInFlight = false
+    @ObservationIgnored var caffeineMutationID: UUID?
+    /// Monotonic fence for authoritative caffeine snapshots. It survives
+    /// connection resets so an older reconciliation cannot match newer state.
+    @ObservationIgnored var caffeineStatusRevision: UInt64 = 0
 
     /// Whether the authenticated Mac supports changing its independent phone
     /// forwarding privacy gates from iOS.
@@ -514,6 +525,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the authenticated Mac can enqueue a correlated test alert.
     public var supportsPhonePushTest: Bool {
         supportedHostCapabilities.contains(Self.phonePushTestCapability)
+    }
+
+    /// Whether the authenticated Mac supports the Keep Mac Awake RPC.
+    public var supportsCaffeineControl: Bool {
+        supportedHostCapabilities.contains(Self.caffeineControlCapability)
     }
     /// Published workspace-list chip snapshots keyed by Mac-local workspace id.
     ///
@@ -806,9 +822,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            if selectedWorkspaceID != oldValue {
+                selectedMacSurfaceID = nil
+            }
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// The Mac surface shown in the workspace detail instead of the selected
+    /// terminal, or nil when the terminal is visible. Independent of
+    /// ``selectedTerminalID`` (so dismissing the surface returns to the same
+    /// terminal and composer draft) and cleared when the workspace changes.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing
@@ -10193,6 +10217,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deactivateAllTerminalLanes()
         supportedHostCapabilities = []
         phonePushMacStatus = nil
+        caffeineStatus = nil
+        isCaffeineMutationInFlight = false
+        caffeineMutationID = nil
         clearMacUpdateHint()
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
@@ -11816,6 +11843,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await self.refreshPhonePushStatus(
                         client: client,
                         generation: self.connectionGeneration
+                    )
+                } else if event.topic == "caffeine.status.changed" {
+                    self.handleCaffeineStatusEvent(
+                        event,
+                        client: client,
+                        generation: listenerConnectionGeneration
                     )
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
