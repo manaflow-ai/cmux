@@ -2083,6 +2083,9 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
 fn resource_mutation_pruning_defers_during_agent_generation_backfill() {
     let mut registry = WorkspaceRegistry::in_memory("mutation-backfill-fence").unwrap();
     let count = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY + 1;
+    let interval = resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL;
+    let count_u64 = u64::try_from(count).unwrap();
+    let checkpoint = count_u64.div_ceil(interval) * interval;
     let tx = registry.connection.transaction().unwrap();
     for index in 0..count {
         tx.execute(
@@ -2101,7 +2104,7 @@ fn resource_mutation_pruning_defers_during_agent_generation_backfill() {
     }
     tx.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-        [resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL.to_string()],
+        [checkpoint.to_string()],
     )
     .unwrap();
     tx.execute("DELETE FROM meta WHERE key = 'resource_agent_session_generation_backfill_v2'", [])
@@ -2110,6 +2113,15 @@ fn resource_mutation_pruning_defers_during_agent_generation_backfill() {
     tx.commit().unwrap();
 
     assert_eq!(registry.resource_mutation_count_for_test().unwrap(), count as u64);
+    let oldest_row_count: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
+            ["backfill-fence-00000000"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(oldest_row_count, 1);
 }
 
 #[test]

@@ -1568,6 +1568,12 @@ mod tests {
         assert_eq!(conflict.message, "agent projection session conflict");
         assert_eq!(conflict.details["extra"]["reason_code"], "agent_projection_conflict");
 
+        let raw_conflict = resource_operation_error(anyhow::anyhow!(
+            "this terminal already has an active agent hook session; stop the hook session, then report again"
+        ));
+        assert_eq!(raw_conflict.message, "agent projection session conflict");
+        assert_eq!(raw_conflict.details["extra"]["reason_code"], "agent_projection_conflict");
+
         let missing = resource_operation_error(anyhow::anyhow!(
             "agent socket report omits active hook session Some(\"private-session\")"
         ));

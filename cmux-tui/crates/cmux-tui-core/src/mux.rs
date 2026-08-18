@@ -21313,9 +21313,9 @@ mod tests {
             .unwrap_err();
         let error_message = error.to_string();
         assert!(
-            error_message.contains("late-socket")
-                && error_message.contains("hook-session")
-                && error_message.contains("conflict"),
+            error_message.contains("active agent hook session")
+                && !error_message.contains("late-socket")
+                && !error_message.contains("hook-session"),
             "unexpected agent projection rejection: {error_message}"
         );
 
@@ -21370,7 +21370,10 @@ mod tests {
                 Some("conflicting-socket-session".into()),
             )
             .unwrap_err();
-        assert!(error.to_string().contains("conflicts with active hook session"));
+        let error_message = error.to_string();
+        assert!(error_message.contains("active agent hook session"));
+        assert!(!error_message.contains("memory-hook-session"));
+        assert!(!error_message.contains("conflicting-socket-session"));
     }
 
     #[test]
@@ -21666,9 +21669,9 @@ mod tests {
             .unwrap_err();
         let error_message = error.to_string();
         assert!(
-            error_message.contains("late-raw-session")
-                && error_message.contains("hook-session")
-                && error_message.contains("conflict"),
+            error_message.contains("active agent hook session")
+                && !error_message.contains("late-raw-session")
+                && !error_message.contains("hook-session"),
             "unexpected agent projection rejection: {error_message}"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
@@ -21795,9 +21798,9 @@ mod tests {
             Err(error) => {
                 let error_message = error.to_string();
                 assert!(
-                    error_message.contains("racing-socket")
-                        && error_message.contains("racing-hook")
-                        && error_message.contains("conflict"),
+                    error_message.contains("active agent hook session")
+                        && !error_message.contains("racing-socket")
+                        && !error_message.contains("racing-hook"),
                     "unexpected concurrent agent projection rejection: {error_message}"
                 );
                 false
