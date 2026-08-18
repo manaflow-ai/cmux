@@ -529,10 +529,16 @@ enum TerminalImageTransferPlanner {
             .standardizedFileURL.path
         let systemTemporaryPath = FileManager.default.temporaryDirectory
             .standardizedFileURL.path
-        let isTemporaryPath = path == serviceTemporaryPath
-            || path.hasPrefix(serviceTemporaryPath + "/")
-            || path == systemTemporaryPath
-            || path.hasPrefix(systemTemporaryPath + "/")
+        let unixTemporaryPath = URL(fileURLWithPath: "/tmp")
+            .standardizedFileURL.path
+        let temporaryRoots = [
+            serviceTemporaryPath,
+            systemTemporaryPath,
+            unixTemporaryPath,
+        ]
+        let isTemporaryPath = temporaryRoots.contains { root in
+            path == root || path.hasPrefix(root + "/")
+        }
         guard isTemporaryPath else { return false }
 
         let filename = normalizedURL.lastPathComponent.lowercased()
