@@ -57,6 +57,26 @@ struct GitReftableRefsTests {
         #expect(afterBranchSwitch != afterCommit)
     }
 
+    @Test func reportsHeadCommitFromReftableStack() async throws {
+        let fixture = try ReftableRepositoryFixture(branch: "main")
+        let expected = try fixture.headCommit()
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let commit = GitMetadataService().resolvedCurrentCommit(repository: repository)
+
+        #expect(commit == expected)
+    }
+
+    @Test func watchesTheReftableStackDirectory() async throws {
+        let fixture = try ReftableRepositoryFixture(branch: "main")
+
+        let paths = try #require(await GitMetadataService().watchedPaths(for: fixture.root.path))
+
+        #expect(paths.contains { $0.hasSuffix("/.git/reftable") })
+    }
+
     @Test func reportsBranchForLinkedReftableWorktree() async throws {
         let fixture = try ReftableRepositoryFixture(branch: "main")
         let worktreeRoot = try fixture.addWorktree(name: "linked", branch: "feature/linked")

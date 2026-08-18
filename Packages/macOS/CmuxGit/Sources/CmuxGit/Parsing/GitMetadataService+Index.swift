@@ -115,7 +115,7 @@ extension GitMetadataService {
             }
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
-                guard let submoduleCommit = Self.gitlinkWorktreeCommit(
+                guard let submoduleCommit = gitlinkWorktreeCommit(
                     parentRepository: repository,
                     gitlinkPath: entry.path
                 ) else {
@@ -370,20 +370,23 @@ extension GitMetadataService {
     }
 
     /// The submodule's currently checked-out commit for a parent gitlink entry,
-    /// or `nil` when the submodule cannot be resolved.
-    nonisolated static func gitlinkWorktreeCommit(
+    /// or `nil` when the submodule cannot be resolved. An unresolved submodule
+    /// makes the parent read as dirty, so a reftable submodule has to resolve
+    /// through ``resolvedCurrentCommit(repository:)`` rather than the ref files
+    /// it does not have.
+    nonisolated func gitlinkWorktreeCommit(
         parentRepository: ResolvedGitRepository,
         gitlinkPath: String
     ) -> String? {
-        let gitlinkPath = joinedPath(
+        let gitlinkPath = Self.joinedPath(
             root: parentRepository.workTreeRoot,
             relativePath: gitlinkPath
         )
-        guard let submoduleRepository = resolveGitRepository(containing: gitlinkPath),
+        guard let submoduleRepository = Self.resolveGitRepository(containing: gitlinkPath),
               submoduleRepository.workTreeRoot == gitlinkPath else {
             return nil
         }
-        return gitCurrentCommit(repository: submoduleRepository)
+        return resolvedCurrentCommit(repository: submoduleRepository)
     }
 
     /// Maps a stat mode to the git index mode word for comparison
