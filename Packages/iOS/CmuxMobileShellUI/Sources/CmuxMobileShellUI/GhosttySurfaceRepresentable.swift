@@ -202,6 +202,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private static let maximumOutputConsumerRestartAttempts =
             outputConsumerRestartDelays.count
         private static let outputConsumerStabilityDuration: Duration = .seconds(2)
+        private static let outputStartViewportTimeout: Duration = .seconds(1)
         /// The first viewport report gates the initial stream registration so
         /// the Mac is never asked to replay before the surface has a valid
         /// grid. A consumer restart on the same mounted surface may reuse that
@@ -402,7 +403,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                 }
                 if let outputStartSignal {
-                    for await _ in outputStartSignal { break }
+                    guard let self else { return }
+                    _ = await self.waitForOutputStart(
+                        signal: outputStartSignal,
+                        generation: taskGeneration
+                    )
                 }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
@@ -595,6 +600,54 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 surfaceView: surfaceView,
                 generation: generation
             )
+        }
+
+        /// The first geometry callback normally opens the output gate. A
+        /// transiently lost callback must not leave a mounted terminal waiting
+        /// forever, so the stream falls back to its best-known viewport after
+        /// one cancellable deadline and asks the surface to re-arm geometry.
+        private func waitForOutputStart(
+            signal: AsyncStream<Void>,
+            generation: UInt64
+        ) async -> Bool {
+            let clock = outputConsumerRestartClock
+            let timedOut = await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    for await _ in signal {
+                        return false
+                    }
+                    return false
+                }
+                group.addTask {
+                    do {
+                        try await clock.sleep(
+                            for: Self.outputStartViewportTimeout,
+                            tolerance: nil
+                        )
+                        return true
+                    } catch {
+                        return false
+                    }
+                }
+                let result = await group.next() ?? false
+                group.cancelAll()
+                return result
+            }
+            guard timedOut,
+                  !Task.isCancelled,
+                  outputTaskGeneration == generation,
+                  !outputStartReady else {
+                return timedOut
+            }
+            outputStartReady = true
+            outputStartContinuation?.finish()
+            outputStartContinuation = nil
+            surfaceView?.retryViewportReport()
+            surfaceView?.requestViewportReportForMount()
+            MobileDebugLog.anchormux(
+                "terminal.output.start_viewport_timeout surface=\(surfaceID)"
+            )
+            return true
         }
 
         /// Resets the restart budget only after a replacement consumer has

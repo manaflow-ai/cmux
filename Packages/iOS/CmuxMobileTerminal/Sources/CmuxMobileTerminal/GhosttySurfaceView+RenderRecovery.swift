@@ -142,6 +142,7 @@ extension GhosttySurfaceView {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
         resetRenderAdmissionStatePreservingSuppression()
         renderSubmission = nil
         pendingRenderSubmission = nil
@@ -265,6 +266,7 @@ extension GhosttySurfaceView {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
         resetRenderAdmissionStatePreservingSuppression()
         renderSubmission = nil
         pendingRenderSubmission = nil

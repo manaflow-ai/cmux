@@ -125,6 +125,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var renderInFlight: Bool = false
     var renderInFlightSince: CFTimeInterval?
     var needsAnotherRender: Bool = false
+    /// Retry count carried into the one follow-up ordinary submission after a
+    /// renderer failure. Keeping it outside the new token prevents the
+    /// follow-up request from silently resetting the failure episode to zero.
+    var pendingRenderRetryCount: UInt8 = 0
     /// The one frame currently allowed to reach the renderer. The callback is
     /// delivered only after Ghostty assigns the matching IOSurface, so output,
     /// local scrolling, geometry, and verified replay share one barrier.
@@ -956,6 +960,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
         renderPresentationGate.reset()
         renderSubmission = nil
         pendingRenderSubmission = nil
@@ -3092,6 +3097,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
         renderPresentationGate.reset()
         renderSubmission = nil
         pendingRenderSubmission = nil
@@ -3575,7 +3581,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
     /// per-frame loop that would flood the main queue with present blocks.
     @discardableResult
-    private func requestRender() -> Bool {
+    private func requestRender(
+        presentationRetryCount: UInt8 = 0
+    ) -> Bool {
         // Never dispatch a render into the background: a backgrounded
         // `render_now` can stall acquiring a swap-chain frame slot from
         // libghostty, leaving the serial output queue undrained. The acquire is
@@ -3598,7 +3606,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: .ordinary,
                 surface: surface,
                 verifiedReplayRead: nil,
-                presentationRetryCount: 0
+                presentationRetryCount: presentationRetryCount
             )
         )
     }
@@ -3731,6 +3739,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
         needsDraw = true
         MobileDebugLog.anchormux("render.gate.admission_repaired")
     }
@@ -3781,9 +3790,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
 
-        // A backend failure, or a discard that cannot be retried against the
-        // current surface, is terminal for this submission. The pending replay
-        // continuation (if any) has already been completed above.
+        let nextRetryCount = submission.presentationRetryCount &+ 1
+        guard nextRetryCount <= Self.maximumRenderPresentationRetries else {
+            // A persistent renderer rejection needs a fresh surface and
+            // authoritative replay, not another ordinary token with a reset
+            // counter. This is the terminal recovery edge for the episode.
+            needsAnotherRender = false
+            pendingRenderRetryCount = 0
+            let stalledMs = renderInFlightSince.map {
+                Int((CACurrentMediaTime() - $0) * 1000)
+            } ?? 0
+            let recovered = recoverRenderPipeline(
+                reason: "render_submission_retry_exhausted",
+                stalledMs: stalledMs,
+                replay: .callerWillRequestReplay
+            )
+            if recovered {
+                delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
+            } else {
+                cancelRenderSubmission(token: token)
+            }
+            return
+        }
+
+        // Carry the failure episode into the one follow-up submission. The
+        // pending replay continuation, if any, has already been completed
+        // above.
+        pendingRenderRetryCount = nextRetryCount
         needsDraw = true
         needsAnotherRender = true
         pendingRenderFrames = max(pendingRenderFrames, 1)
@@ -3834,16 +3867,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !isDismantled else {
             pendingRenderSubmission = nil
             needsAnotherRender = false
+            pendingRenderRetryCount = 0
             return
         }
         if case .started(_) = action {
             if startPromotedRenderSubmission(action) {
+                pendingRenderRetryCount = 0
                 return
             }
         }
         if needsAnotherRender {
+            let retryCount = pendingRenderRetryCount
+            pendingRenderRetryCount = 0
             needsAnotherRender = false
-            if !requestRender() {
+            if !requestRender(presentationRetryCount: retryCount) {
                 needsDraw = true
             }
         }
@@ -3866,6 +3903,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pendingRenderSubmission = nil
             resetRenderAdmissionStatePreservingSuppression()
             needsAnotherRender = false
+            pendingRenderRetryCount = 0
             needsDraw = true
             return false
         }
