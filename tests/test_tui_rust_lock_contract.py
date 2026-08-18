@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 import tomllib
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,3 +31,21 @@ def test_every_published_rust_sdk_lock_records_runtime_sha2() -> None:
         )
     ]
     assert not missing, "cmux-sdk runtime sha2 is missing from: " + ", ".join(missing)
+
+
+def test_lock_contract_tracks_a_non_default_sdk_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = tmp_path / "cmux-tui" / "Cargo.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text(
+        "[[package]]\n"
+        'name = "cmux-sdk"\n'
+        'version = "9.9.9"\n'
+        'dependencies = ["sha2"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+
+    test_every_published_rust_sdk_lock_records_runtime_sha2()
