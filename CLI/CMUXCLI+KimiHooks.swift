@@ -6,40 +6,8 @@ extension CMUXCLI {
     private static let kimiLifecycleHookTimeoutSeconds = 10
     private static let kimiFeedHookTimeoutSeconds = 120
 
-    /// Config file name shared by every Kimi installation.
-    static let kimiConfigFileName = "config.toml"
-
-    /// Kimi Code CLI (current) reads `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml`.
-    /// Kimi CLI 1.49 and earlier read `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`.
-    /// Both installations are supported; the first entry wins ties.
-    static let kimiCodeConfigDirectory = ".kimi-code"
-    private static let kimiConfigDirectorySpecs: [KimiConfigDirectorySpec] = [
-        KimiConfigDirectorySpec(
-            environmentOverride: "KIMI_CODE_HOME",
-            homeRelativeDirectory: kimiCodeConfigDirectory
-        ),
-        KimiConfigDirectorySpec(
-            environmentOverride: "KIMI_SHARE_DIR",
-            homeRelativeDirectory: ".kimi"
-        ),
-    ]
-
     /// `kimi doctor` only reports paths; it must never stall a hook install.
     private static let kimiDoctorProbeTimeoutSeconds: Double = 3
-
-    private struct KimiConfigDirectorySpec {
-        let environmentOverride: String
-        let homeRelativeDirectory: String
-    }
-
-    /// Every Kimi config file cmux manages: the one the installed CLI reads,
-    /// plus the well-known locations belonging to the other installation.
-    struct KimiConfigLocations {
-        let active: URL
-        let secondary: [URL]
-
-        var all: [URL] { [active] + secondary }
-    }
 
     private struct KimiConfigEdit {
         let url: URL
@@ -183,16 +151,18 @@ extension CMUXCLI {
     func uninstallKimiHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let locations = Self.kimiConfigLocations(for: def)
+        let targets: [(url: URL, isActive: Bool)] =
+            [(url: locations.active, isActive: true)]
+            + locations.secondary.map { (url: $0, isActive: false) }
 
         var foundConfig = false
-        for (index, configURL) in locations.all.enumerated()
-        where fm.fileExists(atPath: configURL.path) {
+        for target in targets where fm.fileExists(atPath: target.url.path) {
             foundConfig = true
             do {
-                _ = try removeKimiHooks(at: configURL, def: def, reportNoChange: true)
+                _ = try removeKimiHooks(at: target.url, def: def, reportNoChange: true)
             } catch {
-                guard index > 0 else { throw error }
-                reportKimiSecondaryUninstallWarning(secondaryConfigURL: configURL)
+                guard !target.isActive else { throw error }
+                reportKimiSecondaryUninstallWarning(secondaryConfigURL: target.url)
             }
         }
         guard !foundConfig else { return }
@@ -276,102 +246,30 @@ extension CMUXCLI {
 
     // MARK: Config discovery
 
-    /// The Kimi config file cmux installs into, plus the other well-known Kimi
-    /// configs it keeps consistent.
-    ///
-    /// The active file is the one the installed CLI reports through
-    /// `kimi doctor`; when the binary cannot answer, it is the first well-known
-    /// location that already exists, defaulting to the current Kimi Code CLI
-    /// path. See https://github.com/manaflow-ai/cmux/issues/10255.
-    static func kimiConfigLocations(for def: AgentHookDef) -> KimiConfigLocations {
-        let candidates = kimiConfigDirectoryCandidates().map { directory in
-            directory.appendingPathComponent(def.configFile, isDirectory: false)
-        }
-        let active = kimiDoctorReportedConfigURL(
-            binaryName: def.binaryName,
+    /// The config directory used when the installed binary reports none.
+    static func resolvedKimiConfigDirectory() -> URL {
+        KimiConfigLocationResolver(environment: ProcessInfo.processInfo.environment)
+            .fallbackConfigDirectory()
+    }
+
+    /// The Kimi config files cmux manages, resolved from the installed binary.
+    static func kimiConfigLocations(for def: AgentHookDef) -> KimiConfigLocationResolver.Locations {
+        let resolver = KimiConfigLocationResolver(
+            environment: ProcessInfo.processInfo.environment,
             configFileName: def.configFile
-        ) ?? URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
-            .appendingPathComponent(def.configFile, isDirectory: false)
-
-        var seen: Set<URL> = [canonicalKimiConfigURL(active)]
-        var secondary: [URL] = []
-        for candidate in candidates where seen.insert(canonicalKimiConfigURL(candidate)).inserted {
-            secondary.append(candidate)
+        )
+        let reported = runKimiDoctor(binaryName: def.binaryName).flatMap { output in
+            resolver.reportedConfigURL(inDoctorOutput: output)
         }
-        return KimiConfigLocations(active: active, secondary: secondary)
+        return resolver.locations(reportedConfigURL: reported)
     }
 
-    /// The config directory used when the installed binary cannot report one.
-    static func resolvedKimiConfigDirectory(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
-    ) -> URL {
-        let candidates = kimiConfigDirectoryCandidates(environment: environment)
-        if let configured = candidates.first(where: { directory in
-            kimiRegularFileExists(
-                directory.appendingPathComponent(kimiConfigFileName, isDirectory: false),
-                fileManager: fileManager
-            )
-        }) {
-            return configured
-        }
-        if let installed = candidates.first(where: {
-            kimiDirectoryExists($0, fileManager: fileManager)
-        }) {
-            return installed
-        }
-        return candidates.first ?? kimiHomeURL(environment: environment)
-            .appendingPathComponent(kimiCodeConfigDirectory, isDirectory: true)
-    }
-
-    private static func kimiConfigDirectoryCandidates(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> [URL] {
-        let home = kimiHomeURL(environment: environment)
-        return kimiConfigDirectorySpecs.map { spec in
-            if let override = nonEmptyKimiEnvironmentValue(
-                environment[spec.environmentOverride]
-            ) {
-                return URL(
-                    fileURLWithPath: NSString(string: override).expandingTildeInPath,
-                    isDirectory: true
-                )
-            }
-            return home.appendingPathComponent(spec.homeRelativeDirectory, isDirectory: true)
-        }
-    }
-
-    /// The absolute `config.toml` path `kimi doctor` reports, when it reports a
-    /// usable one. A binary that is missing, does not know the subcommand, or
-    /// prints no path leaves the well-known locations in charge.
-    private static func kimiDoctorReportedConfigURL(
-        binaryName: String,
-        configFileName: String,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        guard let output = runKimiDoctor(binaryName: binaryName),
-              let reported = kimiConfigURL(inDoctorOutput: output, configFileName: configFileName),
-              kimiDirectoryExists(reported.deletingLastPathComponent(), fileManager: fileManager)
-        else {
-            return nil
-        }
-        return reported
-    }
-
-    static func kimiConfigURL(inDoctorOutput output: String, configFileName: String) -> URL? {
-        let trimmed = CharacterSet(charactersIn: "\"'`,;:()[]{}<>")
-        for token in output.split(whereSeparator: { $0.isWhitespace }) {
-            let candidate = String(token).trimmingCharacters(in: trimmed)
-            guard !candidate.isEmpty else { continue }
-            let expanded = NSString(string: candidate).expandingTildeInPath
-            guard expanded.hasPrefix("/") else { continue }
-            let url = URL(fileURLWithPath: expanded, isDirectory: false).standardizedFileURL
-            guard url.lastPathComponent == configFileName else { continue }
-            return url
-        }
-        return nil
-    }
-
+    /// Runs `<binary> doctor` and returns its combined output.
+    ///
+    /// The probe writes to a temporary file rather than a pipe so a chatty
+    /// binary cannot deadlock the wait, and it is bounded so a hung binary
+    /// cannot stall `cmux hooks setup`. A binary that is missing or does not
+    /// know the subcommand simply produces no usable path.
     private static func runKimiDoctor(binaryName: String) -> String? {
         let fm = FileManager.default
         let outputURL = fm.temporaryDirectory
@@ -402,31 +300,5 @@ extension CMUXCLI {
             }
         }
         return try? String(contentsOf: outputURL, encoding: .utf8)
-    }
-
-    private static func kimiHomeURL(environment: [String: String]) -> URL {
-        let home = nonEmptyKimiEnvironmentValue(environment["HOME"]) ?? NSHomeDirectory()
-        return URL(fileURLWithPath: home, isDirectory: true)
-    }
-
-    private static func nonEmptyKimiEnvironmentValue(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func kimiDirectoryExists(_ url: URL, fileManager: FileManager) -> Bool {
-        var isDirectory = ObjCBool(false)
-        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
-            && isDirectory.boolValue
-    }
-
-    private static func kimiRegularFileExists(_ url: URL, fileManager: FileManager) -> Bool {
-        var isDirectory = ObjCBool(false)
-        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
-            && !isDirectory.boolValue
-    }
-
-    private static func canonicalKimiConfigURL(_ url: URL) -> URL {
-        url.resolvingSymlinksInPath().standardizedFileURL
     }
 }

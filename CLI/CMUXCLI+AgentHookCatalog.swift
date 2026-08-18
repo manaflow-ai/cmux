@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -231,7 +232,8 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
-            configDir: kimiCodeConfigDirectory, configFile: kimiConfigFileName,
+            configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
+            configFile: KimiConfigLocationResolver.configFileName,
             createConfigDirIfMissing: true,
             configDirResolver: { CMUXCLI.resolvedKimiConfigDirectory().path },
             binaryName: "kimi",
