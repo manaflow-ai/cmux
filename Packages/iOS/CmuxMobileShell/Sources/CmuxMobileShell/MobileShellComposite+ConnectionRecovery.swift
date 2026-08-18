@@ -345,7 +345,8 @@ extension MobileShellComposite {
                 // the same wedge protection without a second race here.
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
-                    refreshBackupBeforeDial: false
+                    refreshBackupBeforeDial: false,
+                    replacesInFlightAttempt: trigger.replacesInFlightStoredMacAttempt
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }

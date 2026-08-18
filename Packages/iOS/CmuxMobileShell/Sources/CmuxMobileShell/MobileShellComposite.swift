@@ -330,6 +330,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
+    /// The one in-flight stored-Mac reconnect attempt. Concurrent automatic
+    /// requests (launch restore, presence push, foreground, event-stream end)
+    /// await this shared attempt instead of claiming a new generation, which
+    /// would cancel the dial already in progress and settle both callers as
+    /// "Superseded by a newer attempt". Only forced entries (manual retry,
+    /// connection-method change) may replace it.
+    var storedMacReconnectAttemptTask: Task<StoredMacReconnectOutcome, Never>?
+    private var storedMacReconnectAttemptID: UUID?
     /// Set when a connection-method change arrives during a reconnect. The
     /// latest forced retry starts as soon as the current attempt settles.
     var pendingForcedStoredMacReconnect = false
@@ -1949,6 +1957,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
+        storedMacReconnectAttemptTask = nil
+        storedMacReconnectAttemptID = nil
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         resetNotificationFeed()
@@ -2046,6 +2056,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
+        storedMacReconnectAttemptTask = nil
+        storedMacReconnectAttemptID = nil
         pairedMacRestoreBoundary?.invalidate()
         let refresher = pairedMacStore as? any PairedMacBackupRefreshing
         // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
@@ -2333,6 +2345,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
+        /// Explicit user intent replaces an in-flight stored-Mac attempt;
+        /// automatic wake-ups share its outcome instead of superseding it.
+        var replacesInFlightStoredMacAttempt: Bool {
+            switch self {
+            case .manual, .connectionMethodChanged: true
+            case .networkChange, .presencePush, .foreground, .liveness,
+                 .eventStreamEnded, .subscriptionStartFailed,
+                 .transportWriteTimedOut, .automaticBackoffExpired: false
+            }
+        }
+
         /// Stable integer carried in ``DiagnosticEventCode/recoveryStarted``'s
         /// `b` slot so an export names WHY each recovery cycle began. Values
         /// are append-only; never renumber.
@@ -2589,14 +2612,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func reconnectActiveMacIfAvailable(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool = true,
-        force: Bool = false
+        force: Bool = false,
+        replacesInFlightAttempt: Bool = false
     ) async -> Bool {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.reconnectStarted)
         let outcome = await reconnectActiveMacOutcome(
             stackUserID: stackUserID,
             refreshBackupBeforeDial: refreshBackupBeforeDial,
-            force: force
+            force: force,
+            replacesInFlightAttempt: replacesInFlightAttempt
         )
         switch outcome {
         case .connected:
@@ -2635,16 +2660,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearTransientAutomaticReconnectBackoff(accountID: accountID)
         }
         isReconnectingStoredMac = true
+        // A user-requested retry replaces a wedged in-flight attempt (one
+        // whose restoring deadline elapsed while its dial hangs) instead of
+        // sharing its already-doomed outcome.
         return await reconnectActiveMacIfAvailable(
             stackUserID: stackUserID,
-            force: force
+            force: force,
+            replacesInFlightAttempt: true
         )
     }
 
+    /// - Parameter replacesInFlightAttempt: `true` for explicit user intent
+    ///   (manual retry, connection-method change), which claims a fresh
+    ///   generation and supersedes any in-flight attempt. Automatic requests
+    ///   leave this `false` and share the in-flight attempt's outcome.
     func reconnectActiveMacOutcome(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool = true,
-        force: Bool = false
+        force: Bool = false,
+        replacesInFlightAttempt: Bool = false
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
@@ -2656,12 +2690,51 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
             return .connected
         }
+        // One stored-Mac attempt owns the dial. A concurrent automatic request
+        // shares its outcome; claiming a new generation here would cancel the
+        // in-flight dial and settle both callers as superseded (the launch
+        // presence-push vs stored-restore race).
+        if !force, !replacesInFlightAttempt,
+           let inFlight = storedMacReconnectAttemptTask {
+            MobileDebugLog.anchormux(
+                "storedMacReconnect joining in-flight attempt generation=\(storedMacReconnectGeneration)"
+            )
+            return await inFlight.value
+        }
         // Claim this attempt's generation. Only the current generation may resolve
         // the restoring-gate flags, so an older superseded attempt can't clear the
         // gate (or clobber the hint) while a newer reconnect is still running.
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
         isReconnectingStoredMac = true
+        let attemptID = UUID()
+        let attempt = Task { @MainActor [weak self] in
+            guard let self else { return StoredMacReconnectOutcome.superseded }
+            defer {
+                if self.storedMacReconnectAttemptID == attemptID {
+                    self.storedMacReconnectAttemptTask = nil
+                    self.storedMacReconnectAttemptID = nil
+                }
+            }
+            return await self.runStoredMacReconnectAttempt(
+                stackUserID: stackUserID,
+                refreshBackupBeforeDial: refreshBackupBeforeDial,
+                generation: generation
+            )
+        }
+        storedMacReconnectAttemptTask = attempt
+        storedMacReconnectAttemptID = attemptID
+        return await attempt.value
+    }
+
+    /// The awaited phase of one claimed stored-Mac reconnect attempt. The
+    /// caller has already claimed `generation` and `isReconnectingStoredMac`
+    /// synchronously, preserving serialization across concurrent entries.
+    private func runStoredMacReconnectAttempt(
+        stackUserID: String?,
+        refreshBackupBeforeDial: Bool,
+        generation: Int
+    ) async -> StoredMacReconnectOutcome {
         let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         // Bound the complete visible retry window, including scope resolution,
         // backup refresh, and local-store reads before dialing starts.
@@ -4653,6 +4726,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
+        storedMacReconnectAttemptTask = nil
+        storedMacReconnectAttemptID = nil
         if let representativeID = staleRepresentativeID {
             hasKnownPairedMac = true
             // The shell action is synchronous for its UI caller; the device-local
@@ -6641,6 +6716,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationRetryState.reset()
     }
 
+    /// Background suspension of the pending retry timer. Unlike
+    /// ``cancelSecondaryAggregationRetry()`` (an account/team boundary, where
+    /// the ladder must forget the previous scope), backgrounding says nothing
+    /// about an unreachable Mac, so the grown delay survives: the next
+    /// foreground still dials once through its full aggregation pass, and a
+    /// still-failing Mac reschedules at the preserved delay instead of
+    /// restarting the 2 s ladder every foreground session.
+    func suspendSecondaryAggregationRetryForBackground() {
+        secondaryAggregationRetryEvidenceGeneration &+= 1
+        secondaryAggregationRetryTaskGeneration = UUID()
+        secondaryAggregationRetryTask?.cancel()
+        secondaryAggregationRetryTask = nil
+        secondaryAggregationRetryMacIDs = []
+        secondaryAggregationRetryNeedsFullRefresh = false
+        secondaryAggregationRetryState.suspend()
+    }
+
     private func retainSecondaryAggregationRetryEvidence<S: Sequence>(
         _ macDeviceIDs: S
     ) where S.Element == String {
@@ -6712,7 +6804,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationAfterPushedRoutesScope = nil
         secondaryAggregationAfterPushedRoutesMacIDs = []
         secondaryAggregationAfterPushedRoutesNeedsFullRefresh = false
-        cancelSecondaryAggregationRetry()
+        suspendSecondaryAggregationRetryForBackground()
 
         secondaryControlKeepaliveTaskGeneration = UUID()
         secondaryControlKeepaliveTask?.cancel()
@@ -7493,6 +7585,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
+        // The invalidated attempt settles as superseded; a later automatic
+        // request must start fresh rather than share that dying attempt.
+        storedMacReconnectAttemptTask = nil
+        storedMacReconnectAttemptID = nil
     }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate

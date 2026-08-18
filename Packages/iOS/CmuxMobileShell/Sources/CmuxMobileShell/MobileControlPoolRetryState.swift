@@ -24,6 +24,17 @@ struct MobileControlPoolRetryState: Sendable {
         isScheduled = false
     }
 
+    /// Releases the scheduled slot without forgetting the grown delay.
+    ///
+    /// Backgrounding cancels the pending retry timer, but it is not evidence
+    /// that an unreachable Mac became reachable. Keeping the delay means the
+    /// next foreground's full aggregation pass still dials once (a foreground
+    /// return is a legitimate retry moment) while a Mac that keeps failing
+    /// does not restart the 2 s ladder every session.
+    mutating func suspend() {
+        isScheduled = false
+    }
+
     mutating func reset() {
         isScheduled = false
         nextDelay = Self.initialDelay
