@@ -123,7 +123,10 @@ public enum SSHPTYAttachExitCode: Int32 {
             description.contains("network is down") ||
             description.contains("no route to host") ||
             description.contains("host is down") ||
-            description.contains("connection refused") {
+            description.contains("connection refused") ||
+            description.contains("could not resolve hostname") ||
+            description.contains("temporary failure in name resolution") ||
+            description.contains("name or service not known") {
             return .hostUnreachable
         }
         return self

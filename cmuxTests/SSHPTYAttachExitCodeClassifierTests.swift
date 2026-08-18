@@ -100,6 +100,7 @@ import Testing
 
     @Test(arguments: [
         ("ssh: connect to host tinybox port 22: Operation timed out", SSHPTYAttachExitCode.hostUnreachable),
+        ("ssh: Could not resolve hostname tinybox: Name or service not known", SSHPTYAttachExitCode.hostUnreachable),
         ("remote daemon is not ready", SSHPTYAttachExitCode.daemonNotReady),
         ("remote daemon did not respond in time", SSHPTYAttachExitCode.daemonNotReady),
         ("mux_client_request_session: read from master failed: Broken pipe", SSHPTYAttachExitCode.controlMasterUnavailable),
