@@ -152,6 +152,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var ticket: TerminalRenderSubmission {
             TerminalRenderSubmission(token: token, generation: generation, kind: kind)
         }
+
+        func withPresentationRetryCount(_ count: UInt8) -> RenderSubmission {
+            RenderSubmission(
+                token: token,
+                generation: generation,
+                kind: kind,
+                surface: surface,
+                verifiedReplayRead: verifiedReplayRead,
+                presentationRetryCount: count
+            )
+        }
     }
     var renderPresentationGate = TerminalRenderPresentationGate()
     var renderSubmission: RenderSubmission?
@@ -3845,7 +3856,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
-        if presented && hasAppliedOutput {
+        // A verified replay can be the first frame on a cold mount. It carries
+        // valid terminal pixels even when no raw output chunk has arrived, so
+        // it must also retire the snapshot fallback overlay.
+        if presented && (hasAppliedOutput || submission.kind == .verifiedReplay) {
             surfaceHasReceivedOutput = true
             snapshotFallbackView.isHidden = true
         }
@@ -3907,8 +3921,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             needsDraw = true
             return false
         }
+        // A failed in-flight ordinary frame may have left its retry episode in
+        // pendingRenderRetryCount. Carry that episode into a promoted ordinary
+        // or local-scroll frame instead of silently restarting at zero. Replay
+        // submissions have their own bounded retry accounting and should not
+        // inherit an ordinary-frame count.
+        let promoted: RenderSubmission
+        if pending.kind == .verifiedReplay {
+            promoted = pending
+        } else {
+            promoted = pending.withPresentationRetryCount(
+                max(pending.presentationRetryCount, pendingRenderRetryCount)
+            )
+        }
         pendingRenderSubmission = nil
-        guard startRenderSubmission(pending) else {
+        pendingRenderRetryCount = 0
+        guard startRenderSubmission(promoted) else {
             repairRenderAdmissionAfterFailedStart()
             return false
         }
