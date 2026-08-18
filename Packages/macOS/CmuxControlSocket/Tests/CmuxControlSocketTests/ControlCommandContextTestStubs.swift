@@ -186,6 +186,21 @@ extension ControlNotificationContext {
     func controlNotificationOpen(id: UUID) -> ControlNotificationOpenResolution { .notificationNotFound }
     func controlNotificationJumpToUnread() -> ControlNotificationSnapshot? { nil }
     func controlNotificationClear() {}
+    func controlNotificationClear(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlNotificationClearResolution {
+        .cleared(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+    func controlNotificationClearForCaller(
+        preferredWorkspaceID: UUID?,
+        preferredSurfaceID: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool
+    ) -> ControlNotificationClearResolution {
+        .cleared(workspaceID: preferredWorkspaceID, surfaceID: preferredSurfaceID)
+    }
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(

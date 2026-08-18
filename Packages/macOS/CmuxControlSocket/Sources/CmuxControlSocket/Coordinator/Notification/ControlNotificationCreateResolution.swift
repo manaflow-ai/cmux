@@ -19,6 +19,9 @@ public enum ControlNotificationCreateResolution: Sendable, Equatable {
     case surfaceNotFound(UUID)
     /// The notification was delivered. Carries the workspace id and the surface
     /// it landed on (the explicit surface, or the workspace's focused surface,
-    /// which may be absent).
-    case delivered(workspaceID: UUID, surfaceID: UUID?)
+    /// which may be absent), plus the stable notification id allocated for the
+    /// delivery admission. The id is optional only when policy admission was
+    /// accepted but the store could not reserve one (for example, a cooldown
+    /// rejected the request); successful CLI notifications normally carry it.
+    case delivered(workspaceID: UUID, surfaceID: UUID?, notificationID: UUID?)
 }
