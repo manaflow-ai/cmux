@@ -460,7 +460,7 @@ extension MobileShellComposite {
         terminalReplayBarrierWatchdogIDsBySurfaceID = [:]
     }
 
-    private func armTerminalReplayBarrierWatchdog(
+    func armTerminalReplayBarrierWatchdog(
         surfaceID: String,
         token: UUID
     ) {

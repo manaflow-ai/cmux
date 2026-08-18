@@ -12664,7 +12664,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) -> UUID {
-        cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
+        // A replacement consumer can inherit an active replay barrier from
+        // the stream it is replacing. Keep that barrier's deadline alive; a
+        // registration must never cancel the only watchdog while retaining
+        // the token that blocks ordinary output.
+        if let barrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
+            armTerminalReplayBarrierWatchdog(
+                surfaceID: surfaceID,
+                token: barrierToken
+            )
+        } else {
+            cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
+        }
         let streamToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
