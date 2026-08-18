@@ -439,13 +439,14 @@ private struct AgentFeedQuestionControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let question {
-                AgentFeedWrappingHStack(spacing: 8) {
-                    ForEach(question.options, id: \.id) { option in
-                        optionChip(option)
-                    }
-                    otherChip
+            // Poll-style stacked options; a pending question whose prompt
+            // failed to parse still gets the free-text lane, so no
+            // respondable row is ever a dead end.
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(question?.options ?? [], id: \.id) { option in
+                    optionChip(option)
                 }
+                otherChip
             }
             if isMultiSelect, !selectedOptionIDs.isEmpty {
                 Button {
@@ -492,21 +493,29 @@ private struct AgentFeedQuestionControls: View {
                 actions.questionReply(item, [option.id])
             }
         } label: {
-            Text(option.label)
-                .font(.footnote.weight(.medium))
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule().fill(
-                        isSelected
-                            ? Color.accentColor.opacity(0.22)
-                            : Color.secondary.opacity(0.12)
-                    )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(option.label)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                if let description = option.description {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10).fill(
+                    isSelected
+                        ? Color.accentColor.opacity(0.22)
+                        : Color.secondary.opacity(0.12)
                 )
+            )
         }
         .buttonStyle(.plain)
-        .accessibilityHint(option.description ?? "")
     }
 
     private var otherChip: some View {
@@ -520,11 +529,15 @@ private struct AgentFeedQuestionControls: View {
                 defaultValue: "Other…",
                 bundle: .module
             ))
-            .font(.footnote.weight(.medium))
+            .font(.subheadline.weight(.medium))
             .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Capsule().strokeBorder(Color.secondary.opacity(0.35)))
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.secondary.opacity(0.35))
+            )
         }
         .buttonStyle(.plain)
     }
@@ -601,62 +614,4 @@ private struct AgentFeedSendableTextField: View {
     }
 }
 
-/// A minimal wrapping HStack for option chips (Layout-based, no GeometryReader).
-/// `Layout` is a nonisolated protocol driven off the main actor, so the
-/// witnesses opt out of the package's main-actor default.
-struct AgentFeedWrappingHStack: Layout {
-    var spacing: CGFloat = 8
-
-    nonisolated func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + spacing + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            let originX = x > 0 ? x + spacing : x
-            x = originX + size.width
-            rowHeight = max(rowHeight, size.height)
-            totalWidth = max(totalWidth, x)
-        }
-        return CGSize(width: totalWidth, height: y + rowHeight)
-    }
-
-    nonisolated func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        let maxWidth = bounds.width
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + spacing + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            let originX = x > 0 ? x + spacing : x
-            subview.place(
-                at: CGPoint(x: bounds.minX + originX, y: bounds.minY + y),
-                proposal: ProposedViewSize(size)
-            )
-            x = originX + size.width
-            rowHeight = max(rowHeight, size.height)
-        }
-    }
-}
 #endif

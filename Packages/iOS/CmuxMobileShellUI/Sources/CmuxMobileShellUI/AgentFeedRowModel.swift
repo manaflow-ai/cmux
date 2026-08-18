@@ -159,7 +159,9 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
         case .permissionRequest:
             return normalized(item.context?.assistantPreamble)
         case .exitPlan:
-            return normalized(item.plan) ?? normalized(item.planSummary)
+            // Newer Macs send parsed plan text; older ones send the agent's
+            // raw ExitPlanMode JSON envelope. Never render wire JSON.
+            return planText(from: item.plan) ?? normalized(item.planSummary)
         case .question:
             let question = item.questions.first
             let header = normalized(question?.header)
@@ -199,13 +201,86 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     private static func toolLine(for item: MobileAgentFeedItem) -> String? {
         switch item.kind {
         case .permissionRequest, .toolUse:
-            guard let input = compactedSingleLine(item.toolInput) else { return nil }
-            return input
+            return humanizedToolText(item.toolInput)
         case .toolResult:
-            return compactedSingleLine(item.toolResult)
+            return humanizedToolText(item.toolResult)
         case .exitPlan, .question, .stop, .userPrompt, .assistantMessage, .todos, .unsupported:
             return nil
         }
+    }
+
+    /// Renders a tool payload as human text, never as wire JSON: the well-known
+    /// single fields (`command`, `file_path`, prompt-ish keys) come through
+    /// verbatim, other objects flatten to `key: value` pairs, and anything
+    /// that would still read as JSON is dropped instead of shown raw.
+    private static func humanizedToolText(_ raw: String?) -> String? {
+        guard let normalized = normalized(raw) else { return nil }
+        var value: Any = normalized
+        // Tolerate one level of double-encoding ("\"{\\\"k\\\":1}\"").
+        for _ in 0..<2 {
+            guard let string = value as? String,
+                  let data = string.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(
+                      with: data,
+                      options: [.fragmentsAllowed]
+                  ) else { break }
+            value = parsed
+        }
+
+        if let string = value as? String {
+            return looksLikeJSON(string) ? nil : compactedSingleLine(string)
+        }
+        if let dict = value as? [String: Any] {
+            for key in ["command", "file_path", "path", "prompt", "text", "message", "url", "pattern"] {
+                if let field = dict[key] as? String, let line = compactedSingleLine(field) {
+                    return line
+                }
+            }
+            let pairs = dict
+                .compactMap { key, value -> (String, String)? in
+                    switch value {
+                    case let string as String:
+                        return normalized(string).map { (key, $0) }
+                    case let number as NSNumber:
+                        return (key, number.stringValue)
+                    default:
+                        return nil
+                    }
+                }
+                .sorted { $0.0 < $1.0 }
+                .prefix(3)
+                .map { "\($0.0): \($0.1)" }
+            guard !pairs.isEmpty else { return nil }
+            return compactedSingleLine(pairs.joined(separator: " · "))
+        }
+        return nil
+    }
+
+    /// Parses a plan payload: parsed plan text passes through; an ExitPlanMode
+    /// JSON envelope from an older Mac yields its `plan` field.
+    private static func planText(from raw: String?) -> String? {
+        guard let normalized = normalized(raw) else { return nil }
+        guard looksLikeJSON(normalized) else { return normalized }
+        guard let data = normalized.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        else { return nil }
+        if let dict = parsed as? [String: Any] {
+            for key in ["plan", "planText", "text"] {
+                if let plan = dict[key] as? String {
+                    return Self.normalized(plan)
+                }
+            }
+            return nil
+        }
+        if let string = parsed as? String {
+            return Self.normalized(string)
+        }
+        return nil
+    }
+
+    private static func looksLikeJSON(_ value: String) -> Bool {
+        guard let first = value.first else { return false }
+        return first == "{" || first == "[" || value.hasPrefix("\"{") || value.hasPrefix("\"[")
     }
 
     private static func provenance(for item: MobileAgentFeedItem) -> String? {

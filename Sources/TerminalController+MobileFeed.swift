@@ -26,10 +26,24 @@ extension TerminalController {
         let revision = FeedCoordinator.shared.store?.revision ?? 0
         let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
 
-        // Session lifecycle rows carry no phone-renderable content; dropping
-        // them Mac-side keeps the row cap for rows the Feed tab can show.
+        // The phone Feed is a decision surface, not a raw event log: session
+        // lifecycle rows carry no renderable content, and routine tool churn
+        // (every PreToolUse/PostToolUse) would crowd the row cap out of the
+        // rows a user can act on. Failed tool results stay — they are the
+        // notable exceptions worth surfacing.
         let visibleItems = items.filter { item in
-            item.kind != .sessionStart && item.kind != .sessionEnd
+            switch item.kind {
+            case .sessionStart, .sessionEnd, .toolUse:
+                return false
+            case .toolResult:
+                if case .toolResult(_, _, let isError) = item.payload {
+                    return isError
+                }
+                return false
+            case .permissionRequest, .exitPlan, .question, .userPrompt,
+                 .assistantMessage, .stop, .todos:
+                return true
+            }
         }
 
         // The store appends chronologically; encode the newest rows first so
@@ -59,6 +73,17 @@ extension TerminalController {
         resolvedTargets: inout [String: FeedJumpResolver.Target?]
     ) -> [String: Any] {
         var dict = FeedSocketEncoding.itemDict(item)
+
+        // The control-socket encoding ships the agent's raw ExitPlanMode tool
+        // input (a JSON envelope). The phone renders plan text, never wire
+        // JSON, so send the same parsed plan body the Mac Feed panel shows.
+        if case .exitPlan(_, let plan, _) = item.payload {
+            dict["plan"] = Self.mobileFeedString(
+                WorkstreamExitPlanPreview(rawPlan: plan).planText,
+                limitedToUTF8Bytes: 8_000
+            )
+            dict.removeValue(forKey: "plan_truncated")
+        }
 
         let target: FeedJumpResolver.Target?
         if let cached = resolvedTargets[item.workstreamId] {
