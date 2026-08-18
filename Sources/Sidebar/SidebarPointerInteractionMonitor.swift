@@ -211,7 +211,8 @@ final class SidebarPointerInteractionMonitor {
         reconcileHoveredRow()
         guard modifiers.contains(.option), hoveredRowId != previousRowId,
               let hoveredRowId,
-              let workspaceId = workspaceIdsByRowId[hoveredRowId] else { return }
+              let workspaceId = workspaceIdsByRowId[hoveredRowId],
+              hoveredRowId == .workspace(workspaceId) else { return }
         onOptionHoverWorkspace?(workspaceId)
     }
 

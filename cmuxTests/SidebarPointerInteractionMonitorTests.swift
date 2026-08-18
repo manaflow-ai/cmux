@@ -207,6 +207,28 @@ import Testing
         #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 54)) == nil)
     }
 
+    @Test func optionHoverDoesNotResolveGroupHeaderAnchorWorkspace() {
+        let monitor = SidebarPointerInteractionMonitor()
+        let groupId = UUID()
+        let anchorWorkspaceId = UUID()
+        var focusedWorkspaceIds: [UUID] = []
+        monitor.updateFrame(
+            CGRect(x: 20, y: 40, width: 180, height: 28),
+            for: .group(groupId),
+            workspaceId: anchorWorkspaceId
+        )
+        monitor.start(
+            onMiddleClickWorkspace: { _ in },
+            onOptionHoverWorkspace: { focusedWorkspaceIds.append($0) }
+        )
+        defer { monitor.stop() }
+
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 54), modifiers: [.option])
+
+        #expect(monitor.hoveredRowId == .group(groupId))
+        #expect(focusedWorkspaceIds.isEmpty)
+    }
+
     @Test func optionHoverFocusesEachNewWorkspaceRowWithoutTreatingHoverAsAClick() {
         let monitor = SidebarPointerInteractionMonitor()
         let firstWorkspaceId = UUID()
