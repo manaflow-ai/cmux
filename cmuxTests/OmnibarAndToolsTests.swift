@@ -1016,6 +1016,7 @@ private final class OmnibarInlineDeletionHarness {
                 onMoveSelection: { _ in },
                 onDeleteSelectedSuggestion: {},
                 onAcceptInlineCompletion: {},
+                onAttemptSiteSearchActivation: { _ in false },
                 onDeleteBackwardWithInlineSelection: { self.deleteSingleCharacterBeforeInlineCompletion() },
                 onClearTypedPrefixWithInlineSelection: { self.clearTypedPrefix() },
                 onDeleteWordBackwardWithInlineSelection: { self.deleteWordBeforeInlineCompletion() },

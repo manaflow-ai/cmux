@@ -204,6 +204,8 @@ import Testing
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
             metadataBlocks: [],
+            ghprBadges: [],
+            ghprJiraEntry: nil,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: activeCodingAgentCount,

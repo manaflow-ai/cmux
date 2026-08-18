@@ -30,6 +30,8 @@ struct SidebarWorkspaceRowSuspensionTests {
             latestConversationMessage: nil,
             metadataEntries: [],
             metadataBlocks: [],
+            ghprBadges: [],
+            ghprJiraEntry: nil,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,

@@ -4340,6 +4340,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
                 onMoveSelection: { _ in },
                 onDeleteSelectedSuggestion: {},
                 onAcceptInlineCompletion: {},
+                onAttemptSiteSearchActivation: { _ in false },
                 onDeleteBackwardWithInlineSelection: {},
                 onClearTypedPrefixWithInlineSelection: {},
                 onDeleteWordBackwardWithInlineSelection: {},

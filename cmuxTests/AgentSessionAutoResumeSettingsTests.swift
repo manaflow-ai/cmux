@@ -611,6 +611,67 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveShellResumeBindingSuppressesOmpAgentAutoResume() throws {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.set(true, forKey: key)
+
+        let source = Workspace()
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(snapshot.panels.indices.first)
+        snapshot.panels[panelIndex].terminal?.agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "1bbbcfd1-f0c9-4351-ab19-c860a1f1bb62",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "/usr/local/bin/omp",
+                arguments: ["/usr/local/bin/omp", "--resume", "stale-omp-session"],
+                workingDirectory: "/tmp/repo",
+                environment: nil,
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
+        snapshot.panels[panelIndex].terminal?.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal?.resumeBinding = SurfaceResumeBindingSnapshot(
+            name: "livesh live-session",
+            kind: "livesh",
+            command: "/Users/example/.local/bin/livesh --open live-session",
+            cwd: "/tmp/repo",
+            checkpointId: "live-session",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        try assertAgentAutoResumeUsesRestoreVerb(
+            restoredPanel,
+            kind: "livesh",
+            sessionID: "live-session"
+        )
+        XCTAssertNil(restored.restoredAgentResumeStatesByPanelId[restoredPanelId])
+        XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.kind,
+            "livesh"
+        )
+    }
+
+    @MainActor
     func testNonAgentResumeBindingDoesNotMarkRestoredAgentAwaitingAutoResume() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey

@@ -33,6 +33,8 @@ struct SidebarAppKitRowCellTests {
             latestConversationMessage: nil,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
+            ghprBadges: [],
+            ghprJiraEntry: nil,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,

@@ -333,6 +333,7 @@ import Testing
             onMoveSelection: { _ in recorder.moveSelectionCount += 1 },
             onDeleteSelectedSuggestion: {},
             onAcceptInlineCompletion: {},
+            onAttemptSiteSearchActivation: { _ in false },
             onDeleteBackwardWithInlineSelection: {},
             onClearTypedPrefixWithInlineSelection: {},
             onDeleteWordBackwardWithInlineSelection: {},
