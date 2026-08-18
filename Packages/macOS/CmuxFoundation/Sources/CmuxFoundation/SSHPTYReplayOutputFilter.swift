@@ -137,6 +137,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         var sawParameter = false
 
         while cursor < bytes.count {
+            guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
             let byte = bytes[cursor]
             if byte >= 0x40, byte <= 0x7E {
                 return isCSIQuery(
@@ -181,9 +182,12 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         case 0x71: // XTVERSION (CSI > q)
             return intermediates == [0x3E] && !sawParameter
         case 0x74: // XTWINOPS size queries
-            return intermediates.isEmpty && [
-                Array("14".utf8), Array("16".utf8), Array("18".utf8), Array("21".utf8),
-            ].contains(parameters)
+            return intermediates.isEmpty && (
+                parameters == [0x31, 0x34] ||
+                parameters == [0x31, 0x36] ||
+                parameters == [0x31, 0x38] ||
+                parameters == [0x32, 0x31]
+            )
         case 0x75: // Kitty keyboard query (CSI ? u)
             return intermediates == [0x3F] && !sawParameter
         default:
@@ -201,6 +205,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         var cursor = start + 2
         var command = [UInt8]()
         while cursor < bytes.count, bytes[cursor] >= 0x30, bytes[cursor] <= 0x39 {
+            guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
             command.append(bytes[cursor])
             cursor += 1
         }
@@ -210,6 +215,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         cursor += 1
         let payloadStart = cursor
         while cursor < bytes.count {
+            guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
             if bytes[cursor] == Self.bell {
                 return isColorQuery(command: command, payload: Array(bytes[payloadStart..<cursor]))
                     ? .strip(length: cursor - start + 1)
@@ -239,6 +245,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         guard payloadStart < bytes.count else { return .incomplete }
         var cursor = payloadStart
         while cursor < bytes.count {
+            guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
             if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
                bytes[cursor + 1] == Self.backslash {
                 let payload = bytes[payloadStart..<cursor]
@@ -256,6 +263,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         guard payloadStart < bytes.count else { return .incomplete }
         var cursor = payloadStart
         while cursor < bytes.count {
+            guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
             if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
                bytes[cursor + 1] == Self.backslash {
                 let payload = bytes[payloadStart..<cursor]
@@ -280,7 +288,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
                   end <= value.endIndex else {
                 return false
             }
-            if Array(value[index..<end]) == needle { return true }
+            if value[index..<end].elementsEqual(needle) { return true }
             index = value.index(after: index)
         }
         return false

@@ -13492,7 +13492,10 @@ struct CMUXCLI {
             if count > 0 {
                 outputProgress.recordOutput(byteCount: count)
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
-                cliWriteStdout(replayOutputFilter.filter(Data(outputBuffer.prefix(count))))
+                let output = replayOutputFilter.filter(Data(outputBuffer.prefix(count)))
+                if !output.isEmpty {
+                    cliWriteStdout(output)
+                }
             } else if count == 0 {
                 let trailingReplay = replayOutputFilter.finish()
                 if !trailingReplay.isEmpty {
