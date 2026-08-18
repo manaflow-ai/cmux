@@ -364,6 +364,28 @@ final class FinderFileDropRegressionTests: XCTestCase {
             PasteboardFileURLReader.fileURLs(from: pasteboard),
             [firstURL.standardizedFileURL, secondURL.standardizedFileURL]
         )
+
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-multiple-promised-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+        let service = TerminalPasteboardService(temporaryDirectory: ownedDirectory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .drop,
+            pasteboardService: service
+        )
+        guard case .fileURLs(let durableURLs) = prepared else {
+            return XCTFail("expected both promised image items to be materialized")
+        }
+        XCTAssertEqual(durableURLs.count, 2)
+        XCTAssertTrue(
+            durableURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        )
+        service.cleanupTransferredTemporaryImageFiles(durableURLs)
     }
 
     func testTransientImageURLsUnderTmpAliasesGetOwnedCopies() throws {
