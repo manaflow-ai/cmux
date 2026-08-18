@@ -5,11 +5,12 @@ import Testing
 
 @Test @MainActor
 func privatePathMacLabelsExposeSiblingBuilds() {
-    #expect(macAppInstanceDisplayName(
+    let formatter = MacAppInstanceDisplayFormatter()
+    #expect(formatter.displayName(
         "MacBook Pro",
         instanceTag: "stable"
     ) == "MacBook Pro · Stable")
-    #expect(macAppInstanceDisplayName(
+    #expect(formatter.displayName(
         "MacBook Pro",
         instanceTag: "nightly"
     ) == "MacBook Pro · Nightly")

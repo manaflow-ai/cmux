@@ -50,7 +50,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
                                 "mobile.iroh.private.custom.mac",
                                 defaultValue: "Mac"
                             ),
-                            value: macAppInstanceDisplayName(
+                            value: MacAppInstanceDisplayFormatter().displayName(
                                 existing.macDisplayName,
                                 instanceTag: existing.instanceTag
                             )
@@ -161,7 +161,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
     private func pickerLabel(
         _ mac: CmxIrohSettingsSnapshot.PrivateNetworkMac
     ) -> String {
-        let name = macAppInstanceDisplayName(
+        let name = MacAppInstanceDisplayFormatter().displayName(
             mac.displayName,
             instanceTag: mac.instanceTag
         )

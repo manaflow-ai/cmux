@@ -53,7 +53,7 @@ struct MobileIrohPrivateNetworksSection: View {
                             set: { setEnabled(configuration, $0) }
                         )) {
                             VStack(alignment: .leading) {
-                                Text(macAppInstanceDisplayName(
+                                Text(MacAppInstanceDisplayFormatter().displayName(
                                     configuration.macDisplayName,
                                     instanceTag: configuration.instanceTag
                                 ))

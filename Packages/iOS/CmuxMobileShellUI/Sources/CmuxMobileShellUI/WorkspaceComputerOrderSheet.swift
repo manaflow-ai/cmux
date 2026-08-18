@@ -33,7 +33,7 @@ struct WorkspaceComputerOrderSheet: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(machine.name)
                             if let buildLabel = machine.buildLabel {
-                                Text(localizedMacBuildLabel(buildLabel))
+                                Text(MacAppInstanceDisplayFormatter().localizedBuildLabel(buildLabel))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
