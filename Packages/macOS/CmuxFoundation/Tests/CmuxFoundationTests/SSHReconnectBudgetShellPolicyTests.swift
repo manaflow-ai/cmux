@@ -6,6 +6,8 @@ import Testing
 struct SSHReconnectBudgetShellPolicyTests {
     private static let oversizedValue = "99999999999999999999"
 
+    private let policy = SSHReconnectBudgetShellPolicy()
+
     @Test func retryLimitEndsTheLoopWhenTheBudgetIsSpent() throws {
         let result = try runBudgetCheck(retriesTaken: 5, limit: "5")
 
@@ -54,11 +56,11 @@ struct SSHReconnectBudgetShellPolicyTests {
 
     @Test func nonNumericRetryLimitFallsBackToTheDefaultBudget() throws {
         let spent = try runBudgetCheck(
-            retriesTaken: SSHReconnectBudgetShellPolicy.defaultRetryLimit,
+            retriesTaken: policy.defaultRetryLimit,
             limit: "not-a-number"
         )
         let remaining = try runBudgetCheck(
-            retriesTaken: SSHReconnectBudgetShellPolicy.defaultRetryLimit - 1,
+            retriesTaken: policy.defaultRetryLimit - 1,
             limit: "not-a-number"
         )
 
@@ -77,11 +79,13 @@ struct SSHReconnectBudgetShellPolicyTests {
     @Test func nonNumericDelayFallsBackToTheDefaultInterval() throws {
         let waited = try runDelay(delaySeconds: "half a minute")
 
-        #expect(waited == "\(SSHReconnectBudgetShellPolicy.defaultDelaySeconds)")
+        #expect(waited == "\(policy.defaultDelaySeconds)")
     }
 
     @Test func configuredDelayIsWaitedAsWritten() throws {
         #expect(try runDelay(delaySeconds: "7") == "7")
+        // Padding is dropped rather than counted toward the ceiling.
+        #expect(try runDelay(delaySeconds: "0000007") == "7")
         // An explicit zero asks for no wait at all, which the loop honors.
         #expect(try runDelay(delaySeconds: "0") == "0")
     }
@@ -94,10 +98,10 @@ struct SSHReconnectBudgetShellPolicyTests {
         retriesTaken: Int,
         limit: String
     ) throws -> (status: Int32, stderr: String) {
-        let script = (SSHReconnectBudgetShellPolicy.configurationLines + [
+        let script = (policy.configurationLines + [
             "cmux_test_retry=\(retriesTaken)",
             "cmux_test_status=255",
-            SSHReconnectBudgetShellPolicy.limitReachedCommand(
+            policy.limitReachedCommand(
                 retryCountVariable: "cmux_test_retry",
                 statusVariable: "cmux_test_status"
             ),
@@ -118,8 +122,8 @@ struct SSHReconnectBudgetShellPolicyTests {
 
         let script = ([
             "sleep() { printf '%s' \"$1\" > \"$CMUX_TEST_LOG\"; }",
-        ] + SSHReconnectBudgetShellPolicy.configurationLines + [
-            SSHReconnectBudgetShellPolicy.delayCommand,
+        ] + policy.configurationLines + [
+            policy.delayCommand,
         ]).joined(separator: "\n")
 
         let result = try run(
