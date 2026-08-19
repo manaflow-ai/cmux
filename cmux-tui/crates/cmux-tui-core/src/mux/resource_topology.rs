@@ -2205,7 +2205,11 @@ impl Mux {
             fingerprint,
             move |state| {
                 anyhow::ensure!(
-                    state.terminal_runtime_by_id(surface).is_some(),
+                    state.terminal_runtime_by_id(surface).is_some()
+                        || matches!(
+                            state.resource_indexes.content_ids.get(&surface),
+                            Some(ContentPublicId::Terminal(_))
+                        ),
                     "terminal disappeared"
                 );
                 Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
@@ -2279,12 +2283,34 @@ impl Mux {
                 &notifications,
             )?;
             (target, plan)
-        } else {
-            if !state.placements_of_content(&content_id).is_empty() {
-                return Err(terminal_close_state_error(format!(
+        } else if let Some(&slot) = state.placements_of_content(&content_id).first() {
+            // A restored exited terminal keeps its journaled views without a
+            // runtime owner. Explicit close is the mutation that removes them.
+            let durable = registry.terminal_record(terminal_id)?.ok_or_else(|| {
+                terminal_close_state_error(format!(
+                    "terminal close target omitted host {terminal_id}"
+                ))
+            })?;
+            anyhow::ensure!(
+                durable.lifecycle == TerminalLifecycle::Exited,
+                terminal_close_state_error(format!(
                     "live terminal resource {public_id} has views but no runtime owner"
-                )));
+                ))
+            );
+            if let (Some(expected), Some(stored)) =
+                (expected_incarnation, durable.incarnation.as_deref())
+            {
+                anyhow::ensure!(expected == stored, "terminal_incarnation_mismatch");
             }
+            let plan = self.resource_close_plan_locked(
+                ResourceOperation::TerminalClose,
+                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(slot) },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            (Some(slot), plan)
+        } else {
             (
                 None,
                 ResourceClosePlan {
@@ -2538,9 +2564,13 @@ impl Mux {
         self.emit_empty_if_current(effects.empty_revision);
     }
 
-    /// Reconcile a lifecycle row that was committed before topology detach was
-    /// introduced, or whose daemon stopped between those two older commits.
-    /// The durable terminal receipt remains queryable after every view leaves.
+    /// Detach the views of a terminal whose exit this daemon observed live
+    /// but whose lifecycle-and-detach commit did not land atomically (for
+    /// example a dead surface discovered after its host connection dropped).
+    /// Restart reconciliation deliberately never calls this: a restored
+    /// session keeps the journaled topology of terminals that died while the
+    /// daemon was down. The durable terminal receipt remains queryable after
+    /// every view leaves.
     pub(super) fn detach_exited_terminal_topology(
         &self,
         terminal_id: &str,
@@ -2705,7 +2735,7 @@ impl Mux {
         &self,
         operation: ResourceOperation,
         slots: EffectSlots,
-        _registry: &WorkspaceRegistry,
+        registry: &WorkspaceRegistry,
         state: &State,
         notifications: &HashMap<SurfaceId, SurfaceNotification>,
     ) -> anyhow::Result<ResourceClosePlan> {
@@ -2794,17 +2824,36 @@ impl Mux {
             }
             ResourceOperation::TerminalClose => {
                 let surface = slots.tab.context("terminal disappeared")?;
-                let runtime = state
-                    .terminal_runtime_by_id(surface)
-                    .cloned()
-                    .context("terminal disappeared")?;
-                let public_id = runtime
-                    .terminal_public_id()
-                    .cloned()
-                    .context("terminal catalog entry omitted its public identity")?;
-                let host = self
-                    .resource_terminal_host_identity(&runtime)
-                    .context("terminal omitted its durable host identity")?;
+                let runtime = state.terminal_runtime_by_id(surface).cloned();
+                let (public_id, terminal_batch) = match runtime.as_ref() {
+                    Some(runtime) => {
+                        let public_id = runtime
+                            .terminal_public_id()
+                            .cloned()
+                            .context("terminal catalog entry omitted its public identity")?;
+                        let host = self
+                            .resource_terminal_host_identity(runtime)
+                            .context("terminal omitted its durable host identity")?;
+                        (public_id, vec![(host.terminal_id, Some(host.incarnation))])
+                    }
+                    None => {
+                        // A restored exited terminal keeps views without a
+                        // runtime. Its durable identity comes from the
+                        // registry, and the close still tombstones the host.
+                        let public_id = match state.resource_indexes.content_ids.get(&surface) {
+                            Some(ContentPublicId::Terminal(public_id)) => public_id.clone(),
+                            _ => anyhow::bail!("terminal disappeared"),
+                        };
+                        let host_id = registry
+                            .terminal_host_id(&public_id)?
+                            .context("terminal omitted its durable host identity")?;
+                        let incarnation = registry
+                            .terminal_record(&host_id)?
+                            .context("terminal close target omitted its durable row")?
+                            .incarnation;
+                        (public_id, vec![(host_id, incarnation)])
+                    }
+                };
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
@@ -2814,8 +2863,8 @@ impl Mux {
                 ResourceCloseInputs {
                     surface_ids: placements,
                     changed_screens: screens,
-                    terminal_runtime: Some(runtime),
-                    terminal_batch: vec![(host.terminal_id, Some(host.incarnation))],
+                    terminal_runtime: runtime,
+                    terminal_batch,
                     terminal_public_id: Some(public_id),
                     ..Default::default()
                 }
@@ -2829,10 +2878,13 @@ impl Mux {
             let (removed_runtime, terminal_views, changed) =
                 remove_terminal_content_from_state(self, &mut projected, public_id);
             anyhow::ensure!(
-                removed_runtime
-                    .as_ref()
-                    .zip(terminal_runtime.as_ref())
-                    .is_some_and(|(removed, planned)| removed.shares_terminal_runtime(planned)),
+                match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
+                    (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),
+                    // A restored exited terminal has journaled views but no
+                    // catalog runtime to remove.
+                    (None, None) => true,
+                    _ => false,
+                },
                 "terminal close lost its catalog runtime"
             );
             removed = terminal_views;

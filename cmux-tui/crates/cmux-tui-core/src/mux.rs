@@ -2035,6 +2035,18 @@ struct RestoredTerminalBinding {
     placements: Vec<(SurfaceId, TabResourceIdentity)>,
 }
 
+/// Topology policy for one durable exit commit. A live exit detaches its
+/// views in the same transaction. Restart reconciliation preserves the
+/// journaled tree: a process that died while the daemon was down is recorded
+/// as exited, never respawned, and never costs the session its layout.
+#[derive(Clone, Copy, PartialEq, Eq)]
+// Preserve is constructed only by the unix restart-reconciliation paths.
+#[cfg_attr(not(unix), allow(dead_code))]
+enum TerminalExitTopology {
+    Detach,
+    Preserve,
+}
+
 impl Mux {
     fn default_workspace_name(state: &State) -> String {
         state.workspaces.len().to_string()
@@ -2613,12 +2625,11 @@ impl Mux {
                 // never be allowed to terminate a replacement process.
                 continue;
             }
-            self.persist_terminal_exit(
+            self.persist_terminal_exit_preserving_topology(
                 &record.terminal_id,
                 Some(&record.incarnation),
                 &record.exit,
             )?;
-            self.detach_exited_terminal_topology(&record.terminal_id)?;
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
                 &exit_path, &record,
             )?;
@@ -2673,7 +2684,8 @@ impl Mux {
                 continue;
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
-                self.detach_exited_terminal_topology(&terminal.terminal_id)?;
+                // Restoration keeps the exited terminal's journaled views;
+                // only an explicit close mutates topology after restart.
                 handled_terminals.insert(terminal_id.clone());
                 if !cleanup_terminal_host_record(&record, &record_path) {
                     self.schedule_terminal_adoption(options.clone(), record, record_path);
@@ -2681,7 +2693,7 @@ impl Mux {
                 continue;
             }
             if terminal.incarnation.as_deref().is_some_and(|value| value != record.incarnation) {
-                self.mark_terminal_exited_and_detach(
+                self.mark_terminal_exited_preserving_topology(
                     &terminal_id,
                     "terminal-incarnation-mismatch",
                     "host-incarnation-mismatch",
@@ -2709,12 +2721,6 @@ impl Mux {
                         TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
                     )
                 }) {
-                    if current
-                        .as_ref()
-                        .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
-                    {
-                        self.detach_exited_terminal_topology(&terminal_id)?;
-                    }
                     handled_terminals.insert(terminal_id.clone());
                     if !cleanup_terminal_host_record(&record, &record_path) {
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
@@ -2728,7 +2734,7 @@ impl Mux {
                 // record is the only proof that this host ever existed, so a
                 // failed commit must leave the next startup able to retry
                 // instead of facing a lifecycle row with no evidence.
-                self.mark_terminal_exited_and_detach(
+                self.mark_terminal_exited_preserving_topology(
                     &terminal_id,
                     "terminal-host-proven-dead",
                     "host-process-ended-before-adoption",
@@ -2755,7 +2761,7 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        self.mark_terminal_exited_and_detach(
+                        self.mark_terminal_exited_preserving_topology(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
@@ -2786,7 +2792,7 @@ impl Mux {
                 surface.disconnect_for_daemon_shutdown();
                 handled_terminals.insert(terminal_id.clone());
                 if host_is_dead {
-                    self.mark_terminal_exited_and_detach(
+                    self.mark_terminal_exited_preserving_topology(
                         &terminal_id,
                         "terminal-adoption-failed",
                         "host-exited-during-adoption",
@@ -2816,10 +2822,9 @@ impl Mux {
                 continue;
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
-                self.detach_exited_terminal_topology(&terminal.terminal_id)?;
                 continue;
             }
-            self.mark_terminal_exited_and_detach(
+            self.mark_terminal_exited_preserving_topology(
                 &terminal.terminal_id,
                 "terminal-record-missing",
                 "missing-host-record",
@@ -2829,8 +2834,13 @@ impl Mux {
         Ok(())
     }
 
+    /// Latch a restart-window death as a durable exit while preserving the
+    /// terminal's journaled tab placements and split tree. The daemon never
+    /// respawns the process and never mutates topology on behalf of a process
+    /// it did not observe exiting; the restored view represents the terminal
+    /// honestly as not running until an explicit close or respawn action.
     #[cfg(unix)]
-    fn mark_terminal_exited_and_detach(
+    fn mark_terminal_exited_preserving_topology(
         self: &Arc<Self>,
         terminal_id: &str,
         _operation: &str,
@@ -2867,14 +2877,13 @@ impl Mux {
                 .as_ref()
                 .map(|(_, record)| record.incarnation.as_str())
                 .or(terminal.incarnation.as_deref());
-            self.persist_terminal_exit(terminal_id, incarnation, &observed)?;
+            self.persist_terminal_exit_preserving_topology(terminal_id, incarnation, &observed)?;
         }
         if let Some((path, record)) = sidecar {
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
                 &path, &record,
             )?;
         }
-        self.detach_exited_terminal_topology(terminal_id)?;
         Ok(())
     }
 
@@ -2887,7 +2896,10 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         if surface.is_dead() {
-            self.persist_terminal_exit(
+            // Adoption is restart reconciliation: the daemon never observed
+            // this process exit while owning it, so the restored topology
+            // stays and the terminal is recorded honestly as exited.
+            self.persist_terminal_exit_preserving_topology(
                 terminal_id,
                 Some(incarnation),
                 &TerminalExit::unknown("host-exited-during-adoption"),
@@ -3037,16 +3049,8 @@ impl Mux {
                         terminal.lifecycle,
                         TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
                     ) {
-                        if terminal.lifecycle == TerminalLifecycle::Exited
-                            && let Err(error) = mux.detach_exited_terminal_topology(&terminal_id)
-                        {
-                            eprintln!(
-                                "cmux-tui: could not detach exited terminal \
-                                 {terminal_id}: {error:#}"
-                            );
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                            continue;
-                        }
+                        // Restoration keeps the exited terminal's journaled
+                        // views; only an explicit close mutates topology.
                         if cleanup_terminal_host_record(&record, &record_path) {
                             break;
                         }
@@ -3058,7 +3062,7 @@ impl Mux {
                         .as_deref()
                         .is_some_and(|incarnation| incarnation != record.incarnation)
                     {
-                        if let Err(error) = mux.mark_terminal_exited_and_detach(
+                        if let Err(error) = mux.mark_terminal_exited_preserving_topology(
                             &terminal_id,
                             "terminal-incarnation-mismatch",
                             "host-incarnation-mismatch",
@@ -3103,7 +3107,7 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        if let Err(error) = mux.mark_terminal_exited_and_detach(
+                        if let Err(error) = mux.mark_terminal_exited_preserving_topology(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
@@ -3152,7 +3156,7 @@ impl Mux {
                                 == TerminalHostLiveness::Dead;
                         surface.disconnect_for_daemon_shutdown();
                         if host_is_dead {
-                            if let Err(error) = mux.mark_terminal_exited_and_detach(
+                            if let Err(error) = mux.mark_terminal_exited_preserving_topology(
                                 &terminal_id,
                                 "terminal-adoption-failed",
                                 "host-exited-during-adoption",
@@ -3177,7 +3181,7 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        if let Err(error) = mux.mark_terminal_exited_and_detach(
+                        if let Err(error) = mux.mark_terminal_exited_preserving_topology(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
@@ -4437,6 +4441,20 @@ impl Mux {
         terminal_id: &TerminalPublicId,
     ) -> Option<SurfaceId> {
         self.state.lock().unwrap().terminal_catalog.get(terminal_id).map(|surface| surface.id)
+    }
+
+    /// First tab placement of a terminal's content, present even when the
+    /// terminal has no runtime because it was restored as exited.
+    pub(crate) fn first_terminal_placement(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<SurfaceId> {
+        self.state
+            .lock()
+            .unwrap()
+            .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+            .first()
+            .copied()
     }
 
     pub(crate) fn resource_selectors_for_pane(
@@ -12818,6 +12836,41 @@ impl Mux {
         incarnation: Option<&str>,
         exit: &TerminalExit,
     ) -> anyhow::Result<bool> {
+        self.persist_terminal_exit_with_topology(
+            terminal_id,
+            incarnation,
+            exit,
+            TerminalExitTopology::Detach,
+        )
+    }
+
+    /// Commit a durable terminal exit without touching topology. Restart
+    /// reconciliation uses this so a restored session keeps its journaled
+    /// tab placements and split tree, representing the terminal honestly as
+    /// exited instead of silently discarding its layout. Live exits observed
+    /// while the daemon runs keep the atomic detach path.
+    #[cfg(unix)]
+    fn persist_terminal_exit_preserving_topology(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        exit: &TerminalExit,
+    ) -> anyhow::Result<bool> {
+        self.persist_terminal_exit_with_topology(
+            terminal_id,
+            incarnation,
+            exit,
+            TerminalExitTopology::Preserve,
+        )
+    }
+
+    fn persist_terminal_exit_with_topology(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        exit: &TerminalExit,
+        topology_policy: TerminalExitTopology,
+    ) -> anyhow::Result<bool> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -12858,7 +12911,8 @@ impl Mux {
         let detach_projection = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-        ) {
+        ) || topology_policy == TerminalExitTopology::Preserve
+        {
             None
         } else if let Some(public_terminal_id) = public_terminal_id.as_ref() {
             self.terminal_exit_detach_projection_locked(
@@ -14822,14 +14876,29 @@ fn terminal_exit_snapshot_in_state(
         .ok_or_else(|| anyhow::anyhow!("terminal {terminal_id} has no public resource id"))?;
     let content_id = ContentPublicId::Terminal(public_id.clone());
     let topology = registry.resource_topology_snapshot()?;
-    let tab_ids = topology
-        .tabs
-        .iter()
-        .filter(|tab| tab.content_id == content_id)
-        .map(|tab| tab.public_id.clone())
-        .collect::<Vec<_>>();
+    let tab_ids = crate::resource_api::terminal_tab_ids_in_canonical_order(
+        topology.tabs.iter().filter(|tab| tab.content_id == content_id).map(|tab| {
+            (public_id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())
+        }),
+    )
+    .remove(&public_id)
+    .unwrap_or_default();
     let surface = state.surface_by_content_public_id(&content_id);
-    let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
+    // Match the public projection's fallback exactly. A restart-window exit
+    // has no surface, and the preserved topology makes this snapshot the
+    // durable view later restarts and restore previews must agree on.
+    let durable = registry.terminal_record(terminal_id)?;
+    let durable_size = |field: &str, fallback: u16| {
+        durable
+            .as_ref()
+            .and_then(|terminal| terminal.launch_spec[field].as_u64())
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(fallback)
+    };
+    let (cols, rows) = surface
+        .map(|surface| surface.size())
+        .unwrap_or_else(|| (durable_size("cols", 80), durable_size("rows", 24)));
     let mut snapshot = serde_json::json!({
         "id": public_id,
         "tab_id": tab_ids.first(),
@@ -18506,10 +18575,13 @@ mod tests {
             assert_eq!(replay["result"]["replayed"], true, "{operation}");
         }
         assert_eq!(reopened.resource_notifications(256).len(), 1);
-        assert!(
-            reopened.list_agents(None, None).is_empty(),
-            "the legacy live-surface cache must not retain a detached terminal"
+        let restored_agents = reopened.list_agents(None, None);
+        assert_eq!(
+            restored_agents.len(),
+            1,
+            "a restored exited terminal keeps its placement, so its agent record stays listed"
         );
+        assert_eq!(restored_agents[0].terminal_id, terminal_public_id);
         assert_eq!(
             reopened
                 .workspace_registry
@@ -20791,9 +20863,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
-        assert!(
-            reopened.list_agents(None, None).is_empty(),
-            "the legacy live-surface cache must not retain a detached terminal"
+        let restored_agents = reopened.list_agents(None, None);
+        assert_eq!(
+            restored_agents.iter().map(|record| record.terminal_id.clone()).collect::<Vec<_>>(),
+            vec![terminal_id.clone()],
+            "a restored exited terminal keeps its placement, so its agent record stays listed"
         );
         assert_eq!(
             crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"],
@@ -24595,10 +24669,14 @@ mod tests {
                 && change["id"] == terminal_public_id.as_str()
                 && change["value"]["lifecycle"] == "exited"
         }));
+        assert!(
+            !changes.iter().any(|change| change["kind"] == "delete" && change["resource"] == "tab"),
+            "sidecar recovery must preserve the restored tab placement"
+        );
         assert!(changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "tab"
-                && change["id"] == tab.as_str()
+            change["kind"] == "upsert"
+                && change["resource"] == "terminal"
+                && change["value"]["tab_ids"][0] == tab.as_str()
         }));
         assert!(!changes.iter().any(|change| {
             change["kind"] == "delete"
