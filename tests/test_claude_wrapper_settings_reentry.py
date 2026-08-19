@@ -45,6 +45,17 @@ def read_hook_pin() -> str:
 CMUX_HOOK_PIN = f"{read_hook_pin()} "
 
 
+def read_state_tag() -> str:
+    """The tag cmux stamps its re-entry state files with, read from the wrapper."""
+    match = re.search(r"^cmux_claude_hook_state_tag='([^']+)'", SOURCE_WRAPPER.read_text(encoding="utf-8"), re.M)
+    if match is None:
+        raise AssertionError("cmux_claude_hook_state_tag is not defined in the wrapper")
+    return match.group(1)
+
+
+CMUX_STATE_TAG = read_state_tag()
+
+
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
@@ -248,11 +259,12 @@ exec {launcher_dir / "claude-launcher"} claude "$@"
             stale = time.time() - 2 * 24 * 3600
             for index in range(seed_state_dir):
                 entry = state_dir / str(900000 + index)
-                entry.write_text("1\n", encoding="utf-8")
+                entry.write_text(f"{CMUX_STATE_TAG} 1\n", encoding="utf-8")
                 os.utime(entry, (stale, stale))
-            decoy = state_dir / "not-a-pid.txt"
-            decoy.write_text("keep me", encoding="utf-8")
-            os.utime(decoy, (stale, stale))
+            for decoy_name, decoy_body in (("not-a-pid.txt", "keep me"), ("800001", "someone else's pid-shaped file")):
+                decoy = state_dir / decoy_name
+                decoy.write_text(decoy_body, encoding="utf-8")
+                os.utime(decoy, (stale, stale))
         if hostile_state_dir is not None:
             (wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}").symlink_to(hostile_state_dir)
 
@@ -576,9 +588,10 @@ def test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures: list[
 def test_state_directory_sweep_only_removes_its_own_entries(failures: list[str]) -> None:
     """The sweep clears cmux's own stale entries and nothing else.
 
-    Seeded past the sweep threshold with day-old pid-shaped entries plus one
-    day-old file that is not named after a pid, a launch has to collect its own
-    litter and leave the stranger's file exactly where it is.
+    Seeded past the sweep threshold with day-old tagged entries plus two day-old
+    files another process of the same user could have left there -- one of them
+    pid-shaped, so the name alone cannot tell them apart -- a launch has to
+    collect its own litter and leave both strangers exactly where they are.
     """
 
     run = run_reentry(argv=[], break_after=3, seed_state_dir=300, timeout=30.0)
@@ -586,8 +599,11 @@ def test_state_directory_sweep_only_removes_its_own_entries(failures: list[str])
     if not run.real_argv:
         failures.append(f"real claude never started with a seeded state directory: {run.stderr!r}")
     names = [name for name, _ in run.state_entries]
-    if "not-a-pid.txt" not in names:
-        failures.append(f"sweep removed a file cmux did not write: {names[:8]!r} ({len(names)} entries)")
+    for decoy_name in ("not-a-pid.txt", "800001"):
+        if decoy_name not in names:
+            failures.append(
+                f"sweep removed {decoy_name}, which cmux did not write: {names[:8]!r} ({len(names)} entries)"
+            )
     seeded_left = [name for name in names if name.isdigit() and name.startswith("9")]
     if seeded_left:
         failures.append(f"sweep left {len(seeded_left)} of its own day-old entries behind: {seeded_left[:8]!r}")

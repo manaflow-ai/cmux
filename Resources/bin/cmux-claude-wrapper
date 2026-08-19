@@ -68,6 +68,11 @@ EOF
 # https://github.com/manaflow-ai/cmux/issues/10230
 cmux_claude_wrapper_hook_reentry_limit=16
 
+# First word of every re-entry state file this wrapper writes. A same-user
+# process can create a pid-shaped name in the state directory too, so the tag,
+# not the name, is what makes a file cmux's to read or to sweep.
+cmux_claude_hook_state_tag='cmux-claude-hook-reentry-v1'
+
 # The pin cmux writes at the head of every hook command it injects: a `:` shell
 # no-op carrying a fixed token, the same shape HermesAgentHookCommandOwnership
 # uses to recognize cmux-owned Hermes hooks. Identity is this pin and nothing
@@ -180,8 +185,10 @@ cmux_claude_wrapper_read_hook_reentry_state() {
         rm -f "$file" 2>/dev/null
         return 1
     fi
-    local value
-    IFS= read -r value < "$file" 2>/dev/null || return 1
+    local line
+    IFS= read -r line < "$file" 2>/dev/null || return 1
+    [[ "$line" == "$cmux_claude_hook_state_tag "* ]] || return 1
+    local value="${line#"$cmux_claude_hook_state_tag "}"
     cmux_claude_wrapper_is_nonnegative_integer "$value" || return 1
     printf '%s' "$value"
 }
@@ -193,7 +200,7 @@ cmux_claude_wrapper_write_hook_reentry_state() {
     cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 0
     file="$dir/$$"
     cmux_claude_wrapper_hook_reentry_state_file_is_ours "$file" || return 0
-    printf '%s\n' "$1" > "$file" 2>/dev/null || true
+    printf '%s %s\n' "$cmux_claude_hook_state_tag" "$1" > "$file" 2>/dev/null || true
     cmux_claude_wrapper_prune_hook_reentry_state "$dir"
 }
 
@@ -209,10 +216,15 @@ cmux_claude_wrapper_prune_hook_reentry_state() {
     local -a entries=("$dir"/*)
     [[ -e "${entries[0]}" || -L "${entries[0]}" ]] || return 0
     (( ${#entries[@]} > cmux_claude_wrapper_hook_reentry_state_sweep_threshold )) || return 0
-    # Only all-digit names, which is what this wrapper writes ($$), and only
-    # yesterday's: those cannot belong to a live pid it cares about. Anything
-    # else in the directory was not written here and is left alone.
-    find "$dir" -maxdepth 1 -type f -name '[0-9]*' ! -name '*[!0-9]*' -mtime +1 -delete 2>/dev/null || true
+    # Candidates are yesterday's all-digit names -- what this wrapper writes
+    # ($$) -- and each one is removed only if it carries the state tag, so a file
+    # another process of this user left here is never swept.
+    local entry line
+    while IFS= read -r -d '' entry; do
+        IFS= read -r line < "$entry" 2>/dev/null || continue
+        [[ "$line" == "$cmux_claude_hook_state_tag "* ]] || continue
+        rm -f "$entry" 2>/dev/null || true
+    done < <(find "$dir" -maxdepth 1 -type f -name '[0-9]*' ! -name '*[!0-9]*' -mtime +1 -print0 2>/dev/null)
 }
 
 cmux_claude_wrapper_clear_hook_reentry_state() {
