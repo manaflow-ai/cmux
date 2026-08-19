@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxIrohTransport
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -1147,17 +1146,12 @@ actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
         blockedWaiter = nil
     }
 }
-struct ImmediateMobileHostIrohClock: CmxIrohRelayClock {
-    private let instant = Date(timeIntervalSince1970: 1_700_000_000)
-    func now() -> Date { instant }
-    func sleep(until _: Date) async throws {}
-}
-actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
+actor BlockingMobileHostPeerEventStream: MobileHostPeerEventStreamWriting {
     private var sendWaiter: CheckedContinuation<Void, any Error>?
     private var resetCodes: [UInt64] = []
     private var wasReset = false
 
-    func send(_: Data) async throws {
+    func write(_: Data) async throws {
         guard !wasReset else {
             throw TestMobileHostIndependentEventWriterError.failed
         }
@@ -1170,8 +1164,6 @@ actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
         }
     }
 
-    func finish() async throws {}
-
     func reset(errorCode: UInt64) async {
         wasReset = true
         resetCodes.append(errorCode)
@@ -1179,17 +1171,12 @@ actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
         sendWaiter = nil
     }
 
-    func setPriority(_: Int32) async throws {}
     func observedResetCodes() -> [UInt64] { resetCodes }
 
     private func cancelSend() {
         sendWaiter?.resume(throwing: CancellationError())
         sendWaiter = nil
     }
-}
-actor ImmediateMobileHostIrohReceiveStream: CmxIrohReceiveStream {
-    func receive(maximumByteCount _: Int) -> Data? { nil }
-    func stop(errorCode _: UInt64) {}
 }
 private enum AsyncTestSignalError: Error {
     case timedOut

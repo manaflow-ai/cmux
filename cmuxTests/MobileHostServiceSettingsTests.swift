@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxIrohTransport
+import CmuxPeerTransport
 import CmuxSettings
 import Foundation
 import Testing
@@ -226,7 +226,7 @@ struct MobileHostTransportRouteCompositionTests {
         defer { MobileHostPublicStatusCache.removeAll() }
         MobileHostPublicStatusCache.removeAll()
         let binding = try JSONDecoder().decode(
-            CmxIrohBrokerBinding.self,
+            PeerBrokerBinding.self,
             from: Data(
                 """
                 {
@@ -287,7 +287,7 @@ struct MobileHostTransportRouteCompositionTests {
         defer { MobileHostPublicStatusCache.removeAll() }
         MobileHostPublicStatusCache.removeAll()
         let binding = try JSONDecoder().decode(
-            CmxIrohBrokerBinding.self,
+            PeerBrokerBinding.self,
             from: Data(
                 """
                 {
@@ -321,7 +321,8 @@ struct MobileHostTransportRouteCompositionTests {
 
         MobileHostPublicStatusCache.update(routes: [tailscale])
         MobileHostPublicStatusCache.update(
-            irohBinding: CmxIrohBrokerBindingMetadata(binding: binding)
+            irohIdentity: binding.endpointID,
+            pathHints: binding.pathHints
         )
         let routes = MobileHostPublicStatusCache.snapshot()
         #expect(routes.map(\.kind) == [.iroh, .tailscale])

@@ -1,5 +1,4 @@
 import CmuxAuthRuntime
-import CmuxIrohTransport
 import Foundation
 import Observation
 
@@ -16,7 +15,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     private weak var auth: AuthCoordinator?
-    private var subscriber: CmxConnectivityInvalidationSubscriber?
+    private var subscriber: MobileHostConnectivityInvalidationSubscriber?
     private var reconfigureTask: Task<Void, Never>?
     private var authObservationTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
@@ -80,17 +79,17 @@ final class ConnectivityInvalidationSubscriberCoordinator {
         reconfigureTask = Task { @MainActor [weak self] in
             await previous?.stop()
             guard !Task.isCancelled, let self, let scope else { return }
-            let next = CmxConnectivityInvalidationSubscriber(
+            let next = MobileHostConnectivityInvalidationSubscriber(
                 serviceBaseURL: scope.baseURL,
                 accessToken: { [weak auth] in
                     try? await auth?.accessToken()
                 },
                 handler: { invalidation in
                     await MainActor.run {
-                        mobileHostIrohLog.info(
+                        mobileHostPeerLog.info(
                             "Connectivity revision invalidated; reconciling authoritative routes"
                         )
-                        MobileHostIrohRuntime.shared
+                        MobileHostPeerRuntime.shared
                             .reconcileConnectivityFromServerSignal(
                                 revision: invalidation.revision
                             )

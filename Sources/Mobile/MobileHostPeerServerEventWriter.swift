@@ -1,62 +1,70 @@
 import CMUXMobileCore
-import CmuxIrohTransport
+import CmuxPeerTransport
 import Foundation
 
-private enum MobileHostIrohServerEventWriterError: Error {
+private enum MobileHostPeerServerEventWriterError: Error {
     case closed
     case superseded
     case concurrentSend
     case sendTimedOut
 }
 
-/// Owns one reusable `serverEvents` send stream. The host connection supplies
-/// the bounded event queue; this writer rejects concurrent sends and bounds
-/// QUIC flow-control stalls so the caller can immediately fall back to control.
-actor MobileHostIrohServerEventWriter: MobileHostIndependentEventWriting {
-    typealias StreamOpener = @Sendable () async throws -> any CmxIrohSendStream
+/// The minimal send surface the event writer needs from a peer byte stream.
+/// Tests fake this; production uses `PeerByteStream` directly.
+protocol MobileHostPeerEventStreamWriting: Sendable {
+    func write(_ data: Data) async throws
+    func reset(errorCode: UInt64) async
+}
+
+extension PeerByteStream: MobileHostPeerEventStreamWriting {}
+
+/// Owns one reusable host→client server-event lane on a `PeerHostSession`.
+/// The host connection supplies the bounded event queue; this writer rejects
+/// concurrent sends and bounds QUIC flow-control stalls (3s deadline) so the
+/// caller can immediately fall back to control.
+actor MobileHostPeerServerEventWriter: MobileHostIndependentEventWriting {
+    typealias StreamOpener = @Sendable () async throws -> any MobileHostPeerEventStreamWriting
+    typealias TimeoutSleep = @Sendable (Duration) async throws -> Void
 
     private struct PendingOpen: Sendable {
         let id: UUID
-        let task: Task<any CmxIrohSendStream, any Error>
+        let task: Task<any MobileHostPeerEventStreamWriting, any Error>
     }
 
-    private static let priority: Int32 = 50
     private let openStream: StreamOpener
-    private let clock: any CmxIrohRelayClock
-    private let sendTimeout: TimeInterval
+    private let timeoutSleep: TimeoutSleep
+    private let sendTimeout: Duration
     private var pendingOpen: PendingOpen?
-    private var stream: (any CmxIrohSendStream)?
+    private var stream: (any MobileHostPeerEventStreamWriting)?
     private var streamID: UUID?
     private var sendInFlight = false
     private var closed = false
 
     init(
-        session: CmxIrohAdmittedServerSession,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
-        sendTimeout: TimeInterval = 3
+        session: PeerHostSession,
+        sendTimeout: Duration = .seconds(3)
     ) {
         openStream = {
-            try await session.openSendLane(
-                .serverEvents(cursor: nil),
-                priority: Self.priority
-            )
+            try await session.openServerEventLane(cursor: nil)
         }
-        self.clock = clock
+        timeoutSleep = { try await ContinuousClock().sleep(for: $0) }
         self.sendTimeout = sendTimeout
     }
 
     init(
         openStream: @escaping StreamOpener,
-        clock: any CmxIrohRelayClock,
-        sendTimeout: TimeInterval
+        timeoutSleep: @escaping TimeoutSleep = {
+            try await ContinuousClock().sleep(for: $0)
+        },
+        sendTimeout: Duration = .seconds(3)
     ) {
         self.openStream = openStream
-        self.clock = clock
+        self.timeoutSleep = timeoutSleep
         self.sendTimeout = sendTimeout
     }
 
     func prepare() async throws {
-        guard !closed else { throw MobileHostIrohServerEventWriterError.closed }
+        guard !closed else { throw MobileHostPeerServerEventWriterError.closed }
         if stream != nil { return }
 
         let pending: PendingOpen
@@ -76,7 +84,7 @@ actor MobileHostIrohServerEventWriter: MobileHostIndependentEventWriting {
             if stream != nil { return }
             guard pendingOpen?.id == pending.id, !closed else {
                 await opened.reset(errorCode: 1)
-                throw MobileHostIrohServerEventWriterError.superseded
+                throw MobileHostPeerServerEventWriterError.superseded
             }
             pendingOpen = nil
             stream = opened
@@ -105,7 +113,7 @@ actor MobileHostIrohServerEventWriter: MobileHostIndependentEventWriting {
     func send(_ framedData: Data) async throws {
         try await prepare()
         guard !sendInFlight else {
-            throw MobileHostIrohServerEventWriterError.concurrentSend
+            throw MobileHostPeerServerEventWriterError.concurrentSend
         }
         sendInFlight = true
         defer { sendInFlight = false }
@@ -114,7 +122,7 @@ actor MobileHostIrohServerEventWriter: MobileHostIndependentEventWriting {
 
     private func sendOnPreparedStream(_ framedData: Data) async throws {
         guard !closed, let activeStream = stream, let activeStreamID = streamID else {
-            throw MobileHostIrohServerEventWriterError.closed
+            throw MobileHostPeerServerEventWriterError.closed
         }
         do {
             try await sendWithDeadline(framedData, stream: activeStream)
@@ -150,22 +158,22 @@ actor MobileHostIrohServerEventWriter: MobileHostIndependentEventWriting {
 
     private func sendWithDeadline(
         _ data: Data,
-        stream: any CmxIrohSendStream
+        stream: any MobileHostPeerEventStreamWriting
     ) async throws {
-        let clock = clock
-        let deadline = clock.now().addingTimeInterval(sendTimeout)
+        let timeoutSleep = timeoutSleep
+        let sendTimeout = sendTimeout
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                try await stream.send(data)
+                try await stream.write(data)
             }
             group.addTask {
-                try await clock.sleep(until: deadline)
+                try await timeoutSleep(sendTimeout)
                 await stream.reset(errorCode: 1)
-                throw MobileHostIrohServerEventWriterError.sendTimedOut
+                throw MobileHostPeerServerEventWriterError.sendTimedOut
             }
             defer { group.cancelAll() }
             guard let result = try await group.next() else {
-                throw MobileHostIrohServerEventWriterError.superseded
+                throw MobileHostPeerServerEventWriterError.superseded
             }
             return result
         }

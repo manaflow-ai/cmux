@@ -266,7 +266,7 @@ extension TerminalController {
                 )
             }.value
             return mobilePanelArtifactResult(chunk)
-        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
+        } catch let error as MobileHostPeerArtifactTransferRegistry.Error {
             switch error.issueFailure {
             case .fileNotFound:
                 return mobilePanelArtifactFileError(

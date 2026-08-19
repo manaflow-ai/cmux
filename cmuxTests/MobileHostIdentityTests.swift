@@ -131,7 +131,7 @@ struct MobileHostIdentityTests {
         ]
 
         for (environment, bundleIdentifier) in cases {
-            #expect(MobileHostIrohRuntime.currentTag(
+            #expect(MobileHostPeerRuntime.currentTag(
                 environment: environment,
                 bundleIdentifier: bundleIdentifier
             ) == MobileHostIdentity.instanceTag(
