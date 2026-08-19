@@ -170,14 +170,19 @@ fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
         // then the provider's live progress message, then a status-aware
         // default ("waking" beats a generic "connecting" for a sleeping or
         // stopped machine that is being resumed).
-        let status_text = if view.phase == MachineConnectionPhase::Failed {
-            catalog().sidebar.unavailable.to_string()
-        } else if let Some(progress) = view.progress {
-            progress.to_string()
-        } else if matches!(
+        let asleep = matches!(
             view.status,
             crate::machine::MachineStatus::Sleeping | crate::machine::MachineStatus::Stopped
-        ) {
+        );
+        let status_text = if view.phase == MachineConnectionPhase::Failed {
+            catalog().sidebar.unavailable.to_string()
+        } else if view.phase == MachineConnectionPhase::Disconnected && asleep {
+            // Deliberately asleep, nothing in flight: the next keystroke or
+            // click wakes it.
+            catalog().sidebar.sleeping_wake_hint.to_string()
+        } else if let Some(progress) = view.progress {
+            progress.to_string()
+        } else if asleep {
             catalog().sidebar.waking.to_string()
         } else {
             catalog().sidebar.connecting.to_string()

@@ -550,6 +550,17 @@ impl Session {
         }
     }
 
+    /// Whether this session's transport can still serve requests. A remote
+    /// session whose reader hit EOF (VM paused, stream ended, network died)
+    /// flips its shutdown flag; a warm connection pool must not hand such a
+    /// corpse back to a switch.
+    pub fn is_alive(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => !remote.is_shut_down(),
+        }
+    }
+
     pub fn journal_frontend_event(
         &self,
         event: cmux_tui_core::FrontendJournalEvent,

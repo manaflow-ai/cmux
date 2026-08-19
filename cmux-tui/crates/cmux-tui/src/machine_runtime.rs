@@ -606,9 +606,21 @@ impl MachineConnectionHub {
             })?;
             match &slot.state {
                 MachineConnectionState::Ready(connection) => {
-                    let session = connection.session.clone();
-                    slot.last_used = self.next_use_stamp();
-                    return Ok((session, true));
+                    if connection.session.is_alive() {
+                        let session = connection.session.clone();
+                        slot.last_used = self.next_use_stamp();
+                        return Ok((session, true));
+                    }
+                    // The stream died while the connection sat warm (VM
+                    // paused, network drop). Drop the corpse so its lease
+                    // cleans up, and fall through to a fresh connect.
+                    let dead =
+                        std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected);
+                    drop(slots);
+                    if let MachineConnectionState::Ready(connection) = dead {
+                        connection.session.begin_shutdown();
+                    }
+                    self.inner.changed.notify_all();
                 }
                 MachineConnectionState::Connecting => {
                     drop(self.inner.changed.wait(slots).map_err(|_| {
@@ -677,7 +689,15 @@ impl MachineConnectionHub {
                 let phase = match &slot.state {
                     MachineConnectionState::Disconnected => MachineConnectionPhase::Disconnected,
                     MachineConnectionState::Connecting => MachineConnectionPhase::Connecting,
-                    MachineConnectionState::Ready(_) => MachineConnectionPhase::Ready,
+                    // A warm slot whose stream died is not usable as-is; report
+                    // it honestly so badges and the interstitial reflect it.
+                    MachineConnectionState::Ready(connection) => {
+                        if connection.session.is_alive() {
+                            MachineConnectionPhase::Ready
+                        } else {
+                            MachineConnectionPhase::Disconnected
+                        }
+                    }
                     MachineConnectionState::Failed(_) => MachineConnectionPhase::Failed,
                 };
                 (*key, phase)
@@ -687,7 +707,12 @@ impl MachineConnectionHub {
 
     pub(crate) fn is_ready(&self, key: MachineKey) -> bool {
         self.inner.slots.lock().ok().and_then(|slots| {
-            slots.get(&key).map(|slot| matches!(slot.state, MachineConnectionState::Ready(_)))
+            slots.get(&key).map(|slot| match &slot.state {
+                MachineConnectionState::Ready(connection) => connection.session.is_alive(),
+                MachineConnectionState::Disconnected
+                | MachineConnectionState::Connecting
+                | MachineConnectionState::Failed(_) => false,
+            })
         }) == Some(true)
     }
 
