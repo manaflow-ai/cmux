@@ -8,6 +8,7 @@ import SwiftUI
 struct WorkspaceBackButton: View {
     let unreadCount: Int
     var badgeContrast: WorkspaceBackButtonBadgeContrast = .lightBackground
+    var foregroundColor: Color = .primary
     let action: () -> Void
 
     var body: some View {
@@ -16,7 +17,7 @@ struct WorkspaceBackButton: View {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 17, weight: .semibold))
                     .imageScale(.medium)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(foregroundColor)
                     .frame(width: 17, height: 22)
                 if unreadCount > 0 {
                     Text(countText)

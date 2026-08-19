@@ -4,15 +4,20 @@ import SwiftUI
 struct WorkspaceToolbarTitleView: View {
     let title: String
     let subtitle: String?
+    let foregroundColor: Color
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Color.secondary)
+                .fill(foregroundColor)
                 .frame(width: 10, height: 10)
                 .accessibilityHidden(true)
 
-            MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
+            MobileCompactToolbarTitleStack(
+                title: title,
+                subtitle: subtitleLine,
+                foregroundColor: foregroundColor
+            )
         }
         .padding(.horizontal, MobileCompactToolbarTitleStack.horizontalContentPadding)
         .accessibilityElement(children: .combine)

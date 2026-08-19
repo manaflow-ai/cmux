@@ -2,6 +2,25 @@ import CMUXMobileCore
 import Foundation
 import SwiftUI
 
+/// One immutable color pair for terminal-owned chrome. The opaque backing and
+/// its readable foreground are resolved from the same terminal theme snapshot.
+@MainActor
+struct MobileTerminalChromeStyle {
+    let background: Color
+    let foreground: Color
+    let colorScheme: ColorScheme
+
+    init(theme: TerminalTheme) {
+        background = theme.terminalBackgroundColor
+        foreground = theme.terminalChromeForegroundColor
+        colorScheme = theme.terminalColorScheme
+    }
+
+    var workspaceBackButtonBadgeContrast: WorkspaceBackButtonBadgeContrast {
+        colorScheme == .light ? .lightBackground : .darkBackground
+    }
+}
+
 @MainActor
 extension TerminalTheme {
     var terminalBackgroundColor: Color { background.terminalColor }

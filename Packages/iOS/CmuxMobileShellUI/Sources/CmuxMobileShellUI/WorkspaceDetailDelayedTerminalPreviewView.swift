@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 
 #if os(iOS) && DEBUG
+/// DEBUG/UI-test-only workspace fixture. It is not linked into release builds.
 struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-delayed-terminal")
     private static let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-delayed")
@@ -26,6 +27,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var didStartFixture = false
     @State private var themeStage = "loading"
+    @State private var themeStageIndex = -1
+    @State private var themeAdvancePending = false
+    @State private var themeAdvanceTask: Task<Void, Never>?
 
     var body: some View {
         WorkspaceShellView(
@@ -36,12 +40,26 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         .environment(browserStore)
         .environment(browserStreamStore)
         .environment(simulatorStreamStore)
+        .preferredColorScheme(Self.themeParitySystemAppearance)
         .overlay(alignment: .topLeading) {
             if Self.showsThemeParitySequence {
                 Color.clear
                     .frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityIdentifier("TerminalThemeStage-\(themeStage)")
+            }
+        }
+        .overlay {
+            if Self.showsThemeParitySequence {
+                // XCUITest runs in a separate process and cannot use @testable
+                // injection, so accessibility provides the controlled entrypoint.
+                Button(action: advanceThemeParitySequence) {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("TerminalThemeAdvance")
             }
         }
         .task {
@@ -72,7 +90,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
             if Self.showsThemeParitySequence {
-                await runThemeParitySequence()
+                await applyThemeParityStage(at: 0)
             }
             if Self.showsChatToggle {
                 store.rememberChatSessions(
@@ -91,6 +109,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                 )
             }
         }
+        .onDisappear(perform: cancelThemeAdvance)
     }
 
     private static var usesLongTitle: Bool {
@@ -105,27 +124,61 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1"
     }
 
-    private func runThemeParitySequence() async {
-        let themes = [
-            (stage: "dark", background: "#101522", foreground: "#e6edf3"),
-            (stage: "light", background: "#f4f0df", foreground: "#17212b"),
-            (stage: "custom", background: "#063f46", foreground: "#fff2a8"),
-        ]
-        for (index, fixture) in themes.enumerated() {
-            guard !Task.isCancelled,
-                  let frame = try? themeParityFrame(
-                    background: fixture.background,
-                    foreground: fixture.foreground,
-                    revision: UInt64(index + 1)
-                  ) else { return }
-            while !store.deliverThemeParityPreviewFrame(frame) {
-                guard !Task.isCancelled else { return }
-                await Task.yield()
+    private static let themeParityFixtures = [
+        (stage: "dark", background: "#101522", foreground: "#e6edf3"),
+        (stage: "light", background: "#f4f0df", foreground: "#17212b"),
+        (stage: "custom", background: "#063f46", foreground: "#fff2a8"),
+    ]
+
+    private func advanceThemeParitySequence() {
+        let nextIndex = themeStageIndex + 1
+        guard !themeAdvancePending, Self.themeParityFixtures.indices.contains(nextIndex) else { return }
+        themeAdvancePending = true
+        themeAdvanceTask = Task { @MainActor in
+            defer {
+                themeAdvancePending = false
+                themeAdvanceTask = nil
             }
-            themeStage = fixture.stage
-            if fixture.stage != themes.last?.stage {
-                try? await ContinuousClock().sleep(for: .seconds(5))
-            }
+            try? await ContinuousClock().sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await applyThemeParityStage(at: nextIndex)
+        }
+    }
+
+    private func cancelThemeAdvance() {
+        themeAdvanceTask?.cancel()
+        themeAdvanceTask = nil
+        themeAdvancePending = false
+    }
+
+    private func applyThemeParityStage(at index: Int) async {
+        guard Self.themeParityFixtures.indices.contains(index) else { return }
+        let fixture = Self.themeParityFixtures[index]
+        guard let frame = try? themeParityFrame(
+            background: fixture.background,
+            foreground: fixture.foreground,
+            revision: UInt64(index + 1)
+        ) else {
+            themeStage = "failed-\(fixture.stage)"
+            return
+        }
+        guard await store.waitForThemeParityPreviewOutputSink(surfaceID: Self.terminalID.rawValue),
+              !Task.isCancelled else {
+            return
+        }
+        guard store.deliverThemeParityPreviewFrame(frame) else {
+            themeStage = "failed-\(fixture.stage)"
+            return
+        }
+        themeStageIndex = index
+        themeStage = fixture.stage
+    }
+
+    private static var themeParitySystemAppearance: ColorScheme? {
+        switch ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_SYSTEM_APPEARANCE"] {
+        case "light": .light
+        case "dark": .dark
+        default: nil
         }
     }
 

@@ -1007,11 +1007,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     /// Build (or rebuild) a button's configuration for `item` and its current
-    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
-    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
-    /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
-    /// follow `isMacRemote`; custom actions render their saved title/icon and
-    /// never arm.
+    /// armed/sticky state. Every OS uses a direct, terminal-owned background so
+    /// the backing and foreground repaint together when the terminal theme
+    /// changes. Built-in modifier titles follow `isMacRemote`; custom actions
+    /// render their saved title/icon and never arm.
     private func applyAccessoryButtonStyle(
         _ button: UIButton,
         item: ResolvedToolbarItem,
@@ -1062,33 +1061,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        if let actionButton = button as? AccessoryActionButton {
-            actionButton.stickyLockBorderColor = UIColor.systemBlue.terminalReadableForeground
-            // On iOS 26 the armed and sticky states share the same prominent-glass blue fill, so the double-tap *lock* is
-            // distinguished by a white capsule border drawn over the glass (see
-            // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
-            // flat style already renders the locked white stroke through the
-            // background configuration, so the layer border stays off to avoid
-            // a doubled stroke.
-            if #available(iOS 26.0, *) {
-                actionButton.isStickyLocked = sticky
-            } else {
-                actionButton.isStickyLocked = false
-            }
-        }
     }
 
     private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
         let activeBackground = UIColor.systemBlue
         let activeForeground = activeBackground.terminalReadableForeground
-        if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
-            config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
-            if armed || sticky {
-                config.baseBackgroundColor = activeBackground
-            }
-            return config
-        }
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {

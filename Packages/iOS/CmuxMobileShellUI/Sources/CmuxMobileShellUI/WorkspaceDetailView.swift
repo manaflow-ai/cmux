@@ -268,38 +268,49 @@ struct WorkspaceDetailView: View {
         if backButtonConfiguration != nil {
             ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
                 workspaceBackToolbarButton
+                    .mobileTerminalChromeControl(theme: store.activeTerminalTheme)
             }
+            .mobileTerminalSharedBackgroundHidden()
             if #available(iOS 26.0, *) {
                 ToolbarSpacer(.fixed, placement: .topBarLeading)
             }
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
+                .mobileTerminalChromeControl(theme: store.activeTerminalTheme)
         }
+        .mobileTerminalSharedBackgroundHidden()
         if let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
            displaySettings.showAltScreenNotice {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
-                AltScreenNoticeButton {
+                AltScreenNoticeButton(controlForegroundColor: terminalChromeStyle.foreground) {
                     displaySettings.showAltScreenNotice = false
                 }
+                .mobileTerminalChromeControl(theme: store.activeTerminalTheme)
             }
+            .mobileTerminalSharedBackgroundHidden()
         }
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
                 WorkspaceChangesToolbarButton(
                     chip: workspaceChangesChip,
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    foregroundColor: terminalChromeStyle.foreground,
                     action: openWorkspaceChanges
                 )
                 // The chrome sits on the terminal theme's background, not the
                 // system scheme; resolve the counts' green/red for that.
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                .mobileTerminalChromeControl(theme: store.activeTerminalTheme)
             }
+            .mobileTerminalSharedBackgroundHidden()
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
+                .mobileTerminalChromeControl(theme: store.activeTerminalTheme)
         }
+        .mobileTerminalSharedBackgroundHidden()
     }
 
     private var workspaceTitleToolbarMenu: some View {
@@ -349,7 +360,8 @@ struct WorkspaceDetailView: View {
                         isConnected: isConnected,
                         titleOverride: titleOverride,
                         subtitle: subtitle,
-                        style: .toolbarCompact
+                        style: .toolbarCompact,
+                        toolbarForegroundColor: terminalChromeStyle.foreground
                     )
                 case .browser(let title):
                     Text(title)
@@ -358,7 +370,11 @@ struct WorkspaceDetailView: View {
                         .truncationMode(.tail)
                         .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
                 case .standard(let title, let subtitle):
-                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
+                    WorkspaceToolbarTitleView(
+                        title: title,
+                        subtitle: subtitle,
+                        foregroundColor: terminalChromeStyle.foreground
+                    )
                 }
             }
         )
@@ -551,6 +567,10 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var terminalChromeStyle: MobileTerminalChromeStyle {
+        MobileTerminalChromeStyle(theme: store.activeTerminalTheme)
+    }
+
     private func resignTerminalInputIfBlocked(_ isBlocked: Bool) {
         // resignActiveInput() acts on the process-wide active surface, and
         // hidden details retained by other tab stacks observe their own
@@ -658,13 +678,15 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Leading back-button island; iOS 26 supplies toolbar glass.
+    /// Leading back-button control hosted by the native toolbar.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
+            let chromeStyle = terminalChromeStyle
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
-                badgeContrast: backButtonConfiguration.badgeContrast,
+                badgeContrast: chromeStyle.workspaceBackButtonBadgeContrast,
+                foregroundColor: chromeStyle.foreground,
                 action: backButtonConfiguration.action
             )
         }

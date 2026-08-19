@@ -1438,6 +1438,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
     private var isRawTerminalInputDrainLoopRunning: Bool
     #if DEBUG
+    @ObservationIgnored
+    var themeParityPreviewOutputSinkWaitersBySurfaceID: [
+        String: [UUID: CheckedContinuation<Bool, Never>]
+    ]
     var latencyProbeAutoNavigationTask: Task<Void, Never>?
     var latencyProbeTask: Task<Void, Never>?
     private var rawTerminalInputLatencyBatchNumber: UInt64
@@ -1777,6 +1781,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.rawTerminalInputDrainWaiters = []
         self.isRawTerminalInputDrainLoopRunning = false
         #if DEBUG
+        self.themeParityPreviewOutputSinkWaitersBySurfaceID = [:]
         self.latencyProbeAutoNavigationTask = nil
         self.latencyProbeTask = nil
         self.rawTerminalInputLatencyBatchNumber = 0
@@ -12677,6 +12682,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             correlationID: surfaceID
         )
         #if DEBUG
+        resolveThemeParityPreviewOutputSinkWaiters(surfaceID: surfaceID)
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         startLatencyProbeIfReady()
         #endif

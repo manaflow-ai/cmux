@@ -18,20 +18,37 @@ extension View {
     @ViewBuilder
     func mobileTerminalNavigationChrome(theme: TerminalTheme? = nil) -> some View {
         #if os(iOS)
-        let colorScheme = theme.map { $0.terminalColorScheme } ?? .dark
         if let theme {
+            let style = MobileTerminalChromeStyle(theme: theme)
             self
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(theme.terminalBackgroundColor, for: .navigationBar)
+                .toolbarBackground(style.background, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(colorScheme, for: .navigationBar)
+                .toolbarColorScheme(style.colorScheme, for: .navigationBar)
         } else {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(colorScheme, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
         }
+        #else
+        self
+        #endif
+    }
+
+    /// Draws a toolbar control on an opaque terminal-owned backing. Both colors
+    /// come from one theme snapshot, so private adaptive material cannot lag the
+    /// foreground during a live terminal-theme change.
+    @ViewBuilder
+    func mobileTerminalChromeControl(theme: TerminalTheme) -> some View {
+        #if os(iOS)
+        let style = MobileTerminalChromeStyle(theme: theme)
+        self
+            .foregroundStyle(style.foreground)
+            .tint(style.foreground)
+            .background(style.background)
+            .environment(\.colorScheme, style.colorScheme)
         #else
         self
         #endif
@@ -47,6 +64,23 @@ extension View {
             self
         } else {
             self.safeAreaPadding(.top, length)
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+extension ToolbarContent {
+    /// Removes iOS 26's shared glass effect while retaining native toolbar item
+    /// layout, grouping, actions, and accessibility identity.
+    @ToolbarContentBuilder
+    func mobileTerminalSharedBackgroundHidden() -> some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            self.sharedBackgroundVisibility(.hidden)
+        } else {
+            self
         }
         #else
         self
