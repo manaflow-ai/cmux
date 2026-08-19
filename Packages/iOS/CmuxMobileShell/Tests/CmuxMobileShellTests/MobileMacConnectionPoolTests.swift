@@ -2850,6 +2850,140 @@ import Testing
         }
     }
 
+    /// The Tailscale connection method is a strict determinant for every dial,
+    /// not just the foreground reconnect. Background multi-Mac aggregation and
+    /// broker-discovered secondaries both build their client here, so a stored
+    /// Mac whose only routes are Iroh must fail closed instead of opening an
+    /// Iroh control session over public paths and managed relays.
+    @Test func tailscaleOnlyMethodNeverDialsIrohForSecondaryMac() async throws {
+        let iroh = try CmxAttachRoute(
+            id: "iroh-secondary",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let mac = MobilePairedMac(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [iroh],
+            createdAt: .distantPast,
+            lastSeenAt: .distantPast,
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "stable"
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "iroh-mac",
+            instanceTag: "stable",
+            displayName: "Iroh Mac"
+        )
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox()
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-only-secondary-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { fixedNow },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            )
+        )
+
+        switch await shell.makeSecondaryClient(for: mac) {
+        case .permanentFailure:
+            break
+        case let .connected(handle):
+            Issue.record("Tailscale-only method dialed Iroh for a secondary Mac")
+            await handle.client.disconnect()
+        case .transientFailure:
+            Issue.record("Tailscale-only method left a secondary Iroh dial retrying")
+        }
+        #expect(factory.attemptedKinds().isEmpty)
+    }
+
+    /// Failing closed on ungranted Iroh must not overshoot: a secondary Mac
+    /// whose stored Tailscale route carries the device-local grant still
+    /// aggregates over that exact route while the Tailscale method is selected.
+    @Test func tailscaleOnlySecondaryMacStillConnectsOverAuthorizedRoute()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "granted-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.42", port: 56_584)
+        )
+        let mac = MobilePairedMac(
+            macDeviceID: "granted-mac",
+            displayName: "Granted Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: .distantPast,
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "stable",
+            legacyTailscaleRoutes: [route]
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "granted-mac",
+            instanceTag: "stable",
+            displayName: "Granted Mac"
+        )
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox()
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-only-granted-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { fixedNow },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            )
+        )
+
+        switch await shell.makeSecondaryClient(for: mac) {
+        case let .connected(handle):
+            #expect(handle.storedInstanceTag == "stable")
+            await handle.client.disconnect()
+        case .transientFailure:
+            Issue.record("granted Tailscale secondary failed transiently")
+        case .permanentFailure:
+            Issue.record("granted Tailscale secondary was refused")
+        }
+        #expect(factory.attemptedKinds() == [.tailscale])
+    }
+
     @Test func identityFreeLegacyTailscaleStatusUsesValidatedRepair()
         async throws {
         let route = try CmxAttachRoute(
