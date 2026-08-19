@@ -234,6 +234,11 @@ public final class MobileIrohRuntimeComposition:
     private var relayPolicyEndpointID: CmxIrohPeerIdentity?
     private var relayPolicyObservationTask: Task<Void, Never>?
     private var relayPolicyRefreshTask: Task<Void, Never>?
+    /// When the last relay-policy refresh ATTEMPT started, from any lane
+    /// (activation, settings, refresh loop). The broker allows one request
+    /// per endpoint per phase per minute; duplicate attempts inside one
+    /// bucket are refused and only burn the budget.
+    private var relayPolicyLastRefreshAttemptAt: Date?
     private var selectedPathObservationTask: Task<Void, Never>?
     private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     private var observedAuthState: MobileIrohAuthState?
@@ -919,6 +924,7 @@ public final class MobileIrohRuntimeComposition:
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
         let diagnosticLog = diagnosticLog
+        let revalidationStartedAt = now()
         sceneTransitionTask = Task { [weak self] in
             if let auth {
                 diagnosticLog?.recordAppEvent(.authRevalidationStarted)
@@ -948,7 +954,9 @@ public final class MobileIrohRuntimeComposition:
             // assembles an empty plan while the loop naps on its retry
             // schedule. Revalidation just minted fresh authority, so a failed
             // or expired policy retries immediately instead.
-            await self?.retryRelayPolicyRefreshAfterAuthRevalidation()
+            await self?.retryRelayPolicyRefreshAfterAuthRevalidation(
+                revalidationStartedAt: revalidationStartedAt
+            )
             guard !Task.isCancelled else { return }
             do {
                 try await runtime?.didBecomeActive()
@@ -965,10 +973,21 @@ public final class MobileIrohRuntimeComposition:
     /// the last resolution failed or the signed policy has expired. Called
     /// after a successful foreground session revalidation, the exact moment
     /// fresh authority exists for the refresh the wake attempt lost racing it.
-    func retryRelayPolicyRefreshAfterAuthRevalidation() async {
+    func retryRelayPolicyRefreshAfterAuthRevalidation(
+        revalidationStartedAt: Date
+    ) async {
         guard let relayPolicyService,
               let relayPolicyEndpointID,
               let activeAccountID else { return }
+        // The broker budgets one refresh per endpoint per phase per minute.
+        // An attempt that already ran on or after this revalidation used the
+        // fresh session, so retrying it immediately is a duplicate that only
+        // burns the bucket (and, on a shared home IP, the Mac's budget too).
+        // Only an attempt that predates the revalidation lost the token race.
+        if let lastAttemptAt = relayPolicyLastRefreshAttemptAt,
+           lastAttemptAt >= revalidationStartedAt {
+            return
+        }
         let snapshot = await relayPolicyService.diagnosticsSnapshot()
         guard Self.shouldRetryRelayPolicyRefreshAfterRevalidation(
             lastFailure: snapshot.failure,
@@ -1838,6 +1857,7 @@ public final class MobileIrohRuntimeComposition:
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
+                relayPolicyLastRefreshAttemptAt = now()
                 diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let outcome = try await service.refreshWithCredential(
@@ -2696,6 +2716,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             publishIrohSettingsUpdate()
             return
         }
+        relayPolicyLastRefreshAttemptAt = now()
         diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
@@ -2862,6 +2883,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                       revision == self.lifecycleRevision,
                       self.activeAccountID == accountID,
                       self.relayPolicyService === service else { return }
+                self.relayPolicyLastRefreshAttemptAt = self.now()
                 self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
