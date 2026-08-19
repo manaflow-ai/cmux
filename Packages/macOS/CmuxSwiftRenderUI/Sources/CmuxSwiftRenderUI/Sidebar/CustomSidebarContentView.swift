@@ -48,10 +48,26 @@ public struct CustomSidebarContentView: View {
         self.dataContext = dataContext
     }
 
+    @State private var surfaceStyle: String?
+
     public var body: some View {
         content
             .environment(\.sidebarActionDispatch, dispatch)
             .environment(\.customSidebarContentInsets, contentInsets)
+            // A JS sidebar can request a translucent surface
+            // (`sidebar(fn, { surface: "glass" })`): paint the material
+            // across the whole sidebar area; the pane host also drops its
+            // opaque backdrop via the same preference.
+            .onPreferenceChange(CustomSidebarSurfacePreferenceKey.self) { value in
+                MainActor.assumeIsolated {
+                    surfaceStyle = value
+                }
+            }
+            .background {
+                if let material = sceneMaterial(surfaceStyle) {
+                    Rectangle().fill(material).ignoresSafeArea()
+                }
+            }
     }
 
     @ViewBuilder

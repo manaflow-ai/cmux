@@ -14,6 +14,10 @@ private struct SceneEventSinkKey: EnvironmentKey {
     static let defaultValue = SceneEventSink.noop
 }
 
+private struct SceneDraggedNodeKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
 extension EnvironmentValues {
     var sceneStore: SceneStore? {
         get { self[SceneStoreKey.self] }
@@ -23,6 +27,14 @@ extension EnvironmentValues {
     var sceneEventSink: SceneEventSink {
         get { self[SceneEventSinkKey.self] }
         set { self[SceneEventSinkKey.self] = newValue }
+    }
+
+    /// The scene node id being drag-reordered, if any. While set, hover
+    /// washes are suppressed on every node except the dragged one, so rows
+    /// the pointer sweeps across mid-drag don't light up.
+    var sceneDraggedNodeId: String? {
+        get { self[SceneDraggedNodeKey.self] }
+        set { self[SceneDraggedNodeKey.self] = newValue }
     }
 }
 
@@ -217,6 +229,20 @@ private struct SceneTextLimits: ViewModifier {
     }
 }
 
+/// Resolves a material background token: `glass`/`ultraThinMaterial`,
+/// `thinMaterial`, `regularMaterial`, `thickMaterial`. These blur whatever is
+/// behind the view in the window, which is what makes a translucent "liquid
+/// glass" surface possible.
+func sceneMaterial(_ token: String?) -> Material? {
+    switch token {
+    case "glass", "ultraThinMaterial": return .ultraThinMaterial
+    case "thinMaterial": return .thinMaterial
+    case "regularMaterial", "material": return .regularMaterial
+    case "thickMaterial": return .thickMaterial
+    default: return nil
+    }
+}
+
 /// Padding, background (with hover), corner radius, border, frame, opacity —
 /// the box styling half of the fixed modifier order.
 ///
@@ -227,17 +253,23 @@ private struct SceneTextLimits: ViewModifier {
 private struct SceneBoxStyle: ViewModifier {
     let node: SceneNode
     @State private var isHovered = false
+    @Environment(\.sceneDraggedNodeId) private var draggedNodeId
 
     func body(content: Content) -> some View {
-        let hoverColor = dslColor(node.string("hoverBackground"))
-        let baseColor = dslColor(node.string("background"))
-        let background = isHovered ? (hoverColor ?? baseColor) : baseColor
+        // Mid-drag, only the dragged row may show its hover wash.
+        let hoverAllowed = draggedNodeId == nil || draggedNodeId == node.id
+        let backgroundToken = (isHovered && hoverAllowed)
+            ? (node.string("hoverBackground") ?? node.string("background"))
+            : node.string("background")
         let padded = content.padding(paddingInsets)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let backed = Group {
-            if let background {
-                padded.background(background, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            if let material = sceneMaterial(backgroundToken) {
+                padded.background(material, in: shape)
+            } else if let background = dslColor(backgroundToken) {
+                padded.background(background, in: shape)
             } else if cornerRadius > 0 {
-                padded.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                padded.clipShape(shape)
             } else {
                 padded
             }
@@ -263,7 +295,7 @@ private struct SceneBoxStyle: ViewModifier {
             .frame(width: dimension("width"), height: dimension("height"))
             .opacity(node.double("opacity") ?? 1)
             .onHover { hovering in
-                guard hoverColor != nil else { return }
+                guard node.props["hoverBackground"] != nil else { return }
                 withAnimation(.easeOut(duration: 0.12)) {
                     isHovered = hovering
                 }

@@ -425,12 +425,16 @@
     runPending();
   };
 
-  g.sidebar = (fn) => {
+  // Optional second argument: surface options applied as root props.
+  // `surface: "glass"` asks the host to render the whole sidebar surface as
+  // translucent material (liquid glass) instead of its opaque backdrop.
+  g.sidebar = (fn, opts) => {
     const rootScope = createScope(null);
     const handle = runInScope(rootScope, fn);
     if (!handle || !handle.__nodeId) {
       throw new Error("sidebar(fn) must return a view (e.g. VStack([...]))");
     }
+    if (opts) applyProps(handle.__nodeId, opts);
     pushOp({ op: "root", id: handle.__nodeId });
     runPending();
   };

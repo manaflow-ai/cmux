@@ -89,6 +89,9 @@ struct ReorderableColumnView: View {
         .onChange(of: node.children) { _, _ in
             if model.draggedId == nil { localOrder = nil }
         }
+        // Suppress hover washes on every row but the dragged one while a
+        // drag is in flight (see SceneBoxStyle).
+        .environment(\.sceneDraggedNodeId, model.draggedId)
     }
 
     /// Children in display order: mid-drag and just-dropped use the local
@@ -232,7 +235,8 @@ private struct ReorderableRowView: View {
         SceneNodeView(nodeId: childId)
             .offset(y: offset(isDragged: isDragged, dragging: draggedId != nil))
             .zIndex(isDragged ? 2 : 0)
-            .scaleEffect(lifted ? 1.02 : 1)
+            // No scale zoom on lift (dogfood feedback): the shadow alone
+            // carries the lifted affordance.
             .shadow(
                 color: .black.opacity(lifted ? 0.25 : 0),
                 radius: lifted ? 8 : 0,

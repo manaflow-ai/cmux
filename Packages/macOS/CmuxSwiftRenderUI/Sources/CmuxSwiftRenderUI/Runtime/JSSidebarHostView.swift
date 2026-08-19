@@ -1,6 +1,15 @@
 import CmuxSwiftRender
 import SwiftUI
 
+/// The surface style a JS sidebar requests via `sidebar(fn, { surface: ... })`.
+/// Hosts read it to swap their opaque backdrop for translucent material.
+public struct CustomSidebarSurfacePreferenceKey: PreferenceKey {
+    public static let defaultValue: String? = nil
+    public static func reduce(value: inout String?, nextValue: () -> String?) {
+        value = nextValue() ?? value
+    }
+}
+
 /// Mounts one `.js` custom sidebar: owns its ``SidebarJSRuntime`` and renders
 /// its retained scene.
 ///
@@ -36,6 +45,10 @@ public struct JSSidebarHostView: View {
                 SceneNodeView(nodeId: rootId)
                     .environment(\.sceneStore, engine.store)
                     .environment(\.sceneEventSink, engine.eventSink)
+                    .preference(
+                        key: CustomSidebarSurfacePreferenceKey.self,
+                        value: engine.store?.node(rootId)?.string("surface")
+                    )
             } else {
                 Color.clear.frame(height: 1)
             }

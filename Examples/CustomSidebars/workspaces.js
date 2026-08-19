@@ -216,5 +216,6 @@ sidebar(() =>
       const w = () => (data.workspaces() ?? []).find((x) => x.id === key);
       return workspaceRow(w, e);
     }
-  )
+  ),
+  { surface: "glass" }
 )
