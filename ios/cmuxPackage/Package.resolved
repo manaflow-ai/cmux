@@ -1,5 +1,5 @@
 {
-  "originHash" : "3e2058bf90bf2c1caef8ad94956461e721f87976fa6c0d452a1c08b310c1d36d",
+  "originHash" : "0f42f23ab0d4dbb93cdc789d197dadc7ae0728db41792e6537706943ee9d37ff",
   "pins" : [
     {
       "identity" : "highlightr",
@@ -13,10 +13,10 @@
     {
       "identity" : "iroh-ffi",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
+      "location" : "https://github.com/n0-computer/iroh-ffi.git",
       "state" : {
-        "revision" : "20f0e67cc3cb5179e816ef45b7a7ec5c8c58b0e0",
-        "version" : "1.0.2-cmux.7"
+        "revision" : "5e451092dba0c1a09ee83ff6e5be37b1152a5c58",
+        "version" : "1.1.0"
       }
     },
     {

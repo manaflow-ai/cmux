@@ -1,10 +1,10 @@
 import CMUXMobileCore
-import CmuxIrohTransport
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxPeerTransport
 import Foundation
 
-/// One personal-account snapshot of authenticated Iroh Mac routes.
+/// One personal-account snapshot of authenticated peer Mac routes.
 ///
 /// The catalog is deliberately separate from the team device registry. It only
 /// supplies cached routes when the shell asks for an already-paired Mac,
@@ -27,7 +27,7 @@ public actor MobileIrohRouteCatalog {
         liveMacs.removeAll(keepingCapacity: true)
     }
 
-    /// Replaces the catalog from one authenticated, runtime-verified discovery.
+    /// Replaces the catalog from one authenticated broker discovery snapshot.
     ///
     /// Only pairable Mac bindings are retained. Broker routes intentionally
     /// contain no private path hints. The registry decorator may later attach a
@@ -35,32 +35,26 @@ public actor MobileIrohRouteCatalog {
     /// supplies current authenticated public paths.
     @discardableResult
     func replace(
-        with discovery: CmxIrohDiscoveryResponse,
+        with discovery: PeerBrokerDiscoverySnapshot,
+        scope: UInt64
+    ) -> Bool {
+        replace(withBindings: discovery.bindings, scope: scope)
+    }
+
+    /// Replaces the catalog from raw authenticated bindings.
+    @discardableResult
+    func replace(
+        withBindings bindings: [PeerBrokerBinding],
         scope: UInt64
     ) -> Bool {
         guard activeScope == scope else { return false }
-        routesByMacDeviceID = Self.makeRoutesByMacDeviceID(
-            from: discovery.bindings
-        )
-        liveMacs = Self.makeLiveMacs(from: discovery.bindings)
+        routesByMacDeviceID = Self.makeRoutesByMacDeviceID(from: bindings)
+        liveMacs = Self.makeLiveMacs(from: bindings)
         return true
     }
 
-    /// Replaces routes from device-only, cryptographically reverified cache rows.
-    ///
-    /// The caller has already scoped these rows to the current account, app,
-    /// local identity, requested known Mac tuples, keyset, and unexpired grants.
-    func replaceCachedBindings(
-        _ bindings: [CmxIrohBrokerBinding],
-        scope: UInt64
-    ) {
-        guard activeScope == scope else { return }
-        routesByMacDeviceID = Self.makeRoutesByMacDeviceID(from: bindings)
-        liveMacs.removeAll(keepingCapacity: false)
-    }
-
     private static func makeRoutesByMacDeviceID(
-        from bindings: [CmxIrohBrokerBinding]
+        from bindings: [PeerBrokerBinding]
     ) -> [String: [String: [CmxAttachRoute]]] {
         let timestampParser = TimestampParser()
         let pairableMacs = bindings.filter {
@@ -68,7 +62,7 @@ public actor MobileIrohRouteCatalog {
         }
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
-            by: \CmxIrohBrokerBinding.endpointID
+            by: \PeerBrokerBinding.endpointID
         ).mapValues(\.count)
         let unambiguousMacs = pairableMacs.filter {
             endpointCounts[$0.endpointID] == 1
@@ -110,7 +104,7 @@ public actor MobileIrohRouteCatalog {
     }
 
     private static func makeLiveMacs(
-        from bindings: [CmxIrohBrokerBinding],
+        from bindings: [PeerBrokerBinding],
         now: Date = Date()
     ) -> [MobileDiscoveredIrohMac] {
         let timestampParser = TimestampParser()
@@ -119,7 +113,7 @@ public actor MobileIrohRouteCatalog {
         })
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
-            by: \CmxIrohBrokerBinding.endpointID
+            by: \PeerBrokerBinding.endpointID
         ).mapValues(\.count)
         struct DeviceTag: Hashable {
             let deviceID: String
@@ -238,8 +232,8 @@ public actor MobileIrohRouteCatalog {
     }
 
     private static func bindingSortsBefore(
-        _ left: CmxIrohBrokerBinding,
-        _ right: CmxIrohBrokerBinding,
+        _ left: PeerBrokerBinding,
+        _ right: PeerBrokerBinding,
         timestampParser: TimestampParser
     ) -> Bool {
         let leftDate = timestampParser.parse(left.lastSeenAt)
