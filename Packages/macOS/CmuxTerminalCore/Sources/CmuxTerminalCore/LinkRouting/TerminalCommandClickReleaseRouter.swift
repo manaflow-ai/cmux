@@ -68,16 +68,19 @@ public struct TerminalCommandClickReleaseRouter: Sendable {
         resolvePath: () -> ResolvedPath?
     ) -> Route {
         guard commandHeld, !pathFallbackSuppressed else { return .none }
-        guard let resolution = resolvePath() else { return .none }
 
         switch runtimeOutcome {
         case .unhandled:
+            guard let resolution = resolvePath() else { return .none }
             return .pathFallback(resolution)
-        case .consumed, .openURL:
-            // Preserve the legacy pointer-snapshot exception while extracting
-            // the routing decision. The regression test proves that an explicit
-            // open-URL outcome must become the exclusive owner in the fix.
+        case .consumed:
+            guard let resolution = resolvePath() else { return .none }
+            // Preserve the legacy pointer-snapshot exception for consumed
+            // non-URL clicks. An explicit open-URL action is handled below and
+            // never reaches local path resolution.
             return resolution.source == .snapshot ? .pathFallback(resolution) : .none
+        case .openURL:
+            return .runtimeOpenURL
         }
     }
 }
