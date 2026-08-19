@@ -21,7 +21,7 @@ enum RightSidebarContentMountPolicy {
 enum FileExplorerRootSyncPolicy {
     static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
         guard isRightSidebarVisible else { return false }
-        RightSidebarPanelRegistry.descriptor(for: mode)?.syncsFileExplorerRoot == true
+        return RightSidebarPanelRegistry.descriptor(for: mode)?.syncsFileExplorerRoot == true
     }
 }
 
