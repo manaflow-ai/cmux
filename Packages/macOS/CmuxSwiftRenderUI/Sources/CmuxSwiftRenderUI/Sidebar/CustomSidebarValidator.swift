@@ -24,13 +24,22 @@ public struct CustomSidebarValidator {
             includingPropertiesForKeys: nil
         ) else { return [] }
 
+        // Priority when several extensions share a base name: js > swift > json.
+        func priority(_ ext: String) -> Int {
+            switch ext {
+            case "js": return 3
+            case "swift": return 2
+            case "json": return 1
+            default: return 0
+            }
+        }
         var fileByName: [String: URL] = [:]
         for url in entries {
             let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            guard priority(ext) > 0 else { continue }
             let name = url.deletingPathExtension().lastPathComponent
             if let requestedName, requestedName != name { continue }
-            if fileByName[name]?.pathExtension.lowercased() == "swift" { continue }
+            if let existing = fileByName[name], priority(existing.pathExtension.lowercased()) >= priority(ext) { continue }
             fileByName[name] = url
         }
 
@@ -61,7 +70,12 @@ public struct CustomSidebarValidator {
     ) -> CustomSidebarValidationEntry {
         let name = fileURL.deletingPathExtension().lastPathComponent
         let ext = fileURL.pathExtension.lowercased()
-        let kind: CustomSidebarFileKind = ext == "swift" ? .swift : .json
+        let kind: CustomSidebarFileKind
+        switch ext {
+        case "js": kind = .js
+        case "swift": kind = .swift
+        default: kind = .json
+        }
 
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return CustomSidebarValidationEntry(
@@ -88,6 +102,16 @@ public struct CustomSidebarValidator {
             case .json:
                 let data = try Data(contentsOf: fileURL)
                 _ = try JSONDecoder().decode(DSLDocument.self, from: data)
+            case .js:
+                let source = try String(contentsOf: fileURL, encoding: .utf8)
+                if let message = SidebarJSRuntime.validate(source: source, state: dataContext ?? fallbackDataContext) {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: message
+                    )
+                }
             }
             return CustomSidebarValidationEntry(
                 name: name,
@@ -173,13 +197,18 @@ public struct CustomSidebarValidator {
     ]
 
     private func missingEntry(name: String, directory: URL) -> CustomSidebarValidationEntry {
-        let swiftURL = directory.appendingPathComponent("\(name).swift")
-        let jsonURL = directory.appendingPathComponent("\(name).json")
-        let missingURL = fileManager.fileExists(atPath: swiftURL.path) ? swiftURL : jsonURL
+        let candidates = ["js", "swift", "json"].map { directory.appendingPathComponent("\(name).\($0)") }
+        let missingURL = candidates.first { fileManager.fileExists(atPath: $0.path) } ?? candidates[2]
+        let kind: CustomSidebarFileKind
+        switch missingURL.pathExtension.lowercased() {
+        case "js": kind = .js
+        case "swift": kind = .swift
+        default: kind = .json
+        }
         return CustomSidebarValidationEntry(
             name: name,
             fileURL: missingURL,
-            kind: missingURL.pathExtension.lowercased() == "swift" ? .swift : .json,
+            kind: kind,
             errorMessage: String(localized: "sidebar.custom.validation.fileMissing", defaultValue: "Sidebar file is missing.")
         )
     }

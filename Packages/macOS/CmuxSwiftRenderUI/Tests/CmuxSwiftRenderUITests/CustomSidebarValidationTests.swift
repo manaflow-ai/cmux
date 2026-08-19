@@ -22,6 +22,37 @@ struct CustomSidebarValidationTests {
         #expect(urls.map(\.lastPathComponent) == ["finder.swift"])
     }
 
+    @Test("prefers a JS file over Swift and JSON with the same name")
+    func discoversJSFirst() throws {
+        let directory = try temporaryDirectory()
+        try """
+        sidebar(() => Text("JS"))
+        """.write(to: directory.appendingPathComponent("finder.js"), atomically: true, encoding: .utf8)
+        try """
+        Text("Swift")
+        """.write(to: directory.appendingPathComponent("finder.swift"), atomically: true, encoding: .utf8)
+
+        let urls = validator.discover(in: directory)
+        #expect(urls.map(\.lastPathComponent) == ["finder.js"])
+
+        let report = validator.validate(directory: directory)
+        #expect(report.errorCount == 0)
+        #expect(report.entries.first?.kind == .js)
+    }
+
+    @Test("reports JS programs that throw")
+    func reportsThrowingJSProgram() throws {
+        let directory = try temporaryDirectory()
+        try """
+        sidebar(() => missingBuilder())
+        """.write(to: directory.appendingPathComponent("broken.js"), atomically: true, encoding: .utf8)
+
+        let report = validator.validate(directory: directory)
+        #expect(report.validCount == 0)
+        #expect(report.errorCount == 1)
+        #expect(report.entries.first?.errorMessage?.isEmpty == false)
+    }
+
     @Test("reports JSON schema errors with root path")
     func reportsMissingJSONVersion() throws {
         let directory = try temporaryDirectory()
@@ -68,8 +99,8 @@ struct CustomSidebarValidationTests {
         let directory = examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
 
-        #expect(report.names.sorted() == ["finder", "status-board"])
-        #expect(report.validCount == 2)
+        #expect(report.names.sorted() == ["finder", "status-board", "workspaces"])
+        #expect(report.validCount == 3)
         #expect(report.errorCount == 0)
     }
 

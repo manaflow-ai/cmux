@@ -49,17 +49,86 @@ SwiftUI, files, or syntax. Concretely:
 
 Write a named file (the name becomes the menu label; use short kebab-case):
 
-    ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift (preferred)
+    ~/.config/cmux/sidebars/<name>.js        # reactive JS scene runtime (fastest)
+    ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
 menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
 for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. If both `<name>.swift` and
-`<name>.json` exist, `.swift` wins.
+edit the file and save and it hot-reloads. If several extensions share a base
+name, `.js` wins over `.swift`, which wins over `.json`.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
+
+## Reactive JS sidebars (`.js`)
+
+A `.js` sidebar runs on a different engine than `.swift`: a JavaScriptCore
+program that executes ONCE, builds a retained scene graph, and binds to live
+data through signals. After the first run nothing re-executes per tick; a data
+change re-runs only the bindings that read it, and only those scene nodes
+re-render. Rows in `ForEach`/`Reorderable` keep stable identity by key, so
+animations, scroll position, and an in-flight drag survive live updates. Use
+`.js` when you want maximum performance or drag-to-reorder; use `.swift` when
+you want to paste SwiftUI.
+
+    sidebar(() =>
+      VStack({ spacing: 6 }, [
+        Text("Workspaces").font("headline"),
+        Divider(),
+        Reorderable(
+          {
+            items: () => data.workspaces() ?? [],
+            key: (w) => w.id,
+            onMove: (id, index) => cmux("workspace.reorder", { workspace_id: id, index: index }),
+          },
+          (w) =>
+            HStack({ spacing: 8 }, [
+              Circle({ size: 7 }).fill(() => (w().selected ? "accent" : "clear")),
+              Text(() => w().title).lineLimit(1),
+              Spacer(),
+            ])
+              .padding(6)
+              .onTap(() => cmux("workspace.select", { workspace_id: w().id }))
+        ),
+      ])
+    )
+
+Rules of the runtime:
+
+- `sidebar(fn)` runs once and must return a view. There is no re-render; a
+  prop whose value should track data must be a **function** (`Text(() =>
+  w().title)`, `.fill(() => ...)`), which becomes a live binding.
+- `data.<key>()` reads a host data key as a signal (same keys as the Swift
+  data context: `workspaces`, `workspaceCount`, `selectedTitle`, `selectedId`,
+  `unreadTotal`, `clock`). Reading inside a binding subscribes it.
+- Views: `VStack` `HStack` `ZStack` `LazyVStack` `Group` `Text` `Image`
+  `Button` `Spacer` `Divider` `Circle` `Capsule` `Rectangle`
+  `RoundedRectangle` `ProgressView` `ForEach` `Reorderable`. Containers take
+  `(props, children)` or just `(children)`.
+- Chainable props: `.font(name|size)` `.weight` `.bold()` `.italic()`
+  `.monospaced()` `.color` `.secondary()` `.lineLimit` `.truncation`
+  `.padding` `.background` `.cornerRadius` `.borderColor` `.borderWidth`
+  `.opacity` `.frame({width,height,minWidth,maxWidth,...})` `.fill` `.stroke`
+  `.strokeWidth` `.size` `.onTap(fn)`. Any of them (except handlers) accepts a
+  function for a live binding. Colors are the same tokens as Swift sidebars
+  (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
+- `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
+  template runs once per key and `item()` is the row's live item signal.
+- `Reorderable({ items, key, onMove }, template)` is the drag-to-reorder list:
+  the grabbed row lifts and follows the pointer, the other rows spring aside
+  live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
+  there to persist).
+- Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
+  a handler.
+- Containment: the context has no filesystem, network, or timers, and a
+  runaway evaluation is terminated by a watchdog. Errors show in the sidebar
+  with a line number.
+- There is no conditional view helper yet; model visibility with a binding
+  that returns an empty string or a `null` background.
+
+A ready-to-copy example ships in `Examples/CustomSidebars/workspaces.js`.
 
 ## Choosing the renderer (in-process vs remote)
 
