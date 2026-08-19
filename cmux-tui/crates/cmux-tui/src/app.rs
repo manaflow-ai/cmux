@@ -12636,7 +12636,10 @@ impl App {
     /// the host terminal keeps native click and selection handling whenever
     /// the inner application did not request mouse input.
     fn desired_host_mouse_capture(&self) -> bool {
-        true
+        let Some(surface) = self.surface_only else { return true };
+        self.rendered_terminal_pointer_semantics
+            .get(&surface)
+            .is_some_and(|semantics| semantics.mouse_tracking)
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -22597,9 +22600,11 @@ fn outer_cursor_escape_if_changed(
 /// consumes those events itself and re-encodes paste for the inner terminal
 /// according to the mode the inner application actually requested, so they
 /// are transparent to the user.
-fn host_startup_input_modes(_surface_only: bool) -> String {
+fn host_startup_input_modes(surface_only: bool) -> String {
     let mut out = String::new();
-    out.push_str(&host_mouse_capture_sequence(true));
+    if !surface_only {
+        out.push_str(&host_mouse_capture_sequence(true));
+    }
     let _ = crossterm::Command::write_ansi(&EnableFocusChange, &mut out);
     let _ = crossterm::Command::write_ansi(&EnableBracketedPaste, &mut out);
     out
@@ -22629,14 +22634,14 @@ fn host_mouse_capture_escape_if_changed(applied: Option<bool>, desired: bool) ->
 /// state, so its first frame restores host cursor globals to defaults. A
 /// scoped attach starts from an applied Reset so it emits no cursor escapes
 /// until the inner application authors a cursor style.
-fn initial_applied_outer_cursor(_surface_only: bool) -> Option<OuterCursorSpec> {
-    None
+fn initial_applied_outer_cursor(surface_only: bool) -> Option<OuterCursorSpec> {
+    surface_only.then_some(OuterCursorSpec::Reset)
 }
 
 /// Startup already asserted capture for full-TUI clients and asserted
 /// nothing for scoped attach clients.
-fn initial_host_mouse_capture(_surface_only: bool) -> Option<bool> {
-    Some(true)
+fn initial_host_mouse_capture(surface_only: bool) -> Option<bool> {
+    Some(!surface_only)
 }
 
 fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
