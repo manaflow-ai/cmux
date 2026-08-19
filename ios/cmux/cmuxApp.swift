@@ -5,9 +5,6 @@ import Foundation
 import OSLog
 import SwiftUI
 import cmuxFeature
-#if DEBUG
-import CmuxIrohReleaseGateSupport
-#endif
 
 nonisolated private let cmuxAppConnectivityLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
@@ -147,14 +144,7 @@ struct cmuxApp: App {
     @ViewBuilder
     private var rootScene: some View {
         Group {
-            #if DEBUG
-            MobileIrohReleaseGateScene(
-                root: mobileRootScene,
-                iroh: Self.root.iroh
-            )
-            #else
             mobileRootScene
-            #endif
         }
         .environment(\.irohSettingsController, Self.root.iroh)
         .environment(

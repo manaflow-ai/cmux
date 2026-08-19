@@ -17,7 +17,7 @@ import Security
 /// The discriminator is the iroh endpoint-identity Keychain item: it is stored
 /// with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` and
 /// `kSecAttrSynchronizable = false` (`CmxIrohKeychainIdentityStore` in
-/// CmuxIrohTransport), so it can NEVER cross hardware via backup or iCloud
+/// CmuxPeerTransport), so it can NEVER cross hardware via backup or iCloud
 /// sync. Upgrade/restore matrix:
 ///
 /// - Upgrade in place: mirror present, endpoint identity present → ADOPT.
@@ -49,9 +49,9 @@ public enum SameDeviceEvidence: Equatable, Sendable {
 /// Probes for any item under the iroh endpoint-identity Keychain service.
 ///
 /// CROSS-PACKAGE CONTRACT: the service name mirrors
-/// `CmxIrohKeychainIdentityStore.init(service:)` in CmuxIrohTransport
+/// `PeerIdentityStore` in CmuxPeerTransport
 /// ("com.cmuxterm.iroh.endpoint-identity.v1"). CmuxMobileShell does not depend
-/// on CmuxIrohTransport, so the constant is duplicated here deliberately; both
+/// on CmuxPeerTransport, so the constant is duplicated here deliberately; both
 /// sites carry a comment pointing at the other. The probe only asks "does any
 /// item exist" — it never reads key material (`kSecReturnData` is not set).
 public struct IrohEndpointIdentityEvidenceProbe: SameDeviceEvidenceProbing {

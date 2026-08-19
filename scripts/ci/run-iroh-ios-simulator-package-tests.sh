@@ -269,6 +269,6 @@ run_package_tests \
   CMUXMobileCore \
   CMUXMobileCoreTests
 run_package_tests \
-  Packages/Shared/CmuxIrohTransport \
-  CmuxIrohTransport \
-  CmuxIrohTransportTests
+  Packages/Shared/CmuxPeerTransport \
+  CmuxPeerTransport \
+  CmuxPeerTransportTests
