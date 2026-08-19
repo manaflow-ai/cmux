@@ -18,6 +18,89 @@ struct JSONConfigStoreTests {
         #expect(value == "")
     }
 
+    @Test func presenceReadDistinguishesMissingAndExplicitDefault() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<String>(id: "terminal.shellStartup.command", defaultValue: "")
+
+        #expect(await store.valueIfPresent(for: key) == nil)
+        #expect(store.snapshotValueIfPresent(for: key) == nil)
+
+        try await store.set("", for: key)
+        #expect(await store.valueIfPresent(for: key) == "")
+        #expect(store.snapshotValueIfPresent(for: key) == "")
+    }
+
+    @Test func presenceReadFailsClosedForInvalidValue() async throws {
+        let (store, fileURL, _) = makeStore()
+        let key = JSONKey<NewSurfaceWorkingDirectoryPolicy>(
+            id: "terminal.newSurfaceWorkingDirectory.policy",
+            defaultValue: .inheritActivePane
+        )
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"unknown"}}}"#.utf8
+        ).write(to: fileURL)
+
+        #expect(await store.valueIfPresent(for: key) == nil)
+        #expect(store.snapshotValueIfPresent(for: key) == nil)
+    }
+
+    @Test func presenceStreamReportsMissingExplicitResetAndValidTransitions() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<NewSurfaceWorkingDirectoryPolicy>(
+            id: "terminal.newSurfaceWorkingDirectory.policy",
+            defaultValue: .inheritActivePane
+        )
+        let (first, firstContinuation) = AsyncStream<Void>.makeStream()
+        let (second, secondContinuation) = AsyncStream<Void>.makeStream()
+        let (third, thirdContinuation) = AsyncStream<Void>.makeStream()
+        let (fourth, fourthContinuation) = AsyncStream<Void>.makeStream()
+        let observed = Task<[NewSurfaceWorkingDirectoryPolicy?], Never> {
+            var values: [NewSurfaceWorkingDirectoryPolicy?] = []
+            for await value in store.valuesIfPresent(for: key) {
+                values.append(value)
+                switch values.count {
+                case 1:
+                    firstContinuation.yield()
+                case 2:
+                    secondContinuation.yield()
+                case 3:
+                    thirdContinuation.yield()
+                case 4:
+                    fourthContinuation.yield()
+                default:
+                    break
+                }
+                if values.count == 4 {
+                    break
+                }
+            }
+            return values
+        }
+
+        await withTimeout(seconds: 8) {
+            var iterator = first.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try await store.set(.inheritActivePane, for: key)
+        await withTimeout(seconds: 8) {
+            var iterator = second.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try await store.reset(key)
+        await withTimeout(seconds: 8) {
+            var iterator = third.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try await store.set(.workspaceRoot, for: key)
+        await withTimeout(seconds: 8) {
+            var iterator = fourth.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+
+        let values = await observed.value
+        #expect(values == [nil, .inheritActivePane, nil, .workspaceRoot])
+    }
+
     @Test func roundTripsNestedKey() async throws {
         let (store, fileURL, _) = makeStore()
         try await store.set("hunter2", for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))

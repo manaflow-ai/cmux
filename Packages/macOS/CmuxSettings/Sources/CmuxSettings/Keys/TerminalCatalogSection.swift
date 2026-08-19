@@ -2,6 +2,9 @@ import Foundation
 
 /// Settings under the dotted-id prefix `terminal.*`.
 public struct TerminalCatalogSection: SettingCatalogSection {
+    /// Declarative terminal keys authored in `cmux.json`.
+    public let declarative = DeclarativeTerminalConfiguration()
+
     /// Default multiplier applied to terminal scroll deltas.
     public static let scrollSpeedDefault = 1.0
     /// Minimum allowed multiplier for terminal scroll deltas.
@@ -151,6 +154,31 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.resumeCommands",
         defaultValue: []
     )
+
+    /// Source used for the working directory of newly-created panes, tabs,
+    /// splits, and workspaces.
+    ///
+    /// The declaration lives in ``DeclarativeTerminalConfiguration`` so the
+    /// synchronous runtime reader and the settings catalog cannot drift.
+    public var newSurfaceWorkingDirectoryPolicy: JSONKey<NewSurfaceWorkingDirectoryPolicy> {
+        declarative.workingDirectoryPolicy
+    }
+
+    /// Path used when ``newSurfaceWorkingDirectoryPolicy`` is `fixedPath`.
+    public var newSurfaceWorkingDirectoryPath: JSONKey<String> {
+        declarative.workingDirectoryPath
+    }
+
+    /// Whether ordinary new local surfaces use a login shell.
+    public var shellStartupMode: JSONKey<ShellStartupMode> {
+        declarative.shellStartupMode
+    }
+
+    /// Optional command sent to the shell after it starts on ordinary new
+    /// local surfaces.
+    public var shellStartupCommand: JSONKey<String> {
+        declarative.shellStartupCommand
+    }
 
     /// Host-scoped rules that replace the built-in `scp` for terminal file
     /// drops/pastes over ssh; cmux runs the matching command and inserts its

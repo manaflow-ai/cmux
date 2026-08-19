@@ -39,6 +39,22 @@ public actor JSONConfigStore {
     /// The on-disk location this store reads and writes.
     public nonisolated let fileURL: URL
 
+    /// Parses one coherent root for synchronous multi-key snapshots.
+    static func snapshotRoot(
+        fileURL: URL,
+        sanitizer: JSONCSanitizer = JSONCSanitizer()
+    ) -> [String: Any] {
+        (try? readRootFromDisk(at: fileURL, sanitizer: sanitizer)) ?? [:]
+    }
+
+    /// Decodes one typed key from an already-parsed snapshot root.
+    static func snapshotValue<Value>(
+        for key: JSONKey<Value>,
+        in root: [String: Any]
+    ) -> Value {
+        key.path.lookup(in: root).flatMap(Value.decodeFromJSON) ?? key.defaultValue
+    }
+
     private let sanitizer: JSONCSanitizer
     private let watcher: FileWatcher
     private var targetWatcher: FileWatcher?
@@ -93,6 +109,19 @@ public actor JSONConfigStore {
         return Value.decodeFromJSON(raw) ?? key.defaultValue
     }
 
+    /// Returns the stored value for the key, or `nil` when the path is absent
+    /// or the value has the wrong JSON shape.
+    ///
+    /// Unlike ``value(for:)``, this preserves the distinction between an
+    /// omitted/invalid entry and an explicitly stored value equal to the key's
+    /// default. That distinction is useful for compatibility fallbacks and
+    /// declarative settings whose effective value is derived from a legacy
+    /// setting until the new key is authored.
+    public func valueIfPresent<Value>(for key: JSONKey<Value>) -> Value? {
+        let root = loadedRoot()
+        return key.path.lookup(in: root).flatMap(Value.decodeFromJSON)
+    }
+
     /// Synchronously returns the current value for `key`, read directly from the
     /// config file without hopping onto the actor.
     ///
@@ -107,6 +136,14 @@ public actor JSONConfigStore {
         let root = (try? readFromDisk()) ?? [:]
         let raw = key.path.lookup(in: root)
         return Value.decodeFromJSON(raw) ?? key.defaultValue
+    }
+
+    /// Synchronously returns the stored value for `key`, or `nil` when the
+    /// path is absent or invalid. This is the presence-preserving counterpart
+    /// to ``snapshotValue(for:)`` for callers that cannot await.
+    public nonisolated func snapshotValueIfPresent<Value>(for key: JSONKey<Value>) -> Value? {
+        let root = (try? readFromDisk()) ?? [:]
+        return key.path.lookup(in: root).flatMap(Value.decodeFromJSON)
     }
 
     /// Writes a value for the key.
@@ -151,24 +188,74 @@ public actor JSONConfigStore {
                     return
                 }
 
-                let initial = await self.value(for: key)
-                continuation.yield(initial)
-
-                let id = UUID()
                 // bufferingNewest(1): the signal carries no payload, so under
                 // burst file changes we only care that *something* changed.
                 // Dropping intermediate signals is correct because the typed
                 // value is re-read on every consumed signal and deduped below.
                 // Bounded buffering prevents unbounded growth under load.
+                let id = UUID()
                 let (signal, signalContinuation) = AsyncStream<Void>.makeStream(
                     bufferingPolicy: .bufferingNewest(1)
                 )
                 await self.addSubscriber(id: id, continuation: signalContinuation)
 
+                // Register before taking the initial snapshot. A write can
+                // happen immediately after subscription starts; taking the
+                // snapshot first would leave a gap in which that write's
+                // notification is lost and the stream remains stale.
+                let initial = await self.value(for: key)
+                continuation.yield(initial)
+
                 var last = initial
                 for await _ in signal {
                     if Task.isCancelled { break }
                     let current = await self.value(for: key)
+                    if current != last {
+                        last = current
+                        continuation.yield(current)
+                    }
+                }
+                await self.removeSubscriber(id: id)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Returns an `AsyncStream` that preserves whether a JSON value is
+    /// present. The first element and every later element is either the
+    /// decoded value or `nil` for an omitted/invalid entry.
+    ///
+    /// This is intentionally separate from ``values(for:)``: existing callers
+    /// rely on that API's default-value semantics, while compatibility-aware
+    /// consumers need to react when a dotfiles edit removes or invalidates a
+    /// key. Values are deduplicated after decoding, and file-event bursts are
+    /// coalesced exactly like the defaulting stream.
+    public nonisolated func valuesIfPresent<Value>(for key: JSONKey<Value>) -> AsyncStream<Value?> {
+        AsyncStream<Value?> { continuation in
+            let task = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                let id = UUID()
+                let (signal, signalContinuation) = AsyncStream<Void>.makeStream(
+                    bufferingPolicy: .bufferingNewest(1)
+                )
+                await self.addSubscriber(id: id, continuation: signalContinuation)
+
+                // Register before taking the initial snapshot. Otherwise a
+                // store write between the first yield and subscriber
+                // registration can be missed, leaving a dotfiles-backed UI
+                // stale until a later edit.
+                let initial = await self.valueIfPresent(for: key)
+                continuation.yield(initial)
+
+                var last = initial
+                for await _ in signal {
+                    if Task.isCancelled { break }
+                    let current = await self.valueIfPresent(for: key)
                     if current != last {
                         last = current
                         continuation.yield(current)
@@ -270,6 +357,14 @@ public actor JSONConfigStore {
     }
 
     private nonisolated func readFromDisk(at url: URL) throws -> [String: Any] {
+        try Self.readRootFromDisk(at: url, sanitizer: sanitizer)
+    }
+
+    /// Shared JSONC parser for actor-backed and synchronous snapshot reads.
+    private static func readRootFromDisk(
+        at url: URL,
+        sanitizer: JSONCSanitizer
+    ) throws -> [String: Any] {
         let data: Data
         do {
             data = try Data(contentsOf: url)

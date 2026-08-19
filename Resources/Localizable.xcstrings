@@ -195350,6 +195350,40 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.new-surface-working-directory-path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory path fixed directory cwd folder tilde workspace root"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory path fixed directory cwd folder tilde workspace root 固定 パス ディレクトリ フォルダ チルダ ワークスペース ルート"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.new-surface-working-directory-policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory policy working directory cwd current pane workspace root fixed path inherit split tab pane app.workspaceInheritWorkingDirectory legacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.newSurfaceWorkingDirectory policy working directory cwd current pane workspace root fixed path inherit split tab pane app.workspaceInheritWorkingDirectory legacy 作業 ディレクトリ 現在 ペイン 継承 ワークスペース ルート 固定 パス 分割 タブ 旧設定"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.resume-commands": {
       "extractionState": "manual",
       "localizations": {
@@ -195363,6 +195397,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.shell-startup-command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup command shell startup input command activate zsh mise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup command shell startup input command activate zsh mise シェル 起動 コマンド 入力 有効化"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.shell-startup-mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup mode shell login non-login interactive startup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.shellStartup mode shell login non-login interactive startup シェル 起動 モード ログイン 非ログイン 対話型"
           }
         }
       }
@@ -201963,6 +202031,111 @@
             "value": "復元コマンドの承認を更新しました。"
           }
         }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fixed Directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定ディレクトリ" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.path.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "~/Projects" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "~/Projects" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.path.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定パスの場合のみ使用します。絶対パスまたは ~ で始まるパスを入力してください。存在しないパスやディレクトリでないパスはワークスペースルートにフォールバックします。" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Surface Working Directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいサーフェスの作業ディレクトリ" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.fixedPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fixed Path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定パス" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.inheritActivePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inherit Active Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブペインを継承" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose the default directory for new local panes, tabs, splits, and workspaces. Explicit and restored startup work keeps its own directory." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいローカルペイン、タブ、分割、ワークスペースの既定ディレクトリを選択します。明示的な起動処理や復元処理では固有のディレクトリを保持します。" } }
+      }
+    },
+    "settings.terminal.newSurfaceWorkingDirectory.policy.workspaceRoot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace Root" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースルート" } }
+      }
+    },
+    "settings.terminal.shellStartup.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Startup Command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動コマンド" } }
+      }
+    },
+    "settings.terminal.shellStartup.command.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "mise activate zsh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "mise activate zsh" } }
+      }
+    },
+    "settings.terminal.shellStartup.command.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Optional command sent after an ordinary new local shell starts. Explicit commands, remote sessions, and restored surfaces are not changed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通常の新しいローカルシェルの起動後に送る任意のコマンドです。明示的なコマンド、リモートセッション、復元されたサーフェスは変更しません。" } }
+      }
+    },
+    "settings.terminal.shellStartup.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shell Startup Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シェル起動モード" } }
+      }
+    },
+    "settings.terminal.shellStartup.mode.login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Login" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ログイン" } }
+      }
+    },
+    "settings.terminal.shellStartup.mode.nonLogin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Non-login" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "非ログイン" } }
+      }
+    },
+    "settings.terminal.shellStartup.mode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select whether ordinary new local surfaces start an interactive login or non-login shell." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通常の新しいローカルサーフェスを対話型ログインシェルまたは非ログインシェルとして起動するか選択します。" } }
       }
     },
     "settings.terminal.scrollBar": {
