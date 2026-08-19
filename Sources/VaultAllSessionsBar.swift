@@ -68,10 +68,13 @@ struct VaultAllSessionsBar: View {
                                                 defaultValue: "Clear search")))
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        // Same control metrics as the grouping pills so the field's box
+        // aligns with row-one chrome instead of introducing its own padding.
+        .padding(.horizontal, RightSidebarChromeMetrics.controlHorizontalPadding)
+        .frame(height: RightSidebarChromeMetrics.controlHeight)
+        .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
+            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
         )
         .titlebarInteractiveControl()
