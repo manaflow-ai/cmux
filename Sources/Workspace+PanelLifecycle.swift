@@ -395,7 +395,10 @@ extension Workspace {
         return didChange
     }
 
-    func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
+    func adoptDetachedAgentRuntimeState(
+        _ runtimeState: DetachedAgentRuntimeState?,
+        notifyContextManagement: Bool = true
+    ) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
@@ -412,7 +415,12 @@ extension Workspace {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         for (key, lifecycle) in runtimeState.agentLifecycleStates {
-            setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
+            setAgentLifecycle(
+                key: key,
+                panelId: runtimeState.panelId,
+                lifecycle: lifecycle,
+                notifyContextManagement: notifyContextManagement
+            )
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()

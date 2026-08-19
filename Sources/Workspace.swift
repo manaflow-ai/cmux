@@ -4008,8 +4008,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             self.lastTerminalConfigInheritanceFontSizeLineage = lineage
         }
         installTerminalVisualBellRouting(for: terminalPanel)
-        terminalPanel.surface.onUserExplicitInput = { [weak terminalPanel] in
-            guard let terminalPanel else { return }
+        terminalPanel.surface.onUserExplicitInput = { [weak self, weak terminalPanel] in
+            guard let self,
+                  let terminalPanel,
+                  let mountedPanel = self.panels[terminalPanel.id] as? TerminalPanel,
+                  mountedPanel === terminalPanel,
+                  AppDelegate.shared?.agentContextManagementCoordinator.provider(
+                      for: terminalPanel.id,
+                      preferredWorkspaceID: self.id
+                  ) != nil else {
+                return
+            }
             AppDelegate.shared?.agentContextManagementCoordinator.userDidType(panelId: terminalPanel.id)
         }
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
@@ -10020,17 +10029,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 notifyContextManagement: false
             )
         }
-        // Install copied lifecycle evidence after the destination binding is
-        // present, but before the single authoritative evaluation below. The
-        // suppressed binding notification keeps this transfer atomic from the
-        // context-health coordinator's perspective.
-        adoptDetachedAgentRuntimeState(detached.agentRuntime)
-        AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(
-            panelId: detached.panelId,
-            state: (detached.panel as? TerminalPanel)?.shellActivity.state ?? .unknown
-        )
-        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
-            panelId: detached.panelId
+        // Stage copied lifecycle evidence without notifying context management.
+        // Remote transfers still need to retarget the binding below; evaluating
+        // before that final owner update could use source-session metadata.
+        adoptDetachedAgentRuntimeState(
+            detached.agentRuntime,
+            notifyContextManagement: false
         )
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
@@ -10082,7 +10086,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         surfaceID: detached.panelId,
                         persistentPTYSessionID: remotePTYSessionIDsByPanelId[detached.panelId]
                     ),
-                    notifyWhenUnchanged: true
+                    notifyWhenUnchanged: true,
+                    notifyContextManagement: false
                 )
             }
         }
@@ -10103,6 +10108,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
         }
+        // Publish one authoritative destination snapshot after every binding
+        // retarget, copied lifecycle update, and remote-owner flag is complete.
+        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
+            panelId: detached.panelId
+        )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }

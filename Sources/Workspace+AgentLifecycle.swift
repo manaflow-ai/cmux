@@ -512,12 +512,15 @@ extension Workspace {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        notifyContextManagement: Bool = true
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        contextManagementLifecycleDidChange(key: key, panelId: targetPanelId, lifecycle: lifecycle)
+        if notifyContextManagement {
+            contextManagementLifecycleDidChange(key: key, panelId: targetPanelId, lifecycle: lifecycle)
+        }
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
