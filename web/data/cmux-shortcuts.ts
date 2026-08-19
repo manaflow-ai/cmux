@@ -162,6 +162,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
+        id: "switchRightSidebarToSourceControl",
+        combos: [["⌃", "6"]],
+        description: { en: "Show Source Control in the right sidebar", ja: "右サイドバーにソース管理を表示" },
+        note: {
+          en: "Beta: enable Source Control in Settings > Beta Features first.",
+          ja: "ベータ機能です。先に「設定」>「ベータ機能」でソース管理を有効にしてください。",
+        },
+      },
+      {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],
         description: { en: "Navigate focused sidebar rows", ja: "フォーカス中のサイドバー行を移動" },
