@@ -7033,25 +7033,47 @@ fn run_status_segment_loop(worker: StatusSegmentWorker) {
             generation.fetch_add(1, Ordering::Release);
             pending_notify = true;
         }
-        if pending_notify {
-            if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-                if events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
-                    pending_notify = false;
-                } else {
-                    // A full queue cannot lose the update: release the poke
-                    // and retry on the next wake; the fingerprint also picks
-                    // the change up on any draw in the meantime.
-                    poke.store(false, Ordering::Release);
-                }
-            } else {
-                // Another worker's poke is already in flight; the draw it
-                // triggers reads the shared outputs and covers this change.
-                pending_notify = false;
+        try_send_status_poke(&poke, &events, &mut pending_notify);
+        // Sleep out the interval, but wake on a short cadence while a poke
+        // is still pending so a transiently full event queue delays the
+        // update by moments, not by the configured interval. The command
+        // itself never re-runs before its interval elapses.
+        let deadline = Instant::now() + interval;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
             }
+            let wait =
+                if pending_notify { remaining.min(Duration::from_millis(500)) } else { remaining };
+            if stop.wait_timeout(wait) {
+                return;
+            }
+            try_send_status_poke(&poke, &events, &mut pending_notify);
         }
-        if stop.wait_timeout(interval) {
-            return;
+    }
+}
+
+/// Attempt to deliver one coalesced status redraw poke. Clears
+/// `pending_notify` when this worker's poke was delivered or another
+/// worker's poke is already in flight (that draw reads the same shared
+/// outputs); releases the poke on a full queue so the retry stays possible.
+fn try_send_status_poke(
+    poke: &AtomicBool,
+    events: &SyncSender<AppEvent>,
+    pending_notify: &mut bool,
+) {
+    if !*pending_notify {
+        return;
+    }
+    if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+            *pending_notify = false;
+        } else {
+            poke.store(false, Ordering::Release);
         }
+    } else {
+        *pending_notify = false;
     }
 }
 
@@ -7135,10 +7157,6 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
                     Ok(read) => {
                         drained += read;
                         captured.extend_from_slice(&chunk[..read]);
-                        if captured.len() > MAX_STATUS_OUTPUT_BYTES {
-                            let excess = captured.len() - MAX_STATUS_OUTPUT_BYTES;
-                            captured.drain(..excess);
-                        }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                     Err(_) => {
@@ -7146,6 +7164,12 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
                         break;
                     }
                 }
+            }
+            // Compact to the tail once per pass, not per chunk, so a
+            // continuously writing command costs one bounded copy here.
+            if captured.len() > MAX_STATUS_OUTPUT_BYTES {
+                let excess = captured.len() - MAX_STATUS_OUTPUT_BYTES;
+                captured.drain(..excess);
             }
         }
         if exited {
