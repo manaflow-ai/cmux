@@ -33,5 +33,5 @@ struct RightSidebarPanelDescriptor: Identifiable {
     let paneTitle: String?
     let supportsTearOffPane: Bool
     let syncsFileExplorerRoot: Bool
-    let makeContent: (RightSidebarPanelContext) -> AnyView
+    let makeContent: @MainActor (RightSidebarPanelContext) -> AnyView
 }

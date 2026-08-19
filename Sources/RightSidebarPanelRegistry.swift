@@ -151,6 +151,7 @@ enum RightSidebarPanelRegistry {
         }
     }
 
+    @MainActor
     static func makeContent(
         for mode: RightSidebarMode,
         context: RightSidebarPanelContext,
@@ -175,7 +176,7 @@ enum RightSidebarPanelRegistry {
         paneTitle: String?,
         supportsTearOffPane: Bool,
         syncsFileExplorerRoot: Bool,
-        makeContent: @escaping (RightSidebarPanelContext) -> AnyView
+        makeContent: @escaping @MainActor (RightSidebarPanelContext) -> AnyView
     ) -> RightSidebarPanelDescriptor {
         RightSidebarPanelDescriptor(
             id: id,
