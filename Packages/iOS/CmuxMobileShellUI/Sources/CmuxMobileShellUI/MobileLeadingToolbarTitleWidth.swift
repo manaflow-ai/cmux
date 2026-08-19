@@ -4,7 +4,8 @@ import CoreGraphics
 ///
 /// The workspace title belongs beside the back button, not in the centered
 /// principal slot. Reserve the trailing toolbar cluster and the leading back
-/// control so the title truncates before it can underlap native toolbar items.
+/// control so the title truncates before it can underlap native toolbar items;
+/// beyond those reserves the title may use all remaining bar width.
 struct MobileLeadingToolbarTitleWidth {
     let contentWidth: CGFloat
     let hasBackButton: Bool
@@ -16,7 +17,6 @@ struct MobileLeadingToolbarTitleWidth {
     static let chatToggleReserve: CGFloat = 60
     static let barMarginsAndSpacing: CGFloat = 84
     static let unmeasuredFallback: CGFloat = 140
-    static let maximumMeasuredCap: CGFloat = unmeasuredFallback
     static let floor: CGFloat = 96
 
     var cap: CGFloat {
@@ -25,7 +25,6 @@ struct MobileLeadingToolbarTitleWidth {
         let trailing = hasTrailingCluster
             ? Self.trailingReserveBase + (hasChatToggle ? Self.chatToggleReserve : 0)
             : 0
-        let measuredCap = max(0, contentWidth - leading - trailing - Self.barMarginsAndSpacing)
-        return min(Self.maximumMeasuredCap, measuredCap)
+        return max(0, contentWidth - leading - trailing - Self.barMarginsAndSpacing)
     }
 }
