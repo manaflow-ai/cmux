@@ -40,6 +40,18 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
+            topic: "managed-policies",
+            aliases: ["mdm", "managed", "policy", "policies", "enterprise", "managed-device-policies"],
+            summary: "MDM-enforceable managed policies: disable the embedded browser and iOS remote control on managed Macs.",
+            webURL: "https://cmux.com/docs/managed-policies",
+            rawResources: [
+                DocsResource(label: "managed device policies", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
+            ],
+            commands: [
+                "cmux browser status --json",
+            ]
+        ),
+        DocsReference(
             topic: "shortcuts",
             aliases: ["keyboard", "keybindings", "keys"],
             summary: "cmux-owned keyboard shortcuts and two-step chord syntax.",
