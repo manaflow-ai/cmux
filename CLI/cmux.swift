@@ -11569,8 +11569,7 @@ struct CMUXCLI {
         let quotedVMID = shellQuote(vmID)
         let lines = [
             "cmux_freestyle_cli=\(quotedCLI)",
-            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
-            "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+        ] + SSHReconnectBudgetShellPolicy.configurationLines + [
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
             "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
@@ -11592,9 +11591,9 @@ struct CMUXCLI {
             "  cmux_freestyle_attach",
             "  cmux_freestyle_status=$?",
             "  case \"$cmux_freestyle_status\" in 254|255) ;; *) exit \"$cmux_freestyle_status\" ;; esac",
-            "  if [ \"$cmux_freestyle_retry\" -ge \"$CMUX_SSH_RECONNECT_LIMIT\" ]; then exit \"$cmux_freestyle_status\"; fi",
+            "  \(SSHReconnectBudgetShellPolicy.limitReachedCommand(retryCountVariable: "cmux_freestyle_retry", statusVariable: "cmux_freestyle_status"))",
             "  cmux_freestyle_retry=$((cmux_freestyle_retry + 1))",
-            "  sleep \"$CMUX_SSH_RECONNECT_DELAY_SECONDS\"",
+            "  \(SSHReconnectBudgetShellPolicy.delayCommand)",
             "done",
         ]
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
