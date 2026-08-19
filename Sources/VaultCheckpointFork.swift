@@ -189,10 +189,13 @@ enum VaultCheckpointForker {
             _ = try handle(line: buffer)
         }
 
-        // A turn anchor that never appeared means the checkpoint points at a
-        // different (or rewritten) file — refuse rather than fork the whole
-        // transcript under a "before the prompt" label.
-        if checkpoint.source == .turn, checkpoint.anchor != nil, !sawAnchor {
+        // An anchor that never appeared means the checkpoint points at a
+        // different (or rewritten) file — refuse rather than mislabel the
+        // copy: a turn fork would include the anchored prompt's turn, and a
+        // manual fork would silently include every turn added AFTER the
+        // checkpoint was taken. Only anchor-less manual checkpoints copy to
+        // end of file by design.
+        if checkpoint.anchor != nil, !sawAnchor {
             throw VaultCheckpointForkError.anchorNotFound
         }
         guard wroteAnyLine else {

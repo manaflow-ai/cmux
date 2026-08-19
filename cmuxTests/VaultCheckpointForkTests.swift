@@ -197,6 +197,30 @@ struct VaultCheckpointForkTests {
     }
 
     @Test
+    func driftedManualAnchorThrowsInsteadOfIncludingNewerTurns() throws {
+        // A manual checkpoint whose anchored line no longer exists (rewritten
+        // transcript) must refuse: copying to EOF would silently include
+        // turns added after the checkpoint was taken.
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "one"),
+            line(uuid: "u2", type: "user", text: "added after the checkpoint"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let drifted = VaultSessionCheckpoint(
+            id: "manual:drifted", source: .manual, timestamp: nil, name: nil,
+            turnIndex: 1, anchor: "uuid:rewritten-away", gitSHA: nil, promptSnippet: nil
+        )
+        #expect(throws: VaultCheckpointForkError.anchorNotFound) {
+            try forkClaude(parent: parent, checkpoint: drifted)
+        }
+        let leftover = parent.deletingLastPathComponent()
+            .appendingPathComponent(newSessionID + ".jsonl")
+        #expect(!FileManager.default.fileExists(atPath: leftover.path))
+    }
+
+    @Test
     func missingTurnAnchorThrowsInsteadOfForkingWholeTranscript() throws {
         let parent = try writeParent([
             line(uuid: "u1", type: "user", text: "only prompt"),

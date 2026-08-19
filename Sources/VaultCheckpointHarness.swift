@@ -270,10 +270,17 @@ enum VaultCheckpointHarness: Equatable, Sendable {
         for sidecar in ["prompt_context.json", "resources_state.json", "summary.json"] {
             let source = parentDirectory.appendingPathComponent(sidecar)
             guard fileManager.fileExists(atPath: source.path) else { continue }
-            try? fileManager.copyItem(
-                at: source,
-                to: newDirectory.appendingPathComponent(sidecar)
-            )
+            do {
+                // A sidecar that exists but fails to copy must fail the fork:
+                // reporting success would hand back a resumable session
+                // missing its prompt/session state.
+                try fileManager.copyItem(
+                    at: source,
+                    to: newDirectory.appendingPathComponent(sidecar)
+                )
+            } catch {
+                throw VaultCheckpointForkError.writeFailed
+            }
         }
 
         succeeded = true
