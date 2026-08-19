@@ -51,6 +51,32 @@ public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
         "\(teamIdentifier).\(bundleIdentifier)"
     }
 
+    /// Returns a bundle-matching access group from build metadata.
+    ///
+    /// `AppIdentifierPrefix` is only guaranteed to expand while Xcode signs an
+    /// app. Manual archives are intentionally unsigned, so their copied
+    /// `Info.plist` can contain either the unresolved placeholder or an
+    /// unqualified bundle identifier. Passing either value to Security causes
+    /// `errSecMissingEntitlement`; returning `nil` makes callers use the
+    /// signed app's default access group instead.
+    public func validatedKeychainAccessGroup(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = ".\(bundleIdentifier)"
+        guard trimmed.hasSuffix(suffix) else { return nil }
+
+        let teamIdentifier = String(trimmed.dropLast(suffix.count))
+        guard !teamIdentifier.isEmpty,
+              teamIdentifier.range(
+                of: #"^[A-Za-z0-9]+$"#,
+                options: .regularExpression
+              ) != nil
+        else {
+            return nil
+        }
+        return trimmed
+    }
+
     /// A Keychain service that cannot collide with another installed bundle.
     public func keychainService(base: String) -> String {
         "\(base).\(bundleIdentifier)"

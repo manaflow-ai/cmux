@@ -283,7 +283,9 @@ public final class MobileIrohRuntimeComposition:
             preconditionFailure("cmux iOS requires a valid bundle identifier")
         }
         let keychainAccessGroup = injectedKeychainAccessGroup
-            ?? Self.keychainAccessGroup(infoDictionary: infoDictionary)
+            ?? appNamespace.validatedKeychainAccessGroup(
+                infoDictionary?["CMUXKeychainAccessGroup"] as? String
+            )
         #if DEBUG
         let transportVerificationMode = Self.initialTransportVerificationMode(
             defaults: defaults
@@ -2259,17 +2261,6 @@ public final class MobileIrohRuntimeComposition:
             legacyService: "com.cmuxterm.iroh.\(service).v1"
         )
         #endif
-    }
-
-    private static func keychainAccessGroup(
-        infoDictionary: [String: Any]?
-    ) -> String? {
-        let raw = infoDictionary?["CMUXKeychainAccessGroup"] as? String
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
-            return nil
-        }
-        return trimmed
     }
 
     static func initialTransportVerificationMode(

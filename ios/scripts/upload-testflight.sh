@@ -73,7 +73,7 @@ verify_ipa_bundle_identity() {
   local team_id="$3"
   local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
-  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id
+  local workdir app plist_bundle_id plist_keychain_group plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id
 
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -91,6 +91,12 @@ verify_ipa_bundle_identity() {
   plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
     echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  plist_keychain_group="$("$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$app/Info.plist" 2>/dev/null || true)"
+  if [[ "$plist_keychain_group" != "$expected_app_id" ]]; then
+    echo "error: signed IPA keychain access-group metadata does not match its bundle identity: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -1094,6 +1100,23 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not find Payload/*.app inside the exported IPA to re-sign" >&2
     exit 1
   fi
+
+  # Manual archives are intentionally unsigned, so AppIdentifierPrefix may
+  # remain unresolved (or collapse to the bare bundle id) in the copied
+  # Info.plist. Runtime auth reads this key, while the re-sign step below owns
+  # the exact team-prefixed entitlement. Canonicalize both surfaces before
+  # signing so they cannot disagree after export.
+  EXPECTED_KEYCHAIN_ACCESS_GROUP="$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER"
+  if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$RESIGN_APP/Info.plist" >/dev/null 2>&1; then
+    plutil -replace CMUXKeychainAccessGroup \
+      -string "$EXPECTED_KEYCHAIN_ACCESS_GROUP" \
+      "$RESIGN_APP/Info.plist"
+  else
+    plutil -insert CMUXKeychainAccessGroup \
+      -string "$EXPECTED_KEYCHAIN_ACCESS_GROUP" \
+      "$RESIGN_APP/Info.plist"
+  fi
+  plutil -lint "$RESIGN_APP/Info.plist" >/dev/null
 
   # Xcode embeds SPM binaryTarget frameworks into Frameworks/ even when the
   # framework's binary is a STATIC archive (ar), e.g. iroh-ffi's Iroh.framework.

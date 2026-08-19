@@ -33,6 +33,31 @@ import Testing
         )
     }
 
+    @Test func rejectsUnqualifiedOrCrossBundleKeychainGroups() throws {
+        let namespace = try #require(
+            MobileIOSAppNamespace(bundleIdentifier: "dev.cmux.app.internal")
+        )
+
+        #expect(
+            namespace.validatedKeychainAccessGroup(
+                "7WLXT3NR37.dev.cmux.app.internal"
+            ) == "7WLXT3NR37.dev.cmux.app.internal"
+        )
+        #expect(
+            namespace.validatedKeychainAccessGroup("dev.cmux.app.internal") == nil
+        )
+        #expect(
+            namespace.validatedKeychainAccessGroup(
+                "$(AppIdentifierPrefix)dev.cmux.app.internal"
+            ) == nil
+        )
+        #expect(
+            namespace.validatedKeychainAccessGroup(
+                "7WLXT3NR37.dev.cmux.app.beta"
+            ) == nil
+        )
+    }
+
     @Test func appTypesAndDevTagsNeverSharePersistentOrPairingScopes() throws {
         let bundleIdentifiers = [
             "com.cmux.app",
