@@ -64,3 +64,36 @@ struct MobileKeychainAccessGroupResolutionTests {
         ) == nil)
     }
 }
+
+/// The auth composition shares the same policy, so both keychain consumers
+/// accept and reject identically.
+@Suite
+struct MobileKeychainAccessGroupPolicyTests {
+    @Test
+    func acceptsDevTagAndProductionGroups() {
+        #expect(MobileKeychainAccessGroupPolicy.resolve(
+            "7WLXT3NR37.dev.cmux.ios.tflex"
+        ) == "7WLXT3NR37.dev.cmux.ios.tflex")
+        #expect(MobileKeychainAccessGroupPolicy.resolve(
+            "7WLXT3NR37.com.cmux.app"
+        ) == "7WLXT3NR37.com.cmux.app")
+    }
+
+    @Test
+    func trimsWhitespaceAroundAValidGroup() {
+        #expect(MobileKeychainAccessGroupPolicy.resolve(
+            " 7WLXT3NR37.dev.cmux.app.beta\n"
+        ) == "7WLXT3NR37.dev.cmux.app.beta")
+    }
+
+    @Test
+    func rejectsPrefixLessNilAndMalformedValues() {
+        #expect(MobileKeychainAccessGroupPolicy.resolve("dev.cmux.app.beta") == nil)
+        #expect(MobileKeychainAccessGroupPolicy.resolve(nil) == nil)
+        #expect(MobileKeychainAccessGroupPolicy.resolve("") == nil)
+        #expect(MobileKeychainAccessGroupPolicy.resolve(".dev.cmux.app.beta") == nil)
+        #expect(MobileKeychainAccessGroupPolicy.resolve(
+            "$(AppIdentifierPrefix)dev.cmux.app.beta"
+        ) == nil)
+    }
+}
