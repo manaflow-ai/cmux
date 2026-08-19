@@ -232,7 +232,8 @@ extension PullRequestProbeService {
     nonisolated func branchFetchResult(
         repoSlug: String,
         branch: String,
-        authHeader: String
+        authHeader: String,
+        allowAuthRefresh: Bool = true
     ) async -> WorkspacePullRequestBranchFetchResult {
         guard let endpoint = Self.branchEndpoint(
             repoSlug: repoSlug,
@@ -246,6 +247,33 @@ extension PullRequestProbeService {
             authHeader: authHeader
         ) else {
             debugLog("workspace.prRefresh.branch.fail repo=\(repoSlug) branch=\(branch) status=nil")
+            return .transientFailure
+        }
+
+        if response.statusCode == 401 {
+            // A 401 means the credential itself is no longer accepted. Drop
+            // only the credential used by this request, resolve a replacement,
+            // and retry this branch once. If the replacement is rejected too,
+            // back off the next resolution so an invalid credential cannot
+            // recreate an approval prompt on every sidebar refresh. Other 4xx
+            // responses (notably 403 permission/rate-limit responses) are
+            // intentionally not treated as an auth refresh signal.
+            debugLog(
+                "workspace.prRefresh.authRejected repo=\(repoSlug) branch=\(branch)"
+            )
+            if allowAuthRefresh {
+                await invalidateAuthHeader(ifMatching: authHeader)
+                guard let refreshedAuthHeader = await authHeaderValue() else {
+                    return .transientFailure
+                }
+                return await branchFetchResult(
+                    repoSlug: repoSlug,
+                    branch: branch,
+                    authHeader: refreshedAuthHeader,
+                    allowAuthRefresh: false
+                )
+            }
+            await recordAuthHeaderFailure(ifMatching: authHeader)
             return .transientFailure
         }
 

@@ -6,7 +6,6 @@ extension PullRequestProbeService {
     /// result suppresses transport; GitHub probes never fall back to anonymous
     /// requests.
     nonisolated func authHeaderValue() async -> String? {
-        let environment = ProcessInfo.processInfo.environment
         if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
             let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -25,9 +24,20 @@ extension PullRequestProbeService {
             directory: directory,
             executable: "gh",
             arguments: ["auth", "token"],
-            timeout: Self.probeTimeout
+            timeout: Self.authProbeTimeout
         )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !token.isEmpty else { return nil }
         return "Bearer \(token)"
+    }
+
+    /// Drops a cached CLI credential after GitHub rejects an authenticated
+    /// request. The next probe resolves a fresh credential.
+    nonisolated func invalidateAuthHeader(ifMatching header: String) async {
+        await authHeaderCache.invalidate(ifMatching: header)
+    }
+
+    /// Applies auth-failure backoff after a replacement credential is rejected.
+    nonisolated func recordAuthHeaderFailure(ifMatching header: String) async {
+        await authHeaderCache.recordFailure(ifMatching: header)
     }
 }

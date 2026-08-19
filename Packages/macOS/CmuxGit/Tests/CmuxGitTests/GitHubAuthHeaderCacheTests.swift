@@ -21,6 +21,47 @@ struct GitHubAuthHeaderCacheTests {
         #expect(second == "Bearer first")
         #expect(await resolver.count == 1)
     }
+
+    @Test func failedResolutionUsesExponentialBackoff() async {
+        let clock = MutableDateClock(initial: Date(timeIntervalSince1970: 1_800_000_000))
+        let cache = GitHubAuthHeaderCache(
+            failureBackoffBase: 60,
+            failureBackoffMaximum: 15 * 60,
+            now: { clock.now }
+        )
+        let resolver = HeaderResolutionCounter(values: [nil, nil, "Bearer recovered"])
+
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await resolver.count == 1)
+
+        clock.advance(by: 60)
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await resolver.count == 2)
+
+        // The second failure backs off for two minutes, rather than prompting
+        // again on the next one-minute sidebar refresh.
+        clock.advance(by: 119)
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await resolver.count == 2)
+        clock.advance(by: 1)
+        #expect(await cache.header { await resolver.next() } == "Bearer recovered")
+        #expect(await resolver.count == 3)
+    }
+
+    @Test func matchingInvalidationAllowsCredentialRefresh() async {
+        let cache = GitHubAuthHeaderCache()
+        let resolver = HeaderResolutionCounter(values: ["Bearer first", "Bearer second"])
+
+        #expect(await cache.header { await resolver.next() } == "Bearer first")
+        await cache.invalidate(ifMatching: "Bearer unrelated")
+        #expect(await cache.header { await resolver.next() } == "Bearer first")
+        #expect(await resolver.count == 1)
+
+        await cache.invalidate(ifMatching: "Bearer first")
+        #expect(await cache.header { await resolver.next() } == "Bearer second")
+        #expect(await resolver.count == 2)
+    }
 }
 
 /// A test-only clock whose synchronous read can safely cross the cache actor.
@@ -48,10 +89,10 @@ private final class MutableDateClock: @unchecked Sendable {
 }
 
 private actor HeaderResolutionCounter {
-    private var values: [String]
+    private var values: [String?]
     private(set) var count = 0
 
-    init(values: [String]) {
+    init(values: [String?]) {
         self.values = values
     }
 

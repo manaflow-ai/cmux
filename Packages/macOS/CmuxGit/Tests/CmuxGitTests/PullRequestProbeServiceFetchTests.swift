@@ -23,7 +23,8 @@ struct PullRequestProbeServiceFetchTests {
     private func makeService() -> PullRequestProbeService {
         PullRequestProbeService(
             commandRunner: FixedTokenCommandRunner(),
-            requestCoordinator: GitHubPullRequestRequestCoordinator(session: makeSession())
+            requestCoordinator: GitHubPullRequestRequestCoordinator(session: makeSession()),
+            environment: [:]
         )
     }
 
@@ -174,6 +175,50 @@ struct PullRequestProbeServiceFetchTests {
         #expect(urls.contains { $0.contains("feat/beta") || $0.contains("feat%2Fbeta") })
         #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
     }
+
+    @Test func unauthorizedResponseRefreshesCachedCredentialAndRetriesOnce() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 401, data: Data("{\"message\":\"Bad credentials\"}".utf8)),
+            .init(statusCode: 200, data: listBody(pullRequestJSON(number: 8175, branch: "feat/badge"))),
+        ])
+        let runner = SequencedTokenCommandRunner(tokens: ["token-one", "token-two"])
+        let service = PullRequestProbeService(
+            commandRunner: runner,
+            requestCoordinator: GitHubPullRequestRequestCoordinator(session: makeSession()),
+            environment: [:]
+        )
+
+        let result = await fetch(service: service, branches: ["feat/badge"])
+
+        #expect(entry(from: result)?.pullRequestsByBranch["feat/badge"]?.number == 8175)
+        #expect(await runner.runCount == 2)
+        let requests = PullRequestProbeStubURLProtocol.capturedRequests()
+        #expect(requests.count == 2)
+        #expect(requests.map { $0.value(forHTTPHeaderField: "Authorization") } == [
+            "Bearer token-one",
+            "Bearer token-two",
+        ])
+    }
+
+    @Test func repeatedUnauthorizedResponsesBackOffFurtherCredentialResolution() async {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 401),
+            .init(statusCode: 401),
+        ])
+        let runner = SequencedTokenCommandRunner(tokens: ["token-one", "token-two"])
+        let service = PullRequestProbeService(
+            commandRunner: runner,
+            requestCoordinator: GitHubPullRequestRequestCoordinator(session: makeSession()),
+            environment: [:]
+        )
+
+        _ = await fetch(service: service, branches: ["feat/badge"])
+
+        // The replacement token was rejected too, so the cache's failure
+        // backoff suppresses another `gh auth token` invocation immediately.
+        #expect(await service.authHeaderValue() == nil)
+        #expect(await runner.runCount == 2)
+    }
 }
 
 /// Resolves a stable non-empty auth header so the fetch layer proceeds without a
@@ -187,6 +232,32 @@ private actor FixedTokenCommandRunner: CommandRunning {
     ) async -> CommandResult {
         CommandResult(
             stdout: "ghtok-fixture",
+            stderr: nil,
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+}
+
+private actor SequencedTokenCommandRunner: CommandRunning {
+    private var tokens: [String]
+    private(set) var runCount = 0
+
+    init(tokens: [String]) {
+        self.tokens = tokens
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        runCount += 1
+        let token = tokens.isEmpty ? "token-fallback" : tokens.removeFirst()
+        return CommandResult(
+            stdout: token,
             stderr: nil,
             exitStatus: 0,
             timedOut: false,

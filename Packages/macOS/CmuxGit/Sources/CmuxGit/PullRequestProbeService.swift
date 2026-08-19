@@ -37,6 +37,10 @@ public struct PullRequestProbeService: Sendable {
     /// in DEBUG builds; defaults to a no-op).
     let debugLog: @Sendable (String) -> Void
 
+    /// Environment consulted before falling back to the GitHub CLI. Captured
+    /// at construction so tests can provide a deterministic credential source.
+    let environment: [String: String]
+
     /// Creates a pull-request probe service.
     ///
     /// - Parameters:
@@ -45,15 +49,19 @@ public struct PullRequestProbeService: Sendable {
     ///     Defaults to a process-scoped coordinator; injected (like
     ///     `commandRunner`) so tests can supply one backed by a stub
     ///     `URLSession` without contacting GitHub.
+    ///   - environment: Environment used to find `GH_TOKEN`/`GITHUB_TOKEN`;
+    ///     defaults to the process environment.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
         requestCoordinator: GitHubPullRequestRequestCoordinator? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
         self.authHeaderCache = GitHubAuthHeaderCache()
         self.requestCoordinator = requestCoordinator ?? GitHubPullRequestRequestCoordinator()
+        self.environment = environment
         self.debugLog = debugLog
     }
 
@@ -63,8 +71,11 @@ public struct PullRequestProbeService: Sendable {
     static let repoCacheLifetime: TimeInterval = 15
     /// REST page size for per-branch `head=` pull-request lookups.
     static let repoPageSize = 100
-    /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
+    /// Per-request timeout for GitHub API calls.
     static let probeTimeout: TimeInterval = 5.0
+    /// Timeout for `gh auth token`, allowing an approval-gated credential flow
+    /// to complete without holding the process open indefinitely.
+    static let authProbeTimeout: TimeInterval = 60.0
     /// Merged PRs older than this no longer earn a badge.
     static let mergedBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     /// How often a panel showing a terminal (merged/closed) PR is re-checked.
