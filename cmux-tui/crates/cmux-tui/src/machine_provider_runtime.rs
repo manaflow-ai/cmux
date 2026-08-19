@@ -386,6 +386,9 @@ impl ProviderMachineController {
                                 MachineUpdate::DurableNotice(notice) => {
                                     MachineUpdate::DurableNotice(notice)
                                 }
+                                MachineUpdate::ConnectionProgress { machine_id, message } => {
+                                    MachineUpdate::ConnectionProgress { machine_id, message }
+                                }
                             };
                             if sender.send(update).is_err() {
                                 break;
