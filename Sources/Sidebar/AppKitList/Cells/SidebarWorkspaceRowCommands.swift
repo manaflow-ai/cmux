@@ -639,7 +639,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
         menu.addItem(item(
             String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top"),
-            enabled: !targetIds.isEmpty
+            enabled: tabManager.canMoveTabsToTop(Set(targetIds))
         ) { [weak tabManager, commands] in
             guard let tabManager else { return }
             tabManager.moveTabsToTop(Set(commands.contextMenuWorkspaceIds))
@@ -647,7 +647,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
         menu.addItem(item(
             String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom"),
-            enabled: !targetIds.isEmpty
+            enabled: tabManager.canMoveTabsToBottom(Set(targetIds))
         ) { [weak tabManager, commands] in
             guard let tabManager else { return }
             tabManager.moveTabsToBottom(Set(commands.contextMenuWorkspaceIds))
