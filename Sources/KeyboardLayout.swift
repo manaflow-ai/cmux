@@ -109,16 +109,40 @@ class KeyboardLayout {
     }
     #endif
 
-    /// Return the ASCII-normalized equivalent of `event.charactersIgnoringModifiers`,
-    /// falling back through the ASCII-capable input source for non-Latin input methods.
+    /// Return the ASCII-normalized shortcut characters for an event, falling
+    /// back through the ASCII-capable input source for non-Latin input methods.
     /// Use this wherever code compares raw event characters against Latin shortcut keys.
     static func normalizedCharacters(for event: NSEvent) -> String {
-        let raw = (event.charactersIgnoringModifiers ?? "").lowercased()
-        if raw.allSatisfy(\.isASCII) { return raw }
-        if let layoutChar = character(forKeyCode: event.keyCode, modifierFlags: []) {
-            return layoutChar
+        let flags = ShortcutStroke.normalizedModifierFlags(
+            from: event.modifierFlags
+        )
+        if !flags.contains(.command) {
+            let raw = (event.charactersIgnoringModifiers ?? "").lowercased()
+            let isPrintableASCII = !raw.isEmpty && raw.unicodeScalars.allSatisfy {
+                $0.isASCII && !CharacterSet.controlCharacters.contains($0)
+            }
+            if isPrintableASCII { return raw }
+            return character(forKeyCode: event.keyCode)?.lowercased() ?? raw
         }
-        return raw
+        return normalizedCharacters(
+            for: event,
+            characterResolver: .live(for: event)
+        )
+    }
+
+    /// Normalize with an event-scoped resolver so exact and ASCII fallback
+    /// translations are shared with every shortcut candidate for this event.
+    static func normalizedCharacters(
+        for event: NSEvent,
+        characterResolver: ShortcutEventCharacterResolver
+    ) -> String {
+        assert(characterResolver.event === event)
+        let raw = (characterResolver.primaryCharacters ?? "").lowercased()
+        let isPrintableASCII = !raw.isEmpty && raw.unicodeScalars.allSatisfy {
+            $0.isASCII && !CharacterSet.controlCharacters.contains($0)
+        }
+        if isPrintableASCII { return raw }
+        return characterResolver.asciiFallbackCharacters?.lowercased() ?? raw
     }
 
     private static func characterFromInputSource(

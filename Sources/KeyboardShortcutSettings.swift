@@ -1624,24 +1624,45 @@ struct ShortcutStroke: Equatable, Hashable {
 
     func matches(
         event: NSEvent,
-        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        layoutCharacterProvider: @escaping (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        let shortcutKey = key.lowercased()
-        if shortcutKey.hasPrefix("media.") {
-            guard let eventMediaKey = Self.mediaKey(from: event)?.key.lowercased() else {
-                return false
-            }
-            return eventMediaKey == shortcutKey &&
-                Self.normalizedModifierFlags(from: event.modifierFlags) == modifierFlags
+        let preparation = matchPreparation(for: event)
+        if let result = preparation.resolvedResult {
+            return result
         }
-
-        guard event.type == .keyDown else { return false }
-
-        return matches(
-            keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
-            modifierFlags: event.modifierFlags,
-            eventCharacter: event.charactersIgnoringModifiers,
+        let characterResolver = ShortcutEventCharacterResolver.live(
+            for: event,
             layoutCharacterProvider: layoutCharacterProvider
+        )
+        return matchesCharacters(
+            keyCode: preparation.keyCode,
+            flags: preparation.flags,
+            shortcutKey: preparation.shortcutKey,
+            eventCharacter: characterResolver.primaryCharacters,
+            layoutCharacterProvider: { _, _ in
+                characterResolver.asciiFallbackCharacters
+            }
+        )
+    }
+
+    func matches(
+        event: NSEvent,
+        characterResolver: @autoclosure () -> ShortcutEventCharacterResolver
+    ) -> Bool {
+        let preparation = matchPreparation(for: event)
+        if let result = preparation.resolvedResult {
+            return result
+        }
+        let characterResolver = characterResolver()
+        assert(characterResolver.event === event)
+        return matchesCharacters(
+            keyCode: preparation.keyCode,
+            flags: preparation.flags,
+            shortcutKey: preparation.shortcutKey,
+            eventCharacter: characterResolver.primaryCharacters,
+            layoutCharacterProvider: { _, _ in
+                characterResolver.asciiFallbackCharacters
+            }
         )
     }
 
@@ -1654,22 +1675,89 @@ struct ShortcutStroke: Equatable, Hashable {
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
         guard flags == self.modifierFlags else { return false }
 
+        let shortcutKey = key.lowercased()
+        if let directMatch = directKeyCodeMatch(
+            keyCode: keyCode,
+            shortcutKey: shortcutKey
+        ) {
+            return directMatch
+        }
+
+        return matchesCharacters(
+            keyCode: keyCode,
+            flags: flags,
+            shortcutKey: shortcutKey,
+            eventCharacter: eventCharacter,
+            layoutCharacterProvider: layoutCharacterProvider
+        )
+    }
+
+    private func matchPreparation(
+        for event: NSEvent
+    ) -> (
+        resolvedResult: Bool?,
+        keyCode: UInt16,
+        flags: NSEvent.ModifierFlags,
+        shortcutKey: String
+    ) {
+        let shortcutKey = key.lowercased()
+        let flags = Self.normalizedModifierFlags(from: event.modifierFlags)
+        if shortcutKey.hasPrefix("media.") {
+            guard let eventMediaKey = Self.mediaKey(from: event)?.key.lowercased() else {
+                return (false, event.keyCode, flags, shortcutKey)
+            }
+            return (
+                eventMediaKey == shortcutKey
+                    && flags == modifierFlags,
+                event.keyCode,
+                flags,
+                shortcutKey
+            )
+        }
+
+        guard event.type == .keyDown else {
+            return (false, event.keyCode, flags, shortcutKey)
+        }
+        guard flags == modifierFlags else {
+            return (false, event.keyCode, flags, shortcutKey)
+        }
+
+        let keyCode = Self.recordableKey(from: event)?.keyCode ?? event.keyCode
+        if let directMatch = directKeyCodeMatch(
+            keyCode: keyCode,
+            shortcutKey: shortcutKey
+        ) {
+            return (directMatch, keyCode, flags, shortcutKey)
+        }
+        return (nil, keyCode, flags, shortcutKey)
+    }
+
+    private func directKeyCodeMatch(
+        keyCode: UInt16,
+        shortcutKey: String
+    ) -> Bool? {
         if let recordedKeyCode = self.keyCode {
             return keyCode == recordedKeyCode
         }
-
-        let shortcutKey = key.lowercased()
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
-            guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
+            guard let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) else {
                 return false
             }
             return keyCode == expectedKeyCode
         }
-
         if shortcutKey == "\r" {
             return keyCode == 36 || keyCode == 76
         }
+        return nil
+    }
 
+    private func matchesCharacters(
+        keyCode: UInt16,
+        flags: NSEvent.ModifierFlags,
+        shortcutKey: String,
+        eventCharacter: String?,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+    ) -> Bool {
         if Self.shortcutCharacterMatches(
             eventCharacter: eventCharacter,
             shortcutKey: shortcutKey,
@@ -1703,7 +1791,7 @@ struct ShortcutStroke: Equatable, Hashable {
             return false
         }
 
-        let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
+        let layoutCharacter = layoutCharacterProvider(keyCode, flags)
         if Self.shortcutCharacterMatches(
             eventCharacter: layoutCharacter,
             shortcutKey: shortcutKey,
@@ -2252,10 +2340,21 @@ struct StoredShortcut: Codable, Equatable, Hashable {
 
     func matches(
         event: NSEvent,
-        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        layoutCharacterProvider: @escaping (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
         guard !isUnbound, !hasChord else { return false }
         return firstStroke.matches(event: event, layoutCharacterProvider: layoutCharacterProvider)
+    }
+
+    func matches(
+        event: NSEvent,
+        characterResolver: @autoclosure () -> ShortcutEventCharacterResolver
+    ) -> Bool {
+        guard !isUnbound, !hasChord else { return false }
+        return firstStroke.matches(
+            event: event,
+            characterResolver: characterResolver()
+        )
     }
 
     func matches(

@@ -228,7 +228,8 @@ struct ViewerNavigationTests {
                 simulatorFocused: false,
                 rightSidebarFocused: false,
                 shortcutContext: shortcutContext
-            )
+            ),
+            characterResolver: .live(for: event)
         )
 
         #expect(contextAwareCommandPaletteSelectionDelta(for: event) == nil)
@@ -380,7 +381,8 @@ struct ViewerNavigationTests {
                 simulatorFocused: false,
                 rightSidebarFocused: false,
                 shortcutContext: shortcutContext
-            )
+            ),
+            characterResolver: .live(for: event)
         )
     }
 

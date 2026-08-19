@@ -232,7 +232,7 @@ private struct GlobalSearchPaletteView: View {
         if flags.contains(.command),
            !flags.contains(.option),
            !flags.contains(.control),
-           let rawDigit = event.charactersIgnoringModifiers,
+           let rawDigit = event.characters,
            let digit = Int(rawDigit),
            (1...9).contains(digit) {
             openResult(at: digit - 1)
@@ -256,15 +256,10 @@ private struct GlobalSearchPaletteView: View {
             if flags.contains(.command),
                !flags.contains(.option),
                !flags.contains(.control) {
-                return !event.queryOwnsEditingShortcut && !isSystemCommand(event)
+                return !event.queryOwnsEditingShortcut && !event.isSystemCommand
             }
             return false
         }
-    }
-
-    private func isSystemCommand(_ event: GlobalSearchKeyEvent) -> Bool {
-        guard let characters = event.charactersIgnoringModifiers?.lowercased() else { return false }
-        return ["h", "m", "q", "w", ","].contains(characters)
     }
 
     private func openSelectedResult() {

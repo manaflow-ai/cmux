@@ -6,7 +6,7 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     keyCode: UInt16,
     nextShortcut: StoredShortcut?,
     previousShortcut: StoredShortcut?,
-    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    layoutCharacterProvider: @escaping (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Int? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -43,12 +43,48 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+private func commandPaletteSelectionDeltaForKeyboardNavigation(
+    event: NSEvent,
+    nextShortcut: StoredShortcut?,
+    previousShortcut: StoredShortcut?,
+    characterResolver: ShortcutEventCharacterResolver
+) -> Int? {
+    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(
+        from: event.modifierFlags
+    )
+    if normalizedFlags.isEmpty {
+        switch event.keyCode {
+        case 125: return 1
+        case 126: return -1
+        default: break
+        }
+    }
+
+    if nextShortcut?.hasChord == false,
+       nextShortcut?.matches(
+           event: event,
+           characterResolver: characterResolver
+       ) == true {
+        return 1
+    }
+
+    if previousShortcut?.hasChord == false,
+       previousShortcut?.matches(
+           event: event,
+           characterResolver: characterResolver
+       ) == true {
+        return -1
+    }
+
+    return nil
+}
+
 @MainActor
 func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
-    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    layoutCharacterProvider: @escaping (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Int? {
     commandPaletteSelectionDeltaForKeyboardNavigation(
         flags: flags,
@@ -62,7 +98,8 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 
 @MainActor
 func contextAwareCommandPaletteSelectionDelta(
-    for event: NSEvent
+    for event: NSEvent,
+    characterResolver: ShortcutEventCharacterResolver? = nil
 ) -> Int? {
     let normalizedFlags = event.modifierFlags
         .intersection(.deviceIndependentFlagsMask)
@@ -75,7 +112,15 @@ func contextAwareCommandPaletteSelectionDelta(
         }
     }
 
-    let characters = event.characters ?? event.charactersIgnoringModifiers ?? ""
+    var cachedCharacterResolver = characterResolver
+    func resolveCharacters() -> ShortcutEventCharacterResolver {
+        if let cachedCharacterResolver {
+            return cachedCharacterResolver
+        }
+        let resolved = ShortcutEventCharacterResolver.live(for: event)
+        cachedCharacterResolver = resolved
+        return resolved
+    }
     for (action, delta) in [
         (KeyboardShortcutSettings.Action.commandPaletteNext, 1),
         (.commandPalettePrevious, -1),
@@ -83,10 +128,8 @@ func contextAwareCommandPaletteSelectionDelta(
         guard let shortcut = KeyboardShortcutSettings.shortcutIfBound(for: action),
               !shortcut.hasChord,
               shortcut.matches(
-                keyCode: event.keyCode,
-                modifierFlags: event.modifierFlags,
-                eventCharacter: characters,
-                layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+                event: event,
+                characterResolver: resolveCharacters()
               ),
               AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) != false else { continue }
         return delta
@@ -100,7 +143,12 @@ func commandPaletteSelectionDeltaForFieldEditorCommand(
     event: NSEvent?,
     nextShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
     previousShortcut: StoredShortcut? = KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious),
-    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    exactCharacterProvider: @escaping ShortcutEventCharacterResolver.ExactCharacterProvider = {
+        event,
+        modifiers in
+        event.characters(byApplyingModifiers: modifiers)
+    },
+    layoutCharacterProvider: @escaping (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Int? {
     let selectorDelta: Int
     switch commandSelector {
@@ -120,13 +168,16 @@ func commandPaletteSelectionDeltaForFieldEditorCommand(
         return shortcut == defaultShortcut ? selectorDelta : nil
     }
 
+    let characterResolver = ShortcutEventCharacterResolver(
+        event: event,
+        exactCharacterProvider: exactCharacterProvider,
+        layoutCharacterProvider: layoutCharacterProvider
+    )
     if let eventDelta = commandPaletteSelectionDeltaForKeyboardNavigation(
-        flags: event.modifierFlags,
-        chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-        keyCode: event.keyCode,
+        event: event,
         nextShortcut: nextShortcut,
         previousShortcut: previousShortcut,
-        layoutCharacterProvider: layoutCharacterProvider
+        characterResolver: characterResolver
     ),
        eventDelta == selectorDelta {
         return eventDelta

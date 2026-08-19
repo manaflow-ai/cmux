@@ -34,22 +34,29 @@ final class RightSidebarModeShortcutMatcher {
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
     ) -> RightSidebarMode? {
+        modeShortcut(
+            for: event,
+            characterResolver: .live(
+                for: event,
+                layoutCharacterProvider: layoutCharacterProvider
+            ),
+            allowingAction: allowingAction
+        )
+    }
+
+    func modeShortcut(
+        for event: NSEvent,
+        characterResolver: @autoclosure () -> ShortcutEventCharacterResolver,
+        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
+    ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         guard let entries = entriesByModifierRawValue[flags.rawValue] else { return nil }
-        var didResolveLayoutCharacter = false
-        var layoutCharacter: String?
-        let cachedLayoutCharacterProvider: LayoutCharacterProvider = { [layoutCharacterProvider] keyCode, modifiers in
-            if !didResolveLayoutCharacter {
-                layoutCharacter = layoutCharacterProvider(keyCode, modifiers)
-                didResolveLayoutCharacter = true
-            }
-            return layoutCharacter
-        }
+        let characterResolver = characterResolver()
         for entry in entries {
             guard entry.shortcut.matches(
                 event: event,
-                layoutCharacterProvider: cachedLayoutCharacterProvider
+                characterResolver: characterResolver
             ), availability(entry.mode), allowingAction(entry.action) else { continue }
             return entry.mode
         }
