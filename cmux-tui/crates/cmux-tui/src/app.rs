@@ -6975,7 +6975,9 @@ fn run_status_segment_loop(
 /// draw path and the value cannot change within one process.
 fn cached_status_user() -> &'static str {
     static USER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    USER.get_or_init(|| std::env::var("USER").unwrap_or_default())
+    USER.get_or_init(|| {
+        std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
+    })
 }
 
 fn run_status_command(argv: &[String], timeout: Duration, stop: &AtomicBool) -> String {
@@ -7104,7 +7106,12 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
         if matches!(child.try_wait(), Ok(Some(_))) {
             break;
         }
-        if stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+        // Bound the file while the command runs: a spewing command is
+        // killed once the file passes the cap, so it cannot fill the
+        // temporary volume for the rest of the timeout.
+        let oversized = std::fs::metadata(&path)
+            .is_ok_and(|metadata| metadata.len() > MAX_STATUS_OUTPUT_BYTES as u64);
+        if oversized || stop.load(Ordering::Acquire) || Instant::now() >= deadline {
             if let Ok(job) = job.as_ref() {
                 job.terminate();
             }
@@ -9795,6 +9802,14 @@ impl App {
     fn shutdown_background_workers(&mut self) {
         if let Some(stop) = self.status_command_worker_stop.take() {
             stop.store(true, Ordering::Release);
+        }
+        // Join, so a status command's process group is reaped before exit.
+        // The capture loop observes the flag every poll tick, so each join
+        // is bounded by that tick.
+        for handle in
+            self.status_command_workers.drain(..).chain(self.retiring_status_workers.drain(..))
+        {
+            let _ = handle.join();
         }
         self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
@@ -23401,6 +23416,7 @@ mod tests {
         mux.close_surface(hidden.id).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn status_command_runner_returns_last_clean_line() {
         let run = AtomicBool::new(false);
@@ -23505,6 +23521,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn user_command_action_runs_configured_argv_in_a_new_tab() {
         let (mux, _surface) = test_mux("user-command-run-test", None);
