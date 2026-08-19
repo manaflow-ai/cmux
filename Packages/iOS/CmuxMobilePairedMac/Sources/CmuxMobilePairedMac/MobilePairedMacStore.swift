@@ -744,7 +744,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             if let routeWriteCondition {
                 switch routeWriteCondition {
                 case .matchingInstanceTag(let expectedInstanceTag):
-                    guard let current, current.instanceTag == expectedInstanceTag else { return }
+                    guard let current,
+                          CmxMacAppInstanceIdentity(
+                              macDeviceID: current.macDeviceID,
+                              instanceTag: current.instanceTag
+                          ).id == CmxMacAppInstanceIdentity(
+                              macDeviceID: macDeviceID,
+                              instanceTag: expectedInstanceTag
+                          ).id else { return }
                 case .unclaimed:
                     guard current?.instanceTag == nil else { return }
                 }

@@ -253,7 +253,7 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
 
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let matches = records.filter {
-            $0.macDeviceID == macDeviceID
+            cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
                 && $0.stackUserID == stackUserID
                 && $0.teamID == teamID
         }

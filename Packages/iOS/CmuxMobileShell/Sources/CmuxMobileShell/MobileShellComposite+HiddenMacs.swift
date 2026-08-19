@@ -113,7 +113,13 @@ extension MobileShellComposite {
         for index in registryDevices.indices
         where registryDevices[index].deviceId == identity.macDeviceID {
             registryDevices[index].instances.removeAll { instance in
-                instance.tag == identity.instanceTag
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: instance.tag
+                ).id == CmxMacAppInstanceIdentity(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag
+                ).id
             }
         }
         registryDevices.removeAll { $0.instances.isEmpty }
