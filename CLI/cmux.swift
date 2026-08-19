@@ -25248,6 +25248,19 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
+
+                // A stale or duplicated Claude hook configuration can invoke
+                // this command for a child-agent lifecycle event. The command
+                // name alone is not enough to establish a parent turn stop:
+                // only an explicit top-level `Stop` may settle status or emit
+                // completion attention. Keep the event in Feed as telemetry.
+                guard shouldApplyClaudeStopVisibleMutation(parsedInput) else {
+                    telemetry.breadcrumb("claude-hook.stop.non-parent-event")
+                    sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+                    printClaudeHookAck()
+                    return
+                }
+
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
 
                 guard shouldApplyClaudeHookVisibleMutation(
@@ -33207,22 +33220,17 @@ export default CMUXSessionRestore;
         socketPassword: String? = nil
     ) {
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
-        let reportedHookEventName = parsedInput.object.flatMap {
-            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-        } ?? parsedInput.rawObject.flatMap {
-            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-        }
+        let reportedEvent = reportedHookEventName(from: parsedInput)
         let hookEventName: String
-        if source == "codex",
-           let reportedHookEventName,
-           reportedHookEventName.replacingOccurrences(of: "_", with: "").lowercased()
-               == "permissionrequest" {
-            // A single notification handler now owns Codex PermissionRequest.
-            // Preserve the existing non-blocking Feed classification while that
-            // same handler drives the needs-input lifecycle and alert.
+        if let reportedEvent,
+           (source == "claude" || source == "codex") {
+            // Preserve an explicit lifecycle discriminator when a command
+            // entrypoint was selected by stale/duplicated settings. The
+            // classifier keeps approval semantics (including Codex's native
+            // PermissionRequest) non-blocking where required.
             hookEventName = FeedEventClassifier.classify(
                 source: source,
-                event: reportedHookEventName,
+                event: reportedEvent,
                 toolName: ""
             ).hookEventName
         } else {
