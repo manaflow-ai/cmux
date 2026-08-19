@@ -142,6 +142,41 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await recorder.freed == [UInt(bitPattern: surface)])
     }
 
+    @Test func standaloneFenceTicketReleasesAfterFence() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let fenceStarted = AsyncStream<Void>.makeStream()
+        let releaseFence = AsyncStream<Void>.makeStream()
+        let cleanupFinished = AsyncStream<Void>.makeStream()
+        defer {
+            fenceStarted.continuation.finish()
+            releaseFence.continuation.finish()
+            cleanupFinished.continuation.finish()
+        }
+
+        let ticket = coordinator.enqueueRuntimeTeardownFence(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.standaloneFence",
+            fence: {
+                fenceStarted.continuation.yield()
+                var iterator = releaseFence.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            },
+            onCompletion: {
+                cleanupFinished.continuation.yield(())
+            }
+        )
+
+        var fenceIterator = fenceStarted.stream.makeAsyncIterator()
+        _ = await fenceIterator.next()
+        #expect(await ticket.wait(timeout: .zero) == false)
+        releaseFence.continuation.yield(())
+
+        var cleanupIterator = cleanupFinished.stream.makeAsyncIterator()
+        #expect(await cleanupIterator.next() != nil)
+        #expect(await ticket.wait(timeout: .seconds(1)))
+    }
+
     @Test func teardownsForMultipleSurfacesAllFree() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()

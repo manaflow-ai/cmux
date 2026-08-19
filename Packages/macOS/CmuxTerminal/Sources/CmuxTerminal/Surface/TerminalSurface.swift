@@ -297,6 +297,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
+    var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?

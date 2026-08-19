@@ -9,8 +9,8 @@ internal import os
 /// tmux notifications arrive on the main actor, so invoking that parser inline
 /// can park the UI indefinitely while a renderer or a stale native owner holds
 /// the mutex. Each runtime generation gets its own lane; closing a generation
-/// cancels queued work, while teardown drains the one operation that may already
-/// be inside Ghostty before freeing the native surface. The unchecked
+/// rejects new work while preserving FIFO order for already-admitted work, and
+/// teardown drains that work before freeing the native surface. The unchecked
 /// sendability is safe because the queue and lifecycle gate are the only
 /// mutable state; the borrowed surface pointer is used only by queued work and
 /// is drained before its owner frees it.
@@ -31,47 +31,58 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
 
     /// Enqueues one ordered output batch and its refresh signal.
     func enqueue(_ data: Data, to surface: ghostty_surface_t) {
-        guard !data.isEmpty, isOpen.withLock({ $0 }) else { return }
+        guard !data.isEmpty else { return }
         // Raw pointers are represented as bits across the Sendable queue
         // boundary; the lane fence owns the native lifetime until this work
         // has completed.
         let surfaceBits = UInt(bitPattern: surface)
-        queue.async { [isOpen, surfaceBits] in
-            guard isOpen.withLock({ $0 }) else { return }
-            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
-                return
-            }
-            data.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+        isOpen.withLock { isOpen in
+            guard isOpen else { return }
+            // Admission and queue submission share the gate with `close()`,
+            // so every accepted operation is ahead of the drain fence.
+            queue.async { [surfaceBits] in
+                guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
                     return
                 }
-                ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+                data.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                        return
+                    }
+                    ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+                }
+                ghostty_surface_refresh(surface)
             }
-            ghostty_surface_refresh(surface)
         }
     }
 
     /// Enqueues manual text input behind earlier remote output.
     @discardableResult
     func enqueueTextInput(_ data: Data, to surface: ghostty_surface_t) -> Bool {
-        guard !data.isEmpty, isOpen.withLock({ $0 }) else { return false }
+        guard !data.isEmpty else { return false }
         let surfaceBits = UInt(bitPattern: surface)
-        queue.async { [isOpen, surfaceBits] in
-            guard isOpen.withLock({ $0 }) else { return }
-            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
-                return
-            }
-            data.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+        return isOpen.withLock { isOpen in
+            guard isOpen else { return false }
+            // Keep queue submission inside the same admission critical
+            // section as `close()`; the native call itself remains outside it.
+            queue.async { [surfaceBits] in
+                guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
                     return
                 }
-                ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
+                data.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                        return
+                    }
+                    ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
+                }
             }
+            return true
         }
-        return true
     }
 
-    /// Prevents queued work for this runtime generation from touching its pointer.
+    /// Stops admission of new work for this runtime generation.
+    ///
+    /// Operations accepted before this call remain in FIFO order and are
+    /// drained before native teardown; later submissions are rejected.
     func close() {
         isOpen.withLock { $0 = false }
     }
@@ -82,6 +93,9 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
     /// If Ghostty is wedged inside an already-running operation, only the lane
     /// worker remains blocked until that native call returns.
     func drain() async {
+        // `close()` and every queue submission use the same gate. Once close
+        // returns, all accepted operations have already been submitted, so
+        // this FIFO fence necessarily follows them.
         close()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async {

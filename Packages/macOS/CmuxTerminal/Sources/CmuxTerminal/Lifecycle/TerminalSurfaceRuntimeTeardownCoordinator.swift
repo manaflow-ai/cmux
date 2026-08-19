@@ -124,6 +124,42 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
     }
 
+    /// Enqueues an asynchronous lifecycle fence without freeing a native surface.
+    ///
+    /// This is used when a wrapper has already observed an out-of-band native
+    /// free: retained callback userdata still needs a joinable lane fence, but
+    /// calling `ghostty_surface_free` again would be invalid.
+    ///
+    /// - Parameters:
+    ///   - id: A unique teardown-operation id used for timeout bookkeeping.
+    ///   - workspaceId: The owning workspace id for diagnostics.
+    ///   - reason: The teardown reason for diagnostics.
+    ///   - fence: The asynchronous operation that must finish first.
+    ///   - onCompletion: Main-actor cleanup performed after the fence.
+    /// - Returns: A ticket that completes after the fence and cleanup.
+    @discardableResult
+    nonisolated func enqueueRuntimeTeardownFence(
+        id: UUID,
+        workspaceId: UUID,
+        reason: String,
+        fence: @escaping @Sendable () async -> Void,
+        onCompletion: @escaping @MainActor @Sendable () -> Void
+    ) -> TerminalSurfaceRuntimeTeardownTicket {
+        let completion = TerminalSurfaceRuntimeTeardownCompletion()
+        let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
+        Task {
+            await self.enqueueRuntimeTeardownFence(
+                id: id,
+                workspaceId: workspaceId,
+                reason: reason,
+                fence: fence,
+                onCompletion: onCompletion,
+                completion: completion
+            )
+        }
+        return ticket
+    }
+
     /// Queues a native-surface free that also transports the surface's other
     /// retained callback userdata.
     ///
@@ -243,6 +279,25 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
         queuedCloseRequests.append(request)
         startAvailableCloseTeardowns()
+    }
+
+    private func enqueueRuntimeTeardownFence(
+        id: UUID,
+        workspaceId: UUID,
+        reason: String,
+        fence: @escaping @Sendable () async -> Void,
+        onCompletion: @escaping @MainActor @Sendable () -> Void,
+        completion: TerminalSurfaceRuntimeTeardownCompletion
+    ) async {
+        pendingReasonsById[id] =
+            "\(reason) workspace=\(workspaceId.uuidString.prefix(5))"
+        Task {
+            await self.observeTimeout(id: id)
+        }
+        await fence()
+        await onCompletion()
+        await completion.finish()
+        complete(id: id)
     }
 
     private func startAvailableCloseTeardowns() {

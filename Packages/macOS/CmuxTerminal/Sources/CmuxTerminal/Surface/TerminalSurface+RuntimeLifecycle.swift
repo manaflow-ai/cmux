@@ -173,6 +173,17 @@ extension TerminalSurface {
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease
             )
+            staleRuntimeResourceReleaseTicket = runtimeTeardown.enqueueRuntimeTeardownFence(
+                id: UUID(),
+                workspaceId: tabId,
+                reason: "stale",
+                fence: {
+                    await retiredRemoteOutputLane.drain()
+                },
+                onCompletion: {
+                    staleRuntimeResources.release()
+                }
+            )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -188,10 +199,6 @@ extension TerminalSurface {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            Task { @MainActor in
-                await retiredRemoteOutputLane.drain()
-                staleRuntimeResources.release()
-            }
             return nil
         }
         return surface
