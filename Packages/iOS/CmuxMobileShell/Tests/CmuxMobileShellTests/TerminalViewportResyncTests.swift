@@ -262,7 +262,7 @@ import Testing
 }
 
 @MainActor
-@Test func unbarrieredViewportTransitionFailsOpenAfterWatchdogDeadline() async throws {
+@Test func viewportTransitionWatchdogRetriesWithoutOpeningBarrier() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -275,7 +275,11 @@ import Testing
     )
     let surfaceID = "live-terminal"
 
-    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "watchdog-replay",
+    ])
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
@@ -299,13 +303,18 @@ import Testing
     #expect(watchdogArmed)
 
     watchdogClock.advance(by: .seconds(3))
-    let failedOpen = try await pollUntil {
-        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    let retryRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 4
     }
     #expect(
-        failedOpen,
-        "a dropped settled-grid event must release the barrier after its deadline"
+        retryRequested,
+        "a dropped settled-grid event must request another authoritative replay"
     )
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+
+    let retryChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
     store.deliverTerminalBytes(Data("live-after-watchdog".utf8), surfaceID: surfaceID)
     let liveChunk = try #require(await iterator.next())

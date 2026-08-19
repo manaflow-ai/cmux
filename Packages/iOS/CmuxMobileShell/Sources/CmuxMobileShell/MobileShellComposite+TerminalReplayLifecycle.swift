@@ -483,6 +483,7 @@ extension MobileShellComposite {
         let clock = controlPlaneSchedulingClock
         terminalReplayBarrierWatchdogTasksBySurfaceID[surfaceID] = Task {
             @MainActor [weak self] in
+            var shouldRearmAfterTimeout = false
             defer {
                 if let self,
                    self.terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID]
@@ -493,6 +494,12 @@ extension MobileShellComposite {
                         .removeValue(forKey: surfaceID)
                     self.terminalReplayBarrierWatchdogTokensBySurfaceID
                         .removeValue(forKey: surfaceID)
+                    if shouldRearmAfterTimeout {
+                        self.armTerminalReplayBarrierWatchdog(
+                            surfaceID: surfaceID,
+                            token: token
+                        )
+                    }
                 }
             }
             do {
@@ -511,11 +518,12 @@ extension MobileShellComposite {
                 return
             }
             MobileDebugLog.anchormux(
-                "terminal.output.replay_barrier_viewport_transition_timeout surface=\(surfaceID)"
+                "terminal.output.replay_barrier_viewport_transition_retry surface=\(surfaceID)"
             )
-            _ = self.failOpenTerminalReplayBarrier(
+            shouldRearmAfterTimeout = !self.requestTerminalReplayForCurrentBarrier(
                 surfaceID: surfaceID,
-                token: token,
+                replayBarrierToken: token,
+                coveredReplayBarrierDroppedOutputCount: nil,
                 reason: "viewport_transition_timeout"
             )
         }
