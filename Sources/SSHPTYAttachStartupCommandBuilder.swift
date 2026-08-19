@@ -128,7 +128,12 @@ enum SSHPTYAttachStartupCommandBuilder {
             )
         }
         if let postAuthenticationCommand = normalized(auth.postAuthenticationCommand) {
-            lines.append("  \(postAuthenticationCommand)")
+            lines += [
+                "  \(postAuthenticationCommand)",
+                "  cmux_ssh_post_auth_status=$?",
+                "  if [ \"$cmux_ssh_post_auth_status\" -ne 0 ]; then return \"$cmux_ssh_post_auth_status\"; fi",
+                "  unset cmux_ssh_post_auth_status",
+            ]
         }
         lines += [
             "unset cmux_ssh_auth_status",
