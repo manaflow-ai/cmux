@@ -550,7 +550,7 @@ struct SidebarWorkspaceTableTests {
             for index in rowRects.indices.dropLast() {
                 #expect(
                     rowRects[index].maxY <= rowRects[index + 1].minY,
-                    "row \\(index) overlaps row \\(index + 1) after reorder/height pass \\(pass)"
+                    "row \(index) overlaps row \(index + 1) after reorder/height pass \(pass)"
                 )
             }
             for index in updatedRows.indices {
