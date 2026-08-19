@@ -341,6 +341,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   surfaceView.window != nil,
                   let store,
                   let viewportReportScheduler else { return }
+            if let minimumReportID = outputStartMinimumViewportReportID,
+               reportID < minimumReportID {
+                MobileDebugLog.anchormux(
+                    "terminal.output.stale_viewport_callback surface=\(surfaceID) "
+                        + "report=\(reportID) minimum=\(minimumReportID)"
+                )
+                return
+            }
             if let outputStartContinuation {
                 guard let preparation = store.prepareTerminalViewport(
                     surfaceID: surfaceID,

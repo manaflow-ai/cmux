@@ -450,6 +450,7 @@ extension MobileShellComposite {
             .removeValue(forKey: surfaceID)?
             .cancel()
         terminalReplayBarrierWatchdogIDsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierWatchdogTokensBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     func cancelAllTerminalReplayBarrierWatchdogs() {
@@ -458,6 +459,7 @@ extension MobileShellComposite {
         }
         terminalReplayBarrierWatchdogTasksBySurfaceID = [:]
         terminalReplayBarrierWatchdogIDsBySurfaceID = [:]
+        terminalReplayBarrierWatchdogTokensBySurfaceID = [:]
     }
 
     func armTerminalReplayBarrierWatchdog(
@@ -467,9 +469,17 @@ extension MobileShellComposite {
         guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
             return
         }
+        if terminalReplayBarrierWatchdogTasksBySurfaceID[surfaceID] != nil,
+           terminalReplayBarrierWatchdogTokensBySurfaceID[surfaceID] == token {
+            // Re-registering a replacement output consumer must preserve the
+            // original deadline. Resetting this task on every registration
+            // can keep a blocked surface alive forever under repeated churn.
+            return
+        }
         cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         let watchdogID = UUID()
         terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID] = watchdogID
+        terminalReplayBarrierWatchdogTokensBySurfaceID[surfaceID] = token
         let clock = controlPlaneSchedulingClock
         terminalReplayBarrierWatchdogTasksBySurfaceID[surfaceID] = Task {
             @MainActor [weak self] in
@@ -480,6 +490,8 @@ extension MobileShellComposite {
                     self.terminalReplayBarrierWatchdogIDsBySurfaceID
                         .removeValue(forKey: surfaceID)
                     self.terminalReplayBarrierWatchdogTasksBySurfaceID
+                        .removeValue(forKey: surfaceID)
+                    self.terminalReplayBarrierWatchdogTokensBySurfaceID
                         .removeValue(forKey: surfaceID)
                 }
             }

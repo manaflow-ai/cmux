@@ -221,6 +221,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var terminalPresentationIsActive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var outputStartViewportTimeouts = 0
+        var outputStartMinimumViewportReportID: UInt64?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
@@ -599,7 +600,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView.setLiveFontSize(points)
                 }
             }
-            surfaceView.requestViewportReportForMount()
+            outputStartMinimumViewportReportID =
+                surfaceView.requestViewportReportForMount()
         }
 
         /// Called by the recovery alert's Retry action. A retry is an explicit
@@ -683,7 +685,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
                 outputStartViewportTimeouts += 1
                 surfaceView?.retryViewportReport()
-                surfaceView?.requestViewportReportForMount()
+                surfaceView?.requestViewportReportForMount(
+                    invalidatingPendingReports: false
+                )
                 MobileDebugLog.anchormux(
                     "terminal.output.start_viewport_timeout surface=\(surfaceID) "
                         + "attempt=\(outputStartViewportTimeouts)/\(Self.maximumOutputStartViewportTimeouts)"
@@ -800,6 +804,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTaskGeneration &+= 1
             outputStartReady = false
             outputStartViewportTimeouts = 0
+            outputStartMinimumViewportReportID = nil
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil

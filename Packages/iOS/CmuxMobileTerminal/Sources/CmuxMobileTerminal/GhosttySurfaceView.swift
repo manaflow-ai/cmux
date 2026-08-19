@@ -4054,8 +4054,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Require a fresh settled viewport report whenever this view mounts.
     /// Reuses the last measured grid as a candidate, while later layout passes
     /// may supersede it before the debounce finishes.
-    public func requestViewportReportForMount() {
-        viewportReportRetries = 0
+    @discardableResult
+    public func requestViewportReportForMount(
+        invalidatingPendingReports: Bool = true
+    ) -> UInt64 {
+        if invalidatingPendingReports {
+            // A report callback can outlive the mount that emitted it. Move
+            // the report sequence past every callback already in flight so a
+            // retired mount cannot be accepted by the new coordinator.
+            viewportReportID &+= 1
+        }
+        if invalidatingPendingReports {
+            viewportReportRetries = 0
+        }
         if let pending = lastReportedSize,
            pending.columns > 0,
            pending.rows > 0 {
@@ -4064,6 +4075,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         } else {
             setNeedsGeometrySync(reassertNaturalSize: true)
         }
+        return viewportReportID
     }
 
     /// Re-arm the debounced viewport report after a round-trip returned no
