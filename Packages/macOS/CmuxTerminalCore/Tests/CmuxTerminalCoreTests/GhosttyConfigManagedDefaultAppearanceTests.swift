@@ -9,7 +9,7 @@ import Testing
 /// cmux's managed default terminal theme ("Apple System Colors") applies only
 /// when enabled and the user has no effective Ghostty settings. Any configured
 /// directive preserves Ghostty's own resolved base and user overrides.
-@Suite struct GhosttyConfigManagedDefaultAppearanceTests {
+@Suite(.serialized) struct GhosttyConfigManagedDefaultAppearanceTests {
     private func withTempConfigDir(
         body: (_ dir: URL) throws -> Void
     ) throws {

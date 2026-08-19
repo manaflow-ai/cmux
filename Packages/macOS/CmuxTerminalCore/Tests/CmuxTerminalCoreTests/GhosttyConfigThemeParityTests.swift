@@ -19,6 +19,10 @@ import Testing
     private struct ColorSnapshot: Equatable {
         let foreground: String
         let background: String
+        let cursor: String
+        let cursorText: String
+        let selectionBackground: String
+        let selectionForeground: String
         let palette: [Int: String]
     }
 
@@ -117,11 +121,19 @@ import Testing
                 light: snapshot(
                     foreground: "#000000",
                     background: "#FEFFFF",
+                    cursor: "#98989D",
+                    cursorText: "#FFFFFF",
+                    selectionBackground: "#ABD8FF",
+                    selectionForeground: "#000000",
                     palette: Self.managedLightPalette
                 ),
                 dark: snapshot(
                     foreground: "#FFFFFF",
                     background: "#1E1E1E",
+                    cursor: "#98989D",
+                    cursorText: "#FFFFFF",
+                    selectionBackground: "#3F638B",
+                    selectionForeground: "#FFFFFF",
                     palette: Self.managedDarkPalette
                 ),
                 changesWithAppearance: true
@@ -237,6 +249,10 @@ import Testing
         return ColorSnapshot(
             foreground: config.foregroundColor.hexString(),
             background: config.backgroundColor.hexString(),
+            cursor: config.cursorColor.hexString(),
+            cursorText: config.cursorTextColor.hexString(),
+            selectionBackground: config.selectionBackground.hexString(),
+            selectionForeground: config.selectionForeground.hexString(),
             palette: palette
         )
     }
@@ -244,11 +260,19 @@ import Testing
     private func snapshot(
         foreground: String,
         background: String,
+        cursor: String? = nil,
+        cursorText: String? = nil,
+        selectionBackground: String? = nil,
+        selectionForeground: String? = nil,
         palette: [String]
     ) -> ColorSnapshot {
         ColorSnapshot(
             foreground: foreground,
             background: background,
+            cursor: cursor ?? foreground,
+            cursorText: cursorText ?? background,
+            selectionBackground: selectionBackground ?? foreground,
+            selectionForeground: selectionForeground ?? background,
             palette: Dictionary(uniqueKeysWithValues: palette.enumerated().map { ($0.offset, $0.element) })
         )
     }

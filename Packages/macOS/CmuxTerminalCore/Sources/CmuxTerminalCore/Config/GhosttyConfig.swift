@@ -95,32 +95,52 @@ public struct GhosttyConfig {
     public var hasForegroundColorDirective = false
     /// Whether the `foreground` directive parsed to a valid color.
     public var hasParsedForegroundColor = false
-    /// The cursor color.
-    public var cursorColor: NSColor = NSColor(hex: "#FFFFFF")!
+    /// Explicit cursor color, or `nil` when Ghostty derives it dynamically.
+    private var configuredCursorColor: NSColor?
+    /// The cursor color, falling back to the resolved foreground when unset.
+    public var cursorColor: NSColor {
+        get { configuredCursorColor ?? foregroundColor }
+        set { configuredCursorColor = newValue }
+    }
     /// Cell-relative cursor color semantics, when configured.
     public var cursorColorSemantic: GhosttyCellRelativeColor?
     /// Whether a `cursor-color` directive was seen.
     public var hasCursorColorDirective = false
     /// Whether the `cursor-color` directive parsed to a valid value.
     public var hasParsedCursorColor = false
-    /// The cursor text color.
-    public var cursorTextColor: NSColor = NSColor(hex: "#282C34")!
+    /// Explicit cursor-text color, or `nil` when Ghostty derives it dynamically.
+    private var configuredCursorTextColor: NSColor?
+    /// The cursor text color, falling back to the resolved background when unset.
+    public var cursorTextColor: NSColor {
+        get { configuredCursorTextColor ?? backgroundColor }
+        set { configuredCursorTextColor = newValue }
+    }
     /// Cell-relative cursor text semantics, when configured.
     public var cursorTextColorSemantic: GhosttyCellRelativeColor?
     /// Whether a `cursor-text` directive was seen.
     public var hasCursorTextColorDirective = false
     /// Whether the `cursor-text` directive parsed to a valid value.
     public var hasParsedCursorTextColor = false
-    /// The selection background color.
-    public var selectionBackground: NSColor = NSColor(hex: "#FFFFFF")!
+    /// Explicit selection background, or `nil` when Ghostty derives it dynamically.
+    private var configuredSelectionBackground: NSColor?
+    /// The selection background, falling back to the resolved foreground when unset.
+    public var selectionBackground: NSColor {
+        get { configuredSelectionBackground ?? foregroundColor }
+        set { configuredSelectionBackground = newValue }
+    }
     /// Cell-relative selection background semantics, when configured.
     public var selectionBackgroundSemantic: GhosttyCellRelativeColor?
     /// Whether a `selection-background` directive was seen.
     public var hasSelectionBackgroundDirective = false
     /// Whether the `selection-background` directive parsed to a valid value.
     public var hasParsedSelectionBackground = false
-    /// The selection foreground color.
-    public var selectionForeground: NSColor = NSColor(hex: "#282C34")!
+    /// Explicit selection foreground, or `nil` when Ghostty derives it dynamically.
+    private var configuredSelectionForeground: NSColor?
+    /// The selection foreground, falling back to the resolved background when unset.
+    public var selectionForeground: NSColor {
+        get { configuredSelectionForeground ?? backgroundColor }
+        set { configuredSelectionForeground = newValue }
+    }
     /// Cell-relative selection foreground semantics, when configured.
     public var selectionForegroundSemantic: GhosttyCellRelativeColor?
     /// Whether a `selection-foreground` directive was seen.
@@ -628,6 +648,7 @@ public struct GhosttyConfig {
                 case "cursor-color":
                     hasCursorColorDirective = true
                     if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredCursorColor = nil
                         cursorColorSemantic = semantic
                         hasParsedCursorColor = true
                     } else if let color = NSColor(hex: value) {
@@ -635,12 +656,14 @@ public struct GhosttyConfig {
                         cursorColor = color
                         hasParsedCursorColor = true
                     } else {
+                        configuredCursorColor = nil
                         cursorColorSemantic = nil
                         hasParsedCursorColor = false
                     }
                 case "cursor-text":
                     hasCursorTextColorDirective = true
                     if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredCursorTextColor = nil
                         cursorTextColorSemantic = semantic
                         hasParsedCursorTextColor = true
                     } else if let color = NSColor(hex: value) {
@@ -648,12 +671,14 @@ public struct GhosttyConfig {
                         cursorTextColor = color
                         hasParsedCursorTextColor = true
                     } else {
+                        configuredCursorTextColor = nil
                         cursorTextColorSemantic = nil
                         hasParsedCursorTextColor = false
                     }
                 case "selection-background":
                     hasSelectionBackgroundDirective = true
                     if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredSelectionBackground = nil
                         selectionBackgroundSemantic = semantic
                         hasParsedSelectionBackground = true
                     } else if let color = NSColor(hex: value) {
@@ -661,12 +686,14 @@ public struct GhosttyConfig {
                         selectionBackground = color
                         hasParsedSelectionBackground = true
                     } else {
+                        configuredSelectionBackground = nil
                         selectionBackgroundSemantic = nil
                         hasParsedSelectionBackground = false
                     }
                 case "selection-foreground":
                     hasSelectionForegroundDirective = true
                     if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredSelectionForeground = nil
                         selectionForegroundSemantic = semantic
                         hasParsedSelectionForeground = true
                     } else if let color = NSColor(hex: value) {
@@ -674,6 +701,7 @@ public struct GhosttyConfig {
                         selectionForeground = color
                         hasParsedSelectionForeground = true
                     } else {
+                        configuredSelectionForeground = nil
                         selectionForegroundSemantic = nil
                         hasParsedSelectionForeground = false
                     }

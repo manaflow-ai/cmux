@@ -2439,10 +2439,26 @@ class GhosttyApp {
 
         let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
         let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
-        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
-        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
-        let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
-        let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
+        let resolvedCursor = ghosttyColorValue(
+            from: config,
+            key: "cursor-color",
+            fallback: resolvedForeground
+        )
+        let resolvedCursorText = ghosttyColorValue(
+            from: config,
+            key: "cursor-text",
+            fallback: resolvedColor
+        )
+        let resolvedSelectionBackground = ghosttyColorValue(
+            from: config,
+            key: "selection-background",
+            fallback: resolvedForeground
+        )
+        let resolvedSelectionForeground = ghosttyColorValue(
+            from: config,
+            key: "selection-foreground",
+            fallback: resolvedColor
+        )
         var opacity = baseline.backgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
