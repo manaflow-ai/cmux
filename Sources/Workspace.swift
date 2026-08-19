@@ -11098,6 +11098,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        refreshCodexTabTitle(panelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel {
             markdownPanel.updateWorkspaceId(
                 id,
