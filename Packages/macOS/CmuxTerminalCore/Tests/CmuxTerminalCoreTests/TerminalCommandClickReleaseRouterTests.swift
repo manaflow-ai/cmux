@@ -52,6 +52,38 @@ import Testing
         #expect(route == .pathFallback(resolution))
     }
 
+    @Test func consumedQuickLookReleaseDoesNotUsePathFallback() {
+        let resolution = TerminalCommandClickReleaseRouter.ResolvedPath(
+            path: "/Users/dev/repo/README.md",
+            source: .quicklook
+        )
+
+        let route = router.route(
+            commandHeld: true,
+            pathFallbackSuppressed: false,
+            runtimeOutcome: .consumed,
+            resolvePath: { resolution }
+        )
+
+        #expect(route == .none)
+    }
+
+    @Test func suppressedPathFallbackDoesNotProbeForPath() {
+        var pathResolutionAttempted = false
+
+        let route = router.route(
+            commandHeld: true,
+            pathFallbackSuppressed: true,
+            runtimeOutcome: .unhandled
+        ) {
+            pathResolutionAttempted = true
+            return .init(path: "/Users/dev/repo", source: .snapshot)
+        }
+
+        #expect(route == .none)
+        #expect(!pathResolutionAttempted)
+    }
+
     @Test func ineligibleReleaseDoesNotProbeForPath() {
         var pathResolutionAttempted = false
 
