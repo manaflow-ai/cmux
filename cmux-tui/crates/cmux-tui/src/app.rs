@@ -7427,7 +7427,10 @@ fn resume_suspended_status_child(child: &std::process::Child) -> std::io::Result
 }
 
 /// Kill a status command and, on Unix, its whole process group so every
-/// descendant exits with it.
+/// descendant exits with it. Reaping is bounded: a child stuck in
+/// uninterruptible kernel I/O survives SIGKILL until the kernel releases
+/// it, and blocking on it would transitively hang reload and shutdown, so
+/// after the bound the child is left for reaping at process exit.
 fn kill_status_command_group(child: &mut std::process::Child) {
     #[cfg(unix)]
     // SAFETY: plain syscall on the child's own process group id.
@@ -7435,7 +7438,15 @@ fn kill_status_command_group(child: &mut std::process::Child) {
         libc::kill(-(child.id() as i32), libc::SIGKILL);
     }
     let _ = child.kill();
-    let _ = child.wait();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => break,
+        }
+    }
 }
 
 /// Drop ESC-introduced sequences (CSI/OSC and two-byte escapes) and other
