@@ -2002,36 +2002,27 @@ actor MobileHostConnection {
     private var usableEventSubscription: UsableEventSubscription?
     private var didPublishUsableSession = false
 
+    /// Wraps an accepted `NWConnection` in the network byte transport and delegates.
     init(
         id: UUID,
         connection: NWConnection,
-        eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
-        eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
-        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
-        onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID) async -> Void,
-        requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
+        onClose: @escaping @Sendable (UUID) async -> Void
     ) {
-        let transport = CmxNetworkByteTransport(acceptedConnection: connection)
-        self.id = id
-        self.transport = transport
-        self.writer = MobileHostSerializedTransportWriter(transport: transport)
-        self.independentEventWriter = independentEventWriter
-        self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
-        self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
-        self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
-        self.authorizeRequest = authorizeRequest
-        self.onAuthorizedRequest = onAuthorizedRequest
-        self.onUsableSession = onUsableSession
-        self.handleRequest = handleRequest
-        self.onClose = onClose
-        self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
-        self.eventQueue = eventQueue
+        self.init(
+            id: id,
+            transport: CmxNetworkByteTransport(acceptedConnection: connection),
+            firstFrameTimeoutNanoseconds: firstFrameTimeoutNanoseconds,
+            idleTimeoutNanoseconds: idleTimeoutNanoseconds,
+            authorizeRequest: authorizeRequest,
+            onAuthorizedRequest: onAuthorizedRequest,
+            handleRequest: handleRequest,
+            onClose: onClose
+        )
     }
 
     init(
