@@ -117,7 +117,7 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             replayPrefixCandidate.removeAll(keepingCapacity: false)
             replayBytesToSuppressRemaining = 0
             if matches {
-                let remainder = Data(data.dropFirst(candidate.count))
+                let remainder = Data(data.dropFirst(candidateBytes))
                 if !remainder.isEmpty {
                     receivedLiveOutput = true
                 }

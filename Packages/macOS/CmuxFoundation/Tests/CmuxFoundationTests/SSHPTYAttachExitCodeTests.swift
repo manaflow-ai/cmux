@@ -247,6 +247,29 @@ struct SSHPTYAttachExitCodeTests {
         #expect(progress.receivedLiveOutput)
     }
 
+    @Test("managed reconnects retain suffix after a fragmented matching prefix")
+    func managedReconnectRetainsFragmentedMatchingSuffix() {
+        let previousFingerprint = SSHPTYAttachOutputProgress.fingerprint(
+            of: Data("oldold".utf8)
+        )
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 10,
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: previousFingerprint
+        )
+        _ = progress.terminalOutput(
+            from: Data("old".utf8),
+            suppressingReplay: true
+        )
+        let suffix = progress.terminalOutput(
+            from: Data("oldnewnew!".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(String(decoding: suffix, as: UTF8.self) == "newnew!")
+        #expect(progress.receivedLiveOutput)
+    }
+
     private static func writeExecutable(_ url: URL, _ source: String) throws {
         try source.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
