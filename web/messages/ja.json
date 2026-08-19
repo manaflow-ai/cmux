@@ -2168,7 +2168,11 @@
       "hooksIntro": "<config>cmux.json</config> で通知フックを定義すると、すべての通知ポリシーを stdin の JSON として受け取れます。各フックは stdout に JSON を返します。フックは既定ではオフです。cmux は <hooksMode>notifications.hooks</hooksMode> に有効なフックが 1 つ以上ある場合にのみ実行します。cmux は返された通知テキストと効果を適用するため、バナーのフィルタ、サイドバー履歴の保持またはスキップ、サウンドの実行、後続フックの停止を制御できます。",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "フックの入力と出力",
-      "hooksDetails": "フックはグローバル <globalConfig>~/.config/cmux/cmux.json</globalConfig> と、現在のワークスペースまでの親ディレクトリにあるプロジェクト <projectConfig>.cmux/cmux.json</projectConfig> から継承されます。プロジェクトフックは、他のプロジェクト <config>cmux.json</config> コマンドと同じ信頼プロンプトを実行前に使用します。Feed の承認バナーもこれらのフックを通ります。<desktop>desktop</desktop> を無効にすると、Feed 項目は cmux に残したままネイティブバナーを抑制します。継承したフックを無視するには、プロジェクト設定で <hooksMode>notifications.hooksMode</hooksMode> を <replace>replace</replace> に設定します。フックが失敗、タイムアウト、または無効な JSON を返した場合、cmux は既定の通知動作を使用し、フック失敗アラートを表示します。"
+      "hooksDetails": "フックはグローバル <globalConfig>~/.config/cmux/cmux.json</globalConfig> と、現在のワークスペースまでの親ディレクトリにあるプロジェクト <projectConfig>.cmux/cmux.json</projectConfig> から継承されます。プロジェクトフックは、他のプロジェクト <config>cmux.json</config> コマンドと同じ信頼プロンプトを実行前に使用します。Feed の承認バナーもこれらのフックを通ります。<desktop>desktop</desktop> を無効にすると、Feed 項目は cmux に残したままネイティブバナーを抑制します。継承したフックを無視するには、プロジェクト設定で <hooksMode>notifications.hooksMode</hooksMode> を <replace>replace</replace> に設定します。フックが失敗、タイムアウト、または無効な JSON を返した場合、cmux は既定の通知動作を使用し、フック失敗アラートを表示します。",
+      "hooksAgentTitle": "エージェントイベントコンテキスト",
+      "hooksAgentIntro": "エージェントの完了シグナルに由来する通知には、読み取り専用の <agent>agent</agent> オブジェクトが付きます。<kind>kind</kind> は安定した小文字のエージェントスラッグ（claude、codex、grok など）、<category>category</category> は turn-complete、needs-permission、idle-reminder のいずれか、<pending>pending</pending> はバックグラウンド作業が残ったままターンが終了した場合に true、<isSubagent>isSubagent</isSubagent> はネストされたサブエージェントセッションの場合に true です。エージェント以外の通知ではこのオブジェクトは省略されます。同じ値は CMUX_NOTIFICATION_AGENT_KIND、CMUX_NOTIFICATION_AGENT_CATEGORY、CMUX_NOTIFICATION_AGENT_PENDING、CMUX_NOTIFICATION_AGENT_IS_SUBAGENT としてフックプロセスの環境変数にもエクスポートされます。たとえば次のフックは、他の動作はそのままに、サブエージェント完了時のバナー・サウンド・ペインフラッシュだけを抑制します:",
+      "hooksAgentExampleTitle": "サブエージェント完了通知の抑制",
+      "hooksAgentDetails": "フックを設定していない場合、通知動作は cmux の組み込み既定とまったく同じです。フックの設定こそが、配信の判断をスクリプトに委ねる明示的なオプトインです。なお、cmux の組み込みサブエージェント抑制（<suppressSetting>automation.suppressSubagentNotifications</suppressSetting>、既定でオン）は、サブエージェントの完了イベントをフックに届く前に破棄します。フック側でサブエージェントイベントを受け取って独自に判断したい場合は、この設定をオフにしてください。"
     },
     "browserAutomation": {
       "title": "ブラウザ自動化",
