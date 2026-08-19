@@ -141,6 +141,52 @@ struct TerminalSurfaceMountOwnershipTests {
     }
 
     @MainActor
+    @Test("terminal does not claim output after an unacknowledged viewport timeout")
+    func terminalDoesNotClaimOutputAfterUnacknowledgedViewportTimeout() async throws {
+        let store = MobileShellComposite.preview()
+        let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
+        let terminal = try #require(workspace.terminals.first)
+        let surfaceID = terminal.id.rawValue
+        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+            workspaceID: workspace.id.rawValue,
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
+            terminalFilesChipEnabled: false,
+            sessionArtifactCountEnabled: false,
+            visibleArtifactCount: 0,
+            onArtifactFilesRequested: { _ in },
+            onArtifactPathTapped: { _ in },
+            onVisibleArtifactCountChanged: { _ in },
+            onArtifactGalleryRefreshSignal: { _ in },
+            outputConsumerRestartClock: ImmediateClock()
+        )
+        let surfaceView = GhosttySurfaceView(
+            runtime: try GhosttyRuntime.shared(),
+            delegate: coordinator
+        )
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        surfaceView.frame = host.view.bounds
+        host.view.addSubview(surfaceView)
+        coordinator.attach(surfaceView: surfaceView)
+        defer {
+            surfaceView.removeFromSuperview()
+            coordinator.detach()
+            surfaceView.prepareForDismantle()
+            window.isHidden = true
+        }
+
+        let claimed = await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        }
+        #expect(!claimed)
+    }
+
+    @MainActor
     @Test("a terminated output stream is reclaimed while the surface remains mounted")
     func terminatedOutputStreamIsReclaimedWhileSurfaceRemainsMounted() async throws {
         let store = MobileShellComposite.preview()
@@ -217,5 +263,15 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         return predicate()
     }
+}
+
+private struct ImmediateClock: Clock {
+    typealias Duration = Swift.Duration
+    typealias Instant = ContinuousClock.Instant
+
+    var now: Instant { .now }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until _: Instant, tolerance _: Duration? = nil) async throws {}
 }
 #endif
