@@ -5713,7 +5713,6 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
-        designModeToolbarToggleTask?.cancel()
         // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
