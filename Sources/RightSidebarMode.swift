@@ -3,15 +3,51 @@ import Foundation
 /// Stable identifier for a first-party right-sidebar panel.
 ///
 /// The raw value is persisted in `rightSidebar.mode`; presentation metadata and
-/// feature availability live in ``RightSidebarPanelRegistry`` so adding a
-/// panel does not require another switch in the sidebar container.
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case sourceControl
+/// feature availability live in ``RightSidebarPanelRegistry``. The type keeps
+/// source compatibility for existing `.files`/`.find` call sites without
+/// making the set of panels a closed enum.
+struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    let rawValue: String
+
+    init?(rawValue: String) {
+        guard !rawValue.isEmpty else { return nil }
+        self.rawValue = rawValue
+    }
+
+    init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    static let files = Self("files")
+    static let find = Self("find")
+    static let sessions = Self("sessions")
+    static let feed = Self("feed")
+    static let dock = Self("dock")
+    // Source Control's identifier is declared with its panel descriptor so a
+    // future panel can add its ID alongside its content rather than editing a
+    // central enum.
+
+    static var allCases: [RightSidebarMode] {
+        RightSidebarPanelRegistry.descriptors().compactMap { RightSidebarMode(rawValue: $0.id) }
+    }
+
+    var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        guard let mode = RightSidebarMode(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: try decoder.singleValueContainer(),
+                debugDescription: "Right-sidebar mode must not be empty"
+            )
+        }
+        self = mode
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 
     var label: String {
         RightSidebarPanelRegistry.descriptor(for: self)?.title ?? rawValue

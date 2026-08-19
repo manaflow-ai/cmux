@@ -76,15 +76,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func syncWorkspaceRoot(from workspace: Workspace) {
-        switch mode {
-        case .files, .find:
+        if mode == .files || mode == .find {
             guard let store = fileExplorerStoreStorage else { return }
             syncFileExplorerRoot(from: workspace, store: store)
-        case .sessions:
+        } else if mode == .sessions {
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock, .sourceControl:
-            break
         }
     }
 
@@ -132,17 +129,14 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func focus() {
-        switch mode {
-        case .files:
+        if mode == .files {
             _ = fileExplorerContainerView?.focusOutline()
-        case .find:
+        } else if mode == .find {
             _ = fileExplorerContainerView?.focusSearchField()
-        case .sessions:
+        } else if mode == .sessions {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .sourceControl:
-            break
         }
     }
 
@@ -156,16 +150,15 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
         _ = window
-        switch mode {
-        case .files, .find:
+        if mode == .files || mode == .find {
             guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .sessions:
+        }
+        if mode == .sessions {
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .sourceControl:
-            return nil
         }
+        return nil
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
@@ -263,8 +256,7 @@ struct RightSidebarToolPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch panel.mode {
-        case .files:
+        if panel.mode == .files {
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
@@ -274,7 +266,7 @@ struct RightSidebarToolPanelView: View {
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
-        case .find:
+        } else if panel.mode == .find {
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
@@ -284,7 +276,7 @@ struct RightSidebarToolPanelView: View {
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
-        case .sessions:
+        } else if panel.mode == .sessions {
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 chromeBackgroundColor: resolvedChromeBackgroundColor,
@@ -296,7 +288,7 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .sourceControl:
+        } else {
             EmptyView()
         }
     }

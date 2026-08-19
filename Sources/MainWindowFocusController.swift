@@ -122,13 +122,10 @@ final class MainWindowFocusController {
 
     func registerFileExplorerHost(_ host: FileExplorerContainerView) {
         let mode = host.representedRightSidebarMode()
-        switch mode {
-        case .files:
+        if mode == .files {
             fileExplorerHost = host
-        case .find:
+        } else if mode == .find {
             fileSearchHost = host
-        case .sessions, .feed, .dock, .sourceControl:
-            break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
     }
@@ -742,42 +739,43 @@ final class MainWindowFocusController {
         mode: RightSidebarMode,
         focusFirstItem: Bool
     ) -> RightSidebarFocusTarget {
-        switch mode {
-        case .files:
+        if mode == .files {
             return .outline
-        case .find:
+        }
+        if mode == .find {
             return .searchField
-        case .sessions, .sourceControl:
-            return .host
-        case .feed:
-            return focusFirstItem ? .firstItem : .host
-        case .dock:
+        }
+        if mode == .feed || mode == .dock {
             return focusFirstItem ? .firstItem : .host
         }
+        return .host
     }
 
     private func focusRightSidebarEndpoint(
         mode: RightSidebarMode,
         target: RightSidebarFocusTarget
     ) -> Bool {
-        switch mode {
-        case .files:
+        if mode == .files {
             return fileExplorerHost?.focusOutline() == true
-        case .find:
+        }
+        if mode == .find {
             return fileSearchHost?.focusSearchField() == true
-        case .sessions, .sourceControl:
-            return false
-        case .feed:
+        }
+        if mode == .feed {
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()
             }
             return feedHost?.focusHostFromCoordinator() == true
-        case .dock:
+        }
+        if mode == .dock {
             if target == .firstItem {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
         }
+        // Vault and future host-backed panels use the fallback right-sidebar
+        // responder. The coordinator still records the requested mode.
+        return false
     }
 
     private func focusFallbackRightSidebarHost() -> Bool {

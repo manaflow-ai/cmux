@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+extension RightSidebarMode {
+    static let sourceControl = Self("sourceControl")
+}
+
 /// Read-only Source Control panel for the beta right-sidebar mode.
 ///
 /// The first slice deliberately consumes the existing ``FileExplorerStore``
