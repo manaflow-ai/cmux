@@ -575,6 +575,21 @@ public final class MobilePeerRuntimeComposition:
         lastActivationFailureDescription = description
         lastActivationRetryAfterSeconds = retryAfterSeconds
         publishIrohSettingsUpdate()
+        #if DEBUG
+        // Dev diagnosability: the coded logs flatten transient reasons, and
+        // device os_log does not reliably reach the syslog relay. Keep the
+        // latest exact reason in a pullable file beside the network log.
+        if let support = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            let stamp = ISO8601DateFormatter().string(from: Date())
+            try? Data("\(stamp) \(kind) \(description)\n".utf8).write(
+                to: support.appendingPathComponent("cmux-activation-failure.txt"),
+                options: [.atomic]
+            )
+        }
+        #endif
     }
 
     func clearActivationState() {
