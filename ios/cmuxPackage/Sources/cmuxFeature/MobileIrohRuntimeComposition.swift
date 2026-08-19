@@ -2261,15 +2261,12 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
-    private static func keychainAccessGroup(
+    static func keychainAccessGroup(
         infoDictionary: [String: Any]?
     ) -> String? {
-        let raw = infoDictionary?["CMUXKeychainAccessGroup"] as? String
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
-            return nil
-        }
-        return trimmed
+        MobileKeychainAccessGroupPolicy.resolve(
+            infoDictionary?["CMUXKeychainAccessGroup"] as? String
+        )
     }
 
     static func initialTransportVerificationMode(
