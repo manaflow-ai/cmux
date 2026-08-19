@@ -2796,7 +2796,7 @@ impl Default for StatusBarOptions {
 
 impl StatusBarOptions {
     /// Command segments in draw order: left side first, then right.
-    pub fn command_segments(&self) -> Vec<(usize, Vec<String>, std::time::Duration)> {
+    pub fn command_segments(&self) -> Vec<(usize, Vec<String>, Duration)> {
         self.left
             .iter()
             .chain(self.right.iter())
@@ -2826,7 +2826,7 @@ pub struct StatusSegment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusSegmentContent {
     Text(String),
-    Command { argv: Vec<String>, interval: std::time::Duration },
+    Command { argv: Vec<String>, interval: Duration },
 }
 
 fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<StatusSegment> {
@@ -2856,7 +2856,7 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
                 let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
                 StatusSegmentContent::Command {
                     argv,
-                    interval: std::time::Duration::from_secs(interval),
+                    interval: Duration::from_secs(interval),
                 }
             }
         };
@@ -7674,7 +7674,7 @@ mod tests {
             right[0].content,
             StatusSegmentContent::Command {
                 argv: vec!["date".to_string(), "+%H:%M".to_string()],
-                interval: std::time::Duration::from_secs(1),
+                interval: Duration::from_secs(1),
             },
             "interval clamps to at least one second"
         );
