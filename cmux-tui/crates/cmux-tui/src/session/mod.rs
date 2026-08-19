@@ -295,6 +295,30 @@ fn default_true() -> bool {
     true
 }
 
+/// How attach must bootstrap a session so a bare `cmux` launch never lands on
+/// pure emptiness. A brand-new session gets its first workspace. A session
+/// whose every workspace has lost its screens (the legitimate outcome of the
+/// startup repair that prunes dead terminals) gets the default shell in the
+/// active workspace, because empty is indistinguishable from broken at
+/// attach. One surviving screen anywhere means the user's layout is intact,
+/// and includes the deliberately-empty-workspace case, so startup must not
+/// mutate anything.
+enum InitialBootstrap {
+    FirstWorkspace,
+    ShellInActiveWorkspace,
+    LayoutIntact,
+}
+
+fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
+    if tree.workspaces.is_empty() {
+        return InitialBootstrap::FirstWorkspace;
+    }
+    if tree.workspaces.iter().all(|workspace| workspace.screens.is_empty()) {
+        return InitialBootstrap::ShellInActiveWorkspace;
+    }
+    InitialBootstrap::LayoutIntact
+}
+
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
     if let Some((cols, rows)) = size {
@@ -522,17 +546,57 @@ impl Session {
     /// is the expected content size of the first pane, when known.
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.new_workspace(None, size)?;
-                Ok(())
-            }
+            Session::Local(mux) => match initial_bootstrap(&self.tree()) {
+                InitialBootstrap::FirstWorkspace => {
+                    mux.new_workspace(None, size)?;
+                    Ok(())
+                }
+                InitialBootstrap::ShellInActiveWorkspace => {
+                    let tree = self.tree();
+                    let workspace = tree
+                        .workspaces
+                        .get(tree.active_workspace)
+                        .or_else(|| tree.workspaces.first())
+                        .expect("bare-session bootstrap requires at least one workspace")
+                        .id;
+                    mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                    Ok(())
+                }
+                InitialBootstrap::LayoutIntact => Ok(()),
+            },
             Session::Remote(remote) => {
-                if remote.refresh_tree()?.workspaces.is_empty() {
-                    remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
-                    anyhow::ensure!(
-                        !remote.refresh_tree()?.workspaces.is_empty(),
-                        "remote session did not expose the workspace it created"
-                    );
+                let tree = remote.refresh_tree()?;
+                match initial_bootstrap(&tree) {
+                    InitialBootstrap::FirstWorkspace => {
+                        remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
+                        anyhow::ensure!(
+                            !remote.refresh_tree()?.workspaces.is_empty(),
+                            "remote session did not expose the workspace it created"
+                        );
+                    }
+                    InitialBootstrap::ShellInActiveWorkspace => {
+                        let workspace = tree
+                            .workspaces
+                            .get(tree.active_workspace)
+                            .or_else(|| tree.workspaces.first())
+                            .expect("bare-session bootstrap requires at least one workspace");
+                        let mut request = json!({"cmd": "create-terminal"});
+                        if workspace.key.is_empty() {
+                            request["workspace"] = json!(workspace.id);
+                        } else {
+                            request["key"] = json!(workspace.key);
+                        }
+                        remote.request(with_size(request, size))?;
+                        anyhow::ensure!(
+                            remote
+                                .refresh_tree()?
+                                .workspaces
+                                .iter()
+                                .any(|workspace| !workspace.screens.is_empty()),
+                            "remote session did not expose the shell it created in its bare workspace"
+                        );
+                    }
+                    InitialBootstrap::LayoutIntact => {}
                 }
                 Ok(())
             }
