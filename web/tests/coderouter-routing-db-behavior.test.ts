@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
+import { listAccounts } from "../services/coderouter/repository";
 import {
   bindSessionAccount,
   claimAccountForPlacement,
@@ -211,6 +212,27 @@ describe("coderouter routing db behavior", () => {
     });
     expect(during?.id).toBe(first?.id ?? "");
     expect(during?.sticky).toBe(true);
+  });
+
+  dbTest("account listing reports active session counts and cooldowns", async () => {
+    if (!sql) throw new Error("no sql client");
+    const accounts = await insertAccounts(2);
+    await bindSessionAccount(TEAM, "codex", "fresh-session-1", accounts[0] ?? "");
+    await bindSessionAccount(TEAM, "codex", "fresh-session-2", accounts[0] ?? "");
+    await bindSessionAccount(TEAM, "codex", "stale-session", accounts[1] ?? "");
+    await sql`
+      update coderouter_session_accounts
+      set last_seen_at = now() - interval '7 hours'
+      where session_key = 'stale-session'
+    `;
+    await markAccountCooldown(accounts[1] ?? "", 60_000);
+    const listed = await listAccounts(TEAM);
+    const byId = new Map(listed.map((account) => [account.id, account]));
+    expect(byId.get(accounts[0] ?? "")?.activeSessions).toBe(2);
+    expect(byId.get(accounts[0] ?? "")?.cooldownUntil).toBeNull();
+    // A binding idle beyond the load window no longer counts.
+    expect(byId.get(accounts[1] ?? "")?.activeSessions).toBe(0);
+    expect(byId.get(accounts[1] ?? "")?.cooldownUntil).not.toBeNull();
   });
 
   dbTest("routes without stickiness while the session table is missing", async () => {
