@@ -63,7 +63,11 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let hardMaximumDelay = SSHPTYAttachReconnectBackoffPolicy.maximumConfigurableDelaySeconds
         var lines = [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; ???????*) cmux_ssh_attach_reconnect_limit=\(Self.maximumConfigurableRetryLimit); cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
+            // Drop padding zeros first: the digit count is what caps an oversized
+            // limit below, and "0000001" is one attempt, not a seven-digit one.
+            "while :; do case \"$cmux_ssh_attach_reconnect_limit\" in 0?*) cmux_ssh_attach_reconnect_limit=\"${cmux_ssh_attach_reconnect_limit#0}\" ;; *) break ;; esac; done",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in ???????*) cmux_ssh_attach_reconnect_limit=\(Self.maximumConfigurableRetryLimit) ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-\(backoff.initialDelaySeconds)}\"",
             // A configured delay is free-form text. Reject non-numbers, then clamp
             // before any arithmetic: a six-digit or longer value already exceeds

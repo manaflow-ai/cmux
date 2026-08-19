@@ -183,7 +183,7 @@ struct SSHPTYAttachReconnectBackoffTests {
 
     /// A delay setting too large for shell arithmetic must clamp, not abort the
     /// loop with `value too great for base` before the first reattach.
-    @Test(arguments: ["99999999999999999999", "18446744073709551616", "123456"])
+    @Test(arguments: ["99999999999999999999", "18446744073709551616", "123456", "99999"])
     func anAbsurdDelaySettingClampsInsteadOfBreakingTheLoop(setting: String) throws {
         let directory = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -256,6 +256,36 @@ struct SSHPTYAttachReconnectBackoffTests {
         #expect(result.status == 7, Comment(rawValue: result.stderr))
         #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
         #expect(Self.delays(in: try Self.events(in: logURL)) == ["2", "4"])
+    }
+
+    /// Padding zeros are not a digit count: "0000002" is two attempts.
+    @Test func aZeroPaddedReconnectLimitKeepsItsValue() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("events.log")
+
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 254; }",
+            ]
+        )
+
+        let result = try Self.run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "0000002",
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
+            ]
+        )
+
+        #expect(result.status == 254, Comment(rawValue: result.stderr))
+        let events = try Self.events(in: logURL)
+        #expect(events.filter { $0 == "attach" }.count == 3)
+        #expect(Self.delays(in: events) == ["2", "4"])
     }
 
     // MARK: - The generated loop collapses its status output
