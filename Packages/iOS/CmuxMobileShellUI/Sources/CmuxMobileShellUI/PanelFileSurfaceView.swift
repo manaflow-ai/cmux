@@ -20,7 +20,7 @@ struct PanelFileSurfaceView: View {
             MacSurfaceHeader(
                 kind: surface.kind,
                 title: surface.title,
-                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path)
+                path: path
             )
             ChatArtifactEmbeddedPreview(
                 path: path,
@@ -30,20 +30,5 @@ struct PanelFileSurfaceView: View {
                 connectionHint: connectionStatus.artifactConnectionHint
             )
         }
-    }
-}
-
-/// Derives the header subtitle for file-backed surfaces.
-enum MacSurfaceFileContext {
-    /// The file name when the title doesn't already show it, otherwise the
-    /// parent directory name so a duplicated line never appears.
-    static func subtitle(title: String, path: String) -> String? {
-        let url = URL(fileURLWithPath: path)
-        let fileName = url.lastPathComponent
-        guard !fileName.isEmpty else { return nil }
-        if title != fileName { return fileName }
-        let parent = url.deletingLastPathComponent().lastPathComponent
-        guard !parent.isEmpty, parent != "/" else { return nil }
-        return parent
     }
 }

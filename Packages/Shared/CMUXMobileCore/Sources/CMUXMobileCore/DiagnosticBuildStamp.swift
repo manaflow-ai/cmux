@@ -5,18 +5,18 @@ import Foundation
 /// The git SHA and dev tag are signed bundle metadata, not runtime input. The
 /// helper keeps iOS and macOS reports comparable and applies the same bounded
 /// sanitization at their shared boundary.
-public enum DiagnosticBuildStamp {
+extension DiagnosticReport {
     /// Returns a bounded `name version (build) tag sha` stamp from bundle data.
-    public static func make(
+    public static func buildStamp(
         infoDictionary: [String: Any]?,
         fallbackName: String = "cmux"
     ) -> String {
         let info = infoDictionary ?? [:]
-        let name = nonEmptyString(info["CFBundleName"]) ?? fallbackName
-        let version = nonEmptyString(info["CFBundleShortVersionString"]) ?? "?"
-        let build = nonEmptyString(info["CFBundleVersion"]) ?? "?"
-        let tag = nonEmptyString(info["CMUXDevTag"])
-        let sha = nonEmptyString(info["CMUXGitSHA"]).map {
+        let name = buildStampNonEmptyString(info["CFBundleName"]) ?? fallbackName
+        let version = buildStampNonEmptyString(info["CFBundleShortVersionString"]) ?? "?"
+        let build = buildStampNonEmptyString(info["CFBundleVersion"]) ?? "?"
+        let tag = buildStampNonEmptyString(info["CMUXDevTag"])
+        let sha = buildStampNonEmptyString(info["CMUXGitSHA"]).map {
             String($0.prefix(12))
         }
 
@@ -27,10 +27,10 @@ public enum DiagnosticBuildStamp {
         if let sha {
             result += " sha \(sha)"
         }
-        return DiagnosticReport.sanitizeBuildStamp(result)
+        return sanitizeBuildStamp(result)
     }
 
-    private static func nonEmptyString(_ value: Any?) -> String? {
+    private static func buildStampNonEmptyString(_ value: Any?) -> String? {
         guard let value = value as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

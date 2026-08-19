@@ -24,7 +24,7 @@ struct MarkdownSurfaceView: View {
             MacSurfaceHeader(
                 kind: surface.kind,
                 title: surface.title,
-                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path)
+                path: path
             )
             content
         }

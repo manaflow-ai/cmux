@@ -173,8 +173,10 @@ public struct MacSurfaceGalleryPreviewView: View {
     )
 }
 
-/// Off-actor fixture bytes so the `@Sendable` loader closures can read them.
-private enum MacSurfaceGalleryFixtureBytes {
+/// Off-actor fixture bytes so the `@Sendable` loader closures can read them
+/// without a main-actor hop: a caseless enum can't be instantiated even in
+/// principle, so this stays a struct namespace instead.
+private struct MacSurfaceGalleryFixtureBytes {
     static let textBody = Data("""
     cmux iOS all-surfaces UX round — panel file preview fixture.
 
