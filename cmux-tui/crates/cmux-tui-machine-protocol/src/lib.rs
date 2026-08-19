@@ -1670,10 +1670,11 @@ mod tests {
 
     #[test]
     fn connection_progress_matches_the_wire_document() {
-        let event = EventEnvelope::new(ProviderEvent::ConnectionProgress(ConnectionProgressEvent {
-            machine_id: id("vm-1"),
-            message: "resuming the machine".into(),
-        }));
+        let event =
+            EventEnvelope::new(ProviderEvent::ConnectionProgress(ConnectionProgressEvent {
+                machine_id: id("vm-1"),
+                message: "resuming the machine".into(),
+            }));
         let document = json!({
             "protocol": "cmux.machine-provider",
             "version": 1,

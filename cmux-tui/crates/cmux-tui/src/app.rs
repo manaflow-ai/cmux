@@ -63,10 +63,10 @@ use crate::machine::{
     MachineConnectRoute, MachineConnectionPhase, MachineController, MachineKey,
     MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession, MachineSnapshot,
     MachineTransitionView, MachineUiState, MachineUpdate, MachineUpdateStream,
-    ManagedMachineDescriptor,
-    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionContext, ProviderActionInputError, ProviderPresentation,
-    WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionContext,
+    ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    validate_machine_session,
 };
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
@@ -21725,9 +21725,8 @@ mod tests {
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
         MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineController,
-        MachineCreationSource,
-        MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
-        MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
+        MachineCreationSource, MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest,
+        MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
         ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
         ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
         ProviderActionContext, ProviderActionDescriptor, ProviderActionFieldDescriptor,
