@@ -163,6 +163,7 @@ extension TerminalSurface {
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
+            contextPressureDetectorGeneration &+= 1
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
@@ -282,6 +283,7 @@ extension TerminalSurface {
         let surfaceToFree = surface
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
+        contextPressureDetectorGeneration &+= 1
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
@@ -369,6 +371,7 @@ extension TerminalSurface {
         let surfaceToFree = surface
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
+        contextPressureDetectorGeneration &+= 1
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
@@ -760,7 +763,13 @@ extension TerminalSurface {
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
+        contextPressureDetectorGeneration &+= 1
+        mobileByteTeeLease = byteTee.installTee(
+            on: createdSurface,
+            workspaceID: tabId,
+            surfaceID: id,
+            contextPressureDetectorGeneration: contextPressureDetectorGeneration
+        )
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }

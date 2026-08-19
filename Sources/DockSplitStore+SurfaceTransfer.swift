@@ -386,6 +386,14 @@ extension DockSplitStore {
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
         adoptManualUnreadState(false, panelId: panelId)
+        // Preserve pressure evidence across the detached-panel handoff; the
+        // destination will rebind the same session after it publishes its
+        // effective resume binding.
+        AppDelegate.shared?.agentContextManagementCoordinator.remove(
+            panelId: panelId,
+            workspace: nil,
+            preserveState: true
+        )
         clearSessionRestoreState(panelId: panelId)
         return detached
     }
@@ -591,6 +599,19 @@ extension DockSplitStore {
         focus: Bool,
         reconcileReason: String
     ) {
+        // `adoptSessionRestoreState` copies lifecycle and binding evidence with
+        // context-management publication suppressed. Publish only after the
+        // destination tab exists, so preserved pressure can never authorize a
+        // PTY write during a failed or partially-created transfer.
+        if let terminal = panel as? TerminalPanel {
+            AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(
+                panelId: terminal.id,
+                state: terminal.shellActivity.state
+            )
+        }
+        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
+            panelId: panel.id
+        )
         installSubscription(for: panel)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)

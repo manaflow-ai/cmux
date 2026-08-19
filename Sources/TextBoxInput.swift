@@ -1612,11 +1612,13 @@ private final class TextBoxSubmitEventRunner {
 
             switch event {
             case .keyText(let text):
+                surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
                 guard surface.sendKeyText(text) else {
                     fail(.terminalWriteRejected)
                     return
                 }
             case .pasteText(let text):
+                surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
                 guard surface.sendText(text) else {
                     fail(.terminalWriteRejected)
                     return
@@ -1634,12 +1636,14 @@ private final class TextBoxSubmitEventRunner {
             case .namedKeyRepeat(let key, let count):
                 guard count > 0 else { continue }
                 for _ in 0..<count {
+                    surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
                     guard surface.sendNamedKey(key).acceptedForTextBoxSubmit else {
                         fail(.terminalWriteRejected)
                         return
                     }
                 }
             case .namedKey(let key):
+                surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
                 guard surface.sendNamedKey(key).acceptedForTextBoxSubmit else {
                     fail(.terminalWriteRejected)
                     return
@@ -2051,9 +2055,8 @@ private final class TextBoxSubmitEventRunner {
             replacingWith: [item]
         ) else {
             filePasteFallbackSatisfiedClipboardRead = true
-            return surface.sendText(
-                TerminalImageTransferPlanner.escapeForShell(path)
-            ) ? .completed : .rejected
+            surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
+            return surface.sendText(TerminalImageTransferPlanner.escapeForShell(path)) ? .completed : .rejected
         }
         pasteFilePathMutationLease = lease
 
@@ -2080,9 +2083,8 @@ private final class TextBoxSubmitEventRunner {
             guard result.didWrite else {
                 _ = lease.finish()
                 filePasteFallbackSatisfiedClipboardRead = true
-                guard surface.sendText(
-                    TerminalImageTransferPlanner.escapeForShell(path)
-                ) else {
+                surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
+                guard surface.sendText(TerminalImageTransferPlanner.escapeForShell(path)) else {
                     fail(.terminalWriteRejected)
                     return
                 }
@@ -2113,9 +2115,8 @@ private final class TextBoxSubmitEventRunner {
 #endif
             guard handled else {
                 filePasteFallbackSatisfiedClipboardRead = true
-                let sentFallback = surface.sendText(
-                    TerminalImageTransferPlanner.escapeForShell(path)
-                )
+                surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
+                let sentFallback = surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
                 restorePasteboardIfNeeded()
                 guard sentFallback else {
                     fail(.terminalWriteRejected)
@@ -2757,6 +2758,7 @@ struct TextBoxInputContainer: View {
     }
 
     private func forwardText(_ text: String, focusTerminalAfterSend: Bool) {
+        surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         surface.sendInput(text)
         if focusTerminalAfterSend {
             focusTerminal()
@@ -2764,10 +2766,12 @@ struct TextBoxInputContainer: View {
     }
 
     private func forwardKey(_ key: TextBoxTerminalKey) {
+        surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         _ = surface.sendNamedKey(key.rawValue)
     }
 
     private func forwardControl(_ key: String) {
+        surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         _ = surface.sendNamedKey("ctrl-\(key)")
     }
 

@@ -129,6 +129,8 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.agentContextManagement.enabled",
+        "terminal.agentContextManagement.action",
+        "terminal.agentContextManagement.preserveState",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",

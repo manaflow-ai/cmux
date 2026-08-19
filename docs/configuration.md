@@ -123,6 +123,44 @@ Routine Agent Hibernation is opt-in. cmux kills idle background agent processes 
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.agentContextManagement`
+
+Terminal-side context management watches managed Claude Code and Codex panes for
+provider context-pressure signals, including long-thread warnings, low-context
+indicators, and repeated automatic compactions. The sidebar marks a pressured
+pane and cmux records each detection in structured logs.
+
+The feature is opt-in because it writes into a PTY. When enabled, cmux injects
+the configured command only after the managed-agent lifecycle reports `idle`,
+the shell still reports a foreground command, and no dialog or user input is
+pending. Ambiguous or in-flight state fails closed. A `clear` action starts a
+fresh provider context with `/clear`. It can first ask for a short handoff note
+and wait for a lifecycle boundary; if that boundary is unsafe, cmux notifies
+you instead of typing.
+
+```json
+{
+  "terminal": {
+    "agentContextManagement": {
+      "enabled": true,
+      "action": "compact",
+      "preserveState": false
+    }
+  }
+}
+```
+
+- `enabled` (default `false`): allow cmux to send recovery input.
+- `action` (default `"compact"`): send `/compact` in place or `"clear"` to
+  start a fresh provider context with `/clear`.
+- `preserveState` (default `false`): for `"clear"`, request a handoff note in a
+  durable file before the destructive command.
+
+Configure the same values from **Settings > Terminal > Manage Agent Context
+Pressure**, or toggle the feature from the command palette. Pressure detection
+and sidebar reporting remain active when `enabled` is `false`; only PTY injection
+is disabled.
+
 ## `sidebar.showAgentActivity`
 
 Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).

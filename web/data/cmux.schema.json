@@ -590,6 +590,33 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "agentContextManagement": {
+          "type": "object",
+          "additionalProperties": false,
+          "descriptionKey": "schemaDescriptions.terminal.agentContextManagement",
+          "description": "Opt-in terminal-side recovery for managed Claude Code and Codex context pressure. cmux detects provider output and only sends recovery input at an authoritative idle prompt.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "descriptionKey": "schemaDescriptions.terminal.agentContextManagementEnabled",
+              "description": "Enable context-pressure recovery input for managed agent panes."
+            },
+            "action": {
+              "type": "string",
+              "enum": ["compact", "clear"],
+              "default": "compact",
+              "descriptionKey": "schemaDescriptions.terminal.agentContextManagementAction",
+              "description": "Command to send after pressure is detected and the agent is proven idle: /compact in place, or /clear to start a fresh provider context."
+            },
+            "preserveState": {
+              "type": "boolean",
+              "default": false,
+              "descriptionKey": "schemaDescriptions.terminal.agentContextManagementPreserveState",
+              "description": "Before a fresh-context command, ask the agent for a brief handoff note in a durable file and wait for an acknowledgement boundary."
+            }
+          }
+        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,

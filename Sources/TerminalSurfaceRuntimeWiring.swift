@@ -97,18 +97,34 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         func release() {
             context.release()
         }
+
+        func resetContextPressureDetectors(to generation: UInt64) {
+            context.takeUnretainedValue().requestContextPressureReset(to: generation)
+        }
     }
 
     @MainActor
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        contextPressureDetectorGeneration: UInt64
     ) -> any TerminalByteTeeLease {
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            contextPressureGeneration: contextPressureDetectorGeneration,
+            contextPressureHandler: { workspaceID, surfaceID, generation, events in
+                Task { @MainActor in
+                    AppDelegate.shared?.agentContextManagementCoordinator.handle(
+                        events: events,
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID,
+                        detectorGeneration: generation
+                    )
+                }
+            }
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,

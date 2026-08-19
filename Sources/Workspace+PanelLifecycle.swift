@@ -436,6 +436,11 @@ extension Workspace {
         cleanupControllerSurfaceState: Bool = false,
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        AppDelegate.shared?.agentContextManagementCoordinator.remove(
+            panelId: panelId,
+            workspace: self,
+            preserveState: preservesTerminalForTransfer
+        )
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -522,7 +527,7 @@ extension Workspace {
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG

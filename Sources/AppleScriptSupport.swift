@@ -551,6 +551,7 @@ final class ScriptTerminal: NSObject {
               let terminal else {
             return false
         }
+        terminal.surface.didReceiveExplicitInput(isUserInitiated: true)
         terminal.sendText(text)
         return true
     }

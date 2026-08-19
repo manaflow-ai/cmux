@@ -2333,6 +2333,108 @@
         }
       }
     },
+    "agentContext.notification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sent context-recovery input after the agent reported context pressure."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがコンテキスト負荷を報告したため、cmux は復旧入力を送信しました。"
+          }
+        }
+      }
+    },
+    "agentContext.notification.preserveSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "handoff note"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き継ぎメモ"
+          }
+        }
+      }
+    },
+    "agentContext.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context recovery sent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト復旧を送信"
+          }
+        }
+      }
+    },
+    "agentContext.notification.unsafeBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context pressure was detected, but cmux could not prove a safe idle agent prompt. Return to the agent prompt and choose the provider's recovery command manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト負荷を検出しましたが、cmux は安全なアイドル状態のエージェントプロンプトを確認できませんでした。エージェントプロンプトに戻り、プロバイダーの復旧コマンドを手動で選択してください。"
+          }
+        }
+      }
+    },
+    "agentContext.notification.unsafeTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context clear needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストのクリアに入力が必要"
+          }
+        }
+      }
+    },
+    "agentContext.preserveInstruction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before starting a fresh context, write a brief handoff note to .cmux-context-handoff.md in the current working directory, including the current task state and next steps. The next context should read it before continuing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいコンテキストを開始する前に、現在の作業ディレクトリの .cmux-context-handoff.md に、現在のタスク状態と次の手順を含む短い引き継ぎメモを書いてください。次のコンテキストでは続行前にこのファイルを読んでください。"
+          }
+        }
+      }
+    },
     "agent.campfire.capability.fallback": {
       "extractionState": "manual",
       "localizations": {
@@ -194718,6 +194820,57 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.agent-context-management": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentContextManagement.enabled context pressure context window claude codex long thread compaction recovery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentContextManagement.enabled コンテキスト 負荷 ウィンドウ Claude Codex 長いスレッド 圧縮 復旧"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.agent-context-management-action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentContextManagement.action recovery command compact clear fresh context claude codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentContextManagement.action 復旧 コマンド compact clear 新しい コンテキスト Claude Codex"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.agent-context-management-preserve-state": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentContextManagement.preserveState preserve state handoff note file clear fresh context"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentContextManagement.preserveState 状態 保存 引き継ぎ メモ ファイル clear 新しい コンテキスト"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.resume-commands": {
       "extractionState": "manual",
       "localizations": {
@@ -200291,6 +200444,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage Agent Context Pressure"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのコンテキスト負荷を管理"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧コマンド"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.action.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fresh context"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいコンテキスト"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.action.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/compact"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.action.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose whether cmux sends /compact or starts a fresh context with /clear."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が /compact を送るか、/clear で新しいコンテキストを開始するかを選びます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.preserveState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preserve State Before Fresh Context"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいコンテキストの前に状態を保存"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.preserveState.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask the agent for a brief handoff note and wait for acknowledgement before starting a fresh context."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいコンテキストを開始する前に短い引き継ぎメモを依頼し、確認を待ちます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reports pressure but never writes recovery commands into agent terminals while this is off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの間、cmux は負荷を報告しますが、エージェント端末に復旧コマンドを書き込みません。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentContextManagement.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Claude Code or Codex reports pressure at a proven idle prompt, cmux can send the selected recovery command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code または Codex が確実なアイドルプロンプトで負荷を報告すると、cmux は選択した復旧コマンドを送信できます。"
           }
         }
       }
@@ -217277,6 +217583,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Суцільне заповнення"
+          }
+        }
+      }
+    },
+    "sidebar.agentContext.injectedLog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context recovery input sent to the managed agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象エージェントにコンテキスト復旧入力を送信しました。"
+          }
+        }
+      }
+    },
+    "sidebar.agentContext.pressure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context pressure detected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト負荷を検出"
+          }
+        }
+      }
+    },
+    "sidebar.agentContext.pressureLog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context pressure detected for a managed agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象エージェントのコンテキスト負荷を検出しました。"
           }
         }
       }

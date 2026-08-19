@@ -52,6 +52,9 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
         replay: @escaping () -> Void
     ) -> Bool
 
+    /// Whether cmux-authored context recovery can reach the PTY without queuing.
+    var canAcceptImmediateContextManagementInput: Bool { get }
+
     /// Positions the native pointer at the center of a mobile-selected cell.
     func positionMobilePointer(
         on surface: ghostty_surface_t,
@@ -68,6 +71,9 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 }
 
 public extension TerminalSurfaceNativeViewing {
+    /// Hosts without clipboard sequencing can accept recovery input immediately.
+    var canAcceptImmediateContextManagementInput: Bool { true }
+
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///
     /// - Parameters:

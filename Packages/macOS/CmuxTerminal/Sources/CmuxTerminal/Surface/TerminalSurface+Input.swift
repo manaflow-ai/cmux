@@ -32,12 +32,6 @@ extension TerminalSurface {
         }
     }
 
-    /// Notifies the pane host that user-initiated terminal input is about to be sent.
-    @MainActor
-    public func didReceiveExplicitInput() {
-        paneHost.terminalSurfaceDidReceiveExplicitInput()
-    }
-
     /// Routes programmatic input through the view-owned clipboard sequencer.
     @MainActor
     func deferInputDuringRuntimeClipboardRead(
@@ -50,16 +44,10 @@ extension TerminalSurface {
         )
     }
 
-    /// Notifies the current panel owner after explicit terminal input is accepted.
-    @MainActor
-    public func didAcceptExplicitInput() {
-        onExplicitInput?()
-    }
-
     /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
     @MainActor
     public func closeSearchFromExplicitInput() {
-        didReceiveExplicitInput()
+        didReceiveExplicitInput(isUserInitiated: true)
         searchState = nil
         didAcceptExplicitInput()
     }
@@ -274,48 +262,11 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendInputAfterExplicitInput(_ text: String) -> InputSendResult {
-        if deferInputDuringRuntimeClipboardRead(
-            estimatedBytes: text.utf8.count,
-            replay: { [weak self] in
-                _ = self?.sendInputAfterExplicitInput(text)
-            }
-        ) {
-            return .queued
-        }
-        guard surface != nil else {
-            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
-            let queued = enqueuePendingSocketInput(text)
-            if queued {
-                requestInputDemandSurfaceStartIfNeeded()
-                didAcceptExplicitInput()
-            }
-            return queued ? .queued : .inputQueueFull
-        }
-        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendInput") else {
-            return .surfaceUnavailable
-        }
-        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        var validatedSurface: ghostty_surface_t? = liveSurface
-        var validatedGeneration: UInt64? = runtimeSurfaceGeneration
-        var queuedInput = false
-        for input in Self.pendingSocketInputs(for: text) {
-            queuedInput = deliverPendingSocketInput(
-                input,
-                validatedSurface: &validatedSurface,
-                validatedGeneration: &validatedGeneration
-            ) || queuedInput
-        }
-        didAcceptExplicitInput()
-        return queuedInput ? .queued : .sent
-    }
-
-    @MainActor
-    private func enqueuePendingSocketInput(_ text: String) -> Bool {
+    func enqueuePendingSocketInput(_ text: String) -> Bool {
         enqueuePendingSocketInputs(Self.pendingSocketInputs(for: text))
     }
 
-    private static func pendingSocketInputs(
+    static func pendingSocketInputs(
         for text: String
     ) -> [PendingSocketInput] {
         parsedSocketInputEvents(for: text).compactMap { event in
@@ -608,7 +559,7 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
+    func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
@@ -929,12 +880,14 @@ extension TerminalSurface {
 
     @MainActor
     @discardableResult
-    private func deliverPendingSocketInput(
+    func deliverPendingSocketInput(
         _ input: PendingSocketInput,
         validatedSurface: inout ghostty_surface_t?,
-        validatedGeneration: inout UInt64?
+        validatedGeneration: inout UInt64?,
+        allowClipboardDeferral: Bool = true
     ) -> Bool {
-        if deferInputDuringRuntimeClipboardRead(
+        if allowClipboardDeferral,
+           deferInputDuringRuntimeClipboardRead(
             estimatedBytes: input.estimatedBytes,
             replay: { [weak self] in
                 _ = self?.deliverPendingSocketInput(input)

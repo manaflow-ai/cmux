@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CmuxWorkspaces
 import Foundation
 import os
 
@@ -6,7 +7,8 @@ import os
 ///
 /// SAFETY: libghostty invokes a surface's tee callback serially on that
 /// surface's IO read thread. After initialization, only that callback mutates
-/// `detectors`; other threads receive copied value identifiers after a match.
+/// `detectors` and `contextPressureDetectors`; other threads receive copied
+/// value identifiers after a match.
 final class TerminalOutputTeeContext: @unchecked Sendable {
     private struct DetectorBinding {
         let agentID: String
@@ -46,12 +48,21 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
+    private var contextPressureDetectors: [AgentContextProvider: AgentContextPressureDetector]
+    private var contextPressureGeneration: UInt64
+    private let contextPressureHandler: (@Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)?
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
+    // Lock carve-out: the PTY callback is synchronous and cannot await an
+    // actor, so this bounded generation edge is the smallest safe handoff;
+    // the serialized callback remains the sole owner of detector mutation.
+    private let contextPressureResetRequest = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        contextPressureGeneration: UInt64 = 0,
+        contextPressureHandler: (@Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
@@ -67,9 +78,36 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                 )
             }
         }
+        self.contextPressureHandler = contextPressureHandler
+        self.contextPressureGeneration = contextPressureGeneration
+        self.contextPressureDetectors = Dictionary(uniqueKeysWithValues: AgentContextProvider.allCases.map { provider in
+            (provider, AgentContextPressureDetector(provider: provider))
+        })
+    }
+
+    /// Publishes a reset edge for the serialized PTY callback to consume.
+    ///
+    /// The callback may be running on libghostty's IO thread while the
+    /// recovery coordinator runs on the main actor, so parser state is reset
+    /// at the next callback boundary rather than being mutated concurrently.
+    func requestContextPressureReset(to generation: UInt64) {
+        contextPressureResetRequest.withLock { requested in
+            requested = max(requested ?? 0, generation)
+        }
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        let requestedContextPressureGeneration = contextPressureResetRequest.withLock { requested in
+            defer { requested = nil }
+            return requested
+        }
+        if let requestedContextPressureGeneration,
+           requestedContextPressureGeneration > contextPressureGeneration {
+            for provider in AgentContextProvider.allCases {
+                contextPressureDetectors[provider]?.reset()
+            }
+            contextPressureGeneration = requestedContextPressureGeneration
+        }
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,
@@ -83,6 +121,24 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
             detectors[index].detector.consume(bytes)
             forwardDetectorChangeIfNeeded(at: index, now: now)
+        }
+        guard let contextPressureHandler else { return }
+        let output = String(decoding: bytes, as: UTF8.self)
+        guard !output.isEmpty else { return }
+        var eventsToDeliver: [AgentContextPressureEvent] = []
+        for provider in AgentContextProvider.allCases {
+            guard var detector = contextPressureDetectors[provider] else { continue }
+            let events = detector.consume(output)
+            contextPressureDetectors[provider] = detector
+            eventsToDeliver.append(contentsOf: events)
+        }
+        if !eventsToDeliver.isEmpty {
+            contextPressureHandler(
+                workspaceID,
+                surfaceID,
+                contextPressureGeneration,
+                eventsToDeliver
+            )
         }
     }
 

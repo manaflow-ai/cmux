@@ -2,15 +2,14 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// **Terminal** section — mirrors the legacy in-app section
-/// row-for-row: scroll bar, copy on selection, resume agent sessions,
-/// agent hibernation enable + idle seconds + max live terminals, plus
-/// the JSON-backed Resume Commands editor.
+/// **Terminal** section — mirrors the legacy controls, including context
+/// management, hibernation, and the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
+    private let defaultsStore: UserDefaultsSettingsStore
     private let sessionContentWidthSettings = SessionContentWidthSettings()
 
     @State private var surfaceTabBarFont: SettingsFontSize
@@ -42,6 +41,7 @@ public struct TerminalSection: View {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        self.defaultsStore = defaultsStore
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _sessionContentMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentMaxWidth))
@@ -379,7 +379,7 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
             }
-            SettingsCardDivider()
+            AgentContextManagementSettingsRows(defaultsStore: defaultsStore, catalog: catalog)
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),

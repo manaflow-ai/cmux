@@ -119,6 +119,7 @@ extension DockSplitStore {
             guard let terminal = focusedDockTerminalPanel else {
                 return false
             }
+            terminal.surface.didReceiveExplicitInput(isUserInitiated: true)
             let result = terminal.sendNamedKeyResult("ctrl-f")
             if result == .sent {
                 terminal.surface.forceRefresh(

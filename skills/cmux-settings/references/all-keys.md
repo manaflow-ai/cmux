@@ -36,6 +36,9 @@ Terminal presentation settings from Settings > Terminal.
 |---|---|---|---|
 | `terminal.showScrollBar` | boolean | `true` | Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces. |
 | `terminal.autoResumeAgentSessions` | boolean | `true` | Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually. |
+| `terminal.agentContextManagement.enabled` | boolean | `false` | Allow cmux to send provider-native context-recovery input to managed Claude Code and Codex panes after pressure is detected and an idle prompt is proven. |
+| `terminal.agentContextManagement.action` | string | `"compact"` | Recovery action: `compact` sends `/compact`; `clear` starts a provider-native fresh context with `/clear`. |
+| `terminal.agentContextManagement.preserveState` | boolean | `false` | Before an automated `clear`, ask the agent for a brief durable handoff note and wait for a lifecycle acknowledgement. |
 
 ## notifications
 

@@ -385,7 +385,7 @@ extension Workspace {
             return
         }
         binding.autoResume = false
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
     }
 
     /// Keep an in-flight restored launch tied to the same structured binding
@@ -492,12 +492,13 @@ extension Workspace {
     }
 
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
-        if let shellActivityState = detached.shellActivityState {
+        let shellActivityState = detached.shellActivityState ?? .unknown
+        if detached.shellActivityState != nil {
             panelShellActivityStates[detached.panelId] = shellActivityState
-            (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
         } else {
             panelShellActivityStates.removeValue(forKey: detached.panelId)
         }
+        (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,
@@ -516,6 +517,7 @@ extension Workspace {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        contextManagementLifecycleDidChange(key: key, panelId: targetPanelId, lifecycle: lifecycle)
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
@@ -525,15 +527,22 @@ extension Workspace {
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         var didClear = false
         let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
-        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
+        let panelIds: [UUID] = if let panelId {
+            [panelId]
+        } else {
+            Array(Set(agentLifecycleStatesByPanelId.keys).union(panels.keys))
+        }
         for panelId in panelIds {
-            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
-            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
-                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+            let hadState = agentLifecycleStatesByPanelId[panelId]?[key] != nil
+            if hadState {
+                agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+                if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
+                    agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+                }
             }
-            didClear = true
-            if recordsHibernationActivity {
+            didClear = hadState || didClear
+            contextManagementLifecycleDidClear(key: key, panelId: panelId)
+            if hadState && recordsHibernationActivity {
                 recordAgentLifecycleChange(panelId: panelId)
             }
         }
@@ -548,7 +557,11 @@ extension Workspace {
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
-        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else {
+            contextManagementLifecycleDidClear(panelId: panelId)
+            return
+        }
+        contextManagementLifecycleDidClear(panelId: panelId)
         let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         if !manualStates.isEmpty {
             let host: UUID? = if panels[panelId] != nil {
@@ -568,11 +581,15 @@ extension Workspace {
     }
 
     func clearAllAgentLifecycleStates() {
-        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
+        let panelIdsWithState = Set(agentLifecycleStatesByPanelId.keys)
+        let panelIds = panelIdsWithState.union(panels.keys)
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
         for panelId in panelIds {
-            recordAgentLifecycleChange(panelId: panelId)
+            contextManagementLifecycleDidClear(panelId: panelId)
+            if panelIdsWithState.contains(panelId) {
+                recordAgentLifecycleChange(panelId: panelId)
+            }
         }
     }
 

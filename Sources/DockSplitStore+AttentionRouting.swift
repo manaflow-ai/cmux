@@ -69,6 +69,10 @@ extension DockSplitStore {
                 surfaceId: terminal.id
             )
         }
+        terminal.surface.onUserExplicitInput = { [weak terminal] in
+            guard let terminal else { return }
+            AppDelegate.shared?.agentContextManagementCoordinator.userDidType(panelId: terminal.id)
+        }
         terminal.onRequestWorkspacePaneFlash = { [weak self, weak terminal] reason in
             guard let self, let terminal,
                   let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,

@@ -676,6 +676,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// Owns provider-specific context-pressure state for every managed agent pane.
+    lazy var agentContextManagementCoordinator = AgentContextManagementCoordinator()
 #if DEBUG
     private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
 #else
@@ -8637,6 +8639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldBringToFront {
             workspace.focusPanel(terminalPanel.id)
         }
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         sendTextWhenReady(
             text,
             to: workspace,
@@ -9902,6 +9905,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !text.isEmpty
         else { return }
 
+        if let surfaceUUID = UUID(uuidString: surfaceId) {
+            // Feed replies are user-authored input even though they travel
+            // through the socket bridge instead of the focused terminal view.
+            agentContextManagementCoordinator.userDidType(panelId: surfaceUUID)
+        }
+
         let controller = TerminalController.shared
         let invoke: (String, [String: Any]) -> Void = { method, params in
             let payload: [String: Any] = [
@@ -9982,6 +9991,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "focusedAfterRequest=\(Self.debugShortId(workspace.focusedPanelId))"
         )
 #endif
+        workspace.terminalPanel(for: returnPanelId)?.surface
+            .didReceiveExplicitInput(isUserInitiated: true)
         sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
     }
 
@@ -14672,7 +14683,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 case .acceptedMutation:
                     // The font mutation fans out across the workspace. Attribute
                     // the handled input only to the responder that originated it.
-                    originatingSurface?.didReceiveExplicitInput()
+                    originatingSurface?.didReceiveExplicitInput(isUserInitiated: true)
                     originatingSurface?.didAcceptExplicitInput()
                 case .consumedWithoutMutation:
                     break

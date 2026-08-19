@@ -7,7 +7,8 @@ final class FakeTerminalByteTee: TerminalByteTeeBinding {
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        contextPressureDetectorGeneration: UInt64
     ) -> any TerminalByteTeeLease {
         FakeTerminalByteTeeLease()
     }

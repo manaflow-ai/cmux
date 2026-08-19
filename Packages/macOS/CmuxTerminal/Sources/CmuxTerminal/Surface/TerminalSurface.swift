@@ -217,6 +217,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
+    /// Observes explicit user input without replacing the owner callback.
+    @MainActor public var onUserExplicitInput: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
     @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
@@ -317,6 +319,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// coordinator's request). Releasing earlier is a use-after-free on the
     /// io-reader thread.
     var mobileByteTeeLease: (any TerminalByteTeeLease)?
+    /// Monotonic across runtime replacement so queued detector events from an
+    /// older tee lifetime can never authorize input in a newer one.
+    @MainActor var contextPressureDetectorGeneration: UInt64 = 0
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it

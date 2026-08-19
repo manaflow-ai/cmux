@@ -422,9 +422,9 @@ extension DockSplitStore {
             effective = stored
         }
         if let effective {
-            surfaceResumeBindingsByPanelId[panelId] = effective
+            updateSurfaceResumeBinding(panelId: panelId, to: effective, notifyWhenUnchanged: true)
         } else {
-            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
         }
         return effective
     }

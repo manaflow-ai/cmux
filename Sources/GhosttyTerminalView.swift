@@ -4465,7 +4465,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
-        terminalSurface?.didReceiveExplicitInput()
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
@@ -5582,8 +5582,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Cancel pending context recovery before clipboard sequencing can defer
+        // this user event; admission itself is authoritative user intent.
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
-        terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -6430,6 +6432,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A deferred click is still user intent and must win over a pending
+        // context-recovery write before the clipboard sequencer queues it.
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
@@ -7185,6 +7190,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
         focusFromPointerDown()
         guard let surface = surface else { return }
@@ -7192,7 +7198,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.rightMouseDown(with: event)
             return
         }
-
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
         _ = sendGhosttyMouseButton(
@@ -7224,8 +7229,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
-        terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -7837,6 +7842,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
+            terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
@@ -9501,7 +9507,9 @@ final class GhosttySurfaceScrollView: NSView {
             onNavigateSearch: { [weak terminalSurface] direction in
                 _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
             },
-            onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
+            onSearchTextChanged: { [weak terminalSurface] in
+                terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
+            },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField
                 terminalSurface?.setFocus(false)
@@ -11707,7 +11715,7 @@ extension GhosttyNSView: NSTextInputClient {
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard !chars.isEmpty else { return }
-        terminalSurface?.didReceiveExplicitInput()
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurfaceAfterInputNotification(
             chars,

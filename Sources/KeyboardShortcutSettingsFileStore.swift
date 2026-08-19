@@ -604,6 +604,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
         }
 
+        parseAgentContextManagementSection(
+            from: section,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+
         if let rawRendererRealization = section["rendererRealization"],
            let rendererRealization = rawRendererRealization as? [String: Any] {
             if let value = jsonBool(rendererRealization["enabled"]) {
@@ -1569,6 +1575,14 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
                     agentSessionAutoResumeDidChange = true
+                }
+                if change.defaultsKey == TerminalCatalogSection().agentContextManagementEnabled.userDefaultsKey ||
+                    change.defaultsKey == TerminalCatalogSection().agentContextManagementAction.userDefaultsKey ||
+                    change.defaultsKey == TerminalCatalogSection().agentContextManagementPreserveState.userDefaultsKey {
+                    AgentContextManagementSettings(
+                        defaults: UserDefaults.standard,
+                        notificationCenter: notificationCenter
+                    ).notifyDidChange()
                 }
                 if change.defaultsKey == AgentHibernationSettings.enabledKey ||
                     change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||

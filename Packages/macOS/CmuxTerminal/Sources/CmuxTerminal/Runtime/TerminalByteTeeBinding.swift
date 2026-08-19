@@ -9,6 +9,23 @@ public import GhosttyKit
 public protocol TerminalByteTeeLease: AnyObject, Sendable {
     /// Balances the retain taken when the tee was installed.
     func release()
+
+    /// Requests that provider-specific context-pressure parser state be reset
+    /// to a new surface-owned generation before the tee consumes its next PTY
+    /// output chunk.
+    ///
+    /// The request is deliberately asynchronous across the PTY callback
+    /// boundary: the callback owns parser mutation, while callers such as the
+    /// main-actor recovery coordinator only publish a short-lived reset edge.
+    /// - Parameter generation: Monotonic generation allocated by the owning
+    ///   ``TerminalSurface``.
+    func resetContextPressureDetectors(to generation: UInt64)
+}
+
+public extension TerminalByteTeeLease {
+    /// Default no-op for tee leases that do not install context-pressure
+    /// detectors.
+    func resetContextPressureDetectors(to _: UInt64) {}
 }
 
 /// Installs and tears down the shared PTY output tee for runtime surfaces.
@@ -22,12 +39,15 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
     ///   - surface: The live runtime surface.
     ///   - workspaceID: The workspace that owns the surface.
     ///   - surfaceID: The owning surface id used to key tee state.
+    ///   - contextPressureDetectorGeneration: The initial parser generation for
+    ///     this runtime-surface lifetime.
     /// - Returns: The retained lease the caller releases on teardown.
     @MainActor
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        contextPressureDetectorGeneration: UInt64
     ) -> any TerminalByteTeeLease
 
     /// Drops all tee/replay state keyed by a surface id.

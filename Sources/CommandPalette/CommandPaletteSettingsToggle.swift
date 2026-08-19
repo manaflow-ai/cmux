@@ -457,6 +457,7 @@ enum CommandPaletteSettingsToggleCommands {
                     )
                 }
             ),
+            agentContextManagementDescriptor,
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "agentHibernation",
                 settingsKey: "terminal.agentHibernation.enabled",

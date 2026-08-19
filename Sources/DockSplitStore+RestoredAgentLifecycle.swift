@@ -10,8 +10,13 @@ extension DockSplitStore {
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        // Remove the managed fallback before publishing the effective binding
+        // change. The context-health owner intentionally consults both maps;
+        // publishing first would make a cleared surface look managed until a
+        // later lifecycle callback happened to arrive.
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
+        updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
+        contextManagementLifecycleDidClear(panelId: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
@@ -24,6 +29,7 @@ extension DockSplitStore {
         flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
+        AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(panelId: panelId, state: state)
         if previousState != state,
            let pendingTitle = advanceRestoredPanelTitleBoundary(
                panelId: panelId,
@@ -122,11 +128,8 @@ extension DockSplitStore {
             detached.restoredPanelTitleBoundary,
             panelId: detached.panelId
         )
-        if let shellActivityState = detached.shellActivityState {
-            (detached.panel as? TerminalPanel)?.updateShellActivityState(
-                shellActivityState
-            )
-        }
+        let shellActivityState = detached.shellActivityState ?? .unknown
+        (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,
@@ -135,17 +138,20 @@ extension DockSplitStore {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
-        if let resumeBinding = detached.resumeBinding {
-            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
-        }
-        if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
-            managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
-        }
         if let runtime = detached.agentRuntime {
             agentRuntimeByPanelId[detached.panelId] = runtime
         } else {
             agentRuntimeByPanelId.removeValue(forKey: detached.panelId)
         }
+        if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
+            managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
+        }
+        updateSurfaceResumeBinding(
+            panelId: detached.panelId,
+            to: detached.resumeBinding,
+            notifyWhenUnchanged: true,
+            notifyContextManagement: false
+        )
         syncAgentNeedsInputAttention(
             panelId: detached.panelId,
             runtime: detached.agentRuntime
@@ -206,10 +212,10 @@ extension DockSplitStore {
         }
         if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId] {
             if effectiveBinding == originalBinding || effectiveBinding.isSameManagedSession(as: binding) {
-                surfaceResumeBindingsByPanelId[panelId] = binding
+                updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
             }
         } else {
-            surfaceResumeBindingsByPanelId[panelId] = binding
+            updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
         }
     }
 
@@ -257,12 +263,16 @@ extension DockSplitStore {
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
         var didReplaceRuntime = false
+        var clearedLifecycleKeys = Set<String>()
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
                 let staleKeys = runtime.agentPIDKeys.filter {
                     $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
                 }
                 for staleKey in staleKeys {
+                    clearedLifecycleKeys.insert(
+                        Self.agentStatusKey(forAgentPIDKey: staleKey, runtime: runtime)
+                    )
                     Self.clearAgentPID(
                         key: staleKey,
                         clearStatus: true,
@@ -279,6 +289,9 @@ extension DockSplitStore {
             }
             runtime.agentPIDKeys.insert(key)
         }
+        for lifecycleKey in clearedLifecycleKeys {
+            contextManagementLifecycleDidClear(key: lifecycleKey, panelId: panelId)
+        }
         return didReplaceRuntime
     }
 
@@ -290,6 +303,7 @@ extension DockSplitStore {
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             $0.agentLifecycleStates[key] = lifecycle
         }
+        contextManagementLifecycleDidChange(key: key, panelId: panelId, lifecycle: lifecycle)
     }
 
     @discardableResult
@@ -298,6 +312,10 @@ extension DockSplitStore {
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             didClear = $0.agentLifecycleStates.removeValue(forKey: key) != nil
         }
+        // Notify even when the runtime dictionary was already empty: the
+        // coordinator may still hold lifecycle evidence from the prior
+        // generation and must fail closed.
+        contextManagementLifecycleDidClear(key: key, panelId: panelId)
         return didClear
     }
 
@@ -313,12 +331,17 @@ extension DockSplitStore {
             return false
         }
         var didChange = false
+        var clearedLifecycleKey: String?
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            clearedLifecycleKey = Self.agentStatusKey(forAgentPIDKey: key, runtime: $0)
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
                 runtime: &$0
             )
+        }
+        if let clearedLifecycleKey {
+            contextManagementLifecycleDidClear(key: clearedLifecycleKey, panelId: panelId)
         }
         return didChange
     }

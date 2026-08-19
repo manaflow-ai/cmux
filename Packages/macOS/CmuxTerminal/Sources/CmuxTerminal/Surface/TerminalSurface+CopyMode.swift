@@ -76,7 +76,7 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func performExplicitInputBindingAction(_ action: String) -> Bool {
-        didReceiveExplicitInput()
+        didReceiveExplicitInput(isUserInitiated: true)
         return performExplicitBindingActionAfterInputNotification(action)
     }
 
@@ -106,7 +106,7 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func toggleKeyboardCopyMode() -> Bool {
-        didReceiveExplicitInput()
+        didReceiveExplicitInput(isUserInitiated: true)
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
             setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)

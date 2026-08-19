@@ -268,6 +268,7 @@ extension TerminalController {
             guard let terminalPanel = target.terminalPanel else {
                 return .surfaceNotTerminal(surfaceId)
             }
+            terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
             let queued: Bool
             switch terminalPanel.sendInputResult(text) {
             case .sent:
@@ -315,6 +316,7 @@ extension TerminalController {
         ) {
             return remote
         }
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
         case .sent:
@@ -362,6 +364,7 @@ extension TerminalController {
             guard let terminalPanel = target.terminalPanel else {
                 return .surfaceNotTerminal(surfaceId)
             }
+            terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
             let sendResult = terminalPanel.sendNamedKeyResult(key)
             switch sendResult {
             case .sent:
@@ -410,6 +413,7 @@ extension TerminalController {
         ) {
             return remote
         }
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         let sendResult = terminalPanel.sendNamedKeyResult(key)
         switch sendResult {
         case .sent:

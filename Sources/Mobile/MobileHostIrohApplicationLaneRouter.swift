@@ -783,6 +783,7 @@ actor MobileHostIrohApplicationLaneRouter {
             guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
                 return false
             }
+            surface.didReceiveExplicitInput(isUserInitiated: true)
             switch surface.sendInputResult(input) {
             case .sent:
                 surface.forceRefresh(reason: "mobileHost.irohTerminalLaneInput")

@@ -13656,6 +13656,7 @@ class TerminalController {
         text: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         switch terminalPanel.sendInputResult(text) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: refreshReason)
@@ -13678,6 +13679,7 @@ class TerminalController {
         keyName: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         switch terminalPanel.sendNamedKeyResult(keyName) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: refreshReason)
@@ -15087,6 +15089,7 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         let sendResult = terminalPanel.surface.sendInputResult(text)
         switch sendResult {
         case .sent:
@@ -15154,6 +15157,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
         switch sendResult {
         case .sent:
@@ -15249,6 +15253,7 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
+        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         guard terminalPanel.sendText(text) else {
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
         }
@@ -15263,6 +15268,7 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
+            terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
             let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
             if keyResult.accepted {
                 submitted = true

@@ -10,6 +10,7 @@ extension GhosttyNSView {
             ) ?? false
         }
         if handledByMirror { return }
+        surface.didReceiveExplicitInput(isUserInitiated: true)
         surface.sendText(text)
     }
 

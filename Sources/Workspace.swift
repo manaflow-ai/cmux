@@ -217,7 +217,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         terminalStartupRestoreCoordinator.removeAllRestores()
-        surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        removeAllSurfaceResumeBindings()
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredPanelTitleBoundariesByPanelId.removeAll(keepingCapacity: false)
         panelShellActivityStates.removeAll(keepingCapacity: false)
@@ -1306,13 +1306,13 @@ extension Workspace {
 
             guard let storedBinding else {
                 if let detectedBinding, detectedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                    updateSurfaceResumeBinding(panelId: panelId, to: detectedBinding, notifyWhenUnchanged: true)
                 }
                 continue
             }
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                    updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
                 } else if isStaleAgentHookBinding(
                     storedBinding,
                     panelId: panelId,
@@ -1330,9 +1330,9 @@ extension Workspace {
                     by: detectedBinding,
                     panelId: panelId
                 )
-                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                updateSurfaceResumeBinding(panelId: panelId, to: detectedBinding, notifyWhenUnchanged: true)
             } else if storedBinding.isProcessDetected {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
             }
         }
     }
@@ -1669,15 +1669,19 @@ extension Workspace {
                 )
             }
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
-                    expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
-                    expectedSurfaceID: snapshot.id,
-                    workspaceID: id,
-                    surfaceID: terminalPanel.id,
-                    persistentPTYSessionID: restoredRemotePTYSessionID
+                updateSurfaceResumeBinding(
+                    panelId: terminalPanel.id,
+                    to: storedResumeBinding.retargetingRemoteOwner(
+                        expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
+                        expectedSurfaceID: snapshot.id,
+                        workspaceID: id,
+                        surfaceID: terminalPanel.id,
+                        persistentPTYSessionID: restoredRemotePTYSessionID
+                    ),
+                    notifyWhenUnchanged: true
                 )
             } else {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
+                updateSurfaceResumeBinding(panelId: terminalPanel.id, to: nil, notifyWhenUnchanged: true)
             }
             // A terminal whose startup command cds itself (agent resume, tmux attach, agent-hook)
             // is spawned without a working directory, so its shell starts in the default directory
@@ -3968,6 +3972,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             self.lastTerminalConfigInheritanceFontSizeLineage = lineage
         }
         installTerminalVisualBellRouting(for: terminalPanel)
+        terminalPanel.surface.onUserExplicitInput = { [weak terminalPanel] in
+            guard let terminalPanel else { return }
+            AppDelegate.shared?.agentContextManagementCoordinator.userDidType(panelId: terminalPanel.id)
+        }
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             let panelID = self.surfaceOwnershipTarget(for: terminalPanel.id)?.containerPanelID
@@ -5063,6 +5071,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
+            AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(panelId: panelId, state: state)
             return
         }
         let pendingRestoredTitle = restoredPanelTitleAfterShellActivity(
@@ -5078,6 +5087,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
+        AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(panelId: panelId, state: state)
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
@@ -5206,7 +5216,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // This transient cwd belongs to the binding restored at launch. Let a
         // same-session hook refresh keep its cwd rescue, but never let it
         // override a replacement session's structured restore record.
-        if let previous = surfaceResumeBindingsByPanelId[panelId],
+        let previous = surfaceResumeBindingsByPanelId[panelId]
+        if let previous,
            previous.kind != binding.kind
             || previous.checkpointId != binding.checkpointId
             || previous.cwd != binding.cwd
@@ -5215,13 +5226,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 && previous.command != binding.command) {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        updateSurfaceResumeBinding(panelId: panelId, to: binding)
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        let removed = surfaceResumeBindingsByPanelId[panelId] != nil
+        updateSurfaceResumeBinding(panelId: panelId, to: nil)
+        return removed
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
@@ -5481,8 +5494,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if didClearStaleAgentRuntime {
             refreshTrackedAgentPorts()
         }
-        surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
-            validSurfaceIds.contains($0.key)
+        let removedBindingPanelIds = removeSurfaceResumeBindings(except: validSurfaceIds)
+        for panelId in removedBindingPanelIds {
+            AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                panelId: panelId,
+                workspace: self
+            )
         }
         restoredAgentLifecycle.retainSessionRestores(for: validSurfaceIds)
         restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
@@ -9738,6 +9755,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 detached = detachedTransfer.withRemoteCleanupConfiguration(remoteConfiguration)
             }
         }
+        // Keep pressure evidence attached to a live managed session while its
+        // panel is between owners. A failed/ordinary close still clears the
+        // coordinator state through the same lifecycle path.
+        AppDelegate.shared?.agentContextManagementCoordinator.remove(
+            panelId: panelId,
+            workspace: self,
+            preserveState: detached != nil
+        )
         publishCmuxSurfaceClosed(panelId, paneId: sourcePaneId, panel: sourcePanel, origin: detached == nil ? "detach_lost" : "detach")
 #if DEBUG
         cmuxDebugLog(
@@ -9834,11 +9859,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             inPane: paneId
         ) else {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
+            AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: self
+            )
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
-            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            updateSurfaceResumeBinding(
+                panelId: detached.panelId,
+                to: nil,
+                notifyWhenUnchanged: true
+            )
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
@@ -9917,11 +9950,32 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return detached.resolvedManagedAgentResumeBinding
         }()
         if let transferredResumeBinding {
-            surfaceResumeBindingsByPanelId[detached.panelId] = transferredResumeBinding
+            updateSurfaceResumeBinding(
+                panelId: detached.panelId,
+                to: transferredResumeBinding,
+                notifyWhenUnchanged: true,
+                notifyContextManagement: false
+            )
         } else {
-            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            updateSurfaceResumeBinding(
+                panelId: detached.panelId,
+                to: nil,
+                notifyWhenUnchanged: true,
+                notifyContextManagement: false
+            )
         }
+        // Install copied lifecycle evidence after the destination binding is
+        // present, but before the single authoritative evaluation below. The
+        // suppressed binding notification keeps this transfer atomic from the
+        // context-health coordinator's perspective.
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(
+            panelId: detached.panelId,
+            state: (detached.panel as? TerminalPanel)?.shellActivity.state ?? .unknown
+        )
+        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
+            panelId: detached.panelId
+        )
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
@@ -9963,12 +10017,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 surfaceId: detached.panelId
             )
             if let resumeBinding = surfaceResumeBindingsByPanelId[detached.panelId] {
-                surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding.retargetingRemoteOwner(
-                    expectedWorkspaceID: detached.sourceWorkspaceId,
-                    expectedSurfaceID: detached.panelId,
-                    workspaceID: id,
-                    surfaceID: detached.panelId,
-                    persistentPTYSessionID: remotePTYSessionIDsByPanelId[detached.panelId]
+                updateSurfaceResumeBinding(
+                    panelId: detached.panelId,
+                    to: resumeBinding.retargetingRemoteOwner(
+                        expectedWorkspaceID: detached.sourceWorkspaceId,
+                        expectedSurfaceID: detached.panelId,
+                        workspaceID: id,
+                        surfaceID: detached.panelId,
+                        persistentPTYSessionID: remotePTYSessionIDsByPanelId[detached.panelId]
+                    ),
+                    notifyWhenUnchanged: true
                 )
             }
         }

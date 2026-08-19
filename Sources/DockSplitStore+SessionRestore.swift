@@ -342,12 +342,14 @@ extension DockSplitStore {
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
         }
-        if let resumeBinding {
-            surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
-        }
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
         }
+        updateSurfaceResumeBinding(
+            panelId: terminal.id,
+            to: resumeBinding,
+            notifyWhenUnchanged: true
+        )
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }

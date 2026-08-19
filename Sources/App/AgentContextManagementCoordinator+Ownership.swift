@@ -1,0 +1,150 @@
+import CmuxWorkspaces
+import Foundation
+
+@MainActor
+extension AgentContextManagementCoordinator {
+    func lifecycleDidChange(
+        key: String,
+        panelId: UUID,
+        lifecycle: AgentHibernationLifecycleState
+    ) {
+        // Feed owns a transient `needsInput` lifecycle key that is deliberately
+        // outside the managed-provider namespace. It still represents a modal
+        // dialog for this panel, so re-evaluate pending recovery immediately;
+        // `evaluate` reads the authoritative owner map and fails closed.
+        guard AgentContextProvider(managedAgentKind: key) != nil else {
+            if states[panelId]?.pressure.isUnderPressure == true,
+               let owner = owner(for: panelId, preferredWorkspaceID: nil) {
+                structuredLog(
+                    "lifecycle.ignored",
+                    workspaceID: owner.workspaceID,
+                    surfaceID: panelId,
+                    detail: "non-provider-key=\(key) lifecycle=\(lifecycle.rawValue)"
+                )
+                evaluate(surfaceID: panelId, owner: owner)
+            }
+            return
+        }
+        updateLifecycle(
+            AgentContextLifecycleState(rawValue: lifecycle.rawValue) ?? .unknown,
+            key: key,
+            panelId: panelId
+        )
+    }
+
+    func provider(for panelId: UUID, preferredWorkspaceID: UUID? = nil) -> AgentContextProvider? {
+        owner(for: panelId, preferredWorkspaceID: preferredWorkspaceID)
+            .flatMap { $0.binding(panelId: panelId) }
+            .flatMap { AgentContextProvider(managedAgentKind: $0.kind) }
+    }
+
+    func owner(for panelId: UUID, preferredWorkspaceID: UUID?) -> PanelOwner? {
+        if let preferredWorkspaceID,
+           let manager = AppDelegate.shared?.tabManagerFor(tabId: preferredWorkspaceID),
+           let workspace = manager.workspacesById[preferredWorkspaceID],
+           workspace.panels[panelId] is TerminalPanel {
+            return .workspace(workspace)
+        }
+        if let preferredWorkspaceID,
+           let dock = DockSplitStore.liveStores.first(where: {
+               $0.workspaceId == preferredWorkspaceID && $0.panels[panelId] is TerminalPanel
+           }) {
+            return .dock(dock)
+        }
+        if let dock = DockSplitStore.liveStores.first(where: {
+            $0.panels[panelId] is TerminalPanel
+        }) {
+            return .dock(dock)
+        }
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelId,
+            preferredWorkspaceId: preferredWorkspaceID
+        ) else { return nil }
+        return .workspace(located.workspace)
+    }
+
+    func bindingDidChange(panelId: UUID) {
+        // Transfers can publish the binding before their destination owner is
+        // registered. Preserve state until a later lifecycle/shell signal
+        // can resolve the new owner; explicit close paths call remove.
+        guard let owner = owner(for: panelId, preferredWorkspaceID: nil) else {
+            return
+        }
+        guard let binding = owner.binding(panelId: panelId),
+              let provider = AgentContextProvider(managedAgentKind: binding.kind) else {
+            _ = owner.resetContextPressureDetector(panelId: panelId)
+            resetForUnboundSession(panelId: panelId)
+            return
+        }
+        guard let existingState = states[panelId] else {
+            let generation = owner.resetContextPressureDetector(panelId: panelId)
+            states[panelId] = makePanelState(
+                panelId: panelId,
+                provider: provider,
+                binding: binding,
+                owner: owner,
+                detectorGeneration: generation
+            )
+            structuredLog(
+                "detector-reset-requested",
+                workspaceID: owner.workspaceID,
+                surfaceID: panelId,
+                detail: "reason=initial-binding generation=\(generation)"
+            )
+            return
+        }
+        guard existingState.provider == provider, sameSession(existingState.binding, binding) else {
+            let generation = owner.resetContextPressureDetector(panelId: panelId)
+            resetForUnboundSession(panelId: panelId)
+            states[panelId] = makePanelState(
+                panelId: panelId,
+                provider: provider,
+                binding: binding,
+                owner: owner,
+                detectorGeneration: generation,
+                seedLifecycleEvidence: false
+            )
+            structuredLog(
+                "detector-reset-requested",
+                workspaceID: owner.workspaceID,
+                surfaceID: panelId,
+                detail: "reason=replacement-binding generation=\(generation)"
+            )
+            return
+        }
+        var state = existingState
+        // Binding publication is also the lifecycle boundary for transfers.
+        // Re-read both authoritative maps before evaluating preserved pressure
+        // so source-owner evidence cannot leak into the destination session.
+        state.lifecycleByKey = owner.lifecycleEvidence(
+            panelId: panelId,
+            provider: provider
+        )
+        state.lifecycle = Self.effectiveLifecycle(from: state.lifecycleByKey.values)
+        state.dialogOpen = state.lifecycle == .needsInput
+        state.shellActivity = owner.shellActivity(panelId: panelId)
+        states[panelId] = state
+        if state.pressure.isUnderPressure {
+            owner.setPressureStatus(
+                SidebarStatusEntry(
+                    key: Self.statusKey(for: panelId),
+                    value: String(localized: "sidebar.agentContext.pressure", defaultValue: "Context pressure detected"),
+                    icon: "exclamationmark.triangle.fill",
+                    color: "#D97706",
+                    priority: 20
+                ),
+                key: Self.statusKey(for: panelId),
+                panelId: panelId
+            )
+        }
+        evaluate(surfaceID: panelId, owner: owner)
+    }
+
+    func resetForUnboundSession(panelId: UUID) {
+        states.removeValue(forKey: panelId)
+        userInputObservedBeforePressure.remove(panelId)
+        if let owner = owner(for: panelId, preferredWorkspaceID: nil) {
+            owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
+        }
+    }
+}

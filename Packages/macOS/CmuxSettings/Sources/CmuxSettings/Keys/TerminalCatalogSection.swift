@@ -49,6 +49,28 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    /// Enables terminal-side context-pressure recovery for managed Claude Code
+    /// and Codex panes. Off by default because recovery writes into a PTY.
+    public let agentContextManagementEnabled = DefaultsKey<Bool>(
+        id: "terminal.agentContextManagement.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.agentContextManagement.enabled"
+    )
+
+    /// Recovery command used after context pressure is detected at an idle prompt.
+    public let agentContextManagementAction = DefaultsKey<String>(
+        id: "terminal.agentContextManagement.action",
+        defaultValue: "compact",
+        userDefaultsKey: "terminal.agentContextManagement.action"
+    )
+
+    /// Whether a clear action first asks the agent to write a handoff note.
+    public let agentContextManagementPreserveState = DefaultsKey<Bool>(
+        id: "terminal.agentContextManagement.preserveState",
+        defaultValue: false,
+        userDefaultsKey: "terminal.agentContextManagement.preserveState"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,
