@@ -310,15 +310,6 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
-    @State private var addressBarWidth: CGFloat = 0
-
-    /// Below this chrome width the full accessory row would crowd out the
-    /// omnibar, so the plain-action buttons collapse into an overflow menu.
-    private static let compactChromeWidthThreshold: CGFloat = 420
-
-    private var isChromeCompact: Bool {
-        addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold
-    }
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
@@ -1055,9 +1046,6 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
-        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
-            addressBarWidth = width
-        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
@@ -1152,16 +1140,14 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                if isChromeCompact {
-                    // Narrow panes can't fit the full accessory row without
-                    // clipping the omnibar; collapse the plain-action buttons
-                    // into an overflow menu and keep the popover-anchored
-                    // profile/theme controls present.
-                    browserOverflowMenu
-                    browserProfileButton
-                    browserThemeModeButton
-                } else {
+                // Plain actions stay in the overflow menu so the browser
+                // chrome remains quiet at every width. Mode controls are the
+                // exception: while active, their state must remain visible
+                // without asking the user to reopen the menu.
+                if panel.isBrowserFocusModeActive {
                     browserFocusModeButtonWithShortcutHint
+                }
+                if panel.designModeController.isActive {
                     BrowserDesignModeToolbarButton(
                         controller: panel.designModeController,
                         iconPointSize: devToolsButtonIconSize,
@@ -1169,25 +1155,21 @@ struct BrowserPanelView: View {
                         inactiveColor: devToolsColorOption.color,
                         onToggle: { await panel.toggleDesignMode(reason: "toolbar") }
                     )
-                    screenshotPageButton
-                    // reactGrabButton  // Hidden for now; design mode covers element grabbing.
-                    browserProfileButton
-                    browserThemeModeButton
-                    developerToolsButton
                 }
+                // Screenshot feedback is transiently promoted beside the
+                // overflow trigger so the existing Copied chip remains
+                // visible after the menu item closes.
+                if screenshotPageCopied {
+                    screenshotPageButton
+                }
+                browserOverflowMenu
+                browserProfileButton
+                browserThemeModeButton
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
-        .background {
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: BrowserAddressBarWidthPreferenceKey.self,
-                    value: geo.size.width
-                )
-            }
-        }
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
                 focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
@@ -3610,14 +3592,6 @@ private struct OmnibarPillFramePreferenceKey: PreferenceKey {
 }
 
 private struct BrowserAddressBarHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
