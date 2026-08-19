@@ -449,7 +449,17 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
     app.rendered_pane_content_generations
         .insert(area.surface, PaneContentGeneration::Terminal(render.content_generation));
-    if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
+    if focused
+        && app.menu.is_none()
+        && app.prompt.is_none()
+        && app.pairing_dialog.is_none()
+        // A scoped attach client is a transparent passthrough: it asserts a
+        // cursor shape and color on the host terminal only when the inner
+        // application authored one (DECSCUSR), never for session or frontend
+        // defaults. Otherwise the host terminal's own configured cursor
+        // style stays untouched.
+        && (!app.is_surface_only() || surface.cursor_style_authored())
+    {
         let (shape, blinking) = render.frame.cursor_visual;
         app.use_terminal_cursor_spec(
             super::terminal_grid::resolved_cursor_color(&render),
