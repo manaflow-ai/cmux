@@ -3,13 +3,24 @@ public import Foundation
 /// Tracks whether an SSH PTY attachment delivered output newer than its
 /// initial scrollback replay.
 public struct SSHPTYAttachOutputProgress: Sendable {
+    private static let fingerprintOffset: UInt64 = 14695981039346656037
+    private static let fingerprintPrime: UInt64 = 1099511628211
+
     /// Initial replay bytes that have not yet arrived from the bridge.
     public private(set) var replayBytesRemaining: Int
 
     private var replayBytesToSuppressRemaining: Int
+    private let expectedReplayFingerprint: UInt64?
+    private let replayPrefixTargetLength: Int
+    private var replayPrefixCandidate = Data()
+    private var replayPrefixValidationComplete: Bool
+    private var replayFingerprintHash = Self.fingerprintOffset
 
     /// Whether any output arrived after the initial replay boundary.
     public private(set) var receivedLiveOutput = false
+
+    /// Fingerprint of the complete replay once the bridge delivered it.
+    public private(set) var completedReplayFingerprint: UInt64?
 
     /// Creates progress accounting for an attachment's declared replay size.
     ///
@@ -18,13 +29,35 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     ///   - suppressReplayBytes: Previously delivered replay prefix bytes to
     ///     hide on a managed reattach. `nil` preserves the legacy behavior of
     ///     suppressing the complete declared replay when requested.
-    public init(replayBytes: Int, suppressReplayBytes: Int? = nil) {
+    ///   - expectedReplayFingerprint: Fingerprint of the previously delivered
+    ///     prefix. When supplied, the prefix is buffered until its identity is
+    ///     confirmed; a bounded-scrollback rollover forwards the replacement
+    ///     snapshot instead of dropping it.
+    public init(
+        replayBytes: Int,
+        suppressReplayBytes: Int? = nil,
+        expectedReplayFingerprint: UInt64? = nil
+    ) {
         let normalizedReplayBytes = max(0, replayBytes)
-        replayBytesRemaining = normalizedReplayBytes
-        replayBytesToSuppressRemaining = min(
+        let normalizedSuppressBytes = min(
             normalizedReplayBytes,
             max(0, suppressReplayBytes ?? normalizedReplayBytes)
         )
+        replayBytesRemaining = normalizedReplayBytes
+        replayBytesToSuppressRemaining = normalizedSuppressBytes
+        self.expectedReplayFingerprint = expectedReplayFingerprint
+        replayPrefixTargetLength = expectedReplayFingerprint == nil ? 0 : normalizedSuppressBytes
+        replayPrefixValidationComplete = expectedReplayFingerprint == nil || normalizedSuppressBytes == 0
+    }
+
+    /// Computes the stable fingerprint used to validate a replay prefix.
+    public static func fingerprint(of data: Data) -> UInt64 {
+        var hash = fingerprintOffset
+        for byte in data {
+            hash ^= UInt64(byte)
+            hash &*= fingerprintPrime
+        }
+        return hash
     }
 
     /// Records one ordered output chunk from the bridge.
@@ -55,10 +88,45 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     ) -> Data {
         guard !data.isEmpty else { return Data() }
         let replayChunkBytes = min(data.count, replayBytesRemaining)
+        if replayChunkBytes > 0 {
+            updateReplayFingerprint(Data(data.prefix(replayChunkBytes)))
+        }
+        recordOutput(byteCount: data.count)
+
+        if replayBytesRemaining == 0, completedReplayFingerprint == nil {
+            completedReplayFingerprint = replayFingerprintHash
+        }
+
+        if suppressingReplay,
+           expectedReplayFingerprint != nil,
+           !replayPrefixValidationComplete {
+            let candidateBytesRemaining = replayPrefixTargetLength - replayPrefixCandidate.count
+            let candidateBytes = min(candidateBytesRemaining, data.count)
+            replayPrefixCandidate.append(data.prefix(candidateBytes))
+            guard replayPrefixCandidate.count == replayPrefixTargetLength else {
+                return Data()
+            }
+            replayPrefixValidationComplete = true
+            let matches = Self.fingerprint(of: replayPrefixCandidate) == expectedReplayFingerprint
+            let candidate = replayPrefixCandidate
+            replayPrefixCandidate.removeAll(keepingCapacity: false)
+            replayBytesToSuppressRemaining = 0
+            if matches {
+                let remainder = Data(data.dropFirst(candidate.count))
+                if !remainder.isEmpty {
+                    receivedLiveOutput = true
+                }
+                return remainder
+            }
+            // The bounded snapshot rolled over (or the session was replaced),
+            // so none of the new snapshot can be proven duplicate.
+            receivedLiveOutput = true
+            return data
+        }
+
         let suppressBytes = suppressingReplay
             ? min(data.count, replayBytesToSuppressRemaining)
             : 0
-        recordOutput(byteCount: data.count)
         if suppressingReplay {
             replayBytesToSuppressRemaining -= suppressBytes
             // A partially suppressed replay contains a suffix that was
@@ -68,8 +136,31 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             if suppressBytes < replayChunkBytes {
                 receivedLiveOutput = true
             }
+            if expectedReplayFingerprint != nil,
+               replayBytesToSuppressRemaining == 0,
+               replayBytesRemaining > 0 {
+                receivedLiveOutput = true
+            }
         }
         guard suppressingReplay, suppressBytes > 0 else { return data }
         return Data(data.dropFirst(suppressBytes))
+    }
+
+    /// Flushes a buffered candidate when the bridge closes before replay ends.
+    public mutating func finishPendingReplay() -> Data {
+        guard !replayPrefixValidationComplete else { return Data() }
+        replayPrefixValidationComplete = true
+        replayBytesToSuppressRemaining = 0
+        receivedLiveOutput = true
+        let pending = replayPrefixCandidate
+        replayPrefixCandidate.removeAll(keepingCapacity: false)
+        return pending
+    }
+
+    private mutating func updateReplayFingerprint(_ data: Data) {
+        for byte in data {
+            replayFingerprintHash ^= UInt64(byte)
+            replayFingerprintHash &*= Self.fingerprintPrime
+        }
     }
 }

@@ -13166,7 +13166,7 @@ struct CMUXCLI {
             sessionID: sessionID,
             lifecycleID: lifecycleID
         )
-        let previousReplayBytes = suppressReplay ? replayState.loadReplayBytes() : nil
+        let previousReplaySnapshot = suppressReplay ? replayState.loadSnapshot() : nil
         let environmentSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
         let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
@@ -13456,30 +13456,54 @@ struct CMUXCLI {
         }
         var reconnectInputFilterStopRequested = false
         let suppressReplayBytes: Int?
+        let expectedReplayFingerprint: UInt64?
         if suppressReplay {
-            if let previousReplayBytes {
-                // The daemon appends detached output to the replay snapshot.
-                // Only suppress a prefix whose length was fully delivered by
-                // the prior attach; if the bounded snapshot shrank, forwarding
-                // it is safer than discarding bytes whose identity is unknown.
-                suppressReplayBytes = previousReplayBytes <= bridgeReplayBytes
-                    ? previousReplayBytes
-                    : 0
+            if let previousReplaySnapshot {
+                if let fingerprint = previousReplaySnapshot.fingerprint {
+                    // The daemon appends detached output to the replay
+                    // snapshot. Only suppress a prefix whose length was fully
+                    // delivered by the prior attach. The fingerprint confirms
+                    // that the prefix survived bounded-scrollback rollover
+                    // before hiding it.
+                    suppressReplayBytes = previousReplaySnapshot.replayBytes <= bridgeReplayBytes
+                        ? previousReplaySnapshot.replayBytes
+                        : 0
+                    expectedReplayFingerprint = fingerprint
+                } else {
+                    // A v1 state file has no content identity. Forward the
+                    // replacement snapshot rather than risk dropping output
+                    // after a bounded-scrollback rollover.
+                    suppressReplayBytes = 0
+                    expectedReplayFingerprint = nil
+                }
             } else {
                 // Older wrappers do not persist a prefix length, so retain the
                 // legacy full-replay suppression behavior for compatibility.
                 suppressReplayBytes = nil
+                expectedReplayFingerprint = nil
             }
         } else {
             suppressReplayBytes = 0
+            expectedReplayFingerprint = nil
         }
         var outputProgress = SSHPTYAttachOutputProgress(
             replayBytes: bridgeReplayBytes,
-            suppressReplayBytes: suppressReplayBytes
+            suppressReplayBytes: suppressReplayBytes,
+            expectedReplayFingerprint: expectedReplayFingerprint
         )
+        defer {
+            let pendingReplay = outputProgress.finishPendingReplay()
+            if !pendingReplay.isEmpty {
+                cliWriteStdout(pendingReplay)
+            }
+        }
         var replayStateStored = bridgeReplayBytes == 0
         if replayStateStored {
-            replayState.storeReplayBytes(bridgeReplayBytes)
+            replayState.storeSnapshot(
+                replayBytes: bridgeReplayBytes,
+                fingerprint: outputProgress.completedReplayFingerprint ??
+                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
+            )
         }
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
@@ -13508,14 +13532,26 @@ struct CMUXCLI {
                     cliWriteStdout(output)
                 }
                 if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
-                    replayState.storeReplayBytes(bridgeReplayBytes)
+                    replayState.storeSnapshot(
+                        replayBytes: bridgeReplayBytes,
+                        fingerprint: outputProgress.completedReplayFingerprint ??
+                            SSHPTYAttachOutputProgress.fingerprint(of: Data())
+                    )
                     replayStateStored = true
                 }
             } else if count == 0 {
+                let pendingReplay = outputProgress.finishPendingReplay()
+                if !pendingReplay.isEmpty {
+                    cliWriteStdout(pendingReplay)
+                }
                 try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
+                    let pendingReplay = outputProgress.finishPendingReplay()
+                    if !pendingReplay.isEmpty {
+                        cliWriteStdout(pendingReplay)
+                    }
                     try finishBridgeClosedNormally()
                     return
                 }

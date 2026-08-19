@@ -189,7 +189,10 @@ struct SSHPTYAttachExitCodeTests {
     func managedReconnectPreservesAppendedReplayOutput() {
         var progress = SSHPTYAttachOutputProgress(
             replayBytes: 10,
-            suppressReplayBytes: 6
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: SSHPTYAttachOutputProgress.fingerprint(
+                of: Data("oldold".utf8)
+            )
         )
         let output = progress.terminalOutput(
             from: Data("oldoldnew!".utf8),
@@ -198,6 +201,25 @@ struct SSHPTYAttachExitCodeTests {
 
         #expect(String(decoding: output, as: UTF8.self) == "new!")
         #expect(progress.replayBytesRemaining == 0)
+        #expect(progress.receivedLiveOutput)
+    }
+
+    @Test("managed reconnects forward a replacement snapshot after rollover")
+    func managedReconnectForwardsRolloverSnapshot() {
+        let previousFingerprint = SSHPTYAttachOutputProgress.fingerprint(
+            of: Data("oldold".utf8)
+        )
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 10,
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: previousFingerprint
+        )
+        let output = progress.terminalOutput(
+            from: Data("newnewnew!".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(String(decoding: output, as: UTF8.self) == "newnewnew!")
         #expect(progress.receivedLiveOutput)
     }
 
