@@ -409,7 +409,8 @@ fs.writeFileSync(
 
 
 def main() -> int:
-    if ensure_node_on_path() is None:
+    node_path = ensure_node_on_path()
+    if node_path is None:
         print("SKIP: node runtime not found; fake claude execs node")
         return 0
     try:
@@ -419,6 +420,11 @@ def main() -> int:
         return 1
 
     base_env = os.environ.copy()
+    # Keep the PATH fixture independent of the runner's shell. In particular,
+    # an ambient component resolving to this checkout would make the malformed
+    # `.../..` assertion indistinguishable from a pre-existing current-directory
+    # entry. The fake Claude only needs its Node directory and the system tools.
+    base_env["PATH"] = f"{Path(node_path).parent}:/usr/bin:/bin"
 
     proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
         cli_path,
