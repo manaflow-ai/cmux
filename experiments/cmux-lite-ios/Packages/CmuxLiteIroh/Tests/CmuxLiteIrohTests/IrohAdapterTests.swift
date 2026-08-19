@@ -128,6 +128,23 @@ struct IrohAdapterTests {
             try await stream.receive()
         }
     }
+
+    @Test("explicit close waits for native teardown before returning")
+    func closeIsOrdered() async throws {
+        let connection = BlockingCloseIrohConnection()
+        let stream = IrohByteStream(connection: connection)
+        try await stream.connect()
+
+        let closeTask = Task {
+            await stream.close()
+        }
+        await connection.waitUntilCloseIsPending()
+        #expect(await connection.isClosed() == false)
+
+        await connection.releaseClose()
+        await closeTask.value
+        #expect(await connection.isClosed())
+    }
 }
 
 private enum FakeProviderBehavior: Sendable {
@@ -261,5 +278,44 @@ private actor BlockingIrohConnection: IrohConnection {
 
     func sentChunks() -> [Data] {
         sent
+    }
+}
+
+private actor BlockingCloseIrohConnection: IrohConnection {
+    private var closeContinuation: CheckedContinuation<Void, Never>?
+    private var closeObserver: CheckedContinuation<Void, Never>?
+    private var closed = false
+
+    func send(_ bytes: Data) async throws {}
+
+    func receive() async throws -> Data? {
+        nil
+    }
+
+    func close() async {
+        closeObserver?.resume()
+        closeObserver = nil
+        await withCheckedContinuation { continuation in
+            closeContinuation = continuation
+        }
+        closed = true
+    }
+
+    func waitUntilCloseIsPending() async {
+        if closeContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            closeObserver = continuation
+        }
+    }
+
+    func releaseClose() {
+        closeContinuation?.resume()
+        closeContinuation = nil
+    }
+
+    func isClosed() -> Bool {
+        closed
     }
 }

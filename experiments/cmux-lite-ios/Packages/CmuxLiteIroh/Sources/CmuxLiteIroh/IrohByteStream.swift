@@ -46,16 +46,14 @@ public actor IrohByteStream: ByteStream {
 
     /// Creates a stream around a native connection returned by a connector.
     ///
+    /// The caller owns the stream lifecycle and must call and await ``close()``
+    /// before releasing the last reference. The adapter does not start
+    /// asynchronous cleanup from `deinit`, because destruction cannot provide
+    /// an ordering guarantee for native connection teardown.
+    ///
     /// - Parameter connection: The native bidirectional Iroh connection.
     public init(connection: any IrohConnection) {
         self.connection = connection
-    }
-
-    deinit {
-        let connectionToClose = connection
-        Task {
-            await connectionToClose.close()
-        }
     }
 
     /// Marks the native connection ready for byte-stream operations.
@@ -133,7 +131,9 @@ public actor IrohByteStream: ByteStream {
         }
     }
 
-    /// Closes the native connection idempotently.
+    /// Closes the native connection idempotently and waits for native teardown.
+    ///
+    /// Owners must await this method before releasing the stream.
     public func close() async {
         guard state != .closed else {
             return

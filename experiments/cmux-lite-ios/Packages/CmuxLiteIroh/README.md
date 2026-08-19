@@ -10,7 +10,7 @@ The package owns the contracts that must be stable before native code enters:
 - `IrohConnectionProvider` owns endpoint binding and dialing;
 - `IrohConnector` maps generic Iroh routes into the transport dialer;
 - `IrohByteStream` enforces the `ByteStream` lifecycle and rejects overlapping
-  operations;
+  operations; its owner must explicitly await `close()` before releasing it;
 - classified Iroh failures map into retryable or terminal transport outcomes.
 
 The test target injects a fake provider and connection. The next native slice
