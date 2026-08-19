@@ -13,6 +13,17 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     case tailscale
 }
 
+extension MobileConnectionMethod {
+    /// Exhaustive mapping into the diagnostics payload enum, so a future third
+    /// method becomes a compile error here instead of silently misreporting.
+    var diagnosticMethod: DiagnosticConnectionMethod {
+        switch self {
+        case .automatic: .automatic
+        case .tailscale: .tailscale
+        }
+    }
+}
+
 /// Persists the user's connection-method choice.
 ///
 /// The choice is exclusive: `automatic` uses the built-in encrypted transport,
@@ -41,7 +52,7 @@ public final class MobileConnectionMethodStore {
             defaults.set(method.rawValue, forKey: Self.methodKey)
             diagnosticLog?.recordAppEvent(
                 .connectionMethodPreferenceChanged,
-                count: method == .automatic ? 0 : 1
+                count: method.diagnosticMethod.rawValue
             )
             for continuation in continuations.values {
                 continuation.yield(method)
@@ -71,7 +82,7 @@ public final class MobileConnectionMethodStore {
     public func recordConfiguredMethodDiagnostic() {
         diagnosticLog?.recordAppEvent(
             .connectionMethodConfigured,
-            count: method == .automatic ? 0 : 1
+            count: method.diagnosticMethod.rawValue
         )
     }
 
