@@ -1513,7 +1513,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             rowIds.contains(rows[index].id) ? index : nil
         })
         guard !indexes.isEmpty else { return }
-        reconfigureVisibleRows(indexes)
+        // Producers have already applied the cell model before queuing the
+        // height id. Reconfiguring here would reinstall the replaying row
+        // publishers and feed the same height id back into the scheduler.
         noteHeightOfRowsWithoutAnimation(table, indexes)
     }
 
