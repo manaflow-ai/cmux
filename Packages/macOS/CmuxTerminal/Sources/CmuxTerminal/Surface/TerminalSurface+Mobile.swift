@@ -104,6 +104,16 @@ extension TerminalSurface {
         didAcceptExplicitInput()
     }
 
+    /// Current terminal grid dimensions straight from libghostty, without the
+    /// grid-to-JSON export that `mobileRenderGridFrame` pays. Returns nil when
+    /// the live surface pointer is unavailable.
+    @MainActor
+    public func terminalGridSize() -> (columns: Int, rows: Int)? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "terminalGridSize") else { return nil }
+        let size = ghostty_surface_size(surface)
+        return (Int(size.columns), Int(size.rows))
+    }
+
     /// Exports the surface grid as a mobile render frame (optionally filtered
     /// to changed rows). Set `includeTheme` to `false` for ordinary live ticks
     /// after the caller has cached this surface's theme; replay and invalidation

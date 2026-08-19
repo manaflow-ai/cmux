@@ -211,12 +211,9 @@ extension RemoteTmuxSessionMirror {
         paneId: Int,
         target: (columns: Int, rows: Int)
     ) -> Bool {
-        guard let frame = terminalSurface(forPane: paneId)?.mobileRenderGridFrame(
-            stateSeq: 0,
-            scrollbackLines: 0,
-            includeTheme: false
-        )?.frame else { return false }
-        return frame.columns >= target.columns && frame.rows >= target.rows
+        guard let size = terminalSurface(forPane: paneId)?.terminalGridSize()
+        else { return false }
+        return size.columns >= target.columns && size.rows >= target.rows
     }
 
     private func drainPendingPaneSeedDelivery(paneId: Int) {
