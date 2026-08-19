@@ -10349,18 +10349,14 @@ impl App {
         // pause impossible. Present it as asleep instead - the user's next
         // input (or a rail click) wakes it through the normal switch path.
         if let Some(active) = machine.snapshot.active
-            && machine
-                .snapshot
-                .machines
-                .iter()
-                .any(|descriptor| {
-                    descriptor.key == active
-                        && matches!(
-                            descriptor.status,
-                            crate::machine::MachineStatus::Sleeping
-                                | crate::machine::MachineStatus::Stopped
-                        )
-                })
+            && machine.snapshot.machines.iter().any(|descriptor| {
+                descriptor.key == active
+                    && matches!(
+                        descriptor.status,
+                        crate::machine::MachineStatus::Sleeping
+                            | crate::machine::MachineStatus::Stopped
+                    )
+            })
         {
             machine.session_available = false;
             machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
