@@ -415,6 +415,17 @@ pub(crate) enum ManagedWorkspaceSessionMutation {
     Close { workspace_key: String },
 }
 
+/// What the connect interstitial renders for the machine being opened: its
+/// name, transport phase, last known provider status, and the provider's
+/// latest connect-time progress message when one arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineTransitionView<'a> {
+    pub name: &'a str,
+    pub phase: MachineConnectionPhase,
+    pub status: MachineStatus,
+    pub progress: Option<&'a str>,
+}
+
 /// A fully opened replacement session. Controllers construct this before
 /// changing their active connection so a failed open leaves the current
 /// session usable.
@@ -570,6 +581,9 @@ pub struct MachineUiState {
     pub creation_sources: Vec<MachineCreationSource>,
     pub connection_targets: Vec<MachineConnectionTarget>,
     connection_phases: HashMap<MachineKey, MachineConnectionPhase>,
+    /// Latest provider-pushed progress message per opening machine
+    /// (connection-progress-v1), rendered by the connect interstitial.
+    connection_progress: HashMap<MachineKey, String>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
@@ -600,6 +614,10 @@ pub struct DurableProviderNotice {
 pub enum MachineUpdate {
     Ui(Box<MachineUiState>),
     DurableNotice(DurableProviderNotice),
+    /// Provider-pushed connect-time step for one machine, forwarded without a
+    /// snapshot reload so it renders while the provider's serialized control
+    /// loop is still busy opening that machine.
+    ConnectionProgress { machine_id: String, message: String },
 }
 
 /// A cancelable stream of provider-owned presentation snapshots.
@@ -670,6 +688,7 @@ impl MachineUiState {
             creation_sources: Vec::new(),
             connection_targets: Vec::new(),
             connection_phases,
+            connection_progress: HashMap::new(),
             workspace_creation: HashMap::new(),
             client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
@@ -702,6 +721,25 @@ impl MachineUiState {
                 self.connection_phases.entry(*machine).or_insert(*phase);
             }
         }
+        // Progress is transient connect-time state; a snapshot rebuild
+        // mid-connect must not blank the interstitial's live message.
+        for (machine, message) in &previous.connection_progress {
+            if visible.contains(machine) {
+                self.connection_progress.entry(*machine).or_insert_with(|| message.clone());
+            }
+        }
+    }
+
+    pub fn connection_progress(&self, machine: MachineKey) -> Option<&str> {
+        self.connection_progress.get(&machine).map(String::as_str)
+    }
+
+    pub fn set_connection_progress(&mut self, machine: MachineKey, message: String) {
+        self.connection_progress.insert(machine, message);
+    }
+
+    pub fn clear_connection_progress(&mut self, machine: MachineKey) {
+        self.connection_progress.remove(&machine);
     }
 
     pub fn selected(&self) -> Option<&MachineDescriptor> {

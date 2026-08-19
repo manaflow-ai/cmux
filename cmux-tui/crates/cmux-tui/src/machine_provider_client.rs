@@ -34,7 +34,8 @@ use cmux_tui_machine_protocol::{
     DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
     ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
     MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
-    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
+    CONNECTION_PROGRESS_CLIENT_CAPABILITY, MachineMutationParams, MachineMutationResult,
+    NegotiateClientCapabilitiesParams,
     NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
     OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
     ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
@@ -1058,7 +1059,10 @@ impl ProviderClient {
         if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
             return Ok(());
         }
-        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let requested = vec![
+            PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+            CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+        ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
                 NegotiateClientCapabilitiesParams { capabilities: requested.clone() },

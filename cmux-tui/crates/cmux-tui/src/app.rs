@@ -62,7 +62,8 @@ use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
     MachineConnectRoute, MachineConnectionPhase, MachineController, MachineKey,
     MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession, MachineSnapshot,
-    MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
+    MachineTransitionView, MachineUiState, MachineUpdate, MachineUpdateStream,
+    ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
     ManagedWorkspaceStatus, ProviderActionContext, ProviderActionInputError, ProviderPresentation,
     WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
@@ -8688,7 +8689,7 @@ impl App {
         self.machine_selection_intent.or(self.machine_presented)
     }
 
-    pub(crate) fn machine_transition(&self) -> Option<(&str, MachineConnectionPhase)> {
+    pub(crate) fn machine_transition(&self) -> Option<MachineTransitionView<'_>> {
         let selected = self.machine_selection_intent?;
         let ui = self.machine_ui.as_ref()?;
         if self.machine_presented == Some(selected) && ui.session_available {
@@ -8703,9 +8704,34 @@ impl App {
         {
             return None;
         }
-        let name =
-            ui.snapshot.machines.iter().find(|machine| machine.key == selected)?.name.as_str();
-        Some((name, ui.connection_phase(selected)))
+        let machine = ui.snapshot.machines.iter().find(|machine| machine.key == selected)?;
+        Some(MachineTransitionView {
+            name: machine.name.as_str(),
+            phase: ui.connection_phase(selected),
+            status: machine.status,
+            progress: ui.connection_progress(selected),
+        })
+    }
+
+    /// Latest provider progress for a machine that is opening. Presentation
+    /// only: dropped when the switch settles, fails, or is re-aimed.
+    fn apply_connection_progress(&mut self, machine_id: String, message: String) -> RenderAction {
+        let Some(ui) = self.machine_ui.as_mut() else { return RenderAction::None };
+        let Some(key) = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == machine_id)
+            .map(|machine| machine.key)
+        else {
+            return RenderAction::None;
+        };
+        ui.set_connection_progress(key, message);
+        if self.machine_selection_intent == Some(key) {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
     }
 
     fn select_machine_intent(&mut self, machine: MachineKey) {
@@ -8714,6 +8740,11 @@ impl App {
             self.machine_selection_generation =
                 self.machine_selection_generation.wrapping_add(1).max(1);
             self.machine_selection_intent = Some(machine);
+            // A fresh aim starts with a fresh interstitial, not the last
+            // attempt's progress message.
+            if let Some(ui) = self.machine_ui.as_mut() {
+                ui.clear_connection_progress(machine);
+            }
         }
         if let Some(ui) = self.machine_ui.as_mut() {
             let phase = if self.machine_presented == Some(machine)
@@ -9646,6 +9677,8 @@ impl App {
             && let Some(ui) = self.machine_ui.as_mut()
         {
             ui.set_connection_phase(*machine, MachineConnectionPhase::Failed);
+            // A stale progress message must not sit under "unavailable".
+            ui.clear_connection_progress(*machine);
         }
     }
 
@@ -9869,6 +9902,11 @@ impl App {
                         let target = session.machine;
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.clear_connection_progress(machine);
+                            }
                             self.install_prepared_machine_session(session, false);
                             if let Some(label) = session_label {
                                 self.session_label = label;
@@ -13157,6 +13195,9 @@ impl App {
                 Ok(match *update {
                     MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
                     MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
+                    MachineUpdate::ConnectionProgress { machine_id, message } => {
+                        self.apply_connection_progress(machine_id, message)
+                    }
                 })
             }
             AppEvent::MachineControllerCompleted(completion) => {
@@ -35321,6 +35362,46 @@ mod tests {
 
         assert_eq!(app.focus, FocusTarget::Pane);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn machine_transition_shows_progress_then_status_aware_default() {
+        let mux = Mux::new("machine-transition-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(7),
+                id: "vm-7".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.set_connection_phase(MachineKey(7), MachineConnectionPhase::Connecting);
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(7));
+
+        // Status-aware default: a sleeping machine renders as waking, which
+        // the interstitial derives from status when no progress arrived.
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, None);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+
+        // A provider connection_progress event renders live while the switch
+        // is still in flight.
+        let action = app.apply_connection_progress("vm-7".into(), "resuming the machine".into());
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, Some("resuming the machine"));
+
+        // A failed switch drops the stale message under "unavailable".
+        app.fail_machine_action(Some(&MachineRequest::Switch(MachineKey(7))));
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Failed);
+        assert_eq!(view.progress, None);
     }
 
     #[test]

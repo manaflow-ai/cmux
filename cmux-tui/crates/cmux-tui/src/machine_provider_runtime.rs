@@ -1131,6 +1131,19 @@ impl ProviderMachineRuntime {
                             break;
                         }
                     };
+                    if let Some(protocol::ProviderEvent::ConnectionProgress(progress)) =
+                        event.as_ref()
+                    {
+                        // Forward without a snapshot reload: the provider's
+                        // serialized control loop is busy inside open_machine
+                        // while it pushes these, so a snapshot request would
+                        // stall exactly the message it is meant to show.
+                        let _ = refresh_output.send(MachineUpdate::ConnectionProgress {
+                            machine_id: progress.machine_id.as_str().to_string(),
+                            message: progress.message.clone(),
+                        });
+                        continue;
+                    }
                     let mut notice = None;
                     let had_connected_session = connected_session.is_some();
                     if let Some(protocol::ProviderEvent::ConnectionClosed(closed)) = event.as_ref()
