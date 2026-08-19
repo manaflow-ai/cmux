@@ -6223,6 +6223,7 @@ impl ViewportPaneAreaProjection {
             layout,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
             ..
         } = projection;
@@ -6246,6 +6247,7 @@ impl ViewportPaneAreaProjection {
                     full_rect,
                     stacked_headers,
                     scrollbar_position,
+                    pane_padding,
                     surface_only,
                 )
             },
