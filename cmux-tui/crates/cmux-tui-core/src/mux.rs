@@ -1925,8 +1925,14 @@ pub struct Mux {
     /// Per-client focus memory (client-focus-v1): the most recent focus each
     /// client id reported, so a reconnecting client restores its own view
     /// instead of the shared session focus. In-memory and bounded; a mux
-    /// restart degrades to the session focus.
+    /// restart degrades to the tree's own focus markers.
     client_focus_memory: Mutex<Vec<ClientFocusRecord>>,
+    /// The session's most recently reported focus from any client
+    /// (client-focus-v1): the adoption default for a later attach that has
+    /// no per-client memory. Focus reports only write this record and the
+    /// per-client memory; they never move the live shared focus, so other
+    /// attached clients stay where they are.
+    last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -2282,6 +2288,7 @@ impl Mux {
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
+            last_reported_focus: Mutex::new(None),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -14661,7 +14668,6 @@ impl Mux {
         self.emit(MuxEvent::TreeChanged);
     }
 
-    /// Select a workspace by index or relative delta.
     /// Remember one client's reported focus for its own later reconnection.
     /// Most-recent-first eviction keeps the memory bounded.
     pub fn remember_client_focus(&self, client_id: String, pane: PaneId, tab: Option<usize>) {
@@ -14684,6 +14690,20 @@ impl Mux {
             .then_some((record.pane, record.tab))
     }
 
+    /// Record the session's last reported focus from any client: the
+    /// adoption default for a later attach without per-client memory.
+    /// Never moves the live shared focus.
+    pub fn record_session_focus(&self, pane: PaneId, tab: Option<usize>) {
+        *self.last_reported_focus.lock().unwrap() = Some((pane, tab));
+    }
+
+    /// The session's last reported focus, if its pane is still alive.
+    pub fn session_focus(&self) -> Option<(PaneId, Option<usize>)> {
+        let record = (*self.last_reported_focus.lock().unwrap())?;
+        self.with_state(|state| state.panes.contains_key(&record.0)).then_some(record)
+    }
+
+    /// Select a workspace by index or relative delta.
     pub fn select_workspace(self: &Arc<Self>, index: Option<usize>, delta: Option<isize>) {
         let workspace = {
             let state = self.state.lock().unwrap();
