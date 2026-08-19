@@ -4521,6 +4521,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    func cancelKeyboardCopyMode() {
+        guard keyboardCopyModeActive else { return }
+        if let surface {
+            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        }
+        setKeyboardCopyModeActive(false)
+    }
+
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeSelectionKind = nil
@@ -5341,6 +5349,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
+            cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -10105,6 +10114,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setActive(_ active: Bool) {
         let wasActive = isActive
+        if !active {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         isActive = active
 #if DEBUG
         if wasActive != active {
