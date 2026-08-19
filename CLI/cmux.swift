@@ -6,9 +6,15 @@ import CmuxSimulator
 import CoreFoundation
 import CryptoKit
 import Darwin
+import OSLog
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
+
+nonisolated private let resumeBindingDeliveryLogger = Logger(
+    subsystem: "com.cmuxterm.cli",
+    category: "ResumeBindingDelivery"
+)
 #if canImport(Security)
 import Security
 #endif
@@ -24612,7 +24618,18 @@ struct CMUXCLI {
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
-                if shouldPromoteActiveSession {
+                let isRestoreSessionStart = isClaudeRestoreSessionStart(parsedInput)
+                let shouldRefreshResumeBinding = isRestoreSessionStart &&
+                    resolvedSurface.isAuthoritative &&
+                    !suppressVisibleMutations &&
+                    shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                        telemetry: telemetry
+                    )
+                if shouldPromoteActiveSession || shouldRefreshResumeBinding {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -24622,7 +24639,8 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
                         launchCommand: launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
+                        observedPermissionMode: observedHookPermissionMode,
+                        preserveExistingBindingWhenUnavailable: shouldRefreshResumeBinding
                     )
                 }
             }
@@ -25646,6 +25664,18 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeRestoreSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        switch source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "startup", "resume":
+            return true
+        default:
+            return false
+        }
     }
 
     func socketPanelOption(_ surfaceId: String?) -> String {
@@ -28279,10 +28309,27 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        preserveExistingBindingWhenUnavailable: Bool = false
     ) {
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+            if !preserveExistingBindingWhenUnavailable {
+                let outcome = clearAgentSurfaceResumeBindingOutcome(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+                if outcome == .failed {
+                    resumeBindingDeliveryLogger.error(
+                        "Unable to clear unavailable agent resume binding kind=\(kind, privacy: .public)"
+                    )
+                }
+            } else {
+                resumeBindingDeliveryLogger.error(
+                    "Preserving existing agent resume binding because launch evidence is unavailable kind=\(kind, privacy: .public)"
+                )
+            }
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -28300,12 +28347,23 @@ struct CMUXCLI {
             environment: resumeEnvironment,
             observedPermissionMode: observedPermissionMode
         ) else {
-            clearAgentSurfaceResumeBinding(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
-            )
+            if !preserveExistingBindingWhenUnavailable {
+                let outcome = clearAgentSurfaceResumeBindingOutcome(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+                if outcome == .failed {
+                    resumeBindingDeliveryLogger.error(
+                        "Unable to clear agent resume binding with no derived command kind=\(kind, privacy: .public)"
+                    )
+                }
+            } else {
+                resumeBindingDeliveryLogger.error(
+                    "Preserving existing agent resume binding because no command was derived kind=\(kind, privacy: .public)"
+                )
+            }
             return
         }
         var params: [String: Any] = [
@@ -28330,7 +28388,22 @@ struct CMUXCLI {
         if let observedPermissionMode {
             params["permission_mode"] = observedPermissionMode
         }
-        _ = try? client.sendV2(method: "surface.resume.set", params: params)
+        do {
+            _ = try client.sendV2(method: "surface.resume.set", params: params)
+        } catch {
+            // A hook is a short-lived process and the app serializes binding mutations on its
+            // main actor. Retry once on a fresh socket so a transient transport drop cannot turn
+            // a live session into a permanently unbound one; the set operation is idempotent.
+            do {
+                client.close()
+                try client.connect()
+                _ = try client.sendV2(method: "surface.resume.set", params: params)
+            } catch {
+                resumeBindingDeliveryLogger.error(
+                    "Agent resume binding publish failed after retry kind=\(kind, privacy: .public)"
+                )
+            }
+        }
     }
 
     @discardableResult
@@ -30702,6 +30775,34 @@ export default CMUXSessionRestore;
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
+    /// Keeps an existing binding only for a session-start event that can still
+    /// belong to the persisted session generation. A new/cleared generic
+    /// session with an unavailable launch capture must not inherit the prior
+    /// session's binding and silently restore the wrong conversation.
+    private func shouldPreserveAgentHookResumeBinding(
+        input: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard let mappedSession,
+              let incomingSessionID = normalizedHookValue(input.sessionId),
+              incomingSessionID == mappedSession.sessionId else {
+            return false
+        }
+        let source = (input.object ?? input.rawObject).flatMap {
+            firstString(in: $0, keys: ["source"])
+        }?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch source {
+        case "clear", "new", "reset":
+            return false
+        case "startup", "resume", "restore":
+            return true
+        default:
+            // Generic agents do not all expose Claude's `source` field. A
+            // previously restorable record is the durable identity fallback.
+            return mappedSession.isRestorable == true
+        }
+    }
+
     private func runGenericAgentHook(
         def: AgentHookDef,
         commandArgs: [String],
@@ -31240,7 +31341,11 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: resumeLaunchCommand
+                        launchCommand: resumeLaunchCommand,
+                        preserveExistingBindingWhenUnavailable: self.shouldPreserveAgentHookResumeBinding(
+                            input: input,
+                            mappedSession: mapped
+                        )
                     )
                 }
             }

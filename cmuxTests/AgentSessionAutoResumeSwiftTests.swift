@@ -562,7 +562,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let clobberedTerminal = try #require(clobberedSnapshot.panels.first?.terminal)
             #expect(clobberedTerminal.workingDirectory == homeDir)
             #expect(clobberedTerminal.agent?.workingDirectory == projectDir)
-            #expect(clobberedTerminal.resumeBinding == nil)
+            #expect(clobberedTerminal.resumeBinding?.checkpointId == clobberedTerminal.agent?.sessionId)
 
             let secondRestore = Workspace()
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
@@ -1049,7 +1049,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let snapshot = source.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == savedDirectory)
-        #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
+        #expect(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId == sessionId)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
@@ -1057,7 +1057,10 @@ struct AgentSessionAutoResumeSwiftTests {
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
-        #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding == nil)
+        #expect(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId
+                == sessionId
+        )
 
         return (restored, restoredPanelId)
     }

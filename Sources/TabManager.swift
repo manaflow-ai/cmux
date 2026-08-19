@@ -5786,17 +5786,40 @@ extension TabManager {
                         panelId: panelId
                     )?.processLiveness
                 )
+                // Restored agent identity is durable session data even when a
+                // process scan is temporarily empty. Include the retained
+                // snapshot and lifecycle phase so restoring a workspace cannot
+                // look unchanged to autosave before save-time binding backfill
+                // runs.
+                let retainedAgent = workspace.restoredAgentSnapshotsByPanelId[panelId]
+                Self.hashRestorableAgentSnapshot(retainedAgent, into: &hasher)
+                switch workspace.restoredAgentResumeStatesByPanelId[panelId] {
+                case .manualResumeAvailable: hasher.combine(0)
+                case .awaitingAutoResumeCommand: hasher.combine(1)
+                case .autoResumeCommandRunning: hasher.combine(2)
+                case .observedAgentCommandRunning: hasher.combine(3)
+                case .completedAgentExit: hasher.combine(4)
+                case nil: hasher.combine(-1)
+                }
                 Self.hashAgentHibernationPanelState(
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
                     into: &hasher
                 )
-                Self.hashSurfaceResumeBindingSnapshot(
-                    workspace.effectiveSurfaceResumeBinding(
-                        panelId: panelId,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    ),
-                    into: &hasher
+                let effectiveResumeBinding = workspace.effectiveSurfaceResumeBinding(
+                    panelId: panelId,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
+                Self.hashSurfaceResumeBindingSnapshot(effectiveResumeBinding, into: &hasher)
+                // A retained snapshot with no effective binding is a pending
+                // repair. Hash only the deterministic repairability bit (the
+                // derived binding's default timestamp must not make autosave
+                // run on every tick).
+                if effectiveResumeBinding == nil, let retainedAgent {
+                    hasher.combine(true)
+                    hasher.combine(retainedAgent.resumeCommand != nil)
+                } else {
+                    hasher.combine(false)
+                }
                 if let terminalPanel = workspace.terminalPanel(for: panelId) {
                     Self.hashTextBoxDraftSnapshot(
                         terminalPanel.sessionTextBoxDraftSnapshot(),

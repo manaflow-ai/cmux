@@ -61,6 +61,7 @@ extension DockSplitStore {
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        setResumeBindingGap(false, panelId: panelId)
         return true
     }
 
@@ -121,6 +122,7 @@ extension DockSplitStore {
                 preserveCompletedTombstone: true,
                 agentSessionEnded: agentSessionEnded
             )
+            setResumeBindingGap(false, panelId: panelId)
             return true
         }
 
@@ -135,11 +137,20 @@ extension DockSplitStore {
             preserveCompletedTombstone: true,
             agentSessionEnded: agentSessionEnded
         )
+        setResumeBindingGap(false, panelId: panelId)
         return true
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         surfaceResumeBindingsByPanelId[panelId]
+    }
+
+    func setResumeBindingGap(_ hasGap: Bool, panelId: UUID) {
+        if hasGap {
+            unresolvedResumeBindingPanelIds.insert(panelId)
+        } else {
+            unresolvedResumeBindingPanelIds.remove(panelId)
+        }
     }
 
     func managedAgentResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {

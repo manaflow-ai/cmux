@@ -219545,6 +219545,23 @@
         }
       }
     },
+    "sidebar.resumeBinding.gap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld agent sessions will not be restored"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のエージェントセッションは復元されません"
+          }
+        }
+      }
+    },
     "sidebar.remote.subtitleFallback": {
       "extractionState": "manual",
       "localizations": {
