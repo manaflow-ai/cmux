@@ -1,5 +1,4 @@
 import CMUXAgentLaunch
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -266,39 +265,21 @@ extension CMUXCLI {
 
     /// Runs `<binary> doctor` and returns its combined output.
     ///
-    /// The probe writes to a temporary file rather than a pipe so a chatty
-    /// binary cannot deadlock the wait, and it is bounded so a hung binary
-    /// cannot stall `cmux hooks setup`. A binary that is missing or does not
-    /// know the subcommand simply produces no usable path.
+    /// The shared process runner drains both output streams and bounds the
+    /// probe, so a chatty or hung binary cannot stall `cmux hooks setup`. A
+    /// binary that is missing or does not know the subcommand simply produces
+    /// no usable path.
     private static func runKimiDoctor(binaryName: String) -> String? {
-        let fm = FileManager.default
-        let outputURL = fm.temporaryDirectory
-            .appendingPathComponent("cmux-kimi-doctor-\(UUID().uuidString)", isDirectory: false)
-        guard fm.createFile(atPath: outputURL.path, contents: nil) else { return nil }
-        defer { try? fm.removeItem(at: outputURL) }
-        guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else { return nil }
-        defer { try? outputHandle.close() }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [binaryName, "doctor"]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = outputHandle
-        process.standardError = outputHandle
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-        do {
-            try cliRunProcess(process)
-        } catch {
-            return nil
-        }
-        if exited.wait(timeout: .now() + kimiDoctorProbeTimeoutSeconds) == .timedOut {
-            process.terminate()
-            if exited.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exited.wait(timeout: .now() + 1)
-            }
-        }
-        return try? String(contentsOf: outputURL, encoding: .utf8)
+        let result = CLIProcessRunner.runProcessData(
+            executablePath: "/usr/bin/env",
+            arguments: [binaryName, "doctor"],
+            stdinText: "",
+            timeout: Self.kimiDoctorProbeTimeoutSeconds
+        )
+        let standardOutput = String(data: result.stdout, encoding: .utf8) ?? ""
+        let output = [standardOutput, result.stderr]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        return output.isEmpty ? nil : output
     }
 }

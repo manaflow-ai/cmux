@@ -122,11 +122,15 @@ public struct KimiConfigLocationResolver {
 
     /// The config directory to use when the installed binary reports none.
     ///
-    /// Prefers a candidate that already holds a config file, then one whose
-    /// directory exists, then the current Kimi Code CLI location.
+    /// Explicit environment overrides are authoritative. Without an override,
+    /// this prefers a candidate that already holds a config file, then one
+    /// whose directory exists, then the current Kimi Code CLI location.
     /// - Returns: The chosen config directory.
     public func fallbackConfigDirectory() -> URL {
         let candidates = candidateDirectories()
+        if let explicit = explicitlyOverriddenDirectory(in: candidates) {
+            return explicit
+        }
         if let configured = candidates.first(where: { directory in
             isRegularFile(directory.appendingPathComponent(configFileName, isDirectory: false))
         }) {
@@ -140,6 +144,18 @@ public struct KimiConfigLocationResolver {
                 Self.kimiCodeConfigDirectory,
                 isDirectory: true
             )
+    }
+
+    /// Returns the first candidate selected by an explicit environment override.
+    private func explicitlyOverriddenDirectory(in candidates: [URL]) -> URL? {
+        for (index, spec) in directorySpecs.enumerated() {
+            guard index < candidates.count,
+                  Self.nonEmptyValue(environment[spec.environmentOverride]) != nil else {
+                continue
+            }
+            return candidates[index]
+        }
+        return nil
     }
 
     /// The config file path a `kimi doctor` report names, when it names a usable one.
