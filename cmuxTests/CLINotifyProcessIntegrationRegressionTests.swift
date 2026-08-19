@@ -73,6 +73,94 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeStartupSessionStartRegistersResumeBindingBeforePrompt() throws {
+        let context = try makeClaudeHookContext(name: "claude-startup-resume-binding")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let sessionId = "startup-resume-binding-session"
+        let transcriptURL = context.root.appendingPathComponent("startup-resume-binding.jsonl")
+        try "{\"sessionId\":\"\(sessionId)\"}\n"
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"startup-resume-binding-session","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: agentLaunchEnvironment(
+                context: context,
+                kind: "claude",
+                executable: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--session-id", sessionId]
+            )
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["isRestorable"] as? Bool,
+            false,
+            "Startup SessionStart must remain non-restorable until a prompt."
+        )
+
+        let requests = context.state.snapshot().compactMap { line -> [String: Any]? in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(requests.count, 1, context.state.snapshot().joined(separator: "\n"))
+        XCTAssertEqual(requests.first?["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(requests.first?["source"] as? String, "agent-hook")
+    }
+
+    func testConcurrentClaudeStartupSessionStartsAllRegisterResumeBindings() throws {
+        let context = try makeClaudeHookContext(name: "claude-concurrent-startup-bindings")
+        defer { context.cleanup() }
+
+        let surfaceIds = (0..<8).map { _ in UUID().uuidString.uppercased() }
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: surfaceIds,
+            connectionLimit: 128
+        )
+
+        DispatchQueue.concurrentPerform(iterations: surfaceIds.count) { index in
+            let sessionId = "concurrent-startup-session-\(index)"
+            let surfaceId = surfaceIds[index]
+            let transcriptURL = context.root.appendingPathComponent("\(sessionId).jsonl")
+            try? "{\"sessionId\":\"\(sessionId)\"}\n"
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            let result = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+                extraEnvironment: agentLaunchEnvironment(
+                    context: context,
+                    kind: "claude",
+                    executable: "/usr/local/bin/claude",
+                    arguments: ["/usr/local/bin/claude", "--session-id", sessionId]
+                ).merging(["CMUX_SURFACE_ID": surfaceId]) { _, new in new }
+            )
+            XCTAssertFalse(result.timedOut, "session \(index): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "session \(index): \(result.stderr)")
+        }
+
+        let requests = context.state.snapshot().compactMap { line -> [String: Any]? in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(requests.count, surfaceIds.count, context.state.snapshot().joined(separator: "\n"))
+        XCTAssertEqual(
+            Set(requests.compactMap { $0["checkpoint_id"] as? String }),
+            Set((0..<surfaceIds.count).map { "concurrent-startup-session-\($0)" })
+        )
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }

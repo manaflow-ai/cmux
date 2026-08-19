@@ -10,6 +10,36 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test @MainActor func liveRestoredAgentWithoutBindingGetsBackfilledAtSave() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-backfill-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+
+        let workspace = Workspace(workingDirectory: workingDirectory.path)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionId = "backfill-session"
+        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--session-id", sessionId],
+                workingDirectory: workingDirectory.path,
+                source: "process"
+            )
+        )
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.agent?.sessionId == sessionId)
+        #expect(terminal.resumeBinding?.source == "agent-hook")
+        #expect(terminal.resumeBinding?.checkpointId == sessionId)
+    }
+
     @Test func structuredLaunchCaptureRoundTripsAdditively() throws {
         let binding = SurfaceResumeBindingSnapshot(
             name: "Codex",
