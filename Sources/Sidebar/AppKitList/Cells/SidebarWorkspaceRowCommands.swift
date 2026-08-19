@@ -645,6 +645,14 @@ struct SidebarWorkspaceRowMenuBuilder {
             tabManager.moveTabsToTop(Set(commands.contextMenuWorkspaceIds))
             commands.syncSelectionAfterMutation()
         })
+        menu.addItem(item(
+            String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom"),
+            enabled: !targetIds.isEmpty
+        ) { [weak tabManager, commands] in
+            guard let tabManager else { return }
+            tabManager.moveTabsToBottom(Set(commands.contextMenuWorkspaceIds))
+            commands.syncSelectionAfterMutation()
+        })
 
         let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
         let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []

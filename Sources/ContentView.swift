@@ -7549,6 +7549,16 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.moveWorkspaceToBottom",
+                title: constant(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "move", "bottom", "reorder"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeOtherWorkspaces",
                 title: constant(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")),
                 subtitle: workspaceSubtitle,
@@ -8650,6 +8660,14 @@ struct ContentView: View {
                 return
             }
             tabManager.moveTabsToTop([workspace.id])
+            tabManager.selectWorkspace(workspace)
+        }
+        registry.register(commandId: "palette.moveWorkspaceToBottom") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            tabManager.moveTabsToBottom([workspace.id])
             tabManager.selectWorkspace(workspace)
         }
         WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
@@ -14508,6 +14526,10 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             moveTargetsToTop: { targetIds in
                 tabManager.moveTabsToTop(Set(targetIds))
+                syncWorkspaceRowSelectionAfterMutation()
+            },
+            moveTargetsToBottom: { targetIds in
+                tabManager.moveTabsToBottom(Set(targetIds))
                 syncWorkspaceRowSelectionAfterMutation()
             },
             currentWindowMoveTargets: {

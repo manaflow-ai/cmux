@@ -63,6 +63,40 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
     }
 
+    /// Moves the given workspaces to the bottom of their pin tiers, preserving
+    /// their relative order (group members follow their anchors).
+    public func moveTabsToBottom(_ tabIds: Set<UUID>) {
+        guard !tabIds.isEmpty else { return }
+        let selectedTabs = model.tabs.filter { tabIds.contains($0.id) }
+        guard !selectedTabs.isEmpty else { return }
+        let previousOrder = model.tabs.map(\.id)
+
+        if !model.workspaceGroups.isEmpty {
+            model.moveWorkspaceGroupMembersAfterAnchors(workspaceIds: selectedTabs.map(\.id))
+            let topLevelIds = model.sidebarTopLevelWorkspaceIds()
+            let selectedTopLevelIds = model.topLevelWorkspaceIds(for: selectedTabs)
+            let selectedTopLevelIdSet = Set(selectedTopLevelIds)
+            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds()
+            let desiredTopLevelIds =
+                topLevelIds.filter { pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) } +
+                selectedTopLevelIds.filter { pinnedTopLevelIds.contains($0) } +
+                topLevelIds.filter { !pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) } +
+                selectedTopLevelIds.filter { !pinnedTopLevelIds.contains($0) }
+            model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
+            model.syncWorkspaceGroupsOrderToAnchorOrder()
+        } else {
+            let remainingTabs = model.tabs.filter { !tabIds.contains($0.id) }
+            let selectedPinned = selectedTabs.filter { $0.isPinned }
+            let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
+            let remainingPinned = remainingTabs.filter { $0.isPinned }
+            let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
+            model.tabs = remainingPinned + selectedPinned + remainingUnpinned + selectedUnpinned
+        }
+        if model.tabs.map(\.id) != previousOrder {
+            host?.workspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
+        }
+    }
+
     /// Moves a workspace to the top of the unpinned tier for a notification
     /// bump; no-ops for pinned rows or rows already at the boundary.
     public func moveTabToTopForNotification(_ tabId: UUID) {

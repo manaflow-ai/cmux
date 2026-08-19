@@ -138,6 +138,48 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func moveTabsToBottomKeepsPinnedTierAboveUnpinned() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain1, plain2]
+
+        reorder.moveTabsToBottom([pinnedA.id, plain1.id])
+
+        #expect(model.tabs.map(\.id) == [pinnedB.id, pinnedA.id, plain2.id, plain1.id])
+        #expect(host.orderChanges.last?.sorted(by: { $0.uuidString < $1.uuidString })
+            == [pinnedA.id, plain1.id].sorted(by: { $0.uuidString < $1.uuidString }))
+    }
+
+    @Test
+    func moveTabsToBottomMovesAGroupedSelectionWithItsAnchor() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let first = CoordinatorStubTab()
+        let groupedFirst = CoordinatorStubTab()
+        let groupedSecond = CoordinatorStubTab()
+        let last = CoordinatorStubTab()
+        model.tabs = [first, groupedFirst, groupedSecond, last]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            groupedFirst.id,
+            groupedSecond.id,
+        ]))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        reorder.moveTabsToBottom([groupedSecond.id])
+
+        #expect(model.tabs.map(\.id) == [
+            first.id,
+            last.id,
+            group.anchorWorkspaceId,
+            groupedSecond.id,
+            groupedFirst.id,
+        ])
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host

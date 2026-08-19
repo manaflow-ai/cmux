@@ -198,6 +198,11 @@ extension TabItemView {
         }
         .disabled(targetIds.isEmpty)
 
+        Button(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")) {
+            actions.moveTargetsToBottom(targetIds)
+        }
+        .disabled(targetIds.isEmpty)
+
         Menu(moveMenuTitle) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
                 actions.moveTargetsToNewWindow(targetIds)

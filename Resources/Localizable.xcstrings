@@ -80496,6 +80496,30 @@
         }
       }
     },
+    "contextMenu.moveToBottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "نقل إلى الأسفل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pomjeri na dno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Flyt til bunden" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nach unten bewegen" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Move to Bottom" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Mover al final" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Déplacer en bas" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sposta in fondo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一番下に移動" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "맨 아래로 이동" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Flytt til bunnen" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Przenieś na dół" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Mover para o Final" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Переместить вниз" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ย้ายไปด้านล่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "En Alta Taşı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Перемістити в кінець" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "移到底部" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "移至最下方" } }
+      }
+    },
     "contextMenu.moveUp": {
       "extractionState": "manual",
       "localizations": {
