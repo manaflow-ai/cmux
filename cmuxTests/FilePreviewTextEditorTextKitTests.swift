@@ -49,10 +49,10 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(fontFamilySettings.resolvedDefault.isEmpty)
         #expect(lineHeightSettings.resolvedDefault == 1)
 
-        defaults.set(19, forKey: FilePreviewFontSizeSettings.key)
+        defaults.set(19.6, forKey: FilePreviewFontSizeSettings.key)
         defaults.set("  Helvetica  ", forKey: FilePreviewFontFamilySettings.key)
         defaults.set(1.7, forKey: FilePreviewLineHeightSettings.key)
-        #expect(fontSizeSettings.resolvedDefault == 19)
+        #expect(fontSizeSettings.resolvedDefault == 20)
         #expect(fontFamilySettings.resolvedDefault == "Helvetica")
         #expect(lineHeightSettings.resolvedDefault == 1.7)
 
@@ -71,38 +71,82 @@ struct FilePreviewTextEditorTextKitTests {
 
     @Test("file editor applies configured family, size, and line height")
     func editorAppliesConfiguredTypography() throws {
+        try withDefaultShortcutSettings {
+            let textView = SavingTextView.makeFilePreviewTextView(
+                fontFamily: "Helvetica",
+                fontSize: 17,
+                lineHeight: 1.5
+            )
+            textView.string = "first line\nsecond line"
+            textView.applyCurrentPreviewLineHeight()
+
+            let font = try #require(textView.font)
+            #expect(font.familyName?.localizedCaseInsensitiveCompare("Helvetica") == .orderedSame)
+            #expect(abs(font.pointSize - GlobalFontMagnification.scaledSize(17)) < 0.01)
+
+            let paragraphStyle = try #require(
+                textView.textStorage?.attribute(
+                    .paragraphStyle,
+                    at: 0,
+                    effectiveRange: nil
+                ) as? NSParagraphStyle
+            )
+            #expect(abs(paragraphStyle.lineHeightMultiple - 1.5) < 0.01)
+
+            #expect(textView.zoomPreviewFontIn())
+            #expect(textView.resetPreviewFontSize())
+            #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+
+            let reset = try #require(Self.keyEvent(characters: "0", keyCode: UInt16(kVK_ANSI_0)))
+            #expect(textView.performKeyEquivalent(with: reset))
+            #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+            #expect(
+                (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)
+                    .map { abs($0.lineHeightMultiple - 1.5) < 0.01 } == true
+            )
+        }
+    }
+
+    @Test("resetting line height preserves unrelated paragraph attributes")
+    func editorPreservesParagraphAttributesWhenResettingLineHeight() throws {
         let textView = SavingTextView.makeFilePreviewTextView(
             fontFamily: "Helvetica",
             fontSize: 17,
             lineHeight: 1.5
         )
         textView.string = "first line\nsecond line"
+
+        let configuredStyle = NSMutableParagraphStyle()
+        configuredStyle.alignment = .right
+        configuredStyle.paragraphSpacing = 7
+        configuredStyle.lineSpacing = 2
+        configuredStyle.firstLineHeadIndent = 4
+        configuredStyle.tabStops = [NSTextTab(textAlignment: .left, location: 40)]
+        textView.textStorage?.addAttribute(
+            .paragraphStyle,
+            value: configuredStyle,
+            range: NSRange(location: 0, length: textView.textStorage?.length ?? 0)
+        )
         textView.applyCurrentPreviewLineHeight()
 
-        let font = try #require(textView.font)
-        #expect(font.familyName?.localizedCaseInsensitiveCompare("Helvetica") == .orderedSame)
-        #expect(abs(font.pointSize - GlobalFontMagnification.scaledSize(17)) < 0.01)
-
-        let paragraphStyle = try #require(
+        textView.configurePreviewTypography(
+            fontFamily: "Helvetica",
+            defaultFontSize: 17,
+            lineHeight: 1
+        )
+        let naturalStyle = try #require(
             textView.textStorage?.attribute(
                 .paragraphStyle,
                 at: 0,
                 effectiveRange: nil
             ) as? NSParagraphStyle
         )
-        #expect(abs(paragraphStyle.lineHeightMultiple - 1.5) < 0.01)
-
-        #expect(textView.zoomPreviewFontIn())
-        #expect(textView.resetPreviewFontSize())
-        #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
-
-        let reset = try #require(Self.keyEvent(characters: "0", keyCode: UInt16(kVK_ANSI_0)))
-        #expect(textView.performKeyEquivalent(with: reset))
-        #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
-        #expect(
-            (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)
-                .map { abs($0.lineHeightMultiple - 1.5) < 0.01 } == true
-        )
+        #expect(naturalStyle.alignment == .right)
+        #expect(abs(naturalStyle.paragraphSpacing - 7) < 0.01)
+        #expect(abs(naturalStyle.lineSpacing - 2) < 0.01)
+        #expect(abs(naturalStyle.firstLineHeadIndent - 4) < 0.01)
+        #expect(naturalStyle.tabStops.count == 1)
+        #expect(abs(naturalStyle.lineHeightMultiple) < 0.01)
     }
 
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")

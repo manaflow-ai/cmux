@@ -246,17 +246,22 @@ extension NSTextView {
     }
 
     func applyFilePreviewTextEditorInsets() {
-        let targetInset = FilePreviewTextEditorLayout.textContainerInset
+        let targetInset = SavingTextView.filePreviewTextContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
             textContainerInset = targetInset
         }
-        if textContainer?.lineFragmentPadding != FilePreviewTextEditorLayout.lineFragmentPadding {
-            textContainer?.lineFragmentPadding = FilePreviewTextEditorLayout.lineFragmentPadding
+        if textContainer?.lineFragmentPadding != SavingTextView.filePreviewLineFragmentPadding {
+            textContainer?.lineFragmentPadding = SavingTextView.filePreviewLineFragmentPadding
         }
     }
 }
 
 final class SavingTextView: NSTextView {
+    /// Insets around the editor's TextKit text container.
+    fileprivate static let filePreviewTextContainerInset = NSSize(width: 12, height: 10)
+    /// Extra padding inserted at the start of each line fragment.
+    fileprivate static let filePreviewLineFragmentPadding: CGFloat = 0
+
     private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
         .browserZoomIn,
         .browserZoomOut,

@@ -31,7 +31,7 @@ struct FilePreviewFontSizeSettings {
               CFGetTypeID(raw) != CFBooleanGetTypeID() else {
             return Self.defaultPointSize
         }
-        return Self.clamp(raw.doubleValue)
+        return Self.clamp(raw.doubleValue).rounded()
     }
 
     /// Persists a clamped, whole-point default for newly opened editors.

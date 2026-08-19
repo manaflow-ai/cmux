@@ -37,7 +37,9 @@ struct FilePreviewLineHeightSettings {
     /// Persists a clamped multiplier rounded to the setting's tenth-point step.
     func setDefault(_ multiplier: Double) {
         let clamped = Self.clamp(multiplier)
-        let rounded = (clamped / Self.stepMultiplier).rounded() * Self.stepMultiplier
-        defaults.set(rounded, forKey: Self.key)
+        var decimal = Decimal(clamped)
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &decimal, 1, .plain)
+        defaults.set(NSDecimalNumber(decimal: rounded).doubleValue, forKey: Self.key)
     }
 }
