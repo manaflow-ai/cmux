@@ -26,7 +26,7 @@ enum MobileKeychainAccessGroupPolicy {
             let team = components.first,
             team.count == 10,
             team.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }),
-            components.dropFirst().contains(where: { !$0.isEmpty })
+            components.dropFirst().allSatisfy({ !$0.isEmpty })
         else { return nil }
         return value
     }

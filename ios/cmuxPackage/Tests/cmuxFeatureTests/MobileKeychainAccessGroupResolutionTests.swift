@@ -96,4 +96,15 @@ struct MobileKeychainAccessGroupPolicyTests {
             "$(AppIdentifierPrefix)dev.cmux.app.beta"
         ) == nil)
     }
+
+    @Test
+    func rejectsEmptyBundleComponentsAfterTheTeamIdentifier() {
+        // An empty interior or trailing component is a bake gone wrong, not a
+        // grantable group; it must fall back rather than resolve.
+        #expect(MobileKeychainAccessGroupPolicy.resolve("7WLXT3NR37..dev") == nil)
+        #expect(MobileKeychainAccessGroupPolicy.resolve("7WLXT3NR37.dev.") == nil)
+        #expect(MobileKeychainAccessGroupPolicy.resolve(
+            "7WLXT3NR37.dev..cmux.app.beta"
+        ) == nil)
+    }
 }
