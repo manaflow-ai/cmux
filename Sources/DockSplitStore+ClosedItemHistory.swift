@@ -253,6 +253,7 @@ extension DockSplitStore {
                 tabId,
                 toIndex: min(max(entry.tabIndex, 0), maximumIndex)
             )
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(tabId)
         }

@@ -106,6 +106,10 @@ extension DockSplitStore {
     func focusPaneFromDockInteraction(_ paneId: PaneID, window: NSWindow?) {
         noteKeyboardFocusIntent(window: window)
         bonsplitController.focusPane(paneId)
+        if let panelId = focusedPanelId {
+            _ = reassertDockPanelInputFocus(panelId)
+            scheduleDockPortalReconcile(reason: "dock.paneFocus")
+        }
     }
 
     /// Creates a Dock surface from an explicit Dock affordance and carries the

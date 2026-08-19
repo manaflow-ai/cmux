@@ -67,6 +67,7 @@ extension DockSplitStore {
 
         // Internal Dock drag. A center drop onto the source pane is a no-op.
         if zone == .center, sourcePane == paneId { return true }
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         let movedTab = TabID(uuid: tabId)
         let didMove: Bool
         switch zone {
