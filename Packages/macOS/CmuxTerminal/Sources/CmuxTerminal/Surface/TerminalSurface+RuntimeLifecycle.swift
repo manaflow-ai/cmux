@@ -163,13 +163,21 @@ extension TerminalSurface {
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
+            let manualIOContext = self.manualIOContext
+            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
-            _ = retireRemoteOutputLane()
+            let retiredRemoteOutputLane = retireRemoteOutputLane()
+            let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease
+            )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
+            byteTee.dropSurface(surfaceID: id)
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -180,8 +188,11 @@ extension TerminalSurface {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            callbackContext?.release()
-            teeLease?.release()
+            retiredRemoteOutputLane.scheduleDrain {
+                Task { @MainActor in
+                    staleRuntimeResources.release()
+                }
+            }
             return nil
         }
         return surface
