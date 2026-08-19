@@ -77,11 +77,10 @@ struct WorkspaceDetailView: View {
     // Rendered content width per trailing toolbar item, keyed by item. The
     // title's width cap subtracts the structurally visible items' widths so
     // they always fit and iOS never folds them into the overflow More menu
-    // (no per-item priority exists below iOS 27). Entries are never deleted:
-    // summation filters by the structural key set, so an entry for a removed
-    // item is simply ignored (and still warm if the item returns), and a
-    // layout-driven disappearance (overflow into More) cannot release the
-    // reservation and make the collapse sticky.
+    // (no per-item priority exists below iOS 27). Only structural removal
+    // deletes an entry (see the onChange handlers); a layout-driven
+    // disappearance (overflow into More) cannot release a reservation and
+    // make the collapse sticky.
     @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
@@ -200,6 +199,17 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            // Structural removal drops the item's retained measurement so a
+            // returning item takes the fail-safe unmeasured reserve instead of
+            // a stale width for its first layout pass. Layout-driven
+            // disappearance (overflow into More) never flips these conditions,
+            // so it cannot release a reservation and make the collapse sticky.
+            .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
+                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
+            }
+            .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
+                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
+            }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
                 refreshWorkspaceChangesHint()
