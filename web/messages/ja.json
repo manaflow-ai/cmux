@@ -1742,6 +1742,9 @@
             "codeLineHeight": "Agent Chat のコードブロックで使う行高倍率です。"
           }
         },
+        "vault": {
+          "sessionIdSourceType": "セッション識別子の取得方法です。argv オプションまたは Pi セッションファイルから取得します。"
+        },
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
@@ -1755,11 +1758,38 @@
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
-          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
+          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。",
+          "devWindowDisplay": "DEBUG ビルドのみ: 新しいウィンドウを作成する表示の localizedName を指定します。空欄の場合はシステムの既定値を使います。",
+          "workspaceInheritWorkingDirectory": "terminal.newSurfaceWorkingDirectory.policy がない場合だけ使われる旧設定との互換フォールバックです。新しい設定では3種類の terminal ポリシーを使用してください。"
+        },
+        "customSidebars": {
+          "description": "ユーザーやエージェントが作成したカスタムサイドバーのレンダリング方針です。",
+          "renderer": "ネイティブのホバー、フォーカス、キーボード入力にはインプロセス SwiftUI レンダラーを、クラッシュ分離には分離されたリモートレンダラーを選択します。"
         },
         "terminal": {
           "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
           "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
+          "newSurfaceWorkingDirectory": {
+            "description": "通常の新しいローカルペイン、タブ、分割、ワークスペースで使う作業ディレクトリの既定値です。明示的な作業ディレクトリ、リモートコマンド、復元されたサーフェスが常に優先されます。",
+            "policy": "新しいローカルサーフェスで、アクティブなペインのディレクトリを継承するか、ワークスペースルートを使うか、固定パスを使うかを選択します。",
+            "path": "fixedPath で使うパスです。絶対パスまたはチルダで始まるパスを指定してください。パスが存在しない、またはディレクトリでない場合は、ワークスペースルートへ安全にフォールバックします。"
+          },
+          "shellStartup": {
+            "description": "通常の新しいローカルサーフェスで使うシェル起動動作の既定値です。明示的なコマンドや入力、リモートセッション、復元されたサーフェス、手動 tmux ミラーは変更しません。",
+            "mode": "ユーザーのシェルを対話型ログインシェル、または対話型非ログインシェルとして起動します。",
+            "command": "通常の新しいローカルシェルの起動後にスタートアップ入力として送る任意のコマンドです。サーフェスに明示的な起動処理がある場合は適用されません。"
+          },
+          "resumeCommands": {
+            "version": "レコード形式のバージョンです。現在はバージョン 1 に対応しています。",
+            "id": "署名付き再開承認の安定した識別子です。",
+            "name": "この再開承認に付ける任意の表示名です。",
+            "environmentKeys": "署名付き再開コマンドの照合に含める環境変数名です。",
+            "source": "この承認の作成元を表す任意の由来ラベルです。",
+            "policy": "承認の使用方法です。手動、確認後、または自動で使用できます。",
+            "createdAt": "Unix エポックからの秒数で表す作成日時です。",
+            "updatedAt": "Unix エポックからの秒数で表す最終更新日時です。",
+            "lastUsedAt": "値がある場合、Unix エポックからの秒数で表す最終使用日時です。"
+          },
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
@@ -1805,7 +1835,17 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
-          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
+          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。",
+          "stackBranchDirectory": "有効にすると、コンパクトなサイドバーレイアウトで Git ブランチと作業ディレクトリを別々の行に表示します。",
+          "pathLastSegmentOnly": "有効にすると、収まる範囲で作業ディレクトリの末尾を表示し、先頭の構成要素を省略します。",
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "チェックリスト項目の追加とワークスペース Todo ステータスの変更に使うコントロールを有効にします。",
+                "enabled": "チェックリスト項目の追加とワークスペース Todo ステータスの変更に使うコントロールを表示します。"
+              }
+            }
+          }
         },
         "fileExplorer": {
           "description": "右サイドバーのファイルエクスプローラー（ファイルツリー）設定。",
@@ -1816,6 +1856,7 @@
         },
         "shortcuts": {
           "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "whenExpression": "対応するショートカットを UI コンテキストに限定する boolean 式です。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
         },
         "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",

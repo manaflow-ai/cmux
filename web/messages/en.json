@@ -1819,6 +1819,9 @@
             "codeLineHeight": "Line-height multiplier used for Agent Chat code blocks."
           }
         },
+        "vault": {
+          "sessionIdSourceType": "Strategy used to extract the session identifier: from an argv option or a Pi session file."
+        },
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
@@ -1832,11 +1835,38 @@
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
-          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
+          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded.",
+          "devWindowDisplay": "DEBUG builds only: preferred display localized name for newly-created windows. Leave empty to use the system default.",
+          "workspaceInheritWorkingDirectory": "Legacy compatibility fallback used only when terminal.newSurfaceWorkingDirectory.policy is absent. Prefer the three-way terminal policy for new configurations."
+        },
+        "customSidebars": {
+          "description": "Rendering policy for user- and agent-authored custom sidebars.",
+          "renderer": "Choose the in-process SwiftUI renderer for native hover, focus, and keyboard input, or the isolated remote renderer for crash containment."
         },
         "terminal": {
           "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
+          "newSurfaceWorkingDirectory": {
+            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
+            "policy": "Choose whether new local surfaces inherit the active pane directory, use the workspace root, or use the configured fixed path.",
+            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+          },
+          "shellStartup": {
+            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
+            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
+            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+          },
+          "resumeCommands": {
+            "version": "Record format version. Version 1 is currently supported.",
+            "id": "Stable identifier for this signed resume approval.",
+            "name": "Optional user-facing label for this resume approval.",
+            "environmentKeys": "Names of environment variables included in the signed resume-command match.",
+            "source": "Optional provenance label describing where this approval was created.",
+            "policy": "How cmux may use the approval: manually, after prompting, or automatically.",
+            "createdAt": "Creation time as seconds since the Unix epoch.",
+            "updatedAt": "Last modification time as seconds since the Unix epoch.",
+            "lastUsedAt": "Most recent use time as seconds since the Unix epoch, when available."
+          },
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
@@ -1882,7 +1912,17 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
-          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
+          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
+          "stackBranchDirectory": "When enabled, render the git branch and working directory on separate rows in compact sidebar layouts.",
+          "pathLastSegmentOnly": "When enabled, show as much of the trailing working-directory path as fits, abbreviating its leading components.",
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Enable controls for adding checklist items and changing workspace todo status.",
+                "enabled": "Show controls for adding checklist items and changing workspace todo status."
+              }
+            }
+          }
         },
         "fileExplorer": {
           "description": "Right-sidebar file explorer (file tree) settings.",
@@ -1893,6 +1933,7 @@
         },
         "shortcuts": {
           "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "whenExpression": "Boolean expression that scopes the corresponding shortcut to a UI context.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         },
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",

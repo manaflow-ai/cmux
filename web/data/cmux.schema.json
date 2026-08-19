@@ -233,7 +233,9 @@
                     "properties": {
                       "type": {
                         "type": "string",
-                        "enum": ["argvOption", "piSessionFile"]
+                        "enum": ["argvOption", "piSessionFile"],
+                        "description": "Strategy used to extract the session identifier: from an argv option or a Pi session file.",
+                        "descriptionKey": "schemaDescriptions.vault.sessionIdSourceType"
                       },
                       "argvOption": {
                         "type": "string",
@@ -434,7 +436,8 @@
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
           "default": true,
-          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
+          "descriptionKey": "schemaDescriptions.app.workspaceInheritWorkingDirectory",
+          "description": "Legacy compatibility fallback used only when terminal.newSurfaceWorkingDirectory.policy is absent. Prefer the three-way terminal policy for new configurations."
         },
         "minimalMode": {
           "type": "boolean",
@@ -460,6 +463,12 @@
           "type": "string",
           "default": "",
           "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "devWindowDisplay": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.devWindowDisplay",
+          "description": "DEBUG builds only: preferred display localized name for newly-created windows. Leave empty to use the system default."
         },
         "openSupportedFilesInCmux": {
           "type": "boolean",
@@ -537,6 +546,22 @@
         }
       }
     },
+    "customSidebars": {
+      "title": "customSidebars",
+      "descriptionKey": "schemaDescriptions.customSidebars.description",
+      "description": "Rendering policy for user- and agent-authored custom sidebars.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "renderer": {
+          "type": "string",
+          "enum": ["inProcess", "remote"],
+          "default": "inProcess",
+          "descriptionKey": "schemaDescriptions.customSidebars.renderer",
+          "description": "Choose the in-process SwiftUI renderer for native hover, focus, and keyboard input, or the isolated remote renderer for crash containment."
+        }
+      }
+    },
     "terminal": {
       "title": "terminal",
       "description": "Terminal presentation settings from Settings > Terminal.",
@@ -589,6 +614,48 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
+        },
+        "newSurfaceWorkingDirectory": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
+          "descriptionKey": "schemaDescriptions.terminal.newSurfaceWorkingDirectory.description",
+          "properties": {
+            "policy": {
+              "type": "string",
+              "enum": ["inheritActivePane", "workspaceRoot", "fixedPath"],
+              "default": "inheritActivePane",
+              "description": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
+              "descriptionKey": "schemaDescriptions.terminal.newSurfaceWorkingDirectory.policy"
+            },
+            "path": {
+              "type": "string",
+              "default": "",
+              "description": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root.",
+              "descriptionKey": "schemaDescriptions.terminal.newSurfaceWorkingDirectory.path"
+            }
+          }
+        },
+        "shellStartup": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
+          "descriptionKey": "schemaDescriptions.terminal.shellStartup.description",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["login", "nonLogin"],
+              "default": "login",
+              "description": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
+              "descriptionKey": "schemaDescriptions.terminal.shellStartup.mode"
+            },
+            "command": {
+              "type": "string",
+              "default": "",
+              "description": "Optional command sent as startup input after an ordinary new local shell starts. The command is not applied when a surface already has explicit startup work.",
+              "descriptionKey": "schemaDescriptions.terminal.shellStartup.command"
+            }
+          }
         },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
@@ -770,13 +837,19 @@
             "properties": {
               "version": {
                 "type": "integer",
-                "const": 1
+                "const": 1,
+                "description": "Record format version. Version 1 is currently supported.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.version"
               },
               "id": {
-                "type": "string"
+                "type": "string",
+                "description": "Stable identifier for this signed resume approval.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.id"
               },
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Optional user-facing label for this resume approval.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.name"
               },
               "commandPrefix": {
                 "type": "array",
@@ -802,23 +875,35 @@
                 "type": "array",
                 "items": {
                   "type": "string"
-                }
+                },
+                "description": "Names of environment variables included in the signed resume-command match.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.environmentKeys"
               },
               "source": {
-                "type": "string"
+                "type": "string",
+                "description": "Optional provenance label describing where this approval was created.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.source"
               },
               "policy": {
                 "type": "string",
-                "enum": ["manual", "prompt", "auto"]
+                "enum": ["manual", "prompt", "auto"],
+                "description": "How cmux may use the approval: manually, after prompting, or automatically.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.policy"
               },
               "createdAt": {
-                "type": "number"
+                "type": "number",
+                "description": "Creation time as seconds since the Unix epoch.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.createdAt"
               },
               "updatedAt": {
-                "type": "number"
+                "type": "number",
+                "description": "Last modification time as seconds since the Unix epoch.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.updatedAt"
               },
               "lastUsedAt": {
-                "type": "number"
+                "type": "number",
+                "description": "Most recent use time as seconds since the Unix epoch, when available.",
+                "descriptionKey": "schemaDescriptions.terminal.resumeCommands.lastUsedAt"
               },
               "signature": {
                 "type": "string",
@@ -1021,6 +1106,20 @@
               "additionalProperties": false,
               "description": "Workspace todos checklist presentation.",
               "properties": {
+                "controls": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Enable controls for adding checklist items and changing workspace todo status.",
+                  "descriptionKey": "schemaDescriptions.sidebar.beta.workspaceTodos.controls.description",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show controls for adding checklist items and changing workspace todo status.",
+                      "descriptionKey": "schemaDescriptions.sidebar.beta.workspaceTodos.controls.enabled"
+                    }
+                  }
+                },
                 "checklistStyle": {
                   "type": "string",
                   "enum": ["popover", "inline"],
@@ -1036,6 +1135,18 @@
           "enum": ["vertical", "inline"],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
+        },
+        "stackBranchDirectory": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.stackBranchDirectory",
+          "description": "When enabled, render the git branch and working directory on separate rows in compact sidebar layouts."
+        },
+        "pathLastSegmentOnly": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.pathLastSegmentOnly",
+          "description": "When enabled, show as much of the trailing working-directory path as fits, abbreviating its leading components."
         },
         "showNotificationMessage": {
           "type": "boolean",
@@ -1609,6 +1720,7 @@
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",
+              "saveLayoutTemplate",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1794,8 +1906,13 @@
           "default": {},
           "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
+          "propertyNames": {
+            "$ref": "#/properties/shortcuts/properties/bindings/propertyNames"
+          },
           "additionalProperties": {
-            "type": "string"
+            "type": "string",
+            "descriptionKey": "schemaDescriptions.shortcuts.whenExpression",
+            "description": "Boolean expression that scopes the corresponding shortcut to a UI context."
           }
         }
       }
