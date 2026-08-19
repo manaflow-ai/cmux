@@ -140,7 +140,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     } else {
         pane::draw_all(app, frame)
     };
-    if app.is_surface_only() {
+    if app.is_surface_only() || !app.config.status_bar.visible {
+        // No reserved status row: transient messages overlay the last row
+        // with foreground styling only, single-surface style.
         draw_surface_status(app, frame);
     } else {
         draw_status_bar(app, frame);
@@ -356,7 +358,15 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let status_y = area.height - 1;
     let bar_x = app.total_sidebar_width().min(area.width);
     let chrome = app.chrome;
-    let base = Style::default().bg(chrome.status_bg).fg(chrome.status_fg);
+    let theme = app.config.theme;
+    let status_bg = theme.status_bg.unwrap_or(chrome.status_bg);
+    let status_fg = theme.status_fg.unwrap_or(chrome.status_fg);
+    let base = Style::default().bg(status_bg).fg(status_fg);
+    let segments = app.resolved_status_segments();
+    let (left_segments, right_segments) = (&segments.0, &segments.1);
+    let segment_style = |segment: &crate::app::StatusSegmentView| {
+        Style::default().bg(segment.bg.unwrap_or(status_bg)).fg(segment.fg.unwrap_or(status_fg))
+    };
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
     }
@@ -376,7 +386,12 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    if let Some(ws) = app.tree.active_workspace().cloned() {
+    for segment in left_segments {
+        put(frame, &mut x, &segment.text, segment_style(segment));
+    }
+    if app.config.status_bar.show_screens
+        && let Some(ws) = app.tree.active_workspace().cloned()
+    {
         put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
         for (i, screen) in ws.screens.iter().enumerate() {
             let active = i == ws.active_screen;
@@ -409,18 +424,45 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     if status_text.is_none() {
         app.hide_status_message();
     }
-    let label = status_text
-        .as_ref()
-        .map(
-            |message| {
+    let label =
+        status_text
+            .as_ref()
+            .map(|message| {
                 if show_copy { format!(" {message} {copy_label} ") } else { format!(" {message} ") }
-            },
-        )
-        .unwrap_or_else(|| {
-            format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
-        });
+            })
+            .unwrap_or_else(|| {
+                if app.config.status_bar.show_session {
+                    format!(
+                        "[{}] ",
+                        truncate(&app.session_label, available_label_width.saturating_sub(3))
+                    )
+                } else {
+                    String::new()
+                }
+            });
     let label_w = label.width().min(area.width as usize) as u16;
-    let track_end = area.width.saturating_sub(label_w);
+    // Right-aligned custom segments sit left of the label; draw them and
+    // shrink the viewport track accordingly.
+    let mut right_x = area.width.saturating_sub(label_w);
+    for segment in right_segments.iter().rev() {
+        if segment.text.is_empty() {
+            // Normal before a command's first result; later segments still draw.
+            continue;
+        }
+        let width = (segment.text.width() as u16).min(right_x.saturating_sub(x));
+        if width == 0 {
+            break;
+        }
+        right_x = right_x.saturating_sub(width);
+        frame.buffer_mut().set_stringn(
+            right_x,
+            status_y,
+            &segment.text,
+            width as usize,
+            segment_style(segment),
+        );
+    }
+    let track_end = right_x;
     let track_start = x.saturating_add(1);
     let track_width = track_end.saturating_sub(track_start.saturating_add(1));
     if let Some((content_width, viewport_width, offset)) = app.horizontal_scrollbar_state()

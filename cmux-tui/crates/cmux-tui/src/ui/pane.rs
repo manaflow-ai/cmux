@@ -143,29 +143,30 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let style = notification
         .map(|notification| Style::default().fg(notification_color(&theme, notification)))
         .unwrap_or_else(|| border_style(app, focused));
+    let glyphs = theme.border_style.glyphs();
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     if x1 >= screen.width || y1 >= screen.height {
         return;
     }
     for x in x0..=x1 {
-        buf[(x, y1)].set_symbol("─").set_style(style);
+        buf[(x, y1)].set_symbol(glyphs.horizontal).set_style(style);
     }
     for y in y0 + 1..y1 {
         if area.has_left_edge() {
-            buf[(x0, y)].set_symbol("│").set_style(style);
+            buf[(x0, y)].set_symbol(glyphs.vertical).set_style(style);
         }
         if area.has_right_edge() {
-            buf[(x1, y)].set_symbol("│").set_style(style);
+            buf[(x1, y)].set_symbol(glyphs.vertical).set_style(style);
         }
     }
     if area.has_left_edge() {
-        buf[(x0, y0)].set_symbol("┌").set_style(style);
-        buf[(x0, y1)].set_symbol("└").set_style(style);
+        buf[(x0, y0)].set_symbol(glyphs.top_left).set_style(style);
+        buf[(x0, y1)].set_symbol(glyphs.bottom_left).set_style(style);
     }
     if area.has_right_edge() {
-        buf[(x1, y0)].set_symbol("┐").set_style(style);
-        buf[(x1, y1)].set_symbol("┘").set_style(style);
+        buf[(x1, y0)].set_symbol(glyphs.top_right).set_style(style);
+        buf[(x1, y1)].set_symbol(glyphs.bottom_right).set_style(style);
     }
 
     if let Some(label) = app.client_border_labels.get(&area.surface) {
@@ -284,15 +285,16 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         Some(logical) => logical,
         None => frame.buffer_mut(),
     };
+    let glyphs = theme.border_style.glyphs();
     let (x0, x1) = (0, full_width - 1);
     for x in x0..=x1 {
-        buf[(origin_x + x, origin_y)].set_symbol("─").set_style(style);
+        buf[(origin_x + x, origin_y)].set_symbol(glyphs.horizontal).set_style(style);
     }
     if area.has_left_edge() {
-        buf[(origin_x + x0, origin_y)].set_symbol("┌").set_style(style);
+        buf[(origin_x + x0, origin_y)].set_symbol(glyphs.top_left).set_style(style);
     }
     if area.has_right_edge() {
-        buf[(origin_x + x1, origin_y)].set_symbol("┐").set_style(style);
+        buf[(origin_x + x1, origin_y)].set_symbol(glyphs.top_right).set_style(style);
     }
 
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
@@ -467,6 +469,18 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &app.chrome,
         |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
     );
+    if !focused && theme.dim_inactive {
+        let screen = frame.area();
+        let max_x = rect.x.saturating_add(rect.width).min(screen.width);
+        let max_y = rect.y.saturating_add(rect.height).min(screen.height);
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let buf = frame.buffer_mut();
+        for y in rect.y..max_y {
+            for x in rect.x..max_x {
+                buf[(x, y)].set_style(dim);
+            }
+        }
+    }
     DrawCursors { input: None, terminal: focused.then_some(cursor).flatten() }
 }
 
