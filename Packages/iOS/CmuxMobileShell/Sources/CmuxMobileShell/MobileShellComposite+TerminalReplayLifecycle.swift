@@ -474,15 +474,14 @@ extension MobileShellComposite {
         terminalReplayBarrierWatchdogTasksBySurfaceID[surfaceID] = Task {
             @MainActor [weak self] in
             defer {
-                guard let self,
-                      self.terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID]
-                        == watchdogID else {
-                    return
+                if let self,
+                   self.terminalReplayBarrierWatchdogIDsBySurfaceID[surfaceID]
+                     == watchdogID {
+                    self.terminalReplayBarrierWatchdogIDsBySurfaceID
+                        .removeValue(forKey: surfaceID)
+                    self.terminalReplayBarrierWatchdogTasksBySurfaceID
+                        .removeValue(forKey: surfaceID)
                 }
-                self.terminalReplayBarrierWatchdogIDsBySurfaceID
-                    .removeValue(forKey: surfaceID)
-                self.terminalReplayBarrierWatchdogTasksBySurfaceID
-                    .removeValue(forKey: surfaceID)
             }
             do {
                 try await clock.sleep(

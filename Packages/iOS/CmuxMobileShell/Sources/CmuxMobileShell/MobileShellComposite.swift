@@ -1841,8 +1841,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
-            terminalInputAckResubscribeClock: terminalInputAckResubscribeClock,
-            controlPlaneSchedulingClock: controlPlaneSchedulingClock
+            controlPlaneSchedulingClock: controlPlaneSchedulingClock,
+            terminalInputAckResubscribeClock: terminalInputAckResubscribeClock
         )
     }
 
