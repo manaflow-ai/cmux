@@ -21190,6 +21190,8 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
+        let rawHomeDirectory = ProcessInfo.processInfo.environment["HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let rawTemporaryDirectory = ProcessInfo.processInfo.environment["TMPDIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let temporaryDirectory: String
@@ -21198,8 +21200,16 @@ struct CMUXCLI {
         } else {
             temporaryDirectory = NSTemporaryDirectory()
         }
-        let root = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        let root: URL
+        if let rawHomeDirectory, !rawHomeDirectory.isEmpty {
+            root = URL(fileURLWithPath: rawHomeDirectory, isDirectory: true)
+                .appendingPathComponent(".claude", isDirectory: true)
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        } else {
+            root = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
+                .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
