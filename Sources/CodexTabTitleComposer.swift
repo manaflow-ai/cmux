@@ -25,8 +25,14 @@ struct CodexTabTitleComposer: Sendable {
     ) -> CodexTabTitlePresentation {
         let normalizedBaseTitle = baseTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = normalizedBaseTitle
-        guard !hasCustomTitle, let lifecycle else {
+        guard let lifecycle else {
             return CodexTabTitlePresentation(title: title, isAnimating: false)
+        }
+        if hasCustomTitle {
+            return CodexTabTitlePresentation(
+                title: title,
+                isAnimating: lifecycle == .running
+            )
         }
 
         switch lifecycle {
