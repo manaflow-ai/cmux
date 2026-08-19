@@ -1,8 +1,8 @@
 import Foundation
 
 /// Splits and rejoins line-oriented config bodies for cmux's config editors (the
-/// Ghostty config, Codex's `config.toml`), tolerating LF and CRLF alike and
-/// keeping the ending style the file arrived in.
+/// Ghostty config, Codex's `config.toml`), reading LF, CRLF, and lone-CR endings
+/// alike and writing back the style the file arrived in.
 ///
 /// Swift treats `"\r\n"` as a single `Character`, so `contents.hasSuffix("\n")`
 /// is `false` for CRLF-terminated text even though `components(separatedBy:)`,
