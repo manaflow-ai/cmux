@@ -6910,22 +6910,32 @@ fn run_status_command_worker(
     let mut due: Vec<Instant> = vec![Instant::now(); commands.len()];
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
-        let mut changed = false;
         for (slot, (index, argv, interval)) in commands.iter().enumerate() {
+            // Re-check between commands so a config reload retires this
+            // worker within at most one command runtime, not one full pass.
+            if stop.load(Ordering::Acquire) {
+                return;
+            }
             if now < due[slot] {
                 continue;
             }
             due[slot] = now + *interval;
             let output = run_status_command(argv, STATUS_COMMAND_TIMEOUT);
-            let mut map = outputs.lock().unwrap();
-            if map.get(index) != Some(&output) {
-                map.insert(*index, output);
-                changed = true;
+            let changed = {
+                let mut map = outputs.lock().unwrap();
+                if map.get(index) != Some(&output) {
+                    map.insert(*index, output);
+                    true
+                } else {
+                    false
+                }
+            };
+            if changed {
+                // Publish per command so one slow segment cannot hold back
+                // the others. A full or closed queue drops one poke; the
+                // next tick retries.
+                let _ = events.try_send(AppEvent::StatusCommandsUpdated);
             }
-        }
-        if changed {
-            // A full or closed queue drops one poke; the next tick retries.
-            let _ = events.try_send(AppEvent::StatusCommandsUpdated);
         }
         let next = due.iter().min().copied().unwrap_or(now);
         let wait = next
@@ -6965,23 +6975,17 @@ fn run_status_command(argv: &[String], timeout: Duration) -> String {
         })
     });
     if !matches!(child.wait_timeout(timeout), Ok(Some(_))) {
-        #[cfg(unix)]
-        // SAFETY: plain syscall on the child's own process group id.
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-        let _ = child.kill();
-        let _ = child.wait();
+        kill_status_command_group(&mut child);
     }
-    // The reader finishes when the pipe closes; the group kill above forces
-    // that on timeout. A grandchild that detached into its own group can
-    // still hold the pipe, so give up after a bounded grace instead of
-    // blocking the worker forever.
+    // The reader finishes when the pipe closes. If a descendant still holds
+    // stdout open after the command itself exited (for example `cmd &`),
+    // kill the whole group so the pipe closes and the reader can finish,
+    // instead of detaching a blocked thread per interval.
     let mut text = String::new();
     if let Some(handle) = reader {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !handle.is_finished() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(20));
+        if !wait_for_reader(&handle, Duration::from_secs(2)) {
+            kill_status_command_group(&mut child);
+            wait_for_reader(&handle, Duration::from_millis(500));
         }
         if handle.is_finished()
             && let Ok(captured) = handle.join()
@@ -6991,6 +6995,34 @@ fn run_status_command(argv: &[String], timeout: Duration) -> String {
     }
     let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
     strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect()
+}
+
+/// The `USER` environment value, read once: template expansion runs on the
+/// draw path and the value cannot change within one process.
+fn cached_status_user() -> &'static str {
+    static USER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    USER.get_or_init(|| std::env::var("USER").unwrap_or_default())
+}
+
+/// Poll a status reader thread until it finishes or the grace expires.
+fn wait_for_reader(handle: &JoinHandle<String>, grace: Duration) -> bool {
+    let deadline = Instant::now() + grace;
+    while !handle.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    handle.is_finished()
+}
+
+/// Kill a status command and, on Unix, its whole process group so every
+/// descendant holding the stdout pipe exits with it.
+fn kill_status_command_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    // SAFETY: plain syscall on the child's own process group id.
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Drop ESC-introduced sequences (CSI/OSC and two-byte escapes) and other
@@ -12370,7 +12402,7 @@ impl App {
             .replace("{screen}", &screen_name)
             .replace("{screens}", &screens.to_string())
             .replace("{title}", &title)
-            .replace("{user}", &std::env::var("USER").unwrap_or_default())
+            .replace("{user}", cached_status_user())
     }
 
     fn focused_surface_cwd(&self) -> Option<PathBuf> {
