@@ -42,7 +42,8 @@ extension Workspace {
             latestConversationMessage: latestConversationMessage,
             latestSubmittedMessage: latestSubmittedMessage,
             latestSubmittedAt: latestSubmittedAt,
-            remote: remote
+            remote: remote,
+            groupId: groupId
         )
     }
 

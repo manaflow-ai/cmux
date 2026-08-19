@@ -45,10 +45,24 @@ struct SceneNodeView: View {
 
 private struct SceneNodeContent: View {
     let node: SceneNode
+    @Environment(\.sceneStore) private var store
     @Environment(\.sceneEventSink) private var sink
 
     var body: some View {
-        styled(content)
+        // A child of type "contextMenu" is the node's right-click menu, not
+        // inline content; everything else renders in place.
+        if let menuId = contextMenuChildId {
+            styled(content)
+                .contextMenu {
+                    SceneNodeView(nodeId: menuId)
+                }
+        } else {
+            styled(content)
+        }
+    }
+
+    private var contextMenuChildId: String? {
+        node.children.first { store?.node($0)?.type == "contextMenu" }
     }
 
     @ViewBuilder
@@ -70,7 +84,9 @@ private struct SceneNodeContent: View {
             Image(systemName: node.string("systemName") ?? "questionmark.square.dashed")
         case "button":
             if node.children.isEmpty {
-                Button(node.string("text") ?? "") { sink.send(node.id, "tap", [:]) }
+                Button(node.string("text") ?? "", role: node.bool("destructive") ? .destructive : nil) {
+                    sink.send(node.id, "tap", [:])
+                }
             } else {
                 Button {
                     sink.send(node.id, "tap", [:])
@@ -99,6 +115,8 @@ private struct SceneNodeContent: View {
             } else {
                 ProgressView()
             }
+        case "contextMenu":
+            children
         case "reorderable":
             ReorderableColumnView(node: node)
         default:
@@ -112,7 +130,8 @@ private struct SceneNodeContent: View {
 
     @ViewBuilder
     private var children: some View {
-        ForEach(node.children, id: \.self) { childId in
+        // contextMenu children never render inline (see body).
+        ForEach(node.children.filter { store?.node($0)?.type != "contextMenu" }, id: \.self) { childId in
             SceneNodeView(nodeId: childId)
         }
     }
@@ -259,7 +278,12 @@ private struct SceneBoxStyle: ViewModifier {
         let all = node.double("padding") ?? 0
         let horizontal = node.double("paddingHorizontal") ?? all
         let vertical = node.double("paddingVertical") ?? all
-        return EdgeInsets(top: vertical, leading: horizontal, bottom: vertical, trailing: horizontal)
+        return EdgeInsets(
+            top: node.double("paddingTop") ?? vertical,
+            leading: node.double("paddingLeading") ?? horizontal,
+            bottom: node.double("paddingBottom") ?? vertical,
+            trailing: node.double("paddingTrailing") ?? horizontal
+        )
     }
 
     private func dimension(_ key: String) -> CGFloat? {

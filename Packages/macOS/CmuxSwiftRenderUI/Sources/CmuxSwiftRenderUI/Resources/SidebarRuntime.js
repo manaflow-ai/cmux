@@ -172,7 +172,8 @@
     "width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight",
     "alignment", "fill", "stroke", "strokeWidth", "systemName", "value",
     "help", "truncation", "weight", "secondary", "borderColor", "borderWidth",
-    "hoverBackground", "paddingHorizontal", "paddingVertical",
+    "hoverBackground", "paddingHorizontal", "paddingVertical", "destructive",
+    "paddingLeading", "paddingTrailing", "paddingTop", "paddingBottom",
   ];
 
   function makeHandle(id) {
@@ -192,6 +193,14 @@
       handlers[id] = handlers[id] || {};
       handlers[id].tap = fn;
       setProp(id, "tappable", true);
+      return handle;
+    };
+    // Right-click menu: the items (Button / Menu / Divider / Text) become a
+    // contextMenu child node; the host renders it as the view's context menu
+    // instead of inline content.
+    handle.contextMenu = (children) => {
+      const menu = makeNode("contextMenu", {}, children);
+      pushOp({ op: "append", id, child: menu.__nodeId });
       return handle;
     };
     return handle;
@@ -268,6 +277,13 @@
   g.Rectangle = (props) => makeNode("rectangle", props || {});
   g.RoundedRectangle = (props) => makeNode("roundedRectangle", props || {});
   g.ProgressView = (props) => makeNode("progress", props || {});
+
+  // Submenu inside a context menu (or a standalone menu button).
+  g.Menu = (title, children) => {
+    const node = makeNode("menu", {}, children);
+    setProp(node.__nodeId, "text", title);
+    return node;
+  };
 
   g.Button = (label, action, children) => {
     const node = makeNode("button", {}, children);
@@ -372,6 +388,16 @@
       return () => dataSignal(key)[0]();
     },
   });
+
+  // Author-facing reactive state: `const [open, setOpen] = signal(false)`.
+  // Reads inside any function-valued prop subscribe it; writes re-run exactly
+  // the bindings that read it.
+  g.signal = (initial) => createSignal(initial);
+  g.computed = (fn) => {
+    const [read, write] = createSignal(undefined);
+    createEffect(() => write(fn()));
+    return read;
+  };
 
   g.cmux = (method, params) => {
     const p = {};

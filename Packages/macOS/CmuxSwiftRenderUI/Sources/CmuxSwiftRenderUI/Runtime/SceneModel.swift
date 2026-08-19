@@ -116,6 +116,11 @@ public final class SceneStore {
             if node.children != children {
                 node.children = children
             }
+        case "append":
+            guard let node = nodes[id], let child = op["child"] as? String else { return }
+            if !node.children.contains(child) {
+                node.children.append(child)
+            }
         case "remove":
             nodes.removeValue(forKey: id)
             if rootId == id { rootId = nil }

@@ -308,4 +308,29 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(bare.member("branch") == nil)
         #expect(bare.member("ports") == nil)
     }
+
+    @Test("Groups project id/name/state and workspaces carry their group id")
+    func groupFields() {
+        let builder = CustomSidebarDataContextBuilder()
+        let groupId = UUID()
+        let anchorId = UUID()
+        let group = CustomSidebarGroupSnapshot(
+            id: groupId,
+            name: "Infra",
+            isCollapsed: true,
+            isPinned: false,
+            anchorWorkspaceId: anchorId,
+            customColor: "#FF8800",
+            iconSymbol: nil
+        )
+
+        let value = builder.groupValue(group)
+        #expect(value.member("id") == .string(groupId.uuidString))
+        #expect(value.member("name") == .string("Infra"))
+        #expect(value.member("collapsed") == .bool(true))
+        #expect(value.member("pinned") == .bool(false))
+        #expect(value.member("anchorId") == .string(anchorId.uuidString))
+        #expect(value.member("color") == .string("#FF8800"))
+        #expect(value.member("icon") == nil)
+    }
 }

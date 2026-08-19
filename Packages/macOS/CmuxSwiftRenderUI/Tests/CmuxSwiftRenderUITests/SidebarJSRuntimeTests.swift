@@ -129,6 +129,49 @@ struct SidebarJSRuntimeTests {
         #expect(captured == [.cmux(method: "workspace.reorder", params: ["workspace_id": "a", "index": "1"])])
     }
 
+    @Test func contextMenuAttachesAsMenuChild() {
+        let runtime = SidebarJSRuntime()
+        var captured: [ActionCommand] = []
+        runtime.dispatch = SidebarActionDispatch { action in
+            captured.append(contentsOf: action.commands)
+        }
+        runtime.start(source: """
+        sidebar(() =>
+          Text("row").contextMenu([
+            Button("Pin", () => cmux("workspace.action", { action: "pin", workspace_id: "w1" })),
+            Divider(),
+            Menu("Move", [Button("Up", () => cmux("workspace.action", { action: "move_up" }))]),
+          ])
+        )
+        """)
+        let rootId = try! #require(runtime.store.rootId)
+        let root = try! #require(runtime.store.node(rootId))
+        #expect(root.type == "text")
+        let menuId = try! #require(root.children.first)
+        let menu = try! #require(runtime.store.node(menuId))
+        #expect(menu.type == "contextMenu")
+        #expect(menu.children.count == 3)
+        // Menu item taps dispatch like any button.
+        runtime.dispatchEvent(nodeId: menu.children[0], event: "tap")
+        #expect(captured == [.cmux(method: "workspace.action", params: ["action": "pin", "workspace_id": "w1"])])
+        // Submenu node carries its title and item.
+        let submenu = try! #require(runtime.store.node(menu.children[2]))
+        #expect(submenu.type == "menu")
+        #expect(submenu.string("text") == "Move")
+    }
+
+    @Test func authorSignalsDriveBindings() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        const [open, setOpen] = signal(false);
+        sidebar(() => Text(() => (open() ? "open" : "closed")).onTap(() => setOpen(!open())))
+        """)
+        let rootId = try! #require(runtime.store.rootId)
+        #expect(runtime.store.node(rootId)?.string("text") == "closed")
+        runtime.dispatchEvent(nodeId: rootId, event: "tap")
+        #expect(runtime.store.node(rootId)?.string("text") == "open")
+    }
+
     @Test func numericPropsWithValueOneStayNumeric() {
         // Regression: NSNumber(1) bridges to Bool via `as?`, which turned
         // lineLimit(1)/opacity(1) into booleans and silently dropped them.

@@ -38,6 +38,7 @@ private final class ReorderDragModel {
 struct ReorderableColumnView: View {
     let node: SceneNode
 
+    @Environment(\.sceneStore) private var store
     @Environment(\.sceneEventSink) private var sink
     @State private var model = ReorderDragModel()
     @State private var localOrder: [String]?
@@ -85,9 +86,10 @@ struct ReorderableColumnView: View {
     }
 
     /// Children in display order: mid-drag and just-dropped use the local
-    /// optimistic order; otherwise the scene's authoritative order.
+    /// optimistic order; otherwise the scene's authoritative order. A
+    /// contextMenu child attached to the list itself is never a row.
     private var displayOrder: [String] {
-        localOrder ?? node.children
+        (localOrder ?? node.children).filter { store?.node($0)?.type != "contextMenu" }
     }
 
     private func dragGesture(childId: String) -> some Gesture {
@@ -194,11 +196,12 @@ struct ReorderableColumnView: View {
     private func itemKey(forChildAt index: Int, in order: [String]) -> String {
         guard order.indices.contains(index) else { return "" }
         let childId = order[index]
+        let rows = node.children.filter { store?.node($0)?.type != "contextMenu" }
         guard let json = node.string("itemKeys"),
               let data = json.data(using: .utf8),
               let keys = try? JSONDecoder().decode([String].self, from: data),
-              node.children.count == keys.count,
-              let authoritativeIndex = node.children.firstIndex(of: childId) else {
+              rows.count == keys.count,
+              let authoritativeIndex = rows.firstIndex(of: childId) else {
             return childId
         }
         return keys[authoritativeIndex]

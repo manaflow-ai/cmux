@@ -189,6 +189,15 @@ public struct CustomSidebarValidator {
                 "remote": .string("")
             ])
         ]),
+        "groups": .array([
+            .object([
+                "id": .string("group-sample"),
+                "name": .string("Sample Group"),
+                "collapsed": .bool(false),
+                "pinned": .bool(false),
+                "anchorId": .string("workspace-sample"),
+            ])
+        ]),
         "workspaceCount": .int(1),
         "selectedTitle": .string("Sample Workspace"),
         "selectedId": .string("workspace-sample"),

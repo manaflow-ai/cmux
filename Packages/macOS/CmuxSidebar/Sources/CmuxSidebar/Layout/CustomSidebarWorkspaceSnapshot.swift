@@ -40,6 +40,9 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         }
     }
 
+    /// The containing workspace group's id (`workspaces[i].group`), or `nil`
+    /// when the workspace is ungrouped.
+    public let groupId: UUID?
     /// The workspace identifier, projected to `workspaces[i].id`.
     public let id: UUID
     /// The display title (custom title falling back to the live title).
@@ -106,8 +109,10 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         latestConversationMessage: String?,
         latestSubmittedMessage: String?,
         latestSubmittedAt: Date?,
-        remote: Remote?
+        remote: Remote?,
+        groupId: UUID? = nil
     ) {
+        self.groupId = groupId
         self.id = id
         self.title = title
         self.isSelected = isSelected

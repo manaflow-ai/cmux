@@ -101,8 +101,13 @@ Rules of the runtime:
   prop whose value should track data must be a **function** (`Text(() =>
   w().title)`, `.fill(() => ...)`), which becomes a live binding.
 - `data.<key>()` reads a host data key as a signal (same keys as the Swift
-  data context: `workspaces`, `workspaceCount`, `selectedTitle`, `selectedId`,
-  `unreadTotal`, `clock`). Reading inside a binding subscribes it.
+  data context: `workspaces`, `groups`, `workspaceCount`, `selectedTitle`,
+  `selectedId`, `unreadTotal`, `clock`). Reading inside a binding subscribes
+  it. Each group is `{id, name, collapsed, pinned, anchorId, color?, icon?}`
+  and a grouped workspace carries its group id as `group`.
+- Author state: `const [open, setOpen] = signal(false)` and `computed(fn)`.
+  Reads inside any function-valued prop subscribe it; writes re-run exactly
+  the bindings that read it.
 - Views: `VStack` `HStack` `ZStack` `LazyVStack` `Group` `Text` `Image`
   `Button` `Spacer` `Divider` `Circle` `Capsule` `Rectangle`
   `RoundedRectangle` `ProgressView` `ForEach` `Reorderable`. Containers take
@@ -122,6 +127,14 @@ Rules of the runtime:
   the grabbed row lifts and follows the pointer, the other rows spring aside
   live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
   there to persist).
+- Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
+  Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
+  items are ordinary Button/Menu/Divider nodes, so labels and actions can be
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
+  move_up/move_down/move_top, close_others, set/clear color and description),
+  `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
+  (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
 - Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
   a handler.
 - Containment: the context has no filesystem, network, or timers, and a

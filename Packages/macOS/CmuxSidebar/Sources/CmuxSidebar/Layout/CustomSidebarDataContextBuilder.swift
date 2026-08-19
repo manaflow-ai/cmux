@@ -48,12 +48,31 @@ public struct CustomSidebarDataContextBuilder {
         ])
         return [
             "workspaces": .array(workspaces),
+            "groups": .array(snapshot.groups.map(groupValue(_:))),
             "workspaceCount": .int(snapshot.workspaces.count),
             "selectedTitle": .string(snapshot.selectedWorkspaceTitle),
             "selectedId": .string(snapshot.selectedWorkspaceId?.uuidString ?? ""),
             "unreadTotal": .int(snapshot.totalUnreadCount),
             "clock": clock,
         ]
+    }
+
+    /// Projects one group's snapshot into the interpreter value tree.
+    public func groupValue(_ group: CustomSidebarGroupSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(group.id.uuidString),
+            "name": .string(group.name),
+            "collapsed": .bool(group.isCollapsed),
+            "pinned": .bool(group.isPinned),
+            "anchorId": .string(group.anchorWorkspaceId.uuidString),
+        ]
+        if let color = group.customColor, !color.isEmpty {
+            fields["color"] = .string(color)
+        }
+        if let icon = group.iconSymbol, !icon.isEmpty {
+            fields["icon"] = .string(icon)
+        }
+        return .object(fields)
     }
 
     /// Projects one workspace's snapshot into the interpreter value tree.
@@ -74,6 +93,9 @@ public struct CustomSidebarDataContextBuilder {
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
         ]
+        if let groupId = workspace.groupId {
+            fields["group"] = .string(groupId.uuidString)
+        }
         if let description = workspace.customDescription, !description.isEmpty {
             fields["description"] = .string(description)
         }
