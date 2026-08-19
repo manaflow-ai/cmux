@@ -793,7 +793,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            focusPanel(panel.id)
+            // Low-level creation may request visual selection without claiming
+            // the window's keyboard-routing intent. Explicit Dock affordances
+            // call ``focusPanelFromDockInteraction`` after creation.
+            focusPanel(panel.id, claimKeyboardFocus: false)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
