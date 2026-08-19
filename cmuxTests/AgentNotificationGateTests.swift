@@ -159,7 +159,7 @@ import Testing
 
     @Test func contextualMetaRoundTripsAgentAndAlertType() throws {
         let meta = try #require(
-            AgentNotifyCategory.needsPermission.metaSegment(
+            AgentHookNotifyCategory.needsPermission.metaSegment(
                 pending: false,
                 agentID: " hermes-agent ",
                 alertType: .needsInput
@@ -176,7 +176,7 @@ import Testing
 
     @Test func contextualMetaRetainsSubagentFlag() throws {
         let meta = try #require(
-            AgentNotifyCategory.turnComplete.metaSegment(
+            AgentHookNotifyCategory.turnComplete.metaSegment(
                 pending: false,
                 agentID: "claude",
                 isSubagent: true
