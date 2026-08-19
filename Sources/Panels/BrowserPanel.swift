@@ -2195,6 +2195,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
 
+    /// Invalidates a queued WebView responder reassertion when this panel is no
+    /// longer the active focus owner.
+    private var webViewFocusRequestGeneration: UInt64 = 0
+
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
     private var lastSearchNeedle = ""
@@ -4872,6 +4876,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func requestExplicitWebViewFocus() -> Bool {
+        webViewFocusRequestGeneration &+= 1
+        let requestGeneration = webViewFocusRequestGeneration
+
         // Programmatic WebView focus should win over stale omnibar focus state, especially
         // after workspace switches where the blank-page omnibar auto-focus can re-trigger.
         endSuppressWebViewFocusForAddressBar()
@@ -4905,6 +4912,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         DispatchQueue.main.async { [weak self, weak window, weak webView] in
             guard let self, let window, let webView else { return }
+            guard self.webViewFocusRequestGeneration == requestGeneration else { return }
             guard webView.window === window else { return }
             let didBecomeFirstResponder: Bool
             if !Self.responderChainContains(window.firstResponder, target: webView) {
@@ -4928,6 +4936,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
@@ -7479,6 +7488,8 @@ extension BrowserPanel {
     func requestAddressBarFocus(
         selectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     ) -> UUID? {
+        // A pending WebView reassertion must not win after an explicit address-bar request.
+        webViewFocusRequestGeneration &+= 1
         guard chromeVisibility.allowsAddressBarFocus else {
 #if DEBUG
             cmuxDebugLog(
