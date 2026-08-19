@@ -168,11 +168,21 @@ extension Workspace {
             return false
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
-        return !AgentResumeLiveness.hasLiveProcess(
-            for: liveIndex?.entry(workspaceId: id, panelId: panelId),
-            kind: kind,
-            sessionId: checkpointId
-        )
+        guard let entry = liveIndex?.entry(workspaceId: id, panelId: panelId) else {
+            // A missing index entry is an absence of evidence, not proof that
+            // the process exited. Never let a scan gap erase a live binding;
+            // the next save or hook callback can reconcile it when evidence is
+            // available.
+            return false
+        }
+        guard entry.snapshot.kind.rawValue == kind,
+              entry.snapshot.sessionId == checkpointId else {
+            // The index saw another identity for this panel. That is still not
+            // an explicit exit observation for this binding; retain it until a
+            // matching generation reports `.exited` or its hook tears down.
+            return false
+        }
+        return entry.processLiveness == .exited
     }
 
     func seedSessionRestoredAgentState(

@@ -142,6 +142,14 @@ extension DockSplitStore {
         surfaceResumeBindingsByPanelId[panelId]
     }
 
+    func setResumeBindingGap(_ hasGap: Bool, panelId: UUID) {
+        if hasGap {
+            unresolvedResumeBindingPanelIds.insert(panelId)
+        } else {
+            unresolvedResumeBindingPanelIds.remove(panelId)
+        }
+    }
+
     func managedAgentResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         let managedBinding = managedAgentResumeBindingsByPanelId[panelId]
         guard let effectiveBinding = surfaceResumeBindingsByPanelId[panelId],

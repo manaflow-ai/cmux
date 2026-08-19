@@ -181,11 +181,16 @@ extension Workspace {
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
-        snapshot.dock = _dockSplit?.sessionSnapshot(
-            includeScrollback: includeScrollback,
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
-        )
+        if let dock = _dockSplit {
+            snapshot.dock = dock.sessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
+            updateDockResumeBindingGaps(dock.unresolvedResumeBindingPanelIds)
+        } else {
+            updateDockResumeBindingGaps([])
+        }
         return snapshot
     }
 
@@ -213,6 +218,10 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        unresolvedResumeBindingPanelIds.removeAll(keepingCapacity: false)
+        unresolvedDockResumeBindingPanelIds.removeAll(keepingCapacity: false)
+        unresolvedResumeBindingStatusUpdatedAt = Date()
+        resumeBindingGapRevision &+= 1
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
@@ -398,6 +407,28 @@ extension Workspace {
             effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
             resumeBinding: resumeBinding
         )
+        var effectiveResumeBinding = resumeBinding
+        // The structured agent snapshot is durable identity, not merely a
+        // liveness observation. A process scan can miss a healthy agent while
+        // the hook binding is absent (or while a hook record is being repaired),
+        // so save-time backfill must not be gated on process evidence. Otherwise
+        // one missed hook becomes a permanently un-restorable panel on the next
+        // save. The lifecycle coordinator has already removed explicitly
+        // completed generations from `effectiveRestorableAgent` above.
+        if effectiveResumeBinding == nil, let effectiveRestorableAgent {
+            if let derivedBinding = effectiveRestorableAgent.resumeBindingSnapshot(),
+               setSurfaceResumeBinding(derivedBinding, panelId: panelId) {
+                effectiveResumeBinding = derivedBinding
+                setResumeBindingGap(false, panelId: panelId)
+            } else {
+                // Preserve the structured metadata and make the gap visible when
+                // the binding cannot be derived. A future save or hook can repair
+                // it; silently omitting the panel is never acceptable.
+                setResumeBindingGap(true, panelId: panelId)
+            }
+        } else {
+            setResumeBindingGap(false, panelId: panelId)
+        }
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
@@ -471,10 +502,10 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
-                if resumeBinding?.isAgentHookBinding == true {
-                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding?.kind),
+                if effectiveResumeBinding?.isAgentHookBinding == true {
+                    guard let bindingKindValue = Self.normalizedResumeBindingValue(effectiveResumeBinding?.kind),
                           let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
-                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding?.checkpointId) else {
+                          let bindingSessionId = Self.normalizedResumeBindingValue(effectiveResumeBinding?.checkpointId) else {
                         return false
                     }
                     let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
@@ -488,11 +519,21 @@ extension Workspace {
                     }
                     guard let effectiveRestorableAgent,
                           effectiveRestorableAgent.kind == bindingKind,
-                          effectiveRestorableAgent.sessionId == bindingSessionId,
-                          let restorableAgentObservation,
+                          effectiveRestorableAgent.sessionId == bindingSessionId else {
+                        return false
+                    }
+                    guard let restorableAgentObservation,
                           restorableAgentObservation.snapshot.kind == bindingKind,
                           restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
-                        return false
+                        // Missing process-index evidence is inconclusive. Keep
+                        // the shell signal when available, and leave it nil when
+                        // it is not; restore treats nil as eligible for a safe
+                        // retry rather than silently dropping a live session.
+                        switch panelShellActivityStates[panelId] {
+                        case .some(.commandRunning): return true
+                        case .some(.promptIdle): return false
+                        case .some(.unknown), .none: return nil
+                        }
                     }
                     return restorableAgentObservation.processLiveness
                         .wasRunning(
@@ -501,7 +542,7 @@ extension Workspace {
                             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                             currentProcessIdentity: currentAgentProcessIdentity,
                             processPresence: agentProcessPresence
-                        ) ?? false
+                        )
                 }
                 guard let effectiveRestorableAgent else { return nil }
                 let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
@@ -519,7 +560,7 @@ extension Workspace {
                     )
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
-                resumeBinding,
+                effectiveResumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
@@ -584,7 +625,7 @@ extension Workspace {
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 },
-                resumeBinding: resumeBinding,
+                resumeBinding: effectiveResumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -726,6 +767,7 @@ extension Workspace {
             project: projectSnapshot, workspaceTodo: workspaceTodoSnapshot
         )
     }
+
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
         guard !suppressClosedPanelHistory else { return nil }
         owningTabManager?.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
@@ -2543,6 +2585,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    static let resumeBindingGapStatusKey = "resume_binding.gap"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let remoteHeartbeatDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -2579,6 +2622,13 @@ final class Workspace: Identifiable, ObservableObject {
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Panels with a live restorable agent whose binding could not be derived at save time.
+    /// This is intentionally separate from persisted status entries so the warning is ephemeral
+    /// and cannot become stale after the next restore.
+    var unresolvedResumeBindingPanelIds: Set<UUID> = []
+    var unresolvedDockResumeBindingPanelIds: Set<UUID> = []
+    var unresolvedResumeBindingStatusUpdatedAt = Date()
+    @Published private(set) var resumeBindingGapRevision: UInt64 = 0
     var restoredGuardedWorkingDirectoriesByPanelId: [UUID: RestoredWorkingDirectoryGuard] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the resumed run so split/new-tab cwd inheritance can rescue a
@@ -5087,6 +5137,30 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceResumeBindingsByPanelId[panelId]
     }
 
+    func setResumeBindingGap(_ hasGap: Bool, panelId: UUID) {
+        let didChange: Bool
+        if hasGap {
+            didChange = unresolvedResumeBindingPanelIds.insert(panelId).inserted
+        } else {
+            didChange = unresolvedResumeBindingPanelIds.remove(panelId) != nil
+        }
+        if didChange {
+            unresolvedResumeBindingStatusUpdatedAt = Date()
+            resumeBindingGapRevision &+= 1
+        }
+    }
+
+    private func updateDockResumeBindingGaps(_ panelIds: Set<UUID>) {
+        guard unresolvedDockResumeBindingPanelIds != panelIds else { return }
+        unresolvedDockResumeBindingPanelIds = panelIds
+        unresolvedResumeBindingStatusUpdatedAt = Date()
+        resumeBindingGapRevision &+= 1
+    }
+
+    var unresolvedResumeBindingGapCount: Int {
+        unresolvedResumeBindingPanelIds.union(unresolvedDockResumeBindingPanelIds).count
+    }
+
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
         Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
@@ -5339,6 +5413,14 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
+        let previousUnresolvedResumeBindingPanelIds = unresolvedResumeBindingPanelIds
+        unresolvedResumeBindingPanelIds = unresolvedResumeBindingPanelIds.filter {
+            validSurfaceIds.contains($0)
+        }
+        if unresolvedResumeBindingPanelIds != previousUnresolvedResumeBindingPanelIds {
+            unresolvedResumeBindingStatusUpdatedAt = Date()
+            resumeBindingGapRevision &+= 1
+        }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -5406,7 +5488,28 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
+        var entries = sidebarStatusEntriesVisibleForDisplay()
+        if unresolvedResumeBindingGapCount > 0 {
+            let countText = String(
+                format: String(
+                    localized: "sidebar.resumeBinding.gap",
+                    defaultValue: "%lld agent sessions will not be restored"
+                ),
+                locale: .current,
+                unresolvedResumeBindingGapCount
+            )
+            entries.append(
+                SidebarStatusEntry(
+                    key: Self.resumeBindingGapStatusKey,
+                    value: countText,
+                    icon: "exclamationmark.triangle.fill",
+                    color: "#D14A4A",
+                    priority: 10_000,
+                    timestamp: unresolvedResumeBindingStatusUpdatedAt
+                )
+            )
+        }
+        return entries.sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key

@@ -57,6 +57,10 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
     @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Panels with a live restorable agent whose binding could not be derived
+    /// while serializing the Dock session. The owning Workspace folds this
+    /// into its ephemeral sidebar warning after the snapshot completes.
+    @ObservationIgnored var unresolvedResumeBindingPanelIds: Set<UUID> = []
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
     /// but hook teardown must still address the managed agent generation.

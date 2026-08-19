@@ -15375,8 +15375,11 @@ struct TabItemView: View, Equatable {
 
             remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
-            if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
+            let metadataEntries = workspaceSnapshot.metadataEntries
+            let showsResumeBindingWarning = metadataEntries.contains {
+                $0.key == Workspace.resumeBindingGapStatusKey
+            }
+            if detailVisibility.showsMetadata || showsResumeBindingWarning {
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(

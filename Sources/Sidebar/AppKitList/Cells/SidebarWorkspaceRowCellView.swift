@@ -699,7 +699,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
-            ? model.snapshot.metadataEntries : []
+            ? model.snapshot.metadataEntries
+            : model.snapshot.metadataEntries.filter {
+                $0.key == Workspace.resumeBindingGapStatusKey
+            }
         let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
         Self.pool(&metadataRows, count: visible.count, parent: contentContainer) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
