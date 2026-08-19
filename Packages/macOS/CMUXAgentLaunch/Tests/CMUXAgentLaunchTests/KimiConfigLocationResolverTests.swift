@@ -99,6 +99,20 @@ struct KimiConfigLocationResolverTests {
         )
     }
 
+    @Test("Fallback honors an explicit Kimi share directory before creating it")
+    func fallbackHonorsExplicitShareDirectory() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+
+        let explicitShareDirectory = home.directory("custom-kimi-share")
+        let resolver = KimiConfigLocationResolver(environment: [
+            "HOME": home.root.path,
+            "KIMI_SHARE_DIR": explicitShareDirectory.path,
+        ])
+
+        #expect(resolver.fallbackConfigDirectory() == explicitShareDirectory)
+    }
+
     @Test("A doctor report is trusted only when it names a config in an existing directory")
     func doctorReportIsTrustedOnlyWhenUsable() throws {
         let home = try makeHome()
