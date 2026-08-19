@@ -101,6 +101,13 @@ extension MobileHostIrohRuntime {
             guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
                 throw CmxIrohTrustBrokerClientError.invalidBaseURL
             }
+            guard let clientNamespace = CmxIrohMacBundleNamespace(
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            ) else {
+                throw CmxIrohHostRuntimeError.invalidLocalBinding
+            }
+            let requestClientNamespace = preparation.bindingAuthorization?
+                .clientNamespace ?? clientNamespace.rawValue
             let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
@@ -113,6 +120,8 @@ extension MobileHostIrohRuntime {
                         )
                     }
                 ),
+                clientNamespace: requestClientNamespace,
+                bindingAuthorization: preparation.bindingAuthorization,
                 backpressureMode: .callerOwned
             )
             let broker = CmxIrohBackpressuredHostBroker(
@@ -128,7 +137,8 @@ extension MobileHostIrohRuntime {
                 await wipePersistedAccountState(
                     after: CmxIrohHostSignOutPreparation(
                         pendingRevocation: preparation.pendingRevocation,
-                        wasPersisted: true
+                        wasPersisted: true,
+                        bindingAuthorization: preparation.bindingAuthorization
                     )
                 )
             }
@@ -506,7 +516,8 @@ extension MobileHostIrohRuntime {
         }
         return CmxIrohHostSignOutPreparation(
             pendingRevocation: pending,
-            wasPersisted: wasPersisted
+            wasPersisted: wasPersisted,
+            bindingAuthorization: preparedSignOut?.bindingAuthorization
         )
     }
 

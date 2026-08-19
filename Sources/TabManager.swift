@@ -496,7 +496,7 @@ class TabManager: ObservableObject {
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
                 processWorkingDirectory: FileManager.default.currentDirectoryPath
             ).resolve(
-                configuredValue: GhosttyConfig.load().workingDirectory
+                configuredValue: GhosttyConfig.loadForCmux().workingDirectory
             )
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,

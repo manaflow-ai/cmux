@@ -45,6 +45,7 @@ export type PushDeliveryPayload = PushPayload & {
 
 export interface PushDeliveryInput {
   readonly userId: string;
+  readonly targetBundleId: string;
   readonly correlationId: string;
   readonly payloadFingerprint: string;
   readonly startedAt: Date;
@@ -148,6 +149,7 @@ async function executePushDelivery(
     deviceClaim = await claimDeviceDeliveryTargets(
       db,
       input.userId,
+      input.targetBundleId,
       input.startedAt,
     );
   } catch (error) {

@@ -475,6 +475,12 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.ios.push1",
       environment: "sandbox",
     });
+    const maximumDevTag = "a".repeat(64);
+    expect(normalizeApnsBundle(`dev.cmux.ios.${maximumDevTag}`)).toEqual({
+      bundleId: `dev.cmux.ios.${maximumDevTag}`,
+      environment: "sandbox",
+    });
+    expect(normalizeApnsBundle(`dev.cmux.ios.${maximumDevTag}a`)).toBeNull();
 
     expect(normalizeApnsBundle("com.example.app")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();
@@ -1504,8 +1510,8 @@ describe("apns sender transport", () => {
     }
 
     expect(results).toEqual([
-      { deviceToken: "a".repeat(64), status: 200, reason: undefined, prune: false },
-      { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+      { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", status: 200, reason: undefined, prune: false },
+      { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", status: 200, reason: undefined, prune: false },
     ]);
     expect(closed).toEqual([productionHost, sandboxHost]);
   });
@@ -1891,6 +1897,7 @@ describe("apns sender transport", () => {
     expect(requests).toBe(1);
     expect(accepted).toEqual([{
       deviceToken: target.deviceToken,
+      bundleId: target.bundleId,
       status: 200,
       reason: undefined,
       prune: false,
@@ -1966,8 +1973,8 @@ describe("apns sender transport", () => {
     );
 
     expect(results).toEqual([
-      { deviceToken: "a".repeat(64), status: 0, reason: "connection_error", prune: false },
-      { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+      { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", status: 0, reason: "connection_error", prune: false },
+      { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", status: 200, reason: undefined, prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
   });
@@ -2030,8 +2037,8 @@ describe("apns sender transport", () => {
     );
 
     expect(results).toEqual([
-      { deviceToken: "a".repeat(64), status: 200, reason: undefined, prune: false },
-      { deviceToken: "b".repeat(64), status: 0, reason: "request failed", prune: false },
+      { deviceToken: "a".repeat(64), bundleId: "com.cmux.app", status: 200, reason: undefined, prune: false },
+      { deviceToken: "b".repeat(64), bundleId: "dev.cmux.app.beta", status: 0, reason: "request failed", prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
   });

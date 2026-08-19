@@ -1,4 +1,6 @@
 export const MAX_DEVICE_TOKENS_PER_USER = 200;
+/** Defense-in-depth ceiling across every bundle namespace owned by one user. */
+export const MAX_DEVICE_TOKENS_PER_ACCOUNT = 200;
 
 export const MAX_PUSH_TITLE_CHARS = 120;
 export const MAX_PUSH_SUBTITLE_CHARS = 120;
@@ -21,7 +23,8 @@ export type ApnsBundlePolicy = {
  * mirror (the default; older Macs never send `kind`). `dismiss` is the cold
  * lane of Mac→iOS dismiss-sync: a banner-less `content-available` push carrying
  * the dismissed ids plus the authoritative badge, fanned out to every
- * registered device (idempotent on devices that got the live event).
+ * registered device in the selected app namespace (idempotent on devices that
+ * got the live event).
  */
 export type PushKind = "notify" | "dismiss";
 
@@ -74,7 +77,7 @@ export type JsonObjectResult =
   | { readonly ok: true; readonly value: Record<string, unknown> }
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
-const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 // Every TestFlight lane (beta AND internal) uses the production APNs
 // environment; the internal lane's bundle id is set in
 // .github/workflows/ios-testflight.yml (IOS_BETA_BUNDLE_ID).
