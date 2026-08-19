@@ -1562,7 +1562,7 @@
       "dragDropTitle": "Dra og slipp",
       "dragDropDesc": "Dra et bilde eller en fil til en ekstern terminal og cmux laster det opp via scp gjennom den eksisterende SSH-tilkoblingen. cmux oppdager SSH-prosessen i forgrunnen av TTY og ruter opplastingen gjennom ControlMaster-multipleksing.",
       "notificationsTitle": "Varsler",
-      "notificationsDesc": "Prosesser på den eksterne maskinen kan kjøre cmux-kommandoer som utføres på den lokale instansen din. Når en kodeagent kaller cmux notify på den eksterne boksen, også fra tmux, vises varselet i den lokale sidepanelet. Den blå ringen lyser på arbeidsområdefanen. Cmd+Shift+U hopper til den. Varselspam fra ustabile tilkoblinger dempes med en nedkjøling per vert.",
+      "notificationsDesc": "Prosesser på den eksterne maskinen kan kjøre cmux-kommandoer som utføres på den lokale instansen din. Når en kodeagent kaller cmux notify på den eksterne boksen, også fra tmux, vises varselet i det lokale sidepanelet. Den blå ringen lyser på arbeidsområdefanen. Cmd+Shift+U hopper til den. Varselspam fra ustabile tilkoblinger dempes med en nedkjøling per vert.",
       "agentsTitle": "Kodemidler over SSH",
       "agentsDesc": "cmux claude-teams og cmux omo jobber begge i SSH-økter. Go relay daemon på den eksterne verten håndterer den samme tmux-kompat-oversettelsen som den lokale Swift CLI gjør. Lagkamerater gyter når native cmux splitter på din lokale maskin mens beregningen kjører på den eksterne boksen.",
       "reconnectTitle": "Koble til på nytt",

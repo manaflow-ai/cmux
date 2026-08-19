@@ -909,12 +909,14 @@ func applyNotifyCallerEnv(
 	surfaceID, _ := params["surface_id"].(string)
 	workspaceID = strings.TrimSpace(workspaceID)
 	surfaceID = strings.TrimSpace(surfaceID)
-	if workspaceID != "" {
-		params["preferred_workspace_id"] = workspaceID
+	// The caller-target method requires both identities. Keep the original
+	// notification.create request intact when a relay has only a partial or
+	// missing caller context.
+	if workspaceID == "" || surfaceID == "" {
+		return method
 	}
-	if surfaceID != "" {
-		params["preferred_surface_id"] = surfaceID
-	}
+	params["preferred_workspace_id"] = workspaceID
+	params["preferred_surface_id"] = surfaceID
 	delete(params, "workspace_id")
 	delete(params, "surface_id")
 	if runningInsideTmux() && !hasExplicitWorkspace {
