@@ -14398,6 +14398,11 @@ class TerminalController {
 
     // MARK: - Mobile Host V2 Methods
 
+    private static let bareMobileTerminalAliases: Set<String> = [
+        "terminal.create", "terminal.input", "terminal.paste", "terminal.paste_image",
+        "terminal.replay", "terminal.viewport", "terminal.scroll", "terminal.mouse",
+    ]
+
     @MainActor
     func mobileHostHandleRPC(
         _ request: MobileHostRPCRequest,
@@ -14413,7 +14418,10 @@ class TerminalController {
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
         let result: V2CallResult
-        switch request.method {
+        // Bare "terminal.<verb>" aliases (still pinned in irohReleaseGateRPCMethods) normalize to "mobile.terminal.<verb>".
+        let method = Self.bareMobileTerminalAliases.contains(request.method)
+            ? "mobile." + request.method : request.method
+        switch method {
         case "mobile.host.status":
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
 #if DEBUG
@@ -14449,21 +14457,21 @@ class TerminalController {
             result = v2MobileTaskAttachmentUpload(params: request.params)
         case "mobile.task.models.list":
             result = await v2MobileTaskModelsList(params: request.params)
-        case "mobile.terminal.create", "terminal.create":
+        case "mobile.terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
-        case "mobile.terminal.input", "terminal.input":
+        case "mobile.terminal.input":
             result = v2MobileTerminalInput(params: request.params)
-        case "mobile.terminal.paste", "terminal.paste":
+        case "mobile.terminal.paste":
             result = v2MobileTerminalPaste(params: request.params)
-        case "mobile.terminal.paste_image", "terminal.paste_image":
+        case "mobile.terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
-        case "mobile.terminal.replay", "terminal.replay":
+        case "mobile.terminal.replay":
             result = v2MobileTerminalReplay(params: request.params)
-        case "mobile.terminal.viewport", "terminal.viewport":
+        case "mobile.terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
-        case "mobile.terminal.scroll", "terminal.scroll":
+        case "mobile.terminal.scroll":
             result = v2MobileTerminalScroll(params: request.params)
-        case "mobile.terminal.mouse", "terminal.mouse":
+        case "mobile.terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case let method where method.hasPrefix("mobile.terminal.artifact."):
             result = await v2MobileTerminalArtifactDispatch(
