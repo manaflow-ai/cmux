@@ -178,7 +178,7 @@ struct DisconnectedWorkspaceShellView: View {
                 if let showAddDevice {
                     Button(action: showAddDevice) {
                         Label(
-                            L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                            L10n.string("mobile.connections.add", defaultValue: "Add Connection"),
                             systemImage: "plus"
                         )
                     }

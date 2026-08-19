@@ -238,7 +238,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 Divider()
                 Button(action: { actions.addDevice?() }) {
                     Label(
-                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                        L10n.string("mobile.connections.add", defaultValue: "Add Connection"),
                         systemImage: "plus"
                     )
                 }

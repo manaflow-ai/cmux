@@ -1973,23 +1973,6 @@
         }
       }
     },
-    "mobile.computers.add": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータを追加"
-          }
-        }
-      }
-    },
     "mobile.computers.auto": {
       "extractionState": "manual",
       "localizations": {
@@ -2037,23 +2020,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレゼンス: %@ · %@"
-          }
-        }
-      }
-    },
-    "mobile.computers.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No computers yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータがありません。自動接続で表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、「設定」を開き、「接続方法」をタップして「Tailscaleのみ」を選択してください。"
           }
         }
       }
@@ -2292,23 +2258,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
-          }
-        }
-      }
-    },
-    "mobile.computers.footer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn a computer off to hide its workspaces on this iPhone. It stays signed in to your account."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータをオフにすると、このiPhoneでそのワークスペースを非表示にできます。コンピュータはアカウントにサインインしたままです。"
           }
         }
       }
@@ -2717,23 +2666,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "電話が接続できるルート"
-          }
-        }
-      }
-    },
-    "mobile.computers.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータ"
           }
         }
       }
@@ -19858,6 +19790,15 @@
     },
     "mobile.accessibility.notSelected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"not selected"}},"ja":{"stringUnit":{"state":"translated","value":"未選択"}}}},
     "mobile.accessibility.selected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"selected"}},"ja":{"stringUnit":{"state":"translated","value":"選択済み"}}}},
+    "mobile.connections.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続を追加"}}}},
+    "mobile.connections.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No connections yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."}},"ja":{"stringUnit":{"state":"translated","value":"接続がありません。自動接続で表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、「設定」を開き、「接続方法」をタップして「Tailscaleのみ」を選択してください。"}}}},
+    "mobile.connections.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A Mac appears once for each way this iPhone can connect to it. Turning a connection off hides that Mac's workspaces on this iPhone; it stays signed in to your account."}},"ja":{"stringUnit":{"state":"translated","value":"Macは、このiPhoneから接続できる方法ごとに1行ずつ表示されます。接続をオフにすると、そのMacのワークスペースがこのiPhoneで非表示になります。Macはアカウントにサインインしたままです。"}}}},
+    "mobile.connections.method.autoConnect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto-Connect"}},"ja":{"stringUnit":{"state":"translated","value":"自動接続"}}}},
+    "mobile.connections.method.debug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Debug"}},"ja":{"stringUnit":{"state":"translated","value":"デバッグ"}}}},
+    "mobile.connections.method.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale"}}}},
+    "mobile.connections.method.websocket": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"WebSocket"}},"ja":{"stringUnit":{"state":"translated","value":"WebSocket"}}}},
+    "mobile.connections.section.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Route"}},"ja":{"stringUnit":{"state":"translated","value":"ルートなし"}}}},
+    "mobile.connections.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connections"}},"ja":{"stringUnit":{"state":"translated","value":"接続"}}}},
     "mobile.surface.disconnected.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This phone isn't connected to the Mac right now. Reconnect, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneは現在Macに接続されていません。再接続してから再試行してください。"}}}},
     "mobile.surface.disconnected.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not connected"}},"ja":{"stringUnit":{"state":"translated","value":"未接続"}}}},
     "mobile.surface.explainer.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This agent session is running in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションはMacのcmuxで実行中です。"}}}},

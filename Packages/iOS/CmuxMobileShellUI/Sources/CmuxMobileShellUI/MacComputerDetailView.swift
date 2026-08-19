@@ -334,7 +334,7 @@ struct MacComputerDetailView: View {
     private func routeRow(_ route: CmxAttachRoute) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(route.kind.rawValue)
+                Text(route.kind.mobileConnectionMethodName)
                     .font(.callout)
                 Spacer(minLength: 8)
                 Text(endpointText(route.endpoint))

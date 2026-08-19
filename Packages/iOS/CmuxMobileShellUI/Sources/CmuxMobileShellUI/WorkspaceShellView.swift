@@ -107,7 +107,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             Button(action: openDevices) {
                 Image(systemName: "desktopcomputer")
             }
-            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Connections"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
     }

@@ -6,11 +6,14 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Computers screen: the Macs signed in to the user's account, each shown
-/// with its name, live/last-seen status, and workspace count. The main workspace
-/// list owns the Mac picker; this screen manages the saved computer set and lets
-/// users inspect one or choose whether it appears on this iPhone. The data is
-/// the durable-object–backed device
+/// The Connections screen: every way this iPhone can reach a Mac signed in to
+/// the user's account. A visible row is one connection — the identity is
+/// (device, build, route kind) — so a Mac advertising both Auto-Connect and
+/// Tailscale routes appears once in each method's section, each row showing
+/// that method's endpoint. The main workspace list owns the Mac picker; this
+/// screen manages the saved set and lets users inspect one or choose whether
+/// it appears on this iPhone (visibility is per pairing: toggling any row of a
+/// Mac hides all of them). The data is the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -56,22 +59,47 @@ struct DeviceTreeView: View {
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
+                    // One section per connection method, so two routes to the
+                    // same Mac are visibly two different ways to reach it.
+                    ForEach(MacComputerListSection.sections(from: computers)) { section in
+                        Section {
+                            ComputerVisibilityRows(
+                                visibleComputers: section.computers,
+                                hiddenComputers: [],
+                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                hide: hideComputer,
+                                unhide: unhideComputer,
+                                forget: forgetComputer
+                            )
+                        } header: {
+                            Text(section.title)
+                        }
+                    }
+                    if !store.hiddenComputers.isEmpty {
+                        Section {
+                            ComputerVisibilityRows(
+                                visibleComputers: [],
+                                hiddenComputers: store.hiddenComputers,
+                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                hide: hideComputer,
+                                unhide: unhideComputer,
+                                forget: forgetComputer
+                            )
+                        } header: {
+                            Text(L10n.string(
+                                "mobile.computers.hidden.title",
+                                defaultValue: "Hidden Computers"
+                            ))
+                        }
+                    }
                     Section {
-                        ComputerVisibilityRows(
-                            visibleComputers: computers,
-                            hiddenComputers: store.hiddenComputers,
-                            mutatingComputerIDs: store.computerVisibilityMutationIDs,
-                            hide: hideComputer,
-                            unhide: unhideComputer,
-                            forget: forgetComputer
-                        )
                         if showAddDevice != nil {
                             addComputerRow
                         }
                     } footer: {
                         Text(L10n.string(
-                            "mobile.computers.footer",
-                            defaultValue: "Turn a computer off to hide its workspaces on this iPhone. It stays signed in to your account."
+                            "mobile.connections.footer",
+                            defaultValue: "A Mac appears once for each way this iPhone can connect to it. Turning a connection off hides that Mac's workspaces on this iPhone; it stays signed in to your account."
                         ))
                     }
                 }
@@ -86,7 +114,7 @@ struct DeviceTreeView: View {
                     )
                 }
             }
-            .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Connections"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if showAddDevice != nil {
@@ -94,7 +122,7 @@ struct DeviceTreeView: View {
                         Button(action: addComputer) {
                             Image(systemName: "plus")
                         }
-                        .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
+                        .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Connection"))
                         .accessibilityIdentifier("MobileComputersAddButton")
                     }
                 }
@@ -151,7 +179,7 @@ struct DeviceTreeView: View {
     private var addComputerRow: some View {
         Button(action: addComputer) {
             Label(
-                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                L10n.string("mobile.connections.add", defaultValue: "Add Connection"),
                 systemImage: "plus"
             )
         }
@@ -188,8 +216,8 @@ struct DeviceTreeView: View {
         }
         return showAddDevice != nil
             ? L10n.string(
-                "mobile.computers.empty",
-                defaultValue: "No computers yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                "mobile.connections.empty",
+                defaultValue: "No connections yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
             )
             : L10n.string(
                 "mobile.devices.emptyDescription",
