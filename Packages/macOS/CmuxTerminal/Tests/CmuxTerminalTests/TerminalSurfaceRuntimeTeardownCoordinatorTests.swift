@@ -102,6 +102,46 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await recorder.freed == [UInt(bitPattern: surface)])
     }
 
+    @Test func asyncBeforeFreeFenceOrdersNativeFree() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = FreedSurfaceRecorder()
+        let fenceStarted = AsyncStream<Void>.makeStream()
+        let releaseFence = AsyncStream<Void>.makeStream()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer {
+            surface.deallocate()
+            fenceStarted.continuation.finish()
+            releaseFence.continuation.finish()
+        }
+
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.asyncFence",
+            surface: surface,
+            callbackContext: nil,
+            beforeFree: {
+                fenceStarted.continuation.yield()
+                var iterator = releaseFence.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            },
+            freeSurface: { pointer in
+                Task {
+                    await recorder.record(UInt(bitPattern: pointer))
+                }
+            }
+        )
+
+        var fenceIterator = fenceStarted.stream.makeAsyncIterator()
+        _ = await fenceIterator.next()
+        #expect(await ticket.wait(timeout: .zero) == false)
+
+        releaseFence.continuation.yield(())
+        await recorder.waitForFreeCount(1)
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        #expect(await recorder.freed == [UInt(bitPattern: surface)])
+    }
+
     @Test func teardownsForMultipleSurfacesAllFree() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()
