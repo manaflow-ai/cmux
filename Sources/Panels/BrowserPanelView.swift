@@ -249,6 +249,14 @@ struct BrowserPanelView: View {
         case suggestion
     }
 
+    /// The one transient mode state that may be promoted into the toolbar.
+    /// Focus and Design Mode are mutually exclusive, so showing one shared
+    /// status chip keeps the accessory row from growing a second icon cluster.
+    private enum ActiveToolbarMode: Equatable {
+        case focus
+        case design
+    }
+
     @ObservedObject var panel: BrowserPanel
     @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     private let chromeState: BrowserChromeState
@@ -340,6 +348,12 @@ struct BrowserPanelView: View {
     private var addressBarButtonSize: CGFloat { chromeMetrics.buttonIconSize }
     private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }
     private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
+
+    private var activeToolbarMode: ActiveToolbarMode? {
+        if panel.isBrowserFocusModeActive { return .focus }
+        if panel.designModeController.isActive { return .design }
+        return nil
+    }
 
     private var resolvedThemeBackgroundIdentity: String {
         resolvedThemeBackgroundColor.hexString(includeAlpha: true)
@@ -1141,30 +1155,18 @@ struct BrowserPanelView: View {
                     browserImportHintToolbarChip
                 }
                 // Plain actions stay in the overflow menu so the browser
-                // chrome remains quiet at every width. Mode controls are the
-                // exception: while active, their state must remain visible
-                // without asking the user to reopen the menu.
-                if panel.isBrowserFocusModeActive {
-                    browserFocusModeButtonWithShortcutHint
-                }
-                if panel.designModeController.isActive {
-                    BrowserDesignModeToolbarButton(
-                        controller: panel.designModeController,
-                        iconPointSize: devToolsButtonIconSize,
-                        hitSize: addressBarButtonSize,
-                        inactiveColor: devToolsColorOption.color,
-                        onToggle: { await panel.toggleDesignMode(reason: "toolbar") }
-                    )
-                }
-                // Screenshot feedback is transiently promoted beside the
-                // overflow trigger so the existing Copied chip remains
-                // visible after the menu item closes.
-                if screenshotPageCopied {
-                    screenshotPageButton
-                }
+                // chrome remains quiet at every width. Focus and Design Mode
+                // share one transient text chip while active; the modes are
+                // mutually exclusive, so a second standalone icon would only
+                // recreate the crowded cluster this layout removes.
+                browserActiveModeButtonWithShortcutHint
                 browserOverflowMenu
                 browserProfileButton
                 browserThemeModeButton
+            }
+            .overlay(alignment: .topTrailing) {
+                browserScreenshotCopiedIndicator
+                    .offset(y: -24)
             }
         }
         .padding(.horizontal, 8)
@@ -1267,99 +1269,152 @@ struct BrowserPanelView: View {
         return panel.recentDownloads
     }
 
-    private var screenshotPageButton: some View {
-        Button(action: handleScreenshotPageButtonAction) {
-            CmuxSystemSymbolImage(systemName: screenshotPageCopied ? "checkmark" : "camera", pointSize: devToolsButtonIconSize, weight: .medium)
-                .foregroundStyle(screenshotPageButtonColor)
-                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+    @ViewBuilder
+    private var browserScreenshotCopiedIndicator: some View {
+        if screenshotPageCopied {
+            Text(String(localized: "browser.screenshotPage.copied", defaultValue: "Copied"))
+                .cmuxFont(size: 11, weight: .medium)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.thinMaterial, in: Capsule())
+                .overlay(
+                    Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+                )
+                .fixedSize()
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("BrowserScreenshotPageCopied")
+                .transition(.opacity)
+                .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
         }
-        .buttonStyle(OmnibarAddressButtonStyle())
-        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
-        .opacity(panel.shouldRenderWebView ? 1.0 : 0.4)
-        .safeHelp(
-            screenshotPageCopied
-                ? String(localized: "browser.screenshotPage.copied.help", defaultValue: "Screenshot copied to clipboard")
-                : String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard")
-        )
-        .accessibilityIdentifier("BrowserScreenshotPageButton")
-        .overlay(alignment: .top) {
-            if screenshotPageCopied {
-                Label(String(localized: "browser.screenshotPage.copied", defaultValue: "Copied"), systemImage: "checkmark")
-                    .cmuxFont(size: 11, weight: .medium)
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.thinMaterial, in: Capsule())
-                    .overlay(
-                        Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
-                    )
-                    .fixedSize()
-                    .offset(y: -28)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
     }
 
-    private var browserFocusModeButtonWithShortcutHint: some View {
-        ZStack(alignment: .top) {
-            browserFocusModeButton
-            if shouldShowBrowserFocusModeShortcutHint {
-                ShortcutHintPill(text: browserFocusModeShortcutHint, fontSize: 9, emphasis: 1.05)
-                    .offset(y: -22)
-                    .shortcutHintTransition()
-                    .accessibilityIdentifier("BrowserFocusModeShortcutHint")
-                    .allowsHitTesting(false)
-                    .zIndex(10)
-            }
-        }
-        .shortcutHintVisibilityAnimation(value: shouldShowBrowserFocusModeShortcutHint)
-    }
-
-    private var browserFocusModeButton: some View {
-        Button(action: handleBrowserFocusModeButtonAction) {
-            HStack(spacing: 5) {
-                CmuxSystemSymbolImage(systemName: "keyboard", pointSize: devToolsButtonIconSize, weight: .medium)
-                    .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
-                    .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
-                if panel.isBrowserFocusModeActive {
-                    Text(
-                        panel.isBrowserFocusModeExitArmed
-                            ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
-                            : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
-                    )
-                    .cmuxFont(size: 11, weight: .semibold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+    @ViewBuilder
+    private var browserActiveModeButtonWithShortcutHint: some View {
+        if activeToolbarMode != nil {
+            ZStack(alignment: .top) {
+                browserActiveModeButton
+                if shouldShowBrowserFocusModeShortcutHint {
+                    ShortcutHintPill(text: browserFocusModeShortcutHint, fontSize: 9, emphasis: 1.05)
+                        .offset(y: -22)
+                        .shortcutHintTransition()
+                        .accessibilityIdentifier("BrowserFocusModeShortcutHint")
+                        .allowsHitTesting(false)
+                        .zIndex(10)
                 }
             }
-            .foregroundStyle(panel.isBrowserFocusModeActive ? Color.orange : devToolsColorOption.color)
-            .padding(.horizontal, panel.isBrowserFocusModeActive ? 7 : 0)
-            .frame(
-                minWidth: panel.isBrowserFocusModeActive ? 0 : addressBarButtonSize,
-                minHeight: addressBarButtonSize,
-                alignment: .center
-            )
-            .animation(.easeOut(duration: 0.14), value: panel.isBrowserFocusModeActive)
-            .animation(.easeOut(duration: 0.12), value: panel.isBrowserFocusModeExitArmed)
+            .shortcutHintVisibilityAnimation(value: shouldShowBrowserFocusModeShortcutHint)
         }
-        .buttonStyle(OmnibarAddressButtonStyle())
-        .frame(height: addressBarButtonSize, alignment: .center)
-        .disabled(!panel.canToggleBrowserFocusMode)
-        .opacity(panel.canToggleBrowserFocusMode ? 1.0 : 0.4)
-        .safeHelp(browserFocusModeButtonHelp)
-        .accessibilityIdentifier("BrowserFocusModeButton")
     }
 
-    private var screenshotPageButtonColor: Color {
-        if screenshotPageCopied {
-            return .green
+    private var browserActiveModeButton: some View {
+        Button(action: handleActiveToolbarModeButtonAction) {
+            Text(activeToolbarModeTitle)
+                .cmuxFont(size: 11, weight: .semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(activeToolbarModeColor)
+                .padding(.horizontal, 8)
+                .frame(minHeight: addressBarButtonSize, alignment: .center)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(activeToolbarModeColor.opacity(0.12))
+                )
         }
-        return panel.shouldRenderWebView ? devToolsColorOption.color : Color.secondary
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(minHeight: addressBarButtonSize, alignment: .center)
+        .disabled(!activeToolbarModeCanToggle)
+        .opacity(activeToolbarModeCanToggle ? 1.0 : 0.4)
+        .safeHelp(activeToolbarModeHelp)
+        .accessibilityLabel(activeToolbarModeAccessibilityLabel)
+        .accessibilityIdentifier(activeToolbarModeAccessibilityIdentifier)
+    }
+
+    private var activeToolbarModeTitle: String {
+        switch activeToolbarMode {
+        case .focus:
+            return panel.isBrowserFocusModeExitArmed
+                ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+                : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+        case .design:
+            return String(localized: "browser.designMode.title", defaultValue: "Design Mode")
+        case nil:
+            return ""
+        }
+    }
+
+    private var activeToolbarModeColor: Color {
+        switch activeToolbarMode {
+        case .focus:
+            return .orange
+        case .design:
+            return cmuxAccentColor()
+        case nil:
+            return devToolsColorOption.color
+        }
+    }
+
+    private var activeToolbarModeCanToggle: Bool {
+        switch activeToolbarMode {
+        case .focus:
+            return panel.canToggleBrowserFocusMode
+        case .design:
+            return panel.designModeController.canToggle
+        case nil:
+            return false
+        }
+    }
+
+    private var activeToolbarModeHelp: String {
+        switch activeToolbarMode {
+        case .focus:
+            return browserFocusModeButtonHelp
+        case .design:
+            return panel.designModeController.unavailableMessage ?? String(
+                format: String(
+                    localized: "browser.designMode.buttonHelpFormat",
+                    defaultValue: "Design Mode (%@)"
+                ),
+                KeyboardShortcutSettings.shortcut(for: .toggleBrowserDesignMode).displayString
+            )
+        case nil:
+            return ""
+        }
+    }
+
+    private var activeToolbarModeAccessibilityLabel: String {
+        switch activeToolbarMode {
+        case .focus:
+            return activeToolbarModeTitle
+        case .design:
+            return String(localized: "browser.designMode.title", defaultValue: "Design Mode")
+        case nil:
+            return ""
+        }
+    }
+
+    private var activeToolbarModeAccessibilityIdentifier: String {
+        switch activeToolbarMode {
+        case .focus:
+            return "BrowserFocusModeButton"
+        case .design:
+            return "BrowserDesignModeButton"
+        case nil:
+            return "BrowserActiveModeButton"
+        }
+    }
+
+    private func handleActiveToolbarModeButtonAction() {
+        switch activeToolbarMode {
+        case .focus:
+            handleBrowserFocusModeButtonAction()
+        case .design:
+            Task { @MainActor in
+                _ = await panel.toggleDesignMode(reason: "toolbar")
+            }
+        case nil:
+            break
+        }
     }
 
     private var reactGrabButton: some View {
@@ -1435,7 +1490,8 @@ struct BrowserPanelView: View {
                     systemImage: "camera"
                 )
             }
-            .disabled(!panel.shouldRenderWebView)
+            .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
+            .accessibilityIdentifier("BrowserScreenshotPageButton")
             BrowserDesignModeOverflowMenuButton(
                 controller: panel.designModeController,
                 onToggle: { await panel.toggleDesignMode(reason: "overflowMenu") }

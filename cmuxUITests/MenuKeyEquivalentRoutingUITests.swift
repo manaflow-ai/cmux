@@ -330,6 +330,47 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
     }
 
+    func testBrowserDesignModeUsesTheSharedActiveModeChip() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the browser fixture to finish loading before entering Design Mode. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        // Design Mode is inactive in the overflow menu. Its configured
+        // shortcut should promote the same single active-mode chip used by
+        // Focus Mode, without restoring any of the removed toolbar icons.
+        app.typeKey("d", modifierFlags: [.command, .option, .control])
+
+        let designModeButton = toolbarElement(app, identifier: "BrowserDesignModeButton")
+        XCTAssertTrue(
+            waitForCondition(timeout: 10.0) { designModeButton.exists },
+            "Expected active Design Mode to appear as the shared inline status chip"
+        )
+        XCTAssertEqual(
+            designModeButton.label,
+            "Design Mode",
+            "The active mode control should expose a concise text state instead of another toolbar glyph"
+        )
+        XCTAssertFalse(
+            toolbarElement(app, identifier: "BrowserFocusModeButton").exists,
+            "Focus Mode should not create a second active control while Design Mode is active"
+        )
+        XCTAssertFalse(
+            toolbarElement(app, identifier: "BrowserScreenshotPageButton").exists,
+            "Screenshot should remain in the overflow menu while Design Mode is active"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .option, .control])
+        XCTAssertTrue(
+            waitForCondition(timeout: 10.0) { !designModeButton.exists },
+            "Expected the shared Design Mode status chip to disappear after deactivation"
+        )
+    }
+
     private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
