@@ -162,7 +162,7 @@ enum BrowserSplitContainer {
                 kind: .browser,
                 inPane: paneID,
                 url: request.url,
-                focus: request.focus,
+                focus: false,
                 preferredProfileID: request.preferredProfileID,
                 chromeVisibility: request.chromeVisibility,
                 preloadInitialNavigationInBackground: true,
@@ -170,6 +170,9 @@ enum BrowserSplitContainer {
                 bypassRemoteProxy: request.bypassRemoteProxy
             ) else {
                 return nil
+            }
+            if request.focus {
+                dock.focusPanelFromDockInteraction(panelID, window: nil)
             }
             return dock.browserPanel(for: panelID)
         }
@@ -204,9 +207,12 @@ enum BrowserSplitContainer {
                 preloadInitialNavigationInBackground: true,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy,
-                focus: request.focus
+                focus: false
             ) else {
                 return nil
+            }
+            if request.focus {
+                dock.focusPanelFromDockInteraction(panelID, window: nil)
             }
             return dock.browserPanel(for: panelID)
         }

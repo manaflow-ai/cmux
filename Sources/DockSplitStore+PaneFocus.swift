@@ -55,11 +55,11 @@ extension DockSplitStore {
         return panels.keys.first
     }
 
-    func focusPanel(_ panelId: UUID) {
+    func focusPanel(_ panelId: UUID, window: NSWindow? = nil) {
         guard let paneId = paneId(forPanelId: panelId),
               let tabId = surfaceId(forPanelId: panelId),
               let panel = panels[panelId] else { return }
-        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        noteKeyboardFocusIntent(window: window ?? NSApp.keyWindow ?? NSApp.mainWindow)
         // Prime the target before Bonsplit emits its synchronous focus/selection
         // callbacks.  This keeps terminal/browser focus intent ahead of the
         // portal reparenting those callbacks can trigger.
@@ -80,7 +80,7 @@ extension DockSplitStore {
     /// converge on the same panel.
     func focusPanelFromDockInteraction(_ panelId: UUID, window: NSWindow?) {
         noteKeyboardFocusIntent(window: window)
-        focusPanel(panelId)
+        focusPanel(panelId, window: window)
         _ = reassertDockPanelInputFocus(panelId)
         scheduleDockPortalReconcile(reason: "dock.explicitFocus")
         guard let appDelegate = AppDelegate.shared,

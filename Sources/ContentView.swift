@@ -8360,15 +8360,19 @@ struct ContentView: View {
             if let dockBrowserStore, let browserTarget {
                 guard let paneId = dockBrowserStore.paneId(
                     forPanelId: browserTarget.panelId
-                ), dockBrowserStore.newSurface(
+                ), let panelId = dockBrowserStore.newSurface(
                     kind: .terminal,
                     inPane: paneId,
                     sourcePanelId: browserTarget.panelId,
-                    focus: true
-                ) != nil else {
+                    focus: false
+                ) else {
                     NSSound.beep()
                     return
                 }
+                dockBrowserStore.focusPanelFromDockInteraction(
+                    panelId,
+                    window: AppDelegate.shared?.mainWindow(for: windowId)
+                )
                 return
             }
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
@@ -8386,16 +8390,14 @@ struct ContentView: View {
                         kind: .browser,
                         inPane: paneId,
                         sourcePanelId: browserTarget.panelId,
-                        focus: true
-                    ),
-                    let browser = dockBrowserStore.browserPanel(
-                        for: panelId
+                        focus: false
                     ) else {
                         NSSound.beep()
                         return
                     }
-                    _ = AppDelegate.shared?.focusBrowserAddressBar(
-                        in: browser
+                    dockBrowserStore.focusPanelFromDockInteraction(
+                        panelId,
+                        window: AppDelegate.shared?.mainWindow(for: windowId)
                     )
                 }
                 return
