@@ -18087,7 +18087,7 @@ private extension NSWindow {
         // before the normal menu route. Give the shared configured-shortcut
         // dispatcher first ownership for every Option-only event; an unmatched
         // printable event still takes the text-input branch below.
-        if shortcutRoutingIsOptionOnly(event),
+        if ShortcutRoutingPolicy.isOptionOnly(event),
            !browserWebKitKeyDownReentry,
            !firstResponderHasMarkedText,
            !(firstResponderGhosttyView?.hasMarkedText() ?? false),

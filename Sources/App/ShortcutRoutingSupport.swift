@@ -47,22 +47,25 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
-/// Returns whether a key-down event has Option as its only primary modifier.
-/// Shift may still be present; Command and Control opt the event out of the
-/// Option-text routing policy.
-func shortcutRoutingIsOptionOnly(_ event: NSEvent) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-    return normalizedFlags.contains(.option)
-        && !normalizedFlags.contains(.command)
-        && !normalizedFlags.contains(.control)
+/// Policy decisions shared by the window and text-input shortcut routers.
+enum ShortcutRoutingPolicy {
+    /// Returns whether a key-down event has Option as its only primary modifier.
+    /// Shift may still be present; Command and Control opt the event out of the
+    /// Option-text routing policy.
+    static func isOptionOnly(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return normalizedFlags.contains(.option)
+            && !normalizedFlags.contains(.command)
+            && !normalizedFlags.contains(.control)
+    }
 }
 
 func shortcutRoutingShouldBypassForPrintableOptionText(
     event: NSEvent,
     textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
 ) -> Bool {
-    guard shortcutRoutingIsOptionOnly(event) else { return false }
+    guard ShortcutRoutingPolicy.isOptionOnly(event) else { return false }
 
     if shortcutRoutingTextIsPrintable(event.characters) {
         return true
