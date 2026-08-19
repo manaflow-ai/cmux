@@ -121,7 +121,7 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             // The bounded snapshot rolled over (or the session was replaced),
             // so none of the new snapshot can be proven duplicate.
             receivedLiveOutput = true
-            return data
+            return candidate + Data(data.dropFirst(candidateBytes))
         }
 
         let suppressBytes = suppressingReplay

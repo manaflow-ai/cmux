@@ -223,6 +223,30 @@ struct SSHPTYAttachExitCodeTests {
         #expect(progress.receivedLiveOutput)
     }
 
+    @Test("managed reconnects retain buffered bytes when rollover validation spans chunks")
+    func managedReconnectRetainsFragmentedRolloverSnapshot() {
+        let previousFingerprint = SSHPTYAttachOutputProgress.fingerprint(
+            of: Data("oldold".utf8)
+        )
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 10,
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: previousFingerprint
+        )
+        let firstChunk = progress.terminalOutput(
+            from: Data("new".utf8),
+            suppressingReplay: true
+        )
+        let secondChunk = progress.terminalOutput(
+            from: Data("newnew!".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(firstChunk.isEmpty)
+        #expect(String(decoding: secondChunk, as: UTF8.self) == "newnewnew!")
+        #expect(progress.receivedLiveOutput)
+    }
+
     private static func writeExecutable(_ url: URL, _ source: String) throws {
         try source.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
