@@ -75,7 +75,13 @@ struct ReorderableColumnView: View {
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
                     rowHeights[childId] = height
                 }
-                .highPriorityGesture(dragGesture(childId: childId))
+                // A `fixed` row (e.g. a group header in a flat tree list) is
+                // not draggable itself but still shifts to open gaps; masking
+                // to .subviews keeps its own taps/chevrons working.
+                .highPriorityGesture(
+                    dragGesture(childId: childId),
+                    including: store?.node(childId)?.bool("fixed") == true ? .subviews : .all
+                )
             }
         }
         // The authoritative order arriving (the reorder round-tripped through
