@@ -558,6 +558,48 @@ struct MobileIrohRuntimeCompositionTests {
         ))
     }
 
+    /// Regression for the wake-time zero-route window
+    /// (https://github.com/manaflow-ai/cmux/issues/10375): the refresh loop's
+    /// timer expires during process suspension, its wake attempt races session
+    /// revalidation and fails on stale authority, and dials assemble empty
+    /// plans until the loop's next scheduled retry. Once revalidation succeeds
+    /// a failed or expired policy must retry immediately; a healthy unexpired
+    /// policy must not (the loop's expiry schedule owns that case).
+    @Test
+    func failedOrExpiredRelayPolicyRetriesAfterAuthRevalidation() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(MobileIrohRuntimeComposition
+            .shouldRetryRelayPolicyRefreshAfterRevalidation(
+                lastFailure: .policyUnavailable,
+                policyExpiresAt: now.addingTimeInterval(600),
+                now: now
+            ))
+        #expect(MobileIrohRuntimeComposition
+            .shouldRetryRelayPolicyRefreshAfterRevalidation(
+                lastFailure: nil,
+                policyExpiresAt: now.addingTimeInterval(-1),
+                now: now
+            ))
+        #expect(MobileIrohRuntimeComposition
+            .shouldRetryRelayPolicyRefreshAfterRevalidation(
+                lastFailure: nil,
+                policyExpiresAt: now,
+                now: now
+            ))
+        #expect(!MobileIrohRuntimeComposition
+            .shouldRetryRelayPolicyRefreshAfterRevalidation(
+                lastFailure: nil,
+                policyExpiresAt: now.addingTimeInterval(600),
+                now: now
+            ))
+        #expect(!MobileIrohRuntimeComposition
+            .shouldRetryRelayPolicyRefreshAfterRevalidation(
+                lastFailure: nil,
+                policyExpiresAt: nil,
+                now: now
+            ))
+    }
+
     @Test
     func disablingAutomaticRelayCredentialRefreshAlsoDisablesPolicyBootstrapRefresh() {
         #expect(MobileIrohRuntimeComposition.shouldScheduleRelayPolicyRefresh(

@@ -919,7 +919,7 @@ public final class MobileIrohRuntimeComposition:
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
         let diagnosticLog = diagnosticLog
-        sceneTransitionTask = Task {
+        sceneTransitionTask = Task { [weak self] in
             if let auth {
                 diagnosticLog?.recordAppEvent(.authRevalidationStarted)
                 await auth.revalidateSession()
@@ -941,6 +941,15 @@ public final class MobileIrohRuntimeComposition:
             }
             await lanPeerDiscovery?.permissionMayHaveChanged()
             guard !Task.isCancelled else { return }
+            // The relay-policy refresh loop's timer expires while iOS keeps
+            // the process suspended, so its wake attempt races the session
+            // revalidation above and can fail on stale authority; past policy
+            // expiry that failure deactivates relay authority and every dial
+            // assembles an empty plan while the loop naps on its retry
+            // schedule. Revalidation just minted fresh authority, so a failed
+            // or expired policy retries immediately instead.
+            await self?.retryRelayPolicyRefreshAfterAuthRevalidation()
+            guard !Task.isCancelled else { return }
             do {
                 try await runtime?.didBecomeActive()
             } catch {
@@ -950,6 +959,43 @@ public final class MobileIrohRuntimeComposition:
             }
         }
         return true
+    }
+
+    /// Re-arms the relay-policy refresh loop for one immediate attempt when
+    /// the last resolution failed or the signed policy has expired. Called
+    /// after a successful foreground session revalidation, the exact moment
+    /// fresh authority exists for the refresh the wake attempt lost racing it.
+    func retryRelayPolicyRefreshAfterAuthRevalidation() async {
+        guard let relayPolicyService,
+              let relayPolicyEndpointID,
+              let activeAccountID else { return }
+        let snapshot = await relayPolicyService.diagnosticsSnapshot()
+        guard Self.shouldRetryRelayPolicyRefreshAfterRevalidation(
+            lastFailure: snapshot.failure,
+            policyExpiresAt: snapshot.policyExpiresAt,
+            now: now()
+        ) else { return }
+        scheduleRelayPolicyRefresh(
+            service: relayPolicyService,
+            accountID: activeAccountID,
+            endpointID: relayPolicyEndpointID,
+            trustRoot: relayPolicyTrustRoot,
+            revision: lifecycleRevision,
+            refreshImmediately: true
+        )
+    }
+
+    /// A healthy, unexpired policy never retriggers on foreground: the loop's
+    /// own expiry-driven schedule owns that case. Only a recorded resolution
+    /// failure or an already-expired policy justifies an immediate retry.
+    nonisolated static func shouldRetryRelayPolicyRefreshAfterRevalidation(
+        lastFailure: CmxIrohRelayPolicyFailure?,
+        policyExpiresAt: Date?,
+        now: Date
+    ) -> Bool {
+        if lastFailure != nil { return true }
+        guard let policyExpiresAt else { return false }
+        return now >= policyExpiresAt
     }
 
     /// Synchronously fences lifecycle work and starts local sign-out cleanup.
