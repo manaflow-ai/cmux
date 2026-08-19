@@ -242,7 +242,9 @@ private struct SourceControlGroupView: View {
                     HStack(spacing: 8) {
                         Text(resource.statusLetter)
                             .font(.caption.monospaced().weight(.semibold))
-                            .foregroundStyle(resource.status == .untracked ? .secondary : .orange)
+                            .foregroundStyle(
+                                resource.status == .untracked ? Color.secondary : Color.orange
+                            )
                             .frame(width: 14)
                         Text(resource.relativePath)
                             .font(.system(.body, design: .monospaced))
