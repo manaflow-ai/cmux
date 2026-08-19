@@ -55102,87 +55102,19 @@
         }
       }
     },
-    "cli.sshPtyAttach.reconnectDiagnosticsLogged": {
+    "cli.sshPtyAttach.reconnectQuietedStop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] further reconnect errors are written to %s."
+            "value": "[cmux] stopped reconnecting (status %s); repeated error output was hidden while retrying."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] これ以降の再接続エラーは %s に記録されます。"
-          }
-        }
-      }
-    },
-    "cli.sshPtyAttach.reconnectState.connectionDropped": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "connection to the remote host dropped"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートホストへの接続が切断されました"
-          }
-        }
-      }
-    },
-    "cli.sshPtyAttach.reconnectState.hostUnreachable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH host is unreachable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH ホストに到達できません"
-          }
-        }
-      }
-    },
-    "cli.sshPtyAttach.reconnectState.remoteDaemonBusy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "remote cmux daemon is busy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートの cmux デーモンがビジー状態です"
-          }
-        }
-      }
-    },
-    "cli.sshPtyAttach.reconnectState.remoteDaemonNotReady": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "remote cmux daemon is not ready"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートの cmux デーモンが準備できていません"
+            "value": "[cmux] 再接続を停止しました（ステータス %s）。再試行中は繰り返しのエラー出力を非表示にしていました。"
           }
         }
       }
@@ -55193,13 +55125,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] %s; reconnecting (attempt %s, next retry in %s seconds)."
+            "value": "[cmux] remote PTY connection lost; reconnecting (attempt %s, next retry in %ss)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] %s。再接続しています（試行 %s 回目、次の再試行まで %s 秒）。"
+            "value": "[cmux] リモート PTY への接続が失われました。再接続しています（試行 %s 回目、次の再試行まで %s 秒）。"
           }
         }
       }

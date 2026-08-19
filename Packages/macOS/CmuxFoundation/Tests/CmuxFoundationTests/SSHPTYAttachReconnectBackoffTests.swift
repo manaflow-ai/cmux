@@ -8,20 +8,117 @@ import Testing
 /// A host that stays unreachable used to retry every two seconds forever and
 /// print two or three raw diagnostic lines per attempt into the terminal.
 struct SSHPTYAttachReconnectBackoffTests {
-    @Test func consecutiveShortFailuresGrowTheReconnectDelay() throws {
+    // MARK: - The schedule itself
+
+    @Test func consecutiveFailuresDoubleTheDelayUpToTheCeiling() {
+        let policy = SSHPTYAttachReconnectBackoffPolicy(
+            initialDelaySeconds: 2,
+            maximumDelaySeconds: 30
+        )
+        let schedule = (1...8).map { policy.delaySeconds(afterConsecutiveFailures: $0) }
+        #expect(schedule == [2, 4, 8, 16, 30, 30, 30, 30])
+    }
+
+    @Test func aStreakThatNeverEndsStaysAtTheCeiling() {
+        let policy = SSHPTYAttachReconnectBackoffPolicy(
+            initialDelaySeconds: 2,
+            maximumDelaySeconds: 30
+        )
+        #expect(policy.delaySeconds(afterConsecutiveFailures: 10_000) == 30)
+        #expect(policy.delaySeconds(afterConsecutiveFailures: .max) == 30)
+    }
+
+    /// A ceiling near `Int.max` used to trap on the doubling that produced it.
+    @Test func anAbsurdCeilingClampsInsteadOfOverflowing() {
+        let policy = SSHPTYAttachReconnectBackoffPolicy(
+            initialDelaySeconds: 1,
+            maximumDelaySeconds: .max
+        )
+        let cap = SSHPTYAttachReconnectBackoffPolicy.maximumConfigurableDelaySeconds
+        #expect(policy.maximumDelaySeconds == cap)
+        #expect(policy.delaySeconds(afterConsecutiveFailures: 1) == 1)
+        #expect(policy.delaySeconds(afterConsecutiveFailures: 64) == cap)
+        #expect(policy.delaySeconds(afterConsecutiveFailures: .max) == cap)
+    }
+
+    @Test func invalidConfigurationsClamp() {
+        let cases: [(initial: Int, maximum: Int, expectedInitial: Int, expectedMaximum: Int)] = [
+            (0, 30, 1, 30),
+            (-5, 30, 1, 30),
+            (2, 0, 1, 1),
+            (2, -30, 1, 1),
+            (90, 30, 30, 30),
+            (.max, .max, 86_400, 86_400),
+        ]
+        for testCase in cases {
+            let policy = SSHPTYAttachReconnectBackoffPolicy(
+                initialDelaySeconds: testCase.initial,
+                maximumDelaySeconds: testCase.maximum
+            )
+            #expect(policy.initialDelaySeconds == testCase.expectedInitial)
+            #expect(policy.maximumDelaySeconds == testCase.expectedMaximum)
+            #expect(policy.delaySeconds(afterConsecutiveFailures: 1) == testCase.expectedInitial)
+        }
+    }
+
+    @Test(arguments: [-1, 0, 1])
+    func theFirstFailureOfAStreakWaitsTheInitialDelay(consecutiveFailures: Int) {
+        let policy = SSHPTYAttachReconnectBackoffPolicy(
+            initialDelaySeconds: 3,
+            maximumDelaySeconds: 30
+        )
+        #expect(policy.delaySeconds(afterConsecutiveFailures: consecutiveFailures) == 3)
+    }
+
+    @Test func onlyAConnectedAttemptCountsAsProgress() {
+        let policy = SSHPTYAttachReconnectBackoffPolicy()
+        let healthy = SSHPTYAttachReconnectBackoffPolicy.healthyAttemptSeconds
+        #expect(policy.attemptProvedProgress(durationSeconds: 0) == false)
+        #expect(policy.attemptProvedProgress(durationSeconds: healthy - 1) == false)
+        #expect(policy.attemptProvedProgress(durationSeconds: healthy) == true)
+    }
+
+    // MARK: - What the pane shows
+
+    @Test func theStatusLineNamesTheAttemptAndTheNextDelay() {
+        let policy = SSHPTYAttachReconnectBackoffPolicy()
+        #expect(
+            policy.statusLine(attempt: 1, delaySeconds: 2)
+                == "[cmux] remote PTY connection lost; reconnecting (attempt 1, next retry in 2s)."
+        )
+        #expect(
+            policy.statusLine(attempt: 27, delaySeconds: 30)
+                == "[cmux] remote PTY connection lost; reconnecting (attempt 27, next retry in 30s)."
+        )
+    }
+
+    /// The wording stays neutral because a single attach status covers several
+    /// host states: 255 is returned for a connect timeout, a refused connection,
+    /// and a remote daemon that is not ready yet, all quoted in issue #10173.
+    @Test func theStatusLineDoesNotGuessWhyTheHostFailed() {
+        let line = SSHPTYAttachReconnectBackoffPolicy().statusLine(attempt: 3, delaySeconds: 8)
+        #expect(!line.lowercased().contains("unreachable"))
+        #expect(!line.lowercased().contains("daemon"))
+    }
+
+    // MARK: - The generated loop follows the schedule
+
+    @Test func theRetryLoopWaitsTheScheduledDelays() throws {
         let directory = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let logURL = directory.appendingPathComponent("events.log")
 
-        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
-            command: "cmux_test_attach",
-            reauthenticates: false
+        let policy = SSHPTYAttachReconnectBackoffPolicy(
+            initialDelaySeconds: 2,
+            maximumDelaySeconds: 30
         )
-        let script = ([
-            "date() { printf '%s\\n' 1000; }",
-            "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
-            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 254; }",
-        ] + retryLines).joined(separator: "\n")
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 254; }",
+            ]
+        )
 
         let result = try Self.run(
             script,
@@ -34,33 +131,114 @@ struct SSHPTYAttachReconnectBackoffTests {
         )
 
         #expect(result.status == 254, Comment(rawValue: result.stderr))
-        let events = try String(contentsOf: logURL, encoding: .utf8)
-            .split(separator: "\n")
-            .map(String.init)
-        let delays = events.compactMap { $0.hasPrefix("sleep:") ? String($0.dropFirst(6)) : nil }
-        #expect(delays == ["2", "4", "8", "16", "30"])
+        let events = try Self.events(in: logURL)
+        let expected = (1...5).map { String(policy.delaySeconds(afterConsecutiveFailures: $0)) }
+        #expect(Self.delays(in: events) == expected)
         #expect(events.filter { $0 == "attach" }.count == 6)
     }
 
-    @Test func repeatedFailuresCollapseIntoOneStatusLinePerHostState() throws {
+    /// An attempt that stayed connected is progress, so the schedule restarts.
+    @Test func aConnectedAttemptRestartsTheSchedule() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("events.log")
+        let counterURL = directory.appendingPathComponent("attempts")
+        let clockURL = directory.appendingPathComponent("clock")
+        try "1000\n".write(to: clockURL, atomically: true, encoding: .utf8)
+
+        let healthy = SSHPTYAttachReconnectBackoffPolicy.healthyAttemptSeconds
+        let script = Self.script(
+            stubs: [
+                "date() { cat \"$CMUX_TEST_CLOCK\"; }",
+                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  if [ \"$count\" -eq 3 ]; then",
+                "    now=$(cat \"$CMUX_TEST_CLOCK\")",
+                "    printf '%s\\n' \"$((now + \(healthy)))\" > \"$CMUX_TEST_CLOCK\"",
+                "  fi",
+                "  if [ \"$count\" -ge 6 ]; then return 7; fi",
+                "  return 254",
+                "}",
+            ]
+        )
+
+        let result = try Self.run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_TEST_COUNTER": counterURL.path,
+                "CMUX_TEST_CLOCK": clockURL.path,
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
+            ]
+        )
+
+        #expect(result.status == 7, Comment(rawValue: result.stderr))
+        #expect(Self.delays(in: try Self.events(in: logURL)) == ["2", "4", "2", "4", "8"])
+    }
+
+    /// A delay setting too large for shell arithmetic must clamp, not abort the
+    /// loop with `value too great for base` before the first reattach.
+    @Test(arguments: ["99999999999999999999", "18446744073709551616", "123456"])
+    func anAbsurdDelaySettingClampsInsteadOfBreakingTheLoop(setting: String) throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("events.log")
+        let counterURL = directory.appendingPathComponent("attempts")
+
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  if [ \"$count\" -ge 2 ]; then return 7; fi",
+                "  return 254",
+                "}",
+            ]
+        )
+
+        let result = try Self.run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_TEST_COUNTER": counterURL.path,
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": setting,
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": setting,
+            ]
+        )
+
+        #expect(result.status == 7, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        let cap = String(SSHPTYAttachReconnectBackoffPolicy.maximumConfigurableDelaySeconds)
+        #expect(Self.delays(in: try Self.events(in: logURL)) == [cap])
+    }
+
+    // MARK: - The generated loop collapses its status output
+
+    @Test func repeatedFailuresRewriteOneStatusLineInsteadOfAppendingMore() throws {
         let directory = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let counterURL = directory.appendingPathComponent("attempts")
 
-        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
-            command: "cmux_test_attach",
-            reauthenticates: false
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { :; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  if [ \"$count\" -ge 5 ]; then return 7; fi",
+                "  return 255",
+                "}",
+            ]
         )
-        let script = ([
-            "date() { printf '%s\\n' 1000; }",
-            "sleep() { :; }",
-            "cmux_test_attach() {",
-            "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
-            "  count=$((count + 1))",
-            "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
-            "  case \"$count\" in 1|2|3) return 255 ;; 4) return 251 ;; *) return 7 ;; esac",
-            "}",
-        ] + retryLines).joined(separator: "\n")
 
         let result = try Self.runOnTerminal(
             script,
@@ -68,88 +246,104 @@ struct SSHPTYAttachReconnectBackoffTests {
                 "CMUX_TEST_COUNTER": counterURL.path,
                 "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
                 "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
-                "CMUX_SSH_ATTACH_DIAGNOSTIC_LOG": directory.appendingPathComponent("diagnostics.log").path,
-            ]
+            ],
+            temporaryDirectory: directory
         )
 
         #expect(result.status == 7, Comment(rawValue: result.transcript))
         #expect(
             result.transcript.contains(
-                "SSH host is unreachable; reconnecting (attempt 1, next retry in 2 seconds)."
+                "[cmux] remote PTY connection lost; reconnecting (attempt 1, next retry in 2s)."
             ),
             Comment(rawValue: result.transcript)
         )
         #expect(
-            result.transcript.contains("reconnecting (attempt 3, next retry in 8 seconds)."),
+            result.transcript.contains("reconnecting (attempt 4, next retry in 16s)."),
             Comment(rawValue: result.transcript)
         )
+        // Four failed attempts, one status line. Split on line feeds only: a
+        // carriage return rewrites the current line instead of starting a new
+        // one, which is exactly the collapse at issue.
+        #expect(Self.statusLineCount(in: result.transcript) == 1, Comment(rawValue: result.transcript))
+    }
+
+    @Test func onlyTheFirstFailureOfAStreakPrintsItsRawErrorOutput() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let counterURL = directory.appendingPathComponent("attempts")
+        let temporaryDirectory = directory.appendingPathComponent("tmp")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { :; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  printf 'cmux-test-raw-noise %s\\n' \"$count\" >&2",
+                "  if [ \"$count\" -ge 5 ]; then return 7; fi",
+                "  return 255",
+                "}",
+            ]
+        )
+
+        let result = try Self.runOnTerminal(
+            script,
+            environment: [
+                "CMUX_TEST_COUNTER": counterURL.path,
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
+            ],
+            temporaryDirectory: temporaryDirectory
+        )
+
+        #expect(result.status == 7, Comment(rawValue: result.transcript))
+        #expect(result.transcript.contains("cmux-test-raw-noise 1"), Comment(rawValue: result.transcript))
+        for repeated in 2...5 {
+            #expect(
+                !result.transcript.contains("cmux-test-raw-noise \(repeated)"),
+                Comment(rawValue: result.transcript)
+            )
+        }
+        // Retrying stopped while repeats were hidden, so the pane says so rather
+        // than ending on a silenced failure.
         #expect(
-            result.transcript.contains(
-                "remote cmux daemon is busy; reconnecting (attempt 4, next retry in 16 seconds)."
-            ),
+            result.transcript.contains("stopped reconnecting (status 7)"),
             Comment(rawValue: result.transcript)
         )
-        // Four failed attempts, but only two host states, so scrollback keeps two
-        // lines: the repeated failures rewrite their state's line in place.
-        // Split on line feeds only: a carriage return rewrites the current line
-        // instead of starting a new one, which is exactly the collapse at issue.
-        let statusLines = result.transcript.unicodeScalars
+        // Nothing about the outage is written to disk.
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+        #expect(leftovers.isEmpty, Comment(rawValue: leftovers.joined(separator: ", ")))
+    }
+
+    // MARK: - Harness
+
+    private static func script(stubs: [String]) -> String {
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        return (stubs + retryLines).joined(separator: "\n")
+    }
+
+    private static func events(in url: URL) throws -> [String] {
+        try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+    }
+
+    private static func delays(in events: [String]) -> [String] {
+        events.compactMap { $0.hasPrefix("sleep:") ? String($0.dropFirst(6)) : nil }
+    }
+
+    private static func statusLineCount(in transcript: String) -> Int {
+        transcript.unicodeScalars
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String(String.UnicodeScalarView($0)) }
             .filter { $0.contains("reconnecting (attempt") }
-        #expect(statusLines.count == 2, Comment(rawValue: result.transcript))
-    }
-
-    @Test func repeatedRawAttemptErrorsGoToTheDiagnosticLogInsteadOfThePane() throws {
-        let directory = try Self.makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let counterURL = directory.appendingPathComponent("attempts")
-        let diagnosticsURL = directory.appendingPathComponent("diagnostics.log")
-
-        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
-            command: "cmux_test_attach",
-            reauthenticates: false
-        )
-        let script = ([
-            "date() { printf '%s\\n' 1000; }",
-            "sleep() { :; }",
-            "cmux_test_attach() {",
-            "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
-            "  count=$((count + 1))",
-            "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
-            "  printf 'cmux-test-raw-noise %s\\n' \"$count\" >&2",
-            "  if [ \"$count\" -ge 5 ]; then return 7; fi",
-            "  return 255",
-            "}",
-        ] + retryLines).joined(separator: "\n")
-
-        let result = try Self.runOnTerminal(
-            script,
-            environment: [
-                "CMUX_TEST_COUNTER": counterURL.path,
-                "CMUX_SSH_ATTACH_DIAGNOSTIC_LOG": diagnosticsURL.path,
-                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
-                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
-            ]
-        )
-
-        #expect(result.status == 7, Comment(rawValue: result.transcript))
-        // The first failure keeps its raw diagnostics, and the fatal failure that
-        // ends the loop reports its own; the repeats in between do not.
-        #expect(result.transcript.contains("cmux-test-raw-noise 1"), Comment(rawValue: result.transcript))
-        #expect(result.transcript.contains("cmux-test-raw-noise 5"), Comment(rawValue: result.transcript))
-        #expect(!result.transcript.contains("cmux-test-raw-noise 2"), Comment(rawValue: result.transcript))
-        #expect(!result.transcript.contains("cmux-test-raw-noise 3"), Comment(rawValue: result.transcript))
-        #expect(!result.transcript.contains("cmux-test-raw-noise 4"), Comment(rawValue: result.transcript))
-        #expect(
-            result.transcript.contains(diagnosticsURL.path),
-            Comment(rawValue: result.transcript)
-        )
-
-        let diagnostics = try String(contentsOf: diagnosticsURL, encoding: .utf8)
-        #expect(diagnostics.contains("cmux-test-raw-noise 2"), Comment(rawValue: diagnostics))
-        #expect(diagnostics.contains("cmux-test-raw-noise 3"), Comment(rawValue: diagnostics))
-        #expect(diagnostics.contains("cmux-test-raw-noise 4"), Comment(rawValue: diagnostics))
+            .count
     }
 
     private static func makeTemporaryDirectory() throws -> URL {
@@ -180,9 +374,13 @@ struct SSHPTYAttachReconnectBackoffTests {
 
     /// Runs the retry loop with a real terminal on stdout and stderr, which is how
     /// a cmux pane runs it and the only mode in which status lines are printed.
+    ///
+    /// `temporaryDirectory` becomes the loop's `TMPDIR`, so a test can prove the
+    /// loop wrote nothing to disk.
     private static func runOnTerminal(
         _ script: String,
-        environment overrides: [String: String]
+        environment overrides: [String: String],
+        temporaryDirectory: URL
     ) throws -> (status: Int32, transcript: String) {
         let transcriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-reconnect-transcript-\(UUID().uuidString)")
@@ -196,7 +394,9 @@ struct SSHPTYAttachReconnectBackoffTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
         process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", script]
-        process.environment = ProcessInfo.processInfo.environment.merging(overrides) { _, override in override }
+        process.environment = ProcessInfo.processInfo.environment
+            .merging(overrides) { _, override in override }
+            .merging(["TMPDIR": temporaryDirectory.path]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = transcriptHandle
         process.standardError = FileHandle.nullDevice
