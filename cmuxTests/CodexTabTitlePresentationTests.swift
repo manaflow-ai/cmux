@@ -24,16 +24,16 @@ struct CodexTabTitlePresentationTests {
         }
     }
 
-    @Test("the composer removes a previous Codex marker before applying a new state")
-    func composerDoesNotStackMarkers() {
+    @Test("the composer preserves a legitimate marker-prefixed title")
+    func composerPreservesMarkerPrefixedTitle() {
         let presentation = CodexTabTitleComposer.presentation(
             baseTitle: "✳ some-name",
-            lifecycle: .running,
+            lifecycle: .needsInput,
             hasCustomTitle: false
         )
 
-        #expect(presentation.title == "◐ some-name")
-        #expect(presentation.isAnimating)
+        #expect(presentation.title == "✳ some-name")
+        #expect(!presentation.isAnimating)
     }
 
     @Test("a running Codex turn decorates the tab without changing its stable title")

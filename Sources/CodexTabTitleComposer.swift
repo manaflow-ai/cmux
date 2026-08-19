@@ -3,6 +3,8 @@ import Foundation
 /// The tab-only presentation derived from one Codex lifecycle state.
 struct CodexTabTitlePresentation: Equatable, Sendable {
     let title: String
+    /// Drives Bonsplit's existing animated tab indicator without publishing
+    /// per-frame title mutations through Workspace or the sidebar.
     let isAnimating: Bool
 }
 
@@ -27,30 +29,19 @@ struct CodexTabTitleComposer: Sendable {
             return CodexTabTitlePresentation(title: title, isAnimating: false)
         }
 
-        let unmarkedTitle = removingCodexMarker(from: title)
         switch lifecycle {
         case .running:
             return CodexTabTitlePresentation(
-                title: runningPrefix + unmarkedTitle,
+                title: runningPrefix + title,
                 isAnimating: true
             )
         case .idle:
             return CodexTabTitlePresentation(
-                title: idlePrefix + unmarkedTitle,
+                title: idlePrefix + title,
                 isAnimating: false
             )
         case .needsInput, .unknown:
-            return CodexTabTitlePresentation(title: unmarkedTitle, isAnimating: false)
+            return CodexTabTitlePresentation(title: title, isAnimating: false)
         }
-    }
-
-    private static func removingCodexMarker(from title: String) -> String {
-        if title.hasPrefix(runningPrefix) {
-            return String(title.dropFirst(runningPrefix.count))
-        }
-        if title.hasPrefix(idlePrefix) {
-            return String(title.dropFirst(idlePrefix.count))
-        }
-        return title
     }
 }
