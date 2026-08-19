@@ -30,11 +30,7 @@ final class NotificationDebugEmitter {
     /// Debug-mode switch that forces Feed notifications through the inactive-app banner path.
     var isModeEnabled = false {
         didSet {
-            if isModeEnabled {
-                FeedCoordinatorTestHooks.isAppActiveOverride = { false }
-            } else {
-                FeedCoordinatorTestHooks.isAppActiveOverride = nil
-            }
+            AppFocusState.overrideIsFocused = isModeEnabled ? false : nil
         }
     }
 

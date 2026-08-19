@@ -972,7 +972,6 @@ private final class SnapshotSlot: @unchecked Sendable {
 @MainActor
 enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
-    static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
     /// Fires when a blocking decision event requests in-app attention
     /// surfacing (needs-input status + elevation). When set, the

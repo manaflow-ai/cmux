@@ -12,13 +12,11 @@ extension FeedCoordinator {
         for event: WorkstreamEvent,
         effects: TerminalNotificationPolicyEffects
     ) async -> TerminalNotificationDeliveryDecision {
-        let appFocused: Bool
-#if DEBUG
-        appFocused = FeedCoordinatorTestHooks.isAppActiveOverride?()
-            ?? AppFocusState.isAppFocused()
-#else
-        appFocused = AppFocusState.isAppFocused()
-#endif
+        // Use the shared focus resolver so Feed and terminal notifications
+        // observe the same application-focus policy. Tests and debug tooling
+        // configure that resolver through ``AppFocusState`` itself rather than
+        // coupling this production lane to Feed-only test hooks.
+        let appFocused = AppFocusState.isAppFocused()
 
         let resolved = await resolveAttentionTarget(event: event)
         let ownerID = event.workspaceId.flatMap {

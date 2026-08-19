@@ -605,9 +605,11 @@ struct FeedCoordinatorTests {
     @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
+        let previousAppFocusOverride = AppFocusState.overrideIsFocused
 
         defer {
             Self.resetFeedCoordinatorTestHooks()
+            AppFocusState.overrideIsFocused = previousAppFocusOverride
         }
 
         await MainActor.run {
@@ -620,7 +622,7 @@ struct FeedCoordinatorTests {
                     decision: .permission(.once)
                 )
             }
-            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
+            AppFocusState.overrideIsFocused = false
             FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
                 notifications.record(postedRequestId)
             }
@@ -869,7 +871,6 @@ struct FeedCoordinatorTests {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
-                FeedCoordinatorTestHooks.isAppActiveOverride = nil
                 FeedCoordinatorTestHooks.notificationPostObserver = nil
                 FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
             }
