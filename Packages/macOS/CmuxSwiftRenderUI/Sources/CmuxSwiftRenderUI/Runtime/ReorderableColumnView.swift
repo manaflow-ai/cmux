@@ -1,59 +1,71 @@
+import Observation
 import SwiftUI
 
-/// A vertically reorderable column of scene rows with live, Arc-style drag
-/// feedback: the grabbed row lifts (scale + shadow) and follows the pointer
-/// same-frame, the other rows spring aside to open the gap at the projected
-/// slot as the pointer moves, and the drop settles with a spring into place.
+/// Per-drag state for ``ReorderableColumnView``, `@Observable` so invalidation
+/// is exactly as fine-grained as the reads:
 ///
-/// Contrast with the system `.draggable`/`.dropDestination` approach (a
-/// detached drag image and no mid-flight layout): everything here stays live
-/// in the column, which is what makes it feel native.
+/// - `translation` changes on every pointer frame and is read ONLY by the
+///   dragged row's offset, so tracking re-renders one row and animates nothing.
+/// - `targetIndex` / `draggedId` are discrete: they change when the dragged
+///   row's center crosses a neighbor's center (or on lift/drop), and every
+///   mutation happens inside an explicit `withAnimation(spring)`. Rows shift
+///   with one spring per crossing instead of a spring restarted 60×/s.
 ///
-/// The drop is optimistic: the component commits the new order locally (no
-/// snap-back flash), reports the move to the JS runtime (`onMove` handler,
-/// e.g. dispatching `workspace.reorder`), and reconciles when the authoritative
-/// children order arrives from the scene.
+/// This is the first-principles jank fix: continuous state is isolated and
+/// unanimated; discrete state is shared and spring-animated.
+@MainActor
+@Observable
+private final class ReorderDragModel {
+    var draggedId: String?
+    var sourceIndex = 0
+    var targetIndex = 0
+    var translation: CGFloat = 0
+    var draggedHeight: CGFloat = 0
+    /// True between drop commit and settle completion: the shadow/scale lift
+    /// eases out with the settle spring instead of vanishing on mouse-up.
+    var isSettling = false
+}
+
+/// A vertically reorderable column of scene rows with Arc-style drag feedback:
+/// the grabbed row lifts (scale + shadow) and tracks the pointer same-frame,
+/// the other rows spring aside exactly once per slot crossing, and the drop
+/// commits the new order with visual continuity (the row settles from where
+/// it visually is into its new slot; nothing jumps or double-animates).
+///
+/// The drop is optimistic: the new order is committed locally and reported to
+/// the JS runtime (`onMove`, e.g. `workspace.reorder`); the authoritative
+/// children order reconciles afterwards.
 struct ReorderableColumnView: View {
     let node: SceneNode
 
     @Environment(\.sceneEventSink) private var sink
-    @State private var drag: DragState?
+    @State private var model = ReorderDragModel()
     @State private var localOrder: [String]?
     @State private var rowHeights: [String: CGFloat] = [:]
 
-    private struct DragState: Equatable {
-        let draggedId: String
-        let sourceIndex: Int
-        var translation: CGFloat
-        var targetIndex: Int
-    }
-
-    private static let liftSpring = Animation.spring(response: 0.28, dampingFraction: 0.8)
+    private static let gapSpring = Animation.spring(response: 0.25, dampingFraction: 0.78)
+    private static let liftSpring = Animation.spring(response: 0.2, dampingFraction: 0.8)
+    private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.76)
 
     var body: some View {
         let order = displayOrder
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(order.enumerated()), id: \.element) { index, childId in
-                SceneNodeView(nodeId: childId)
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                        rowHeights[childId] = height
-                    }
-                    .offset(y: offset(for: childId, at: index, in: order))
-                    .zIndex(drag?.draggedId == childId ? 2 : 0)
-                    .scaleEffect(drag?.draggedId == childId ? 1.02 : 1)
-                    .shadow(
-                        color: .black.opacity(drag?.draggedId == childId ? 0.25 : 0),
-                        radius: drag?.draggedId == childId ? 8 : 0,
-                        y: drag?.draggedId == childId ? 3 : 0
-                    )
-                    .animation(drag?.draggedId == childId ? nil : Self.liftSpring, value: drag)
-                    .gesture(dragGesture(childId: childId, order: order))
+                ReorderableRowView(
+                    childId: childId,
+                    index: index,
+                    model: model
+                )
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                    rowHeights[childId] = height
+                }
+                .highPriorityGesture(dragGesture(childId: childId))
             }
         }
         // The authoritative order arriving (the reorder round-tripped through
         // the host command) supersedes the optimistic local copy.
         .onChange(of: node.children) { _, _ in
-            if drag == nil { localOrder = nil }
+            if model.draggedId == nil { localOrder = nil }
         }
     }
 
@@ -63,74 +75,149 @@ struct ReorderableColumnView: View {
         localOrder ?? node.children
     }
 
-    private func offset(for childId: String, at index: Int, in order: [String]) -> CGFloat {
-        guard let drag else { return 0 }
-        if childId == drag.draggedId { return drag.translation }
-        return ReorderMath.rowShift(
-            index: index,
-            sourceIndex: drag.sourceIndex,
-            targetIndex: drag.targetIndex,
-            draggedHeight: rowHeights[drag.draggedId] ?? 0
-        )
-    }
-
-    private func dragGesture(childId: String, order: [String]) -> some Gesture {
-        DragGesture(minimumDistance: 5)
+    private func dragGesture(childId: String) -> some Gesture {
+        DragGesture(minimumDistance: 4)
             .onChanged { value in
-                let heights = order.map { rowHeights[$0] ?? 0 }
-                if drag == nil {
+                let order = displayOrder
+                if model.draggedId == nil {
                     guard let sourceIndex = order.firstIndex(of: childId) else { return }
-                    drag = DragState(
-                        draggedId: childId,
-                        sourceIndex: sourceIndex,
-                        translation: 0,
-                        targetIndex: sourceIndex
-                    )
+                    // Freeze the visual order for the whole gesture: a live
+                    // data update mid-drag must not reshuffle rows under the
+                    // pointer. onChange(node.children) reconciles after drop.
+                    if localOrder == nil {
+                        localOrder = order
+                    }
+                    // Lift: scale/shadow spring in; nothing else moves yet.
+                    withAnimation(Self.liftSpring) {
+                        model.draggedId = childId
+                        model.isSettling = false
+                    }
+                    model.sourceIndex = sourceIndex
+                    model.targetIndex = sourceIndex
+                    model.draggedHeight = rowHeights[childId] ?? 0
                 }
-                guard var state = drag, state.draggedId == childId else { return }
-                state.translation = value.translation.height
-                state.targetIndex = ReorderMath.targetIndex(
-                    heights: heights,
-                    sourceIndex: state.sourceIndex,
+                guard model.draggedId == childId else { return }
+                // Continuous: tracks the pointer, deliberately unanimated.
+                model.translation = value.translation.height
+                // Discrete: one spring per slot crossing.
+                let target = ReorderMath.targetIndex(
+                    heights: order.map { rowHeights[$0] ?? 0 },
+                    sourceIndex: model.sourceIndex,
                     translation: value.translation.height
                 )
-                drag = state
+                if target != model.targetIndex {
+                    withAnimation(Self.gapSpring) {
+                        model.targetIndex = target
+                    }
+                }
             }
             .onEnded { _ in
-                guard let state = drag, state.draggedId == childId else {
-                    drag = nil
-                    return
-                }
-                let newOrder = ReorderMath.reordered(order, from: state.sourceIndex, to: state.targetIndex)
-                withAnimation(Self.liftSpring) {
-                    if newOrder != order {
-                        localOrder = newOrder
-                    }
-                    drag = nil
-                }
-                guard state.targetIndex != state.sourceIndex else { return }
-                let key = itemKey(forChildAt: state.sourceIndex)
-                sink.send(node.id, "move", ["id": key, "index": state.targetIndex])
+                guard model.draggedId == childId else { return }
+                drop(childId: childId)
             }
     }
 
-    /// The item key for a row, from the `itemKeys` JSON array prop the JS
-    /// reconciler keeps parallel to `children`. Falls back to the child node
-    /// id when absent.
-    private func itemKey(forChildAt index: Int) -> String {
+    /// Commits the drop with visual continuity: reorder the array with NO
+    /// animation while giving the dragged row a residual offset equal to its
+    /// current visual displacement from its new slot, then spring that
+    /// residual to zero.
+    private func drop(childId: String) {
+        let order = displayOrder
+        let heights = order.map { rowHeights[$0] ?? 0 }
+        let source = model.sourceIndex
+        let target = model.targetIndex
+        let newOrder = ReorderMath.reordered(order, from: source, to: target)
+
+        // Visual position now: old slot top + pointer translation.
+        // New layout position: slot top at `target` in the new order.
+        let residual = ReorderMath.settleResidual(
+            heights: heights,
+            sourceIndex: source,
+            targetIndex: target,
+            translation: model.translation
+        )
+
+        // Phase 1, no animation: the array order, source/target, and residual
+        // all change in one transaction so every row's layout position equals
+        // its current visual position. The screen does not change this frame.
+        var commit = Transaction()
+        commit.disablesAnimations = true
+        withTransaction(commit) {
+            if newOrder != order {
+                localOrder = newOrder
+            }
+            model.sourceIndex = target
+            model.targetIndex = target
+            model.translation = residual
+        }
+
+        // Phase 2, settle spring: the residual eases to zero and the lift
+        // (scale/shadow) eases out with it. draggedId clears on completion so
+        // zIndex stays raised while the row is still visually settling.
+        withAnimation(Self.settleSpring) {
+            model.translation = 0
+            model.isSettling = true
+        } completion: {
+            model.draggedId = nil
+            model.isSettling = false
+        }
+
+        guard target != source else { return }
+        sink.send(node.id, "move", ["id": itemKey(forChildAt: target, in: newOrder), "index": target])
+    }
+
+    /// The item key for the row at `index` of `order`, from the `itemKeys`
+    /// JSON array prop the JS reconciler keeps parallel to `node.children`.
+    /// Falls back to the child node id when absent.
+    private func itemKey(forChildAt index: Int, in order: [String]) -> String {
+        guard order.indices.contains(index) else { return "" }
+        let childId = order[index]
         guard let json = node.string("itemKeys"),
               let data = json.data(using: .utf8),
               let keys = try? JSONDecoder().decode([String].self, from: data),
-              keys.indices.contains(index),
-              node.children.count == keys.count else {
-            return displayOrder.indices.contains(index) ? displayOrder[index] : ""
+              node.children.count == keys.count,
+              let authoritativeIndex = node.children.firstIndex(of: childId) else {
+            return childId
         }
-        // Keys parallel node.children; map through the child id in case the
-        // display order is the optimistic local one.
-        let childId = displayOrder[index]
-        if let authoritativeIndex = node.children.firstIndex(of: childId) {
-            return keys[authoritativeIndex]
+        return keys[authoritativeIndex]
+    }
+}
+
+/// One row of the reorderable column. Reads the drag model with per-property
+/// granularity: non-dragged rows read only the discrete fields, so pointer
+/// tracking (translation) re-renders exactly one row.
+private struct ReorderableRowView: View {
+    let childId: String
+    let index: Int
+    let model: ReorderDragModel
+
+    var body: some View {
+        // Read discrete fields first; `translation` is only read on the
+        // dragged row's branch, so other rows never depend on it.
+        let draggedId = model.draggedId
+        let isDragged = draggedId == childId
+        let lifted = isDragged && !model.isSettling
+        SceneNodeView(nodeId: childId)
+            .offset(y: offset(isDragged: isDragged, dragging: draggedId != nil))
+            .zIndex(isDragged ? 2 : 0)
+            .scaleEffect(lifted ? 1.02 : 1)
+            .shadow(
+                color: .black.opacity(lifted ? 0.25 : 0),
+                radius: lifted ? 8 : 0,
+                y: lifted ? 3 : 0
+            )
+    }
+
+    private func offset(isDragged: Bool, dragging: Bool) -> CGFloat {
+        if isDragged {
+            return model.translation
         }
-        return keys[index]
+        guard dragging else { return 0 }
+        return ReorderMath.rowShift(
+            index: index,
+            sourceIndex: model.sourceIndex,
+            targetIndex: model.targetIndex,
+            draggedHeight: model.draggedHeight
+        )
     }
 }

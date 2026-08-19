@@ -57,6 +57,30 @@ enum ReorderMath {
         return 0
     }
 
+    /// The dragged row's remaining visual displacement at drop time: how far
+    /// its current visual position (old slot top + pointer translation) sits
+    /// from its slot top in the committed new order. The drop hands this to a
+    /// settle spring so the row eases from under the pointer into its slot
+    /// with no frame of discontinuity.
+    static func settleResidual(
+        heights: [CGFloat],
+        sourceIndex: Int,
+        targetIndex: Int,
+        translation: CGFloat,
+        spacing: CGFloat = 0
+    ) -> CGFloat {
+        guard heights.indices.contains(sourceIndex), heights.indices.contains(targetIndex) else {
+            return 0
+        }
+        let newOrder = reordered(Array(heights.indices), from: sourceIndex, to: targetIndex)
+        var oldTop: CGFloat = 0
+        for i in 0..<sourceIndex { oldTop += heights[i] + spacing }
+        var newTop: CGFloat = 0
+        for i in newOrder.prefix(while: { $0 != sourceIndex }) { newTop += heights[i] + spacing }
+        let visualY = oldTop + translation
+        return visualY - newTop
+    }
+
     /// `order` with the element at `sourceIndex` moved to `targetIndex`.
     static func reordered<T>(_ order: [T], from sourceIndex: Int, to targetIndex: Int) -> [T] {
         guard order.indices.contains(sourceIndex), order.indices.contains(targetIndex),

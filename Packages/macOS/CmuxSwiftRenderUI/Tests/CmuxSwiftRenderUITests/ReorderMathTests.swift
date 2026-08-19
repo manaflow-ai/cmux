@@ -48,6 +48,17 @@ struct ReorderMathTests {
         #expect(ReorderMath.rowShift(index: 0, sourceIndex: 0, targetIndex: 1, draggedHeight: 30) == 0)
     }
 
+    @Test func settleResidualPreservesVisualPosition() {
+        // Drag row 0 (top 0) down by 70: visual y = 70. New order [1,2,0]:
+        // row 0's new slot top = 60. Residual = 10.
+        #expect(ReorderMath.settleResidual(heights: heights, sourceIndex: 0, targetIndex: 2, translation: 70) == 10)
+        // Drag row 2 (top 60) up by -55: visual y = 5. New order [2,0,1]:
+        // new slot top = 0. Residual = 5.
+        #expect(ReorderMath.settleResidual(heights: heights, sourceIndex: 2, targetIndex: 0, translation: -55) == 5)
+        // No move: residual equals the translation itself.
+        #expect(ReorderMath.settleResidual(heights: heights, sourceIndex: 1, targetIndex: 1, translation: 12) == 12)
+    }
+
     @Test func reorderedMovesElement() {
         #expect(ReorderMath.reordered(["a", "b", "c"], from: 0, to: 2) == ["b", "c", "a"])
         #expect(ReorderMath.reordered(["a", "b", "c"], from: 2, to: 0) == ["c", "a", "b"])
