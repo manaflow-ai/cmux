@@ -824,29 +824,41 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         return restoreCommand.map { $0 + "\n" }
     }
 
+    /// Input that forks this agent conversation when typed into a shell.
+    /// `dialect` must match the shell that will parse it — `.remoteHost` for
+    /// remote forks.
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect = .loginShell()
     ) -> String? {
         startupInput(
             command: forkCommand,
             workingDirectory: nil,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            dialect: dialect
         )
     }
 
+    /// `dialect` describes the shell that will parse the returned input. Local
+    /// surfaces type into the user's login shell (`.loginShell()` default);
+    /// remote workspaces type into the remote host's shell after attach, which
+    /// cmux treats as POSIX regardless of the local `$SHELL` — pass `.posix`
+    /// there so a local nushell login never leaks `^/bin/sh -c "…"` to a
+    /// remote zsh/bash.
     private func startupInput(
         command: String?,
         workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect = .loginShell()
     ) -> String? {
         guard let command else { return nil }
-        let inlineInput = command + "\n"
+        let inlineInput = TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
         guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
             return inlineInput
         }
