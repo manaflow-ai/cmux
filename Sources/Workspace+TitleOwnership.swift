@@ -119,14 +119,20 @@ extension Workspace {
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let presentation = codexTabTitlePresentation(panelId: panelId, fallback: baseTitle)
+            let titleUpdate: String? = existing.title == presentation.title ? nil : presentation.title
+            let animationUpdate: Bool? = existing.isLoading == presentation.isAnimating
+                ? nil
+                : presentation.isAnimating
             let hasCustomTitle = panelCustomTitles[panelId] != nil
-            if titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle {
+            if titleUpdate != nil
+                || animationUpdate != nil
+                || existing.hasCustomTitle != hasCustomTitle {
                 bonsplitController.updateTab(
                     tabId,
                     title: titleUpdate,
-                    hasCustomTitle: hasCustomTitle
+                    hasCustomTitle: hasCustomTitle,
+                    isLoading: animationUpdate
                 )
             }
         }
