@@ -7856,8 +7856,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        executePreparedImageTransfer(
-            .fileURLs(urls),
+        let dragTypes = NSPasteboard(name: .drag).types ?? []
+        guard let durableURLs = GhosttyApp.terminalPasteboard.durableDroppedFileURLs(
+            urls,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
+                dragTypes
+            )
+        ) else {
+            return false
+        }
+        return executePreparedImageTransfer(
+            .fileURLs(durableURLs),
             onCancel: {}
         )
     }
@@ -9936,6 +9945,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard paneDropTargetView.dropContext != nil else { return nil }
         guard bounds.contains(localPoint) else { return nil }
         let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
         guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
