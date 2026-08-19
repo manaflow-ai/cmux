@@ -85,8 +85,6 @@ function workspaceMenu(w) {
       Button("Move Up", act("move_up")),
       Button("Move Down", act("move_down")),
       Button("Move to Top", act("move_top")),
-      Divider(),
-      Button("Move to New Window", () => cmux("workspace.move_to_window", { workspace_id: w().id })),
     ]),
     Button("Clear Color", act("clear_color")),
     Divider(),
