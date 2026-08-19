@@ -21,8 +21,13 @@ struct AccountIdentityCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(titleText)
-                        .cmuxFont(size: 13, weight: .medium)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(titleText)
+                            .cmuxFont(size: 13, weight: .medium)
+                        if flow?.activeBackendEnvironment == .staging {
+                            stagingBadge
+                        }
+                    }
                     if let subtitle = subtitleText {
                         Text(subtitle)
                             .cmuxFont(size: 11)
@@ -45,6 +50,18 @@ struct AccountIdentityCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    /// Visible marker that this process is running against the staging
+    /// backend (the ACTIVE environment, not a pending selection), so a
+    /// switched device is never mistaken for production.
+    private var stagingBadge: some View {
+        Text(String(localized: "settings.account.stagingBadge", defaultValue: "Staging"))
+            .cmuxFont(size: 10, weight: .semibold)
+            .foregroundColor(.orange)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.orange.opacity(0.16)))
     }
 
     /// The system sign-in window can hang without redirecting back. When the

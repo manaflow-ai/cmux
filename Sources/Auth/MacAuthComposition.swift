@@ -37,17 +37,25 @@ struct MacAuthComposition {
         defaults: UserDefaults = .standard
     ) {
         let bundleIdentifier = Bundle.main.bundleIdentifier
+        // The persisted backend override resolves ONCE, here at startup, and
+        // replaces only the build-default layer: explicit env (including the
+        // LSEnvironment values tagged dev builds bake in) still wins inside
+        // every resolved* function.
+        let backendEnvironmentOverride = CMUXBackendEnvironmentOverride.load(from: defaults)
         let resolvedAuthEnvironment = AuthEnvironment.resolvedStackAuthEnvironment(
             environment: environment,
-            isDebugBuild: Self.isDebugBuild
+            isDebugBuild: Self.isDebugBuild,
+            override: backendEnvironmentOverride
         )
         let stackProjectID = AuthEnvironment.resolvedStackProjectID(
             environment: environment,
-            isDebugBuild: Self.isDebugBuild
+            isDebugBuild: Self.isDebugBuild,
+            override: backendEnvironmentOverride
         )
         let stackPublishableClientKey = AuthEnvironment.resolvedStackPublishableClientKey(
             environment: environment,
-            isDebugBuild: Self.isDebugBuild
+            isDebugBuild: Self.isDebugBuild,
+            override: backendEnvironmentOverride
         )
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(
@@ -193,7 +201,11 @@ struct MacAuthComposition {
         self.browserSignIn = browserSignIn
         self.accountFlow = HostAccountFlow(
             coordinator: coordinator,
-            browserSignIn: browserSignIn
+            browserSignIn: browserSignIn,
+            activeBackendEnvironmentOverride: backendEnvironmentOverride,
+            backendEnvironmentPinnedByLaunchEnvironment:
+                HostAccountFlow.launchEnvironmentPinsBackendEnvironment(environment),
+            backendEnvironmentDefaults: defaults
         )
     }
 
@@ -233,6 +245,9 @@ struct MacAuthComposition {
 
     /// Keep cached identities and Stack tokens from crossing projects when one
     /// tagged Debug bundle is rebuilt with `--prod-auth`, or switched back.
+    /// The persisted backend environment override flows through the same
+    /// check: flipping production<->staging flips the resolved Stack project
+    /// id, so the next launch wipes the stale session automatically.
     nonisolated static func detectAuthProjectSwitch(
         resolvedProjectID: String,
         buildDefaultProjectID: String,

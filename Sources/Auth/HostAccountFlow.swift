@@ -24,10 +24,33 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    /// The backend environment the composition root actually resolved at
+    /// startup (threaded in rather than re-read from defaults, so the value
+    /// always describes the running process even after the user flips the
+    /// picker).
+    private let activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
+    /// The persisted selection, applied at next launch. Stored (not
+    /// re-loaded per read) so `@Observable` re-renders the Settings card
+    /// when ``selectBackendEnvironment(_:)`` changes it.
+    private var pendingBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
+    let backendEnvironmentPinnedByLaunchEnvironment: Bool
+    @ObservationIgnored private let backendEnvironmentDefaults: UserDefaults
 
-    init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+    init(
+        coordinator: AuthCoordinator,
+        browserSignIn: HostBrowserSignInFlow,
+        activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride = .production,
+        backendEnvironmentPinnedByLaunchEnvironment: Bool = false,
+        backendEnvironmentDefaults: UserDefaults = .standard
+    ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
+        self.activeBackendEnvironmentOverride = activeBackendEnvironmentOverride
+        self.pendingBackendEnvironmentOverride = CMUXBackendEnvironmentOverride.load(
+            from: backendEnvironmentDefaults
+        )
+        self.backendEnvironmentPinnedByLaunchEnvironment = backendEnvironmentPinnedByLaunchEnvironment
+        self.backendEnvironmentDefaults = backendEnvironmentDefaults
         isProUpgradeAvailable = featureFlags.isProUpgradeUIEnabled
         featureFlagsObserver = NotificationCenter.default.addObserver(
             forName: .cmuxFeatureFlagsDidChange,
@@ -209,6 +232,97 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func openBillingPortal() {
         ProUpgradePresenter.presentBillingPortal()
+    }
+
+    // MARK: - Backend environment switcher
+
+    /// The picker shows for verified team members, always in DEBUG builds,
+    /// and whenever the persisted or active environment is already
+    /// non-production, so switching back to production is always possible.
+    var backendEnvironmentSwitcherVisible: Bool {
+        if Self.isDebugBuild { return true }
+        if pendingBackendEnvironmentOverride != .production { return true }
+        if activeBackendEnvironmentOverride != .production { return true }
+        return CMUXBackendEnvironmentSwitchGate.allows(coordinator.currentUser)
+    }
+
+    var activeBackendEnvironment: AccountBackendEnvironment {
+        Self.accountBackendEnvironment(from: activeBackendEnvironmentOverride)
+    }
+
+    var pendingBackendEnvironment: AccountBackendEnvironment {
+        Self.accountBackendEnvironment(from: pendingBackendEnvironmentOverride)
+    }
+
+    func selectBackendEnvironment(_ value: AccountBackendEnvironment) {
+        let override = Self.backendEnvironmentOverride(from: value)
+        guard override != pendingBackendEnvironmentOverride else { return }
+        override.store(in: backendEnvironmentDefaults)
+        pendingBackendEnvironmentOverride = override
+    }
+
+    /// Relaunches through the same seams the app already trusts: the
+    /// Sparkle-updater session persist (``AppDelegate/persistSessionForUpdateRelaunch()``)
+    /// followed by the `open -n` + terminate mechanism of
+    /// ``HostSettingsActions/restartApp()``. The new instance resolves the
+    /// pending override at startup and
+    /// ``MacAuthComposition/detectAuthProjectSwitch(resolvedProjectID:buildDefaultProjectID:defaults:)``
+    /// wipes the stale cross-project session.
+    func relaunchToApplyBackendEnvironment() {
+        AppDelegate.shared?.persistSessionForUpdateRelaunch()
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["-n", bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
+
+    /// Tagged dev builds bake `CMUX_*` origins into their LSEnvironment via
+    /// `scripts/reload.sh`; those explicit env layers outrank the persisted
+    /// override everywhere in `AuthEnvironment`, so the Settings card shows
+    /// a "pinned" note instead of pretending the picker applies. Computed in
+    /// the host because the package deliberately never reads ProcessInfo.
+    nonisolated static func launchEnvironmentPinsBackendEnvironment(
+        _ environment: [String: String]
+    ) -> Bool {
+        let pinningKeys = [
+            "CMUX_WWW_ORIGIN",
+            "CMUX_API_BASE_URL",
+            "CMUX_AUTH_ENVIRONMENT",
+            "CMUX_VM_API_BASE_URL",
+        ]
+        return pinningKeys.contains { key in
+            guard let value = environment[key]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+            return !value.isEmpty
+        }
+    }
+
+    private static var isDebugBuild: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    private static func accountBackendEnvironment(
+        from override: CMUXBackendEnvironmentOverride
+    ) -> AccountBackendEnvironment {
+        switch override {
+        case .production: .production
+        case .staging: .staging
+        }
+    }
+
+    private static func backendEnvironmentOverride(
+        from value: AccountBackendEnvironment
+    ) -> CMUXBackendEnvironmentOverride {
+        switch value {
+        case .production: .production
+        case .staging: .staging
+        }
     }
 
     private static func identity(from user: CMUXAuthUser?) -> AccountIdentity? {

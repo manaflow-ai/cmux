@@ -532,6 +532,178 @@ struct AuthEnvironmentTests {
 
         #expect(appDelegate.focusProUpgradeWorkspace(workspaceId: workspace.id, url: pricingURL) == false)
     }
+
+    @Test("staging backend override flips release build defaults to the staging backend")
+    func stagingBackendOverrideFlipsReleaseBuildDefaults() {
+        let staging = "https://cmux-staging.vercel.app"
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedDefaultVMAPIOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ) == staging)
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        )?.absoluteString == staging)
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ) == .development)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ) == "454ecd03-1db2-4050-845e-4ce5b0cd9895")
+        #expect(AuthEnvironment.resolvedWebsiteOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ).absoluteString == staging)
+        #expect(AuthEnvironment.resolvedAfterSignInOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ).absoluteString == staging)
+    }
+
+    @Test("explicit environment variables still beat the staging override")
+    func explicitEnvironmentVariablesBeatStagingOverride() {
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://web.example.test"],
+            isDebugBuild: false,
+            override: .staging
+        ) == "https://web.example.test")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: ["CMUX_API_BASE_URL": "https://api.example.test"],
+            isDebugBuild: false,
+            override: .staging
+        ) == "https://api.example.test")
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
+            isDebugBuild: false,
+            override: .staging
+        ) == .production)
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_IROH_BROKER_BASE_URL": "https://broker.example.test"],
+            isDebugBuild: false,
+            override: .staging
+        )?.absoluteString == "https://broker.example.test")
+        #expect(AuthEnvironment.resolvedAfterSignInOrigin(
+            environment: ["CMUX_AUTH_WWW_ORIGIN": "https://auth.example.test"],
+            isDebugBuild: false,
+            override: .staging
+        ).absoluteString == "https://auth.example.test")
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: ["CMUX_STACK_PROJECT_ID": "explicit-project"],
+            isDebugBuild: false,
+            override: .staging
+        ) == "explicit-project")
+    }
+
+    @Test("production backend override reproduces the unswitched release defaults")
+    func productionBackendOverrideReproducesReleaseDefaults() {
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ) == "https://api.cmux.sh")
+        #expect(AuthEnvironment.resolvedDefaultVMAPIOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        )?.absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ) == .production)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedWebsiteOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ).absoluteString == "https://cmux.com")
+    }
+
+    @Test("session handoff allows exactly the staging origin under the staging override")
+    func sessionHandoffAllowsExactlyStagingOriginUnderStagingOverride() {
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .staging
+        ).absoluteString == "https://cmux-staging.vercel.app")
+        // Env-injected origins never become a credential destination, even
+        // with the override active.
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: false,
+            override: .staging
+        ).absoluteString == "https://cmux.com")
+        // Without the override the pin stays on production even when env
+        // points at the (publicly known) staging origin.
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://cmux-staging.vercel.app"],
+            isDebugBuild: false,
+            override: .production
+        ).absoluteString == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: [:],
+            isDebugBuild: false,
+            override: .production
+        ).absoluteString == "https://cmux.com")
+    }
+
+    @Test("untagged debug build with staging override prefers staging unless a dev port is baked")
+    func untaggedDebugStagingOverridePrefersStagingWebOrigin() {
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: [:],
+            isDebugBuild: true,
+            override: .staging
+        ) == "https://cmux-staging.vercel.app")
+        // A baked dev port (tagged builds) keeps winning as today.
+        #expect(AuthEnvironment.resolvedDefaultWebOrigin(
+            environment: ["CMUX_PORT": "4123"],
+            isDebugBuild: true,
+            override: .staging
+        ) == "http://localhost:4123")
+        // The Debug Stack channel never follows the override.
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: true,
+            override: .staging
+        ) == .development)
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: [:],
+            isDebugBuild: true,
+            override: .production
+        ) == .development)
+    }
 }
 
 private func assertNativeSignInURL(_ url: URL) {

@@ -81,6 +81,34 @@ public protocol AccountFlow: AnyObject {
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
+
+    /// Whether the backend environment picker should render. The host gates
+    /// this to team members (verified team email), DEBUG builds, and any
+    /// device whose persisted or active environment is already
+    /// non-production, so switching back is always possible.
+    var backendEnvironmentSwitcherVisible: Bool { get }
+
+    /// The backend environment the running process actually resolved at
+    /// launch. Drives the "Staging" badge on the account card.
+    var activeBackendEnvironment: AccountBackendEnvironment { get }
+
+    /// The persisted backend selection, applied at next launch. When this
+    /// differs from ``activeBackendEnvironment`` the UI shows a relaunch
+    /// notice.
+    var pendingBackendEnvironment: AccountBackendEnvironment { get }
+
+    /// Whether this build's backend is pinned by explicit launch-environment
+    /// variables (tagged dev builds bake `CMUX_*` origins via LSEnvironment),
+    /// in which case the picker's selection only takes effect in unpinned
+    /// builds.
+    var backendEnvironmentPinnedByLaunchEnvironment: Bool { get }
+
+    /// Persists `value` as the backend environment for the next launch.
+    func selectBackendEnvironment(_ value: AccountBackendEnvironment)
+
+    /// Persists session state and relaunches the app so the pending backend
+    /// environment becomes active.
+    func relaunchToApplyBackendEnvironment()
 }
 
 extension AccountFlow {

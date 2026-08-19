@@ -150058,6 +150058,125 @@
         }
       }
     },
+    "settings.account.backendEnvironment.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging is a separate environment with separate accounts and data. Switching signs you out, and your Mac and iPhone must be on the same environment to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージングはアカウントとデータが別の独立した環境です。切り替えるとサインアウトされます。MacとiPhoneをペアリングするには両方が同じ環境である必要があります。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.pinnedNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build's backend is pinned by its launch environment; the picker takes effect only in unpinned builds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドのバックエンドは起動環境で固定されています。この選択は固定されていないビルドでのみ有効になります。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.production": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Production"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.relaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaunch cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを再起動"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.relaunchNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux must relaunch to apply the new backend environment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいバックエンド環境を適用するには cmux の再起動が必要です。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Environment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンド環境"
+          }
+        }
+      }
+    },
     "settings.account.error.invalidCallback": {
       "extractionState": "manual",
       "localizations": {
@@ -150446,6 +150565,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ви не ввійшли"
+          }
+        }
+      }
+    },
+    "settings.account.stagingBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
           }
         }
       }

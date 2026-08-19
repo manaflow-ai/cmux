@@ -32,6 +32,12 @@ public struct AccountSection: View {
                 AccountIdentityCard(flow: accountFlow)
             }
             .settingsSearchAnchors(["setting:account:account"])
+            if let accountFlow, accountFlow.backendEnvironmentSwitcherVisible {
+                SettingsCard {
+                    BackendEnvironmentCard(flow: accountFlow)
+                }
+                .settingsSearchAnchors(["setting:account:backend-environment"])
+            }
             if accountFlow?.isProUpgradeAvailable ?? false {
                 SettingsCard {
                     ProUpgradeCard(flow: accountFlow)

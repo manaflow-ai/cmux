@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
@@ -105,8 +106,10 @@ final class PresenceHeartbeatClient {
     }
 
     /// Resolved service base URL: env override first (dev/tagged builds), then
-    /// the defaults key, then the Debug-build dev-instance default. Nil
-    /// disables the client entirely.
+    /// the defaults key, then the build default (dev worker for Debug builds
+    /// and for Release builds running under the persisted staging backend
+    /// override, production worker otherwise). Nil disables the client
+    /// entirely.
     static func resolvedServiceURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
@@ -121,9 +124,12 @@ final class PresenceHeartbeatClient {
             // what the dev/staging worker verifies — see PresenceSettings.
             raw = PresenceSettings.debugDefaultServiceURL
             #else
-            // Release builds talk to the production presence worker, so stable
-            // cmux announces presence once mobile is enabled (gated by isEnabled).
-            raw = PresenceSettings.productionServiceURL
+            // A Release build switched to the staging backend signs into the
+            // dev Stack project, so only the dev/staging worker can verify its
+            // tokens; production Release builds keep the production worker.
+            raw = CMUXBackendEnvironmentOverride.load(from: defaults) == .staging
+                ? PresenceSettings.debugDefaultServiceURL
+                : PresenceSettings.productionServiceURL
             #endif
         }
         guard let raw, !raw.isEmpty else { return nil }
