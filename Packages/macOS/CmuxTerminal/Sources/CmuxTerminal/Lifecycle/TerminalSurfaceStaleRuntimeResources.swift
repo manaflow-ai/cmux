@@ -1,4 +1,5 @@
 internal import GhosttyKit
+internal import CmuxTerminalCore
 
 /// Keeps stale-surface callback userdata alive until a retired output lane is idle.
 ///
