@@ -7488,8 +7488,6 @@ extension BrowserPanel {
     func requestAddressBarFocus(
         selectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     ) -> UUID? {
-        // A pending WebView reassertion must not win after an explicit address-bar request.
-        webViewFocusRequestGeneration &+= 1
         guard chromeVisibility.allowsAddressBarFocus else {
 #if DEBUG
             cmuxDebugLog(
@@ -7498,6 +7496,10 @@ extension BrowserPanel {
 #endif
             return nil
         }
+        // A pending WebView reassertion must not win after an accepted
+        // address-bar request. An unavailable address bar leaves the WebView
+        // retry intact so callers can fall back without dropping focus.
+        webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar

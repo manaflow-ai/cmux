@@ -185,7 +185,12 @@ extension DockSplitStore {
     @discardableResult
     func focusBrowserPanelPreferringAddressBar(_ browser: BrowserPanel) -> Bool {
         if browser.isShowingNewTabPage || browser.preferredURLStringForOmnibar() == nil {
-            return AppDelegate.shared?.focusBrowserAddressBar(in: browser) == true
+            if AppDelegate.shared?.focusBrowserAddressBar(in: browser) == true {
+                return true
+            }
+            // Chromeless browsers cannot expose an address bar. Keep the same
+            // immediate-input contract by falling back to their WebView.
+            return browser.requestExplicitWebViewFocus()
         }
         return browser.requestExplicitWebViewFocus()
     }
