@@ -176248,6 +176248,13 @@
         }
       }
     },
+    "settings.managedByOrganization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Managed by your organization" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織によって管理されています" } }
+      }
+    },
     "settings.material.contentBackground": {
       "extractionState": "manual",
       "localizations": {
@@ -178014,6 +178021,13 @@
             "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
           }
         }
+      }
+    },
+    "settings.mobile.managedByOrganization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote control from the iOS app is disabled by your organization." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOS アプリからのリモート操作は組織によって無効化されています。" } }
       }
     },
     "settings.mobile.phonePush.forwarding": {

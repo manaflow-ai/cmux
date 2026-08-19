@@ -3365,6 +3365,48 @@ struct CMUXCLI {
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    /// Mirrors `ManagedDevicePolicyKey.disableEmbeddedBrowser` in CmuxSettings
+    /// (the CLI target does not link that package). Documented in
+    /// docs/managed-device-policies.md.
+    private static let managedBrowserPolicyKey = "DisableEmbeddedBrowser"
+
+    /// Whether MDM locks browser availability for `domain`: the dedicated
+    /// policy key is enforced (here or in the release payload domain), or an
+    /// administrator forces the user-level key directly.
+    private static func browserAvailabilityManagedByProfile(
+        defaults: UserDefaults,
+        domain: String
+    ) -> Bool {
+        if defaults.objectIsForced(forKey: managedBrowserPolicyKey) {
+            return true
+        }
+        if defaults.objectIsForced(forKey: browserDisabledDefaultsKey) {
+            return true
+        }
+        if domain != defaultBrowserSettingsDomain,
+           let releaseDefaults = UserDefaults(suiteName: defaultBrowserSettingsDomain),
+           releaseDefaults.objectIsForced(forKey: managedBrowserPolicyKey) {
+            return true
+        }
+        return false
+    }
+
+    /// Whether the `DisableEmbeddedBrowser` policy is enforced (forced true)
+    /// for `domain`.
+    private static func browserDisabledByManagedPolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> Bool {
+        if defaults.objectIsForced(forKey: managedBrowserPolicyKey) {
+            return defaults.bool(forKey: managedBrowserPolicyKey)
+        }
+        if domain != defaultBrowserSettingsDomain,
+           let releaseDefaults = UserDefaults(suiteName: defaultBrowserSettingsDomain),
+           releaseDefaults.objectIsForced(forKey: managedBrowserPolicyKey) {
+            return releaseDefaults.bool(forKey: managedBrowserPolicyKey)
+        }
+        return false
+    }
 
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
@@ -3467,12 +3509,22 @@ struct CMUXCLI {
 
         let domain = Self.browserSettingsDomain(environment: environment)
         let defaults = UserDefaults(suiteName: domain) ?? .standard
+        let managedByProfile = Self.browserAvailabilityManagedByProfile(
+            defaults: defaults,
+            domain: domain
+        )
 
         switch action {
         case "disable", "disable-browser":
+            guard !managedByProfile else {
+                throw CLIError(message: "Browser availability is managed by your organization (MDM policy for domain \(domain)); it cannot be changed from the CLI.")
+            }
             defaults.set(true, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "enable", "enable-browser":
+            guard !managedByProfile else {
+                throw CLIError(message: "Browser availability is managed by your organization (MDM policy for domain \(domain)); it cannot be changed from the CLI.")
+            }
             defaults.set(false, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "status", "browser-status":
@@ -3481,12 +3533,17 @@ struct CMUXCLI {
             throw CLIError(message: "Unknown browser availability command: \(action)")
         }
 
-        let disabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
+        let storedDisabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
             ? false
             : defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+        let disabled = storedDisabled || Self.browserDisabledByManagedPolicy(
+            defaults: defaults,
+            domain: domain
+        )
         let payload: [String: Any] = [
             "enabled": !disabled,
             "disabled": disabled,
+            "managed": managedByProfile,
             "domain": domain,
             "key": Self.browserDisabledDefaultsKey
         ]

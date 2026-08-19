@@ -772,6 +772,7 @@ struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     private struct ShortcutHint: View {
         let text: String
@@ -858,16 +859,26 @@ struct EmptyPanelView: View {
                     action: createTerminal
                 )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                if browserAvailable {
+                    emptyPaneActionButton(
+                        title: "Browser",
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+        .task {
+            browserAvailable = BrowserAvailabilitySettings.isEnabled()
+            for await _ in NotificationCenter.default.notifications(
+                named: BrowserAvailabilitySettings.didChangeNotification
+            ) {
+                browserAvailable = BrowserAvailabilitySettings.isEnabled()
+            }
+        }
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

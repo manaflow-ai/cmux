@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import SwiftUI
 
 /// Iroh relay policy, custom relay, and private-path diagnostics.
@@ -8,6 +9,12 @@ public struct IrohNetworkingSection: View {
     @State private var showsCustomEditor = false
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
+
+    /// Whether an MDM configuration profile disables iOS remote control,
+    /// which this networking stack exists to serve. Resolved once per
+    /// section construction; the section is then read-only.
+    private let remoteControlManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableRemoteControl)
 
     public init(hostActions: SettingsHostActions) {
         _model = State(initialValue: IrohSettingsModel(controller: hostActions.irohSettingsController()))
@@ -19,10 +26,21 @@ public struct IrohNetworkingSection: View {
                 String(localized: "settings.section.networking", defaultValue: "Networking"),
                 section: .networking
             )
-            relayPolicyCard
-            customRelayCard
-            privateNetworkCard
-            connectionCheckCard
+            if remoteControlManagedByPolicy {
+                SettingsCard {
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.managedByOrganization",
+                        defaultValue: "Remote control from the iOS app is disabled by your organization."
+                    ))
+                }
+            }
+            Group {
+                relayPolicyCard
+                customRelayCard
+                privateNetworkCard
+                connectionCheckCard
+            }
+            .disabled(remoteControlManagedByPolicy)
             diagnosticsCard
         }
         .task { await model.observe() }

@@ -142,7 +142,8 @@ extension MobileHostService {
             ),
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
-            )
+            ),
+            includingBrowser: BrowserAvailabilitySettings.isEnabled()
         )
     }
 
@@ -160,7 +161,8 @@ extension MobileHostService {
     nonisolated static func mobileHostCapabilities(
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
-        includingTaskComposer: Bool = true
+        includingTaskComposer: Bool = true,
+        includingBrowser: Bool = true
     ) -> [String] {
         var capabilities = [
             Self.irohPrivatePathsCapability,
@@ -248,6 +250,18 @@ extension MobileHostService {
                 Self.taskDirectorySearchV2Capability,
             ]
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
+        }
+        if !includingBrowser {
+            // The embedded browser is disabled (user setting or MDM policy):
+            // stop advertising browser streaming/creation so iOS never shows
+            // browser affordances whose first RPC would refuse anyway.
+            let browserCapabilities: Set<String> = [
+                MobileBrowserStreamCapability.identifier,
+                MobileBrowserStreamCapability.viewportIdentifier,
+                MobileBrowserStreamCapability.dialogIdentifier,
+                MobileBrowserStreamCapability.createIdentifier,
+            ]
+            capabilities.removeAll { browserCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }

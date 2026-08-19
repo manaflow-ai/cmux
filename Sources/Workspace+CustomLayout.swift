@@ -198,7 +198,7 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .layoutApplication
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -247,7 +247,7 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .layoutApplication
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }

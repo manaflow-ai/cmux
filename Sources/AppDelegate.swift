@@ -840,6 +840,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
+    /// Applies MDM managed-policy transitions (browser/remote-control) while
+    /// the app runs. Installed once from `installManagedPolicyEnforcement()`.
+    var managedPolicyEnforcementObserver: ManagedPolicyEnforcementObserver?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -2354,6 +2357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
+        installManagedPolicyEnforcement()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
@@ -7710,6 +7714,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         bringWindowForward: Bool = false,
         debugSource: String = "mobileConnect"
     ) -> Workspace? {
+        // Shared chokepoint for every pairing-window entry (Settings, palette,
+        // menu): pairing is unavailable under a managed remote-control disable.
+        guard MobileRemoteControlPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("mobileConnect.blocked_managed_policy source=\(debugSource)")
+#endif
+            return nil
+        }
         guard !enforceFeatureFlag || CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else {
 #if DEBUG
             cmuxDebugLog("mobileConnect.blocked_flag source=\(debugSource)")

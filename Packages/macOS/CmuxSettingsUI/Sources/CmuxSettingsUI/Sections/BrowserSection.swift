@@ -40,6 +40,11 @@ public struct BrowserSection: View {
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
 
+    /// Whether an MDM configuration profile disables the embedded browser.
+    /// Resolved once per section construction; the toggle is then read-only.
+    private let browserManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableEmbeddedBrowser)
+
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
@@ -98,13 +103,21 @@ public struct BrowserSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:browser:enable-browser",
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
-                subtitle: !disabled.current
+                subtitle: browserManagedByPolicy
+                    ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                    : !disabled.current
                     ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
                     : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
             ) {
-                Toggle("", isOn: Binding(get: { !disabled.current }, set: { disabled.set(!$0) }))
+                Toggle(
+                    "",
+                    isOn: browserManagedByPolicy
+                        ? .constant(false)
+                        : Binding(get: { !disabled.current }, set: { disabled.set(!$0) })
+                )
                     .labelsHidden()
                     .controlSize(.small)
+                    .disabled(browserManagedByPolicy)
                     .accessibilityIdentifier("BrowserEnabledToggle")
             }
             SettingsCardDivider()
