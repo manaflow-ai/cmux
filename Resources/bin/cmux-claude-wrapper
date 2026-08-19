@@ -194,9 +194,23 @@ cmux_claude_wrapper_write_hook_reentry_state() {
     file="$dir/$$"
     cmux_claude_wrapper_hook_reentry_state_file_is_ours "$file" || return 0
     printf '%s\n' "$1" > "$file" 2>/dev/null || true
-    # Housekeeping, since a launch that reaches Claude leaves its file behind:
-    # yesterday's entries cannot belong to a live pid this wrapper cares about.
-    find "$dir" -type f -mtime +1 -delete 2>/dev/null || true
+    cmux_claude_wrapper_prune_hook_reentry_state "$dir"
+}
+
+# A launch that reaches Claude leaves its state file behind, so the directory
+# needs an occasional sweep -- but not one per launch. Counting with a glob is
+# in-process and cheap; the sweep itself only forks once the directory has more
+# entries than any single bounce can produce, which caps both the directory and
+# the work a launch pays for it.
+cmux_claude_wrapper_hook_reentry_state_sweep_threshold=256
+
+cmux_claude_wrapper_prune_hook_reentry_state() {
+    local dir="$1"
+    local -a entries=("$dir"/*)
+    [[ -e "${entries[0]}" || -L "${entries[0]}" ]] || return 0
+    (( ${#entries[@]} > cmux_claude_wrapper_hook_reentry_state_sweep_threshold )) || return 0
+    # Yesterday's entries cannot belong to a live pid this wrapper cares about.
+    find "$dir" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null || true
 }
 
 cmux_claude_wrapper_clear_hook_reentry_state() {
