@@ -130,10 +130,26 @@ public enum KimiCodeHookConfig {
         return escaped
     }
 
+    /// Splits TOML content into lines, tolerating CRLF endings.
+    ///
+    /// TOML permits CRLF newlines, but splitting on `"\n"` alone would leave a
+    /// trailing `\r` on every line, which the marker comparisons below do not
+    /// strip, so a CRLF-formatted config would never match `beginMarker` or
+    /// `endMarker`. The output is always rejoined with a bare `"\n"`
+    /// (`tomlContent(from:)`), which already normalizes line endings on any
+    /// content this type rewrites.
     private static func tomlLines(from content: String) -> [String] {
         guard !content.isEmpty else { return [] }
-        var lines = content.components(separatedBy: "\n")
-        if content.hasSuffix("\n"), lines.last == "" {
+        var lines = content.components(separatedBy: "\n").map { line in
+            line.hasSuffix("\r") ? String(line.dropLast()) : line
+        }
+        // `components(separatedBy:)` only ever leaves a trailing empty element
+        // when `content` ends with the separator, so this alone is equivalent
+        // to (and, unlike `content.hasSuffix("\n")`, correct for) a trailing
+        // "\n" or "\r\n": Swift treats "\r\n" as a single Character, so
+        // `content.hasSuffix("\n")` is false for CRLF-terminated content even
+        // though `components(separatedBy:)` still split on it.
+        if lines.last == "" {
             lines.removeLast()
         }
         return lines
