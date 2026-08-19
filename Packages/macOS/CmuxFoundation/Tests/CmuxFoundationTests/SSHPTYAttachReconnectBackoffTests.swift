@@ -297,6 +297,47 @@ struct SSHPTYAttachReconnectBackoffTests {
         }
     }
 
+    /// The no-progress budget reads a free-form setting too, and an oversized one
+    /// used to make its comparison fail instead of answering — which left a bridge
+    /// that never makes progress retrying past its budget.
+    @Test func anAbsurdNoProgressLimitStillStopsRepeatedNoProgressClosures() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("events.log")
+        let counterURL = directory.appendingPathComponent("attempts")
+
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  if [ \"$count\" -ge 4 ]; then return 7; fi",
+                "  return 252",
+                "}",
+            ]
+        )
+
+        let result = try Self.run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_TEST_COUNTER": counterURL.path,
+                "CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT": "99999999999999999999",
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
+            ]
+        )
+
+        // The budget answers instead of erroring, so the loop keeps its own
+        // schedule and ends on the fatal status rather than on a shell error.
+        #expect(result.status == 7, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        #expect(Self.delays(in: try Self.events(in: logURL)) == ["2", "4", "8"])
+    }
+
     // MARK: - The generated loop collapses its status output
 
     @Test func repeatedFailuresRewriteOneStatusLineInsteadOfAppendingMore() throws {
