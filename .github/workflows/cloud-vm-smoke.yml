@@ -29,6 +29,12 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      target:
+        description: Smoke target (staging or production)
+        required: true
+        type: string
 
 permissions:
   contents: read

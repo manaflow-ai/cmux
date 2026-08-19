@@ -1,0 +1,96 @@
+name: Web promote (production)
+
+# Manual promotion of reviewed main history to the cmux production Vercel
+# project (cmux.com). Staging auto-deploys on every web-affecting main push
+# (web-deploy-staging.yml); production ships ONLY through this workflow, after
+# the change has been validated on https://cmux-staging.vercel.app.
+#
+# Rollback: re-dispatch with an older main-history sha (the ancestor guard
+# accepts any commit on origin/main). DB migrations are forward-only
+# (expand/contract discipline), so redeploying older app code does not roll
+# back schema. Fast backstop: Vercel dashboard Instant Rollback on the cmux
+# project.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit sha or ref on main history to promote
+        required: true
+        default: main
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: web-promote-prod
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve and guard promoted sha
+        id: resolve
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify "${REF}^{commit}")"
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::${REF} ($sha) is not on origin/main history; only reviewed main commits are promotable"
+            exit 1
+          fi
+          echo "Promoting $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        env:
+          REF: ${{ inputs.ref }}
+
+  # Runs the staging migration first, then the production migration at the
+  # promoted sha, under the cloud-vm-production environment protections.
+  migrate:
+    needs: resolve
+    uses: ./.github/workflows/cloud-vm-migrate.yml
+    with:
+      target: production
+      ref: ${{ needs.resolve.outputs.sha }}
+    secrets: inherit
+
+  deploy:
+    needs: [resolve, migrate]
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cloud-vm-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: web
+
+      - name: Deploy cmux production
+        run: bun run cloud-vm:deploy -- production
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+  smoke:
+    needs: deploy
+    uses: ./.github/workflows/cloud-vm-smoke.yml
+    with:
+      target: production
+    secrets: inherit
