@@ -115,9 +115,6 @@ final class FileExplorerState: ObservableObject {
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        if mode == .customSidebar {
-            return .files
-        }
         return mode.isAvailable(defaults: defaults) ? mode : .files
     }
 }

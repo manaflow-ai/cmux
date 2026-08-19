@@ -51194,13 +51194,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, source-control"
           }
         }
       }
@@ -51347,13 +51347,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|source-control>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|source-control\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|source-control>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|source-control\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -147998,6 +147998,23 @@
         }
       }
     },
+    "rightSidebar.mode.sourceControl": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース管理"
+          }
+        }
+      }
+    },
     "rightSidebar.openAsPane.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -148096,6 +148113,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ERROR: 右サイドバーのモード '%@' は利用できません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.sourceControlUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Right sidebar mode 'source-control' is unavailable; enable sourceControl.beta.enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 右サイドバーの source-control モードは利用できません。sourceControl.beta.enabled を有効にしてください"
           }
         }
       }
@@ -148327,13 +148361,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -168430,6 +168464,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dock を右サイドバーのモード切り替えに表示し、カスタム端末コントロールを使えるようにします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.sourceControl": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース管理"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.sourceControl.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides Source Control from the right sidebar until you enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、ソース管理を右サイドバーから隠します。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.sourceControl.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git の変更を表示するソース管理を右サイドバーのモード切り替えに表示します。"
           }
         }
       }
@@ -191764,6 +191849,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.beta.workspaceTodos.controls.enabled ワークスペース Todo Todos タスク ステータス チェックリスト 追加 項目 コントロール ベータ"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.source-control": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sourceControl.beta.enabled source control git scm commit stage unstage diff changes right sidebar beta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sourceControl.beta.enabled ソース管理 Git SCM コミット ステージ アンステージ 差分 変更 右サイドバー ベータ"
           }
         }
       }
@@ -215462,6 +215564,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "사이드바 Dock 표시"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToSourceControl.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Source Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのソース管理を表示"
           }
         }
       }
@@ -266928,6 +267047,97 @@
         "uk": { "stringUnit": { "state": "translated", "value": "Не знайдено потрібний CLI. Установіть команду та повторіть спробу." } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
+      }
+    },
+    "sourceControl.noRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Git repository" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Git リポジトリなし" } }
+      }
+    },
+    "sourceControl.branch.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current branch: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のブランチ: %@" } }
+      }
+    },
+    "sourceControl.refresh.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh source control" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソース管理を更新" } }
+      }
+    },
+    "sourceControl.refresh.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh Source Control" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソース管理を更新" } }
+      }
+    },
+    "sourceControl.empty.noWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No workspace selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースが選択されていません" } }
+      }
+    },
+    "sourceControl.empty.noWorkspace.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open a workspace in a Git repository to see changes." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更を表示するには、Git リポジトリのワークスペースを開いてください。" } }
+      }
+    },
+    "sourceControl.empty.clean.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更はありません" } }
+      }
+    },
+    "sourceControl.empty.clean.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Your working tree is clean." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作業ツリーはクリーンです。" } }
+      }
+    },
+    "sourceControl.group.merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Merge Changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マージの変更" } }
+      }
+    },
+    "sourceControl.group.staged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Staged Changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ステージ済みの変更" } }
+      }
+    },
+    "sourceControl.group.changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更" } }
+      }
+    },
+    "sourceControl.group.untracked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untracked Changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未追跡の変更" } }
+      }
+    },
+    "sourceControl.resource.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、%@" } }
       }
     }
   },

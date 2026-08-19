@@ -3,51 +3,19 @@ import Foundation
 
 extension RightSidebarMode {
     static func from(cliArgument rawValue: String) -> RightSidebarMode? {
-        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "files":
-            return .files
-        case "find":
-            return .find
-        case "vault", "sessions":
-            return .sessions
-        case "feed":
-            return .feed
-        case "dock":
-            return .dock
-        default:
-            return nil
-        }
+        let argument = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if argument == "vault" || argument == "sessions" { return .sessions }
+        return RightSidebarPanelRegistry.descriptors().first {
+            $0.cliArgument.lowercased() == argument || $0.id.lowercased() == argument
+        }.flatMap { RightSidebarMode(rawValue: $0.id) }
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
-        )
-    }
-
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
+        RightSidebarPanelRegistry.availableModes(defaults: defaults)
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
-        )
-    }
-
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
-        switch self {
-        case .files, .find, .sessions:
-            return true
-        case .feed:
-            return feedEnabled
-        case .dock:
-            return dockEnabled
-        case .customSidebar:
-            return false
-        }
+        RightSidebarPanelRegistry.descriptor(for: self, defaults: defaults)?.isAvailable() == true
     }
 }
 

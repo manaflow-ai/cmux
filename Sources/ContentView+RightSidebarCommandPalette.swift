@@ -140,20 +140,8 @@ extension ContentView {
     }
 
     static func commandPaletteRightSidebarModeCommandID(_ mode: RightSidebarMode) -> String {
-        switch mode {
-        case .files:
-            return "palette.showRightSidebarFiles"
-        case .find:
-            return "palette.showRightSidebarFind"
-        case .sessions:
-            return "palette.showRightSidebarSessions"
-        case .feed:
-            return "palette.showRightSidebarFeed"
-        case .dock:
-            return "palette.showRightSidebarDock"
-        case .customSidebar:
-            return "palette.showRightSidebarCustomSidebar"
-        }
+        RightSidebarPanelRegistry.descriptor(for: mode)?.commandPaletteCommandID
+            ?? "palette.showRightSidebar\(mode.rawValue.capitalized)"
     }
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
@@ -167,29 +155,11 @@ extension ContentView {
     }
 
     private static func commandPaletteRightSidebarToolPaneCommandID(_ mode: RightSidebarMode) -> String? {
-        switch mode {
-        case .files:
-            return "palette.openFilesPane"
-        case .find:
-            return "palette.openFindPane"
-        case .sessions:
-            return "palette.openVaultPane"
-        case .feed, .dock, .customSidebar:
-            return nil
-        }
+        RightSidebarPanelRegistry.descriptor(for: mode)?.paneCommandID
     }
 
     private static func commandPaletteRightSidebarToolPaneTitle(_ mode: RightSidebarMode) -> String? {
-        switch mode {
-        case .files:
-            return String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane")
-        case .find:
-            return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
-        case .sessions:
-            return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock, .customSidebar:
-            return nil
-        }
+        RightSidebarPanelRegistry.descriptor(for: mode)?.paneTitle
     }
 
     func handleCommandPaletteRightSidebarMode(_ mode: RightSidebarMode, observedWindow: NSWindow?) {

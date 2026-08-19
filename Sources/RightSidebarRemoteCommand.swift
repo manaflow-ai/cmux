@@ -131,12 +131,15 @@ extension RightSidebarRemoteRequest {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.mode", defaultValue: "ERROR: Usage: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .getState, target: target))
-        case "set":
+        case "set", "set-mode":
             guard positional.count == 2 else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if let mode = RightSidebarMode.from(cliArgument: rawMode), mode != .customSidebar {
+            if let mode = RightSidebarMode.from(cliArgument: rawMode) {
+                if mode == .sourceControl, !mode.isAvailable() {
+                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.sourceControlUnavailable", defaultValue: "ERROR: Right sidebar mode 'source-control' is unavailable; enable sourceControl.beta.enabled")))
+                }
                 return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
             }
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '\(positional[1])'")))
@@ -147,7 +150,10 @@ extension RightSidebarRemoteRequest {
             guard positional.count == 1 else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
             }
-            if let mode = RightSidebarMode.from(cliArgument: action), mode != .customSidebar {
+            if let mode = RightSidebarMode.from(cliArgument: action) {
+                if mode == .sourceControl, !mode.isAvailable() {
+                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.sourceControlUnavailable", defaultValue: "ERROR: Right sidebar mode 'source-control' is unavailable; enable sourceControl.beta.enabled")))
+                }
                 return .success(.init(command: .setMode(mode, focus: true), target: target))
             }
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))

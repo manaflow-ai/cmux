@@ -432,7 +432,7 @@ extension CMUXCLI {
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "vault", "sessions", "feed", "dock", "source-control", "sourcecontrol":
             return true
         default:
             return false
@@ -443,6 +443,10 @@ extension CMUXCLI {
         switch value.lowercased() {
         case "files", "find", "vault", "sessions", "feed", "dock":
             return value.lowercased()
+        case "sourcecontrol":
+            return "source-control"
+        case "source-control":
+            return "source-control"
         default:
             return value
         }

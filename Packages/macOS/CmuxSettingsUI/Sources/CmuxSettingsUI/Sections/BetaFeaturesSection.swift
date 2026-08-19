@@ -9,6 +9,7 @@ import SwiftUI
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var sourceControl: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
@@ -18,6 +19,7 @@ public struct BetaFeaturesSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _sourceControl = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.sourceControl))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -37,6 +39,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 dockRow
                 SettingsCardDivider()
+                sourceControlRow
+                SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
@@ -55,6 +59,7 @@ public struct BetaFeaturesSection: View {
         let models: [any SettingObservationStarting] = [
             feed,
             dock,
+            sourceControl,
             extensions,
             customSidebars,
             remoteTmux,
@@ -136,6 +141,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var sourceControlRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sourceControl.beta.enabled"),
+            searchAnchorID: "setting:betaFeatures:source-control",
+            String(localized: "settings.betaFeatures.sourceControl", defaultValue: "Source Control"),
+            subtitle: sourceControl.current
+                ? String(localized: "settings.betaFeatures.sourceControl.subtitleOn", defaultValue: "Shows Source Control in the right sidebar mode switcher for Git changes.")
+                : String(localized: "settings.betaFeatures.sourceControl.subtitleOff", defaultValue: "Hides Source Control from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { sourceControl.current }, set: { sourceControl.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaSourceControlToggle")
         }
     }
 

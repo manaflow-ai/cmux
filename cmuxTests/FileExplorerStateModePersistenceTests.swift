@@ -12,6 +12,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let customSidebarNameKey = "rightSidebar.customSidebarName"
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+    private let sourceControlEnabledKey = RightSidebarBetaFeatureSettings.sourceControlEnabledKey
 
     func testDisabledFeedStoredModeFallsBackToFiles() {
         withSavedRightSidebarModeDefaults {
@@ -65,13 +66,39 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     func testStoredCustomSidebarModeFallsBackToFiles() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
-            defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+            defaults.set("custom-sidebar", forKey: modeKey)
             defaults.set("status-board", forKey: customSidebarNameKey)
 
             let state = FileExplorerState()
 
             XCTAssertEqual(state.mode, .files)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    func testDisabledSourceControlStoredModeFallsBackToFiles() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.sourceControl.rawValue, forKey: modeKey)
+            defaults.set(false, forKey: sourceControlEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    func testEnabledSourceControlStoredModeSurvives() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.sourceControl.rawValue, forKey: modeKey)
+            defaults.set(true, forKey: sourceControlEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .sourceControl)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.sourceControl.rawValue)
         }
     }
 
@@ -94,11 +121,13 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         let previousCustomSidebarName = defaults.object(forKey: customSidebarNameKey)
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        let previousSourceControlEnabled = defaults.object(forKey: sourceControlEnabledKey)
         defer {
             restore(previousMode, forKey: modeKey)
             restore(previousCustomSidebarName, forKey: customSidebarNameKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
+            restore(previousSourceControlEnabled, forKey: sourceControlEnabledKey)
         }
         body()
     }
