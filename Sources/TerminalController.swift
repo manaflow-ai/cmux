@@ -12660,13 +12660,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
-                soundContext: meta?.soundContext,
                 agent: AgentNotificationDelivery.agentContext(
                     category: meta?.category,
                     pending: meta?.pending ?? false,
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
-                )
+                ),
+                soundContext: meta?.soundContext
             )
             return "OK"
         }
@@ -12704,13 +12704,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
-                soundContext: meta?.soundContext,
                 agent: AgentNotificationDelivery.agentContext(
                     category: meta?.category,
                     pending: meta?.pending ?? false,
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
-                )
+                ),
+                soundContext: meta?.soundContext
             )
             return "OK"
         }
