@@ -71,9 +71,14 @@ struct SSHReconnectBudgetShellPolicyTests {
     }
 
     @Test func oversizedDelayIsClampedToAnIntervalSleepAccepts() throws {
-        let waited = try runDelay(delaySeconds: Self.oversizedValue)
+        let ceiling = "\(SSHReconnectBudgetShellPolicy.maximumConfigurableDelaySeconds)"
 
-        #expect(waited == "\(SSHReconnectBudgetShellPolicy.maximumConfigurableDelaySeconds)")
+        #expect(try runDelay(delaySeconds: Self.oversizedValue) == ceiling)
+        // A value the shell can still compare is capped by the comparison
+        // rather than by its digit count, which is the branch below the one
+        // above it.
+        #expect(try runDelay(delaySeconds: "86401") == ceiling)
+        #expect(try runDelay(delaySeconds: "86400") == ceiling)
     }
 
     @Test func nonNumericDelayFallsBackToTheDefaultInterval() throws {
