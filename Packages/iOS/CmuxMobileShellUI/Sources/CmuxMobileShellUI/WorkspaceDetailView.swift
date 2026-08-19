@@ -297,31 +297,85 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
+        // iOS 27's visibilityPriority(.high) natively keeps the trailing items
+        // out of the overflow More menu. The symbols are absent from SDK 26.x,
+        // so the branch is compiler-gated until an Xcode 27 toolchain builds
+        // this target; the measured title cap below stays the sizing mechanism
+        // on every OS (the native priority only decides who overflows, it does
+        // not grant the title the remaining space).
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            highPriorityTrailingToolbarItems
+        } else {
+            trailingToolbarItems
+        }
+        #else
+        trailingToolbarItems
+        #endif
+    }
+
+    @ToolbarContentBuilder
+    private var trailingToolbarItems: some ToolbarContent {
         if altScreenNoticeIsVisible {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
-                AltScreenNoticeButton {
-                    displaySettings.showAltScreenNotice = false
-                }
-                .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
+                altScreenNoticeToolbarContent
             }
         }
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
-                WorkspaceChangesToolbarButton(
-                    chip: workspaceChangesChip,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue,
-                    action: openWorkspaceChanges
-                )
-                // The chrome sits on the terminal theme's background, not the
-                // system scheme; resolve the counts' green/red for that.
-                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
-                .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
+                workspaceChangesToolbarContent
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
-                .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
+            trailingClusterToolbarContent
         }
+    }
+
+    #if compiler(>=6.4)
+    @available(iOS 27.0, *)
+    @ToolbarContentBuilder
+    private var highPriorityTrailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                altScreenNoticeToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                workspaceChangesToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            trailingClusterToolbarContent
+        }
+        .visibilityPriority(.high)
+    }
+    #endif
+
+    private var altScreenNoticeToolbarContent: some View {
+        AltScreenNoticeButton {
+            displaySettings.showAltScreenNotice = false
+        }
+        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
+    }
+
+    private var workspaceChangesToolbarContent: some View {
+        WorkspaceChangesToolbarButton(
+            chip: workspaceChangesChip,
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            action: openWorkspaceChanges
+        )
+        // The chrome sits on the terminal theme's background, not the
+        // system scheme; resolve the counts' green/red for that.
+        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
+    }
+
+    private var trailingClusterToolbarContent: some View {
+        toolbarTrailingCluster
+            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
     }
 
     private var workspaceTitleToolbarMenu: some View {
