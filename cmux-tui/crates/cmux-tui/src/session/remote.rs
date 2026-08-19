@@ -5447,6 +5447,122 @@ mod tests {
         }
     }
 
+    /// A session whose every workspace lost its screens (the outcome of the
+    /// startup repair that prunes dead terminals) must get a shell in the
+    /// active workspace at attach, not render pure emptiness. The writer
+    /// refuses `new-workspace`, so this also pins that startup must not bolt
+    /// an extra workspace onto a session that already has four.
+    struct BareWorkspacesTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        created_in: Arc<Mutex<Option<String>>>,
+    }
+
+    impl RemoteMessageWriter for BareWorkspacesTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let bare = |key: &str, id: u64, active: bool| {
+                json!({"id": id, "key": key, "active": active, "screens": []})
+            };
+            let populated = json!({
+                "id": 5,
+                "key": "ws-active",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 4, "kind": "pty"}],
+                    }],
+                }],
+            });
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => {
+                    if self.created_in.lock().unwrap().is_some() {
+                        json!({"workspaces": [
+                            bare("ws-0", 1, false),
+                            populated,
+                            bare("ws-2", 9, false),
+                        ]})
+                    } else {
+                        json!({"workspaces": [
+                            bare("ws-0", 1, false),
+                            bare("ws-active", 5, true),
+                            bare("ws-2", 9, false),
+                        ]})
+                    }
+                }
+                Some("list-agents") => json!({"agents": []}),
+                Some("create-terminal") => {
+                    let key = request
+                        .get("key")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| io::Error::other("create-terminal omitted the workspace key"))?;
+                    *self.created_in.lock().unwrap() = Some(key.to_string());
+                    json!({"surface": 4})
+                }
+                command => {
+                    return Err(io::Error::other(format!(
+                        "bare-workspace attach must not send {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn ensure_initial_creates_a_shell_when_every_restored_workspace_is_bare() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let created_in = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(BareWorkspacesTreeWriter {
+            session: session_slot.clone(),
+            created_in: created_in.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            created_in.lock().unwrap().as_deref(),
+            Some("ws-active"),
+            "attach did not create a shell in the active bare workspace"
+        );
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "startup returned before the client could route input to its created terminal"
+        );
+    }
+
     #[test]
     fn ensure_initial_populates_remote_cache_after_creating_first_workspace() {
         let session_slot = Arc::new(Mutex::new(None));
