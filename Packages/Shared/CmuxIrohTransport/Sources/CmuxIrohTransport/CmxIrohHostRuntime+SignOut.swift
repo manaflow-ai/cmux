@@ -1,5 +1,3 @@
-public import Foundation
-
 extension CmxIrohHostRuntime {
     func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
@@ -7,60 +5,17 @@ extension CmxIrohHostRuntime {
         requiresNetworkDeactivation: Bool,
         revision: UInt64
     ) async -> CmxIrohHostSignOutPreparation {
-        async let wasPersisted = Self.persist(
-            pendingRevocation,
-            to: pendingRevocations
-        )
-        async let networkTeardown: Void = deactivateNetworkForSignOut(
-            bindingID: pendingRevocation?.bindingID,
-            required: requiresNetworkDeactivation
-        )
-        let (persisted, _) = await (wasPersisted, networkTeardown)
-        let preparation = CmxIrohHostSignOutPreparation(
+        await performSignOutFlow(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted,
-            bindingAuthorization: bindingAuthorization
+            bindingAuthorization: bindingAuthorization,
+            revision: revision,
+            tearDownNetwork: {
+                await self.deactivateNetworkForSignOut(
+                    bindingID: pendingRevocation?.bindingID,
+                    required: requiresNetworkDeactivation
+                )
+            }
         )
-
-        guard lifecyclePhase == .signingOut,
-              lifecycleRevision == revision else {
-            signOutOperation = nil
-            return preparation
-        }
-        guard persisted else {
-            lifecyclePhase = .quarantined
-            currentSnapshot = CmxIrohHostRuntimeSnapshot(
-                state: .quarantined,
-                endpointID: nil,
-                bindingID: pendingRevocation?.bindingID
-            )
-            signOutOperation = nil
-            return preparation
-        }
-
-        localBinding = nil
-        lastRegistrationRefreshState = nil
-        lifecyclePhase = .inactive
-        currentSnapshot = CmxIrohHostRuntimeSnapshot(
-            state: .inactive,
-            endpointID: nil,
-            bindingID: nil
-        )
-        signOutOperation = nil
-        return preparation
-    }
-
-    nonisolated static func persist(
-        _ revocation: CmxIrohPendingRevocation?,
-        to pendingRevocations: CmxIrohPendingRevocationOutbox
-    ) async -> Bool {
-        guard let revocation else { return true }
-        do {
-            try await pendingRevocations.enqueue(revocation)
-            return true
-        } catch {
-            return false
-        }
     }
 
     func deactivateNetworkForSignOut(
