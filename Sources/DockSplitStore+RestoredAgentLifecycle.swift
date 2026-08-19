@@ -10,6 +10,7 @@ extension DockSplitStore {
         restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        unresolvedResumeBindingPanelIds.remove(panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)

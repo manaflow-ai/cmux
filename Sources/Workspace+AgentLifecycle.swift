@@ -150,7 +150,8 @@ extension Workspace {
     func isStaleAgentHookBinding(
         _ binding: SurfaceResumeBindingSnapshot,
         panelId: UUID,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        retainedAgent: SessionRestorableAgentSnapshot? = nil
     ) -> Bool {
         // `RestorableAgentSessionIndex` / `SharedLiveAgentIndex` are built by
         // scanning LOCAL processes (pid/sysctl-based). A `.persistentSSH`
@@ -168,11 +169,20 @@ extension Workspace {
             return false
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
-        return !AgentResumeLiveness.hasLiveProcess(
-            for: liveIndex?.entry(workspaceId: id, panelId: panelId),
-            kind: kind,
-            sessionId: checkpointId
-        )
+        guard let entry = liveIndex?.entry(workspaceId: id, panelId: panelId) else {
+            // A missing index entry is an absence of evidence, not proof that
+            // the process exited. Preserve a matching in-memory identity so a
+            // transient scan gap cannot erase the next restore generation.
+            return retainedAgent == nil
+        }
+        guard entry.snapshot.kind.rawValue == kind,
+              entry.snapshot.sessionId == checkpointId else {
+            // The index saw another agent identity for this panel. If the
+            // retained metadata still belongs to this binding, keep it until
+            // an explicit exit observation for this generation arrives.
+            return retainedAgent == nil
+        }
+        return entry.processLiveness == .exited
     }
 
     func seedSessionRestoredAgentState(

@@ -40,6 +40,105 @@ import Testing
         #expect(terminal.resumeBinding?.checkpointId == sessionId)
     }
 
+    @Test @MainActor
+    func retainedAgentBackfillDoesNotDependOnProcessIndexLiveness() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-backfill-unknown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+
+        let workspace = Workspace(workingDirectory: workingDirectory.path)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionId = "backfill-without-index"
+        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", sessionId],
+                workingDirectory: workingDirectory.path,
+                source: "process"
+            )
+        )
+        // Manual-resume metadata is deliberately not a liveness claim. A save
+        // must still retain a durable identity when the process index is empty
+        // or has not completed its next scan.
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+
+        let first = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        let firstTerminal = try #require(first.panels.first?.terminal)
+        #expect(firstTerminal.agent?.sessionId == sessionId)
+        #expect(firstTerminal.resumeBinding?.checkpointId == sessionId)
+        #expect(firstTerminal.wasAgentRunning == nil)
+
+        let second = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(second.panels.first?.terminal?.agent?.sessionId == sessionId)
+        #expect(second.panels.first?.terminal?.resumeBinding?.checkpointId == sessionId)
+    }
+
+    @Test @MainActor
+    func matchingRetainedAgentPreventsUnknownIndexFromPruningBinding() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionId = "binding-index-gap"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: "/tmp/binding-index-gap",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", sessionId],
+                workingDirectory: "/tmp/binding-index-gap",
+                source: "process"
+            )
+        )
+        workspace.restoredAgentSnapshotsByPanelId[panel.id] = agent
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+        let binding = try #require(agent.resumeBindingSnapshot())
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panel.id))
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId == sessionId)
+        #expect(workspace.surfaceResumeBinding(panelId: panel.id)?.checkpointId == sessionId)
+    }
+
+    @Test @MainActor
+    func unrepairableRetainedAgentIsVisibleInsteadOfSilentlyDropped() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+            kind: .custom("agent-without-resume-command"),
+            sessionId: "unrepairable-agent-session",
+            workingDirectory: "/tmp/unrepairable-agent"
+        )
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.terminal?.agent?.sessionId == "unrepairable-agent-session")
+        #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
+        #expect(workspace.unresolvedResumeBindingGapCount == 1)
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().contains {
+                $0.key == Workspace.resumeBindingGapStatusKey
+            }
+        )
+    }
+
     @Test func structuredLaunchCaptureRoundTripsAdditively() throws {
         let binding = SurfaceResumeBindingSnapshot(
             name: "Codex",

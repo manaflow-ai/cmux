@@ -127,7 +127,7 @@ extension DockSplitStore {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
-            let resumeBinding = effectiveSessionResumeBinding(
+            var resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
                 detected: detectedResumeBinding
             )
@@ -156,6 +156,23 @@ extension DockSplitStore {
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
+            // The structured agent snapshot is durable identity, not merely a
+            // liveness observation. Backfill whenever a retained agent lacks a
+            // binding; process-index evidence is allowed to decide
+            // `wasAgentRunning`, but never whether identity is persisted.
+            if resumeBinding == nil, let restorableAgent {
+                if let derivedBinding = restorableAgent.resumeBindingSnapshot(),
+                   setSurfaceResumeBinding(derivedBinding, panelId: panelId) {
+                    resumeBinding = derivedBinding
+                    setResumeBindingGap(false, panelId: panelId)
+                } else {
+                    // Keep the metadata and expose an unrecoverable gap rather
+                    // than silently omitting the session from the next save.
+                    setResumeBindingGap(true, panelId: panelId)
+                }
+            } else {
+                setResumeBindingGap(false, panelId: panelId)
+            }
             let policy = Workspace.makeSessionRestorePolicyService()
             let tmuxStartCommand = restorableAgent == nil
                 ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
@@ -422,17 +439,12 @@ extension DockSplitStore {
             }
             return [recordedIdentity]
         }()
-        if managedBinding != nil,
-           relevantObservation == nil,
-           confirmedRuntimeIdentities.isEmpty {
-            return false
-        }
         return (relevantObservation?.processLiveness ?? .unknown).wasRunning(
             fallingBackTo: terminal.shellActivity.state,
             recordedProcessIdentities: relevantObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
             processPresence: agentProcessPresence
-        ) ?? false
+        )
     }
 }
