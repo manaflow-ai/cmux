@@ -2276,53 +2276,36 @@ impl Mux {
             return Err(terminal_close_state_error("terminal resource changed hosts"));
         }
         let content_id = ContentPublicId::Terminal(public_id.clone());
-        let (target, mut plan) =
-            if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
-                let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
-                    terminal_close_state_error("terminal runtime omitted its durable host identity")
-                })?;
-                if host.terminal_id != terminal_id {
-                    return Err(terminal_close_state_error("terminal resource changed hosts"));
-                }
-                if let Some(expected) = expected_incarnation {
-                    anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
-                }
-                let target = state.placements_of_content(&content_id).first().copied();
-                let plan = self.resource_close_plan_locked(
-                    ResourceOperation::TerminalClose,
-                    EffectSlots {
-                        workspace: None,
-                        screen: None,
-                        pane: None,
-                        tab: None,
-                        terminal: Some(public_id.clone()),
-                    },
-                    &registry,
-                    &state,
-                    &notifications,
-                )?;
-                (target, plan)
-            } else {
-                if !state.placements_of_content(&content_id).is_empty() {
-                    return Err(terminal_close_state_error(format!(
-                        "live terminal resource {public_id} has views but no runtime owner"
-                    )));
-                }
-                (
-                    None,
-                    ResourceClosePlan {
-                        state: state.clone(),
-                        removed: Vec::new(),
-                        terminal_runtime: None,
-                        closed_terminal_public_id: Some(public_id.clone()),
-                        terminal_batch: Vec::new(),
-                        workspace_close: None,
-                        delta: None,
-                        changed_screens: Vec::new(),
-                        selection_resync: false,
-                    },
-                )
-            };
+        if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
+            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                terminal_close_state_error("terminal runtime omitted its durable host identity")
+            })?;
+            if host.terminal_id != terminal_id {
+                return Err(terminal_close_state_error("terminal resource changed hosts"));
+            }
+            if let Some(expected) = expected_incarnation {
+                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+            }
+        } else if let (Some(expected), Some(stored)) = (
+            expected_incarnation,
+            registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation),
+        ) {
+            anyhow::ensure!(expected == stored, "terminal_incarnation_mismatch");
+        }
+        let target = state.placements_of_content(&content_id).first().copied();
+        let mut plan = self.resource_close_plan_locked(
+            ResourceOperation::TerminalClose,
+            EffectSlots {
+                workspace: None,
+                screen: None,
+                pane: None,
+                tab: None,
+                terminal: Some(public_id.clone()),
+            },
+            &registry,
+            &state,
+            &notifications,
+        )?;
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
@@ -2561,9 +2544,13 @@ impl Mux {
         self.emit_empty_if_current(effects.empty_revision);
     }
 
-    /// Reconcile a lifecycle row that was committed before topology detach was
-    /// introduced, or whose daemon stopped between those two older commits.
-    /// The durable terminal receipt remains queryable after every view leaves.
+    /// Detach the views of a terminal whose exit this daemon observed live
+    /// but whose lifecycle-and-detach commit did not land atomically (for
+    /// example a dead surface discovered after its host connection dropped).
+    /// Restart reconciliation deliberately never calls this: a restored
+    /// session keeps the journaled topology of terminals that died while the
+    /// daemon was down. The durable terminal receipt remains queryable after
+    /// every view leaves.
     pub(super) fn detach_exited_terminal_topology(
         &self,
         terminal_id: &str,
@@ -2837,12 +2824,9 @@ impl Mux {
                 let host_id = registry
                     .terminal_host_id(&public_id)?
                     .with_context(|| format!("terminal {public_id} has no durable host"))?;
-                let terminal = registry
+                let durable = registry
                     .terminal_record(&host_id)?
                     .with_context(|| format!("terminal {public_id} has no durable receipt"))?;
-                // An exited terminal is a durable receipt with no runtime and
-                // no views; explicit close is the one operation that retires
-                // it. A live terminal still requires its catalog runtime.
                 let runtime = state.terminal_catalog.get(&public_id).cloned();
                 if let Some(runtime) = runtime.as_ref() {
                     let host = self
@@ -2855,7 +2839,7 @@ impl Mux {
                     .to_vec();
                 if runtime.is_none() {
                     anyhow::ensure!(
-                        placements.is_empty(),
+                        durable.lifecycle == TerminalLifecycle::Exited,
                         "live terminal resource {public_id} has views but no runtime owner"
                     );
                 }
@@ -2866,7 +2850,7 @@ impl Mux {
                     surface_ids: placements,
                     changed_screens: screens,
                     terminal_runtime: runtime,
-                    terminal_batch: vec![(host_id, terminal.incarnation)],
+                    terminal_batch: vec![(host_id, durable.incarnation)],
                     terminal_public_id: Some(public_id),
                     ..Default::default()
                 }
@@ -2884,6 +2868,8 @@ impl Mux {
                     removed.shares_terminal_runtime(planned),
                     "terminal close changed its catalog runtime"
                 ),
+                // A restored exited terminal has journaled views but no
+                // catalog runtime to remove.
                 (None, None) => {}
                 _ => anyhow::bail!("terminal close lost its catalog runtime"),
             }
