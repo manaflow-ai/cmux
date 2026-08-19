@@ -12,10 +12,6 @@ import Foundation
 /// (`feed.push`, `feed.permission.reply`, `feed.question.reply`,
 /// `feed.exit_plan.reply`) stay on the app-side socket-worker path.
 extension TerminalController: ControlFeedContext {
-    nonisolated func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool {
-        FeedCoordinator.shared.resolvePossibleSurface(for: workstreamID)
-    }
-
     nonisolated func controlFeedResolvePossibleSurfaceAsync(
         workstreamID: String
     ) async -> Bool {

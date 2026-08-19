@@ -8,21 +8,11 @@
 ///
 /// The app target (today `TerminalController`, the interim composition owner;
 /// later `TerminalControlComposition`) conforms by reaching `FeedCoordinator`
-/// state. `feed.jump` is intentionally nonisolated: it reads hook-session
-/// files and is dispatched on the socket worker. `feed.list` remains
-/// main-actor isolated because it snapshots the observable Feed store.
+/// state. `feed.jump` is asynchronous and actor-owned so hook-session reads do
+/// not run on the socket worker or main actor. `feed.list` remains main-actor
+/// isolated because it snapshots the observable Feed store.
 @MainActor
 public protocol ControlFeedContext: AnyObject {
-    /// Resolves whether a workstream id maps to a known cmux surface for
-    /// `feed.jump`, mirroring the legacy `FeedCoordinator.resolvePossibleSurface`
-    /// probe (the MVP returns only whether the id is known so callers can show a
-    /// toast).
-    ///
-    /// - Parameter workstreamID: The caller-supplied `workstream_id`, untrimmed,
-    ///   exactly as the legacy body forwarded it.
-    /// - Returns: Whether the id matched a possible surface.
-    nonisolated func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool
-
     /// Asynchronously resolves a workstream id without performing hook-session
     /// filesystem I/O on the socket worker or the main actor.
     nonisolated func controlFeedResolvePossibleSurfaceAsync(

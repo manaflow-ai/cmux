@@ -1002,12 +1002,6 @@ extension FeedCoordinator {
         return slot.value
     }
 
-    /// Resolves a workstream id on the socket-worker lane so `feed.jump` does
-    /// not perform hook-session file I/O on the main actor.
-    nonisolated func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        FeedJumpResolver.resolve(workstreamId) != nil
-    }
-
     /// Asynchronously resolves a workstream id through the actor-owned
     /// hook-session reader. This is the socket-worker path; it never performs
     /// `Data(contentsOf:)` or JSON parsing on the caller's thread.

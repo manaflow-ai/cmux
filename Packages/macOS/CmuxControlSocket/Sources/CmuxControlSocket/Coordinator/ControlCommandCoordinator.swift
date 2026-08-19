@@ -121,8 +121,6 @@ public final class ControlCommandCoordinator {
         context: (any ControlCommandContext)?
     ) -> ControlCallResult? {
         switch request.method {
-        case "feed.jump":
-            return handleSocketWorkerFeed(request, context: context)
         case "surface.list":
             return surfaceList(request.params, context: context)
         case "surface.current":

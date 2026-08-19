@@ -25,18 +25,6 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// Dispatches the nonisolated Feed worker methods. The explicit context
-    /// parameter keeps the socket-worker path from touching the coordinator's
-    /// main-actor state while allowing the app seam to perform its own
-    /// off-main lookup.
-    nonisolated func handleSocketWorkerFeed(
-        _ request: ControlRequest,
-        context: (any ControlCommandContext)?
-    ) -> ControlCallResult? {
-        guard request.method == "feed.jump" else { return nil }
-        return feedJump(request.params, context: context)
-    }
-
     /// Dispatches the asynchronous `feed.jump` lookup. The socket worker
     /// waits for this result without making the filesystem read on its own
     /// thread; the app seam owns the background lookup boundary.
@@ -55,28 +43,6 @@ extension ControlCommandCoordinator {
         let matched = await context?.controlFeedResolvePossibleSurfaceAsync(
             workstreamID: workstreamID
         ) ?? false
-        return .ok(.object([
-            "workstream_id": .string(workstreamID),
-            "matched": .bool(matched),
-        ]))
-    }
-
-    /// `feed.jump` — resolve whether a workstream id maps to a known surface.
-    nonisolated func feedJump(
-        _ params: [String: JSONValue],
-        context: (any ControlCommandContext)?
-    ) -> ControlCallResult {
-        guard let workstreamID = rawString(params, "workstream_id") else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.jump requires workstream_id",
-                data: nil
-            )
-        }
-        // MVP: resolve to a cmux surface via `SessionIndexStore` lands in
-        // the UI PR; for now we return whether the id is known so callers
-        // can show a toast.
-        let matched = context?.controlFeedResolvePossibleSurface(workstreamID: workstreamID) ?? false
         return .ok(.object([
             "workstream_id": .string(workstreamID),
             "matched": .bool(matched),
