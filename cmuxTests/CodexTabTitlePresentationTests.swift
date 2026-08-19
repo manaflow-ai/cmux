@@ -11,6 +11,31 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CodexTabTitlePresentationTests {
+    @Test("the composer keeps non-running states free of an animation marker")
+    func composerHandlesUnknownAndNeedsInputStates() {
+        for lifecycle in [AgentHibernationLifecycleState.unknown, .needsInput] {
+            let presentation = CodexTabTitleComposer.presentation(
+                baseTitle: "some-name",
+                lifecycle: lifecycle,
+                hasCustomTitle: false
+            )
+            #expect(presentation.title == "some-name")
+            #expect(!presentation.isAnimating)
+        }
+    }
+
+    @Test("the composer removes a previous Codex marker before applying a new state")
+    func composerDoesNotStackMarkers() {
+        let presentation = CodexTabTitleComposer.presentation(
+            baseTitle: "✳ some-name",
+            lifecycle: .running,
+            hasCustomTitle: false
+        )
+
+        #expect(presentation.title == "◐ some-name")
+        #expect(presentation.isAnimating)
+    }
+
     @Test("a running Codex turn decorates the tab without changing its stable title")
     func runningTurnShowsAnimatedMarker() throws {
         let workspace = Workspace()
@@ -26,6 +51,7 @@ struct CodexTabTitlePresentationTests {
 
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "◐ some-name")
+        #expect(tab.isLoading)
         #expect(workspace.panelTitles[panelId] == "some-name")
     }
 
@@ -41,6 +67,7 @@ struct CodexTabTitlePresentationTests {
 
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "✳ some-name")
+        #expect(!tab.isLoading)
     }
 
     @Test("a user-owned tab title is never decorated by Codex lifecycle state")
@@ -54,5 +81,23 @@ struct CodexTabTitlePresentationTests {
 
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "Pinned lane")
+    }
+
+    @Test("another agent lifecycle key does not borrow Codex title markers")
+    func nonCodexLifecycleIsIgnored() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "some-name"))
+        workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.title == "some-name")
+        #expect(!tab.isLoading)
     }
 }

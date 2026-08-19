@@ -2347,9 +2347,14 @@ extension Workspace {
         // custom title), so push the restored title to the tab now, mirroring
         // `updatePanelTitle`, instead of waiting for the next OSC title update.
         if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
+            let presentation = codexTabTitlePresentation(
+                panelId: panelId,
+                fallback: panelTitles[panelId] ?? panel.displayTitle
+            )
             bonsplitController.updateTab(
                 tabId,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
+                title: presentation.title,
+                isLoading: presentation.isAnimating,
                 hasCustomTitle: panelCustomTitles[panelId] != nil
             )
         }
@@ -4458,6 +4463,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Registers a bonsplit surface as the active owner for a panel.
     func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
         paneTree.bindSurface(surfaceId, toPanelId: panelId)
+        refreshCodexTabTitle(panelId: panelId)
     }
 
     /// Removes one bonsplit surface mapping.
@@ -5505,9 +5511,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        let presentation = codexTabTitlePresentation(panelId: panelId, fallback: baseTitle)
         bonsplitController.updateTab(
             tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
+            title: presentation.title,
+            isLoading: presentation.isAnimating,
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
