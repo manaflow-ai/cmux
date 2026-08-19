@@ -8,15 +8,26 @@ import CmuxMobileSupport
 import CmuxMobileTransport
 import CmuxSentryReporting
 import Foundation
+import OSLog
 import SwiftUI
 import cmuxFeature
 
-/// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
+nonisolated private let appCompositionConnectivityLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "connectivity"
+)
+
+/// Holds the de-singletonized graph the `cmuxApp` builds at launch and rebuilds
+/// on a live backend-environment switch.
 ///
 /// Owns the mobile runtime, the auth composition (coordinator + push
 /// registration), the process-wide reachability monitor, the shared push
 /// coordinator, and the mobile display settings. Everything below the app shell
 /// receives these by injection instead of reaching for a singleton.
+///
+/// One process can build more than one root (the backend switch tears the old
+/// graph down with ``shutdown()`` and assembles a fresh one), so anything
+/// process-global lives in ``ProcessBootstrap`` and is created exactly once.
 @MainActor
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
@@ -47,10 +58,6 @@ final class AppCompositionRoot {
     /// observing port, injected down so pairing and disconnected surfaces can
     /// explain a Tailscale-off phone.
     let tailscaleStatusMonitor: TailscaleStatusMonitorAdapter
-    /// Owns the crash reporter's consent-revocation observation for the life
-    /// of the process (closes Sentry + purges its stores if telemetry is
-    /// turned off mid-session).
-    let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
 
     /// The bounded, structured connection log shared by the Iroh runtime and
     /// mobile shell. It is present in release builds, but its schema accepts
@@ -67,11 +74,96 @@ final class AppCompositionRoot {
     /// structured events are privacy-safe by construction.
     let appLog: AppLog
 
-    /// Bridges the diagnostic event stream into Sentry (breadcrumbs, structured
-    /// logs, and throttled failure events with the ring export attached). Held
-    /// for the process lifetime; delivery no-ops whenever the crash SDK is off
-    /// (consent revoked or crash reporting disabled for the build).
-    private let transportSentryReporter: TransportSentryReporter
+    /// Mirrors the string debug log into `appLog`; cancelled by ``shutdown()``
+    /// so a replaced root's mirror does not double-write lines the new root's
+    /// mirror also delivers.
+    private var debugLogMirrorTask: Task<Void, Never>? = nil
+
+    /// Everything that must run or exist exactly once per PROCESS, however
+    /// many composition roots the live backend switch builds:
+    ///
+    /// - **`MobileDebugLog` arming**: `.shared` is process-global and lazy;
+    ///   the arming append exists so a run that never logs still creates the
+    ///   file and crash capture. Arming twice would only append a second
+    ///   banner line, but it belongs with launch, not with graph assembly.
+    /// - **Crash reporting** (`MobileCrashReporter.startIfEnabled` + its
+    ///   `RevocationWatcher`): starts the Sentry SDK and arms a
+    ///   process-lifetime consent watcher over `NotificationCenter`. A second
+    ///   start would double-arm the watcher and re-enter `SentrySDK.start`.
+    /// - **`TransportSentryReporter`**: a passive event sink, but its incident
+    ///   policy and sliding-hour log budget are process-level state — a
+    ///   rebuilt copy would reset the budget. Its ring export goes through
+    ///   ``DiagnosticRingExportRelay`` so captured incidents always attach the
+    ///   CURRENT root's diagnostic ring.
+    ///
+    /// Everything else in the root's initializer is per-graph by design
+    /// (defaults-backed stores read the same persisted state again; observers,
+    /// tasks, and the event tap are torn down by ``shutdown()``).
+    @MainActor
+    final class ProcessBootstrap {
+        /// Owns the crash reporter's consent-revocation observation for the
+        /// life of the process (closes Sentry + purges its stores if telemetry
+        /// is turned off mid-session).
+        let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
+        /// Whether the build-level kill switch allowed crash reporting to be
+        /// armed (consent gating happens per envelope inside the SDK hooks).
+        let crashReportingArmed: Bool
+        /// Routes the process-wide reporter's incident attachments to the
+        /// current root's diagnostic ring across rebuilds.
+        let ringExportRelay = DiagnosticRingExportRelay()
+        /// Bridges the diagnostic event stream into Sentry (breadcrumbs,
+        /// structured logs, and throttled failure events with the ring export
+        /// attached). Delivery no-ops whenever the crash SDK is off (consent
+        /// revoked or crash reporting disabled for the build).
+        let transportSentryReporter: TransportSentryReporter
+
+        init() {
+            #if DEBUG
+            // Arm the durable debug log at launch: `.shared` is lazy, and
+            // without this a run that never logs would create no file or
+            // crash capture.
+            MobileDebugLog.shared.append("app launch · process bootstrap")
+            #endif
+            let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
+            if AppCompositionRoot.crashReportingEnabled {
+                MobileCrashReporter().startIfEnabled(
+                    consent: telemetryConsent,
+                    revocationWatcher: crashRevocationWatcher
+                )
+                crashReportingArmed = true
+            } else {
+                crashReportingArmed = false
+            }
+            // The reporter checks `SentrySDK.isEnabled` per event, so it
+            // respects both the build-level kill switch above and mid-session
+            // consent revocation (which closes the SDK) without extra plumbing.
+            let relay = ringExportRelay
+            transportSentryReporter = TransportSentryReporter(
+                role: .mobileClient,
+                exportRing: { await relay.export() }
+            )
+        }
+    }
+
+    /// Hands the process-wide Sentry reporter a ring exporter that follows the
+    /// CURRENT composition root. Installed synchronously (main actor) by each
+    /// root's initializer; read from the reporter's detached capture task.
+    @MainActor
+    final class DiagnosticRingExportRelay {
+        private var exportCurrentRing: (@Sendable () async -> Data)?
+
+        func install(_ exportRing: @escaping @Sendable () async -> Data) {
+            exportCurrentRing = exportRing
+        }
+
+        nonisolated func export() async -> Data {
+            guard let exportRing = await exportCurrentRing else { return Data() }
+            return await exportRing()
+        }
+    }
+
+    /// The once-per-process globals; building a second root reuses them.
+    static let processBootstrap = ProcessBootstrap()
 
     init(
         runtime: CMUXMobileRuntime,
@@ -81,12 +173,7 @@ final class AppCompositionRoot {
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
     ) {
-        #if DEBUG
-        // Arm the durable debug log at launch: `.shared` is lazy, and without
-        // this a run that never logs would create no file or crash capture.
-        MobileDebugLog.shared.append("app launch · composition root initialized")
-        #endif
-
+        let bootstrap = Self.processBootstrap
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh
@@ -94,26 +181,16 @@ final class AppCompositionRoot {
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
-        let crashReportingEvent: DiagnosticAppEventKind
-        if Self.crashReportingEnabled {
-            MobileCrashReporter().startIfEnabled(
-                consent: telemetryConsent,
-                revocationWatcher: crashRevocationWatcher
-            )
-            crashReportingEvent = telemetryConsent.isTelemetryEnabled
+        let crashReportingEvent: DiagnosticAppEventKind =
+            bootstrap.crashReportingArmed && telemetryConsent.isTelemetryEnabled
                 ? .crashReportingStarted
                 : .crashReportingDisabled
-        } else {
-            crashReportingEvent = .crashReportingDisabled
+        // Point the process-wide Sentry reporter's incident attachments at
+        // THIS root's ring before any event flows through the tap below.
+        bootstrap.ringExportRelay.install { [diagnosticLog] in
+            await diagnosticLog.export()
         }
-        // The reporter checks `SentrySDK.isEnabled` per event, so it respects
-        // both the build-level kill switch above and mid-session consent
-        // revocation (which closes the SDK) without extra plumbing.
-        let transportSentryReporter = TransportSentryReporter(
-            role: .mobileClient,
-            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
-        )
-        self.transportSentryReporter = transportSentryReporter
+        let transportSentryReporter = bootstrap.transportSentryReporter
         let appLog = AppLog(
             appFileURL: AppLog.defaultAppLogFileURL,
             networkFileURL: AppLog.defaultNetworkLogFileURL,
@@ -133,9 +210,10 @@ final class AppCompositionRoot {
         // the whole in-app story in wall-clock order. The string sink keeps
         // its own privacy gating (DEBUG always, Release behind the verbose
         // opt-in), so this mirror never widens what gets persisted.
-        Task {
+        self.debugLogMirrorTask = Task {
             let sink = MobileDebugLog.shared.sink
             for await line in await sink.lines() {
+                guard !Task.isCancelled else { return }
                 appLog.mirrorAppLine(line)
             }
         }
@@ -295,8 +373,29 @@ final class AppCompositionRoot {
         featureFlags.start()
     }
 
+    /// Tears down everything this graph started, in the reverse of interest
+    /// order, so a fresh root can be assembled for the new backend environment
+    /// (the transaction's quiesce step, after sign-out under the OLD
+    /// environment). The isolated `deinit` stays as the backstop for the
+    /// pieces it already covered.
+    func shutdown() async {
+        pushReachabilityTask?.cancel()
+        pushReachabilityTask = nil
+        featureFlags.stop()
+        appLifecycleDiagnostics.stop()
+        // Detach the ring tap FIRST so no event reaches the old AppLog or the
+        // process-wide Sentry reporter through a graph that is going away; the
+        // new root re-installs the tap over its own ring.
+        diagnosticLog.setEventTap(nil)
+        debugLogMirrorTask?.cancel()
+        debugLogMirrorTask = nil
+        auth.shutdown()
+        await iroh.shutdown()
+    }
+
     isolated deinit {
         pushReachabilityTask?.cancel()
+        debugLogMirrorTask?.cancel()
         featureFlags.stop()
     }
 
@@ -395,5 +494,118 @@ final class AppCompositionRoot {
         @unknown default:
             break
         }
+    }
+}
+
+extension AppCompositionRoot {
+    /// Assembles one complete composition root over the CURRENT persisted
+    /// state (`UserDefaults.standard`, `LocalConfig.plist`, Info.plist bakes).
+    ///
+    /// Called once at launch and again by the backend-switch transaction's
+    /// rebuild step, AFTER the override commit, so the auth composition
+    /// resolves the just-stored environment. This is the former `cmuxApp`
+    /// `static let root` closure body, extracted so a second root can be
+    /// built without relaunching (iOS apps must never self-terminate).
+    static func assemble() -> AppCompositionRoot {
+        let reachability = ReachabilityService()
+        let diagnosticLog = DiagnosticLog(
+            buildStamp: AppCompositionRoot.diagnosticBuildStamp,
+            role: .iosClient
+        )
+        let auth = MobileAuthComposition(
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
+        )
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current(),
+            compatibleMacTags: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXCompatibleMacTags"
+            ) as? String
+        )
+        let iroh = MobileIrohRuntimeComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            reachability: reachability,
+            discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
+            diagnosticLog: diagnosticLog
+        )
+        let connectivityInvalidationServiceURL = PresenceClient
+            .resolvedServiceBaseURL(
+                isDevelopmentAuthChannel: auth.authEnvironment == .development
+            )
+        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
+            .flatMap { URL(string: $0) }
+        if connectivityInvalidationBaseURL == nil {
+            appCompositionConnectivityLog.error(
+                "Connectivity invalidation disabled: presence service URL unavailable"
+            )
+        }
+        iroh.configure(
+            auth: auth.coordinator,
+            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        )
+
+        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
+        // the simulator and on DEBUG device builds so on-device XCUITests can
+        // attach to an in-runner mock host; release device builds keep only
+        // real transports.
+        #if targetEnvironment(simulator) || DEBUG
+        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        #else
+        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
+        #endif
+        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
+        let fallbackRegistrations = supportedKinds.map { kind in
+            CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
+        }
+        let registrations = [
+            CmxRouteTransportFactoryRegistration(
+                kind: .iroh,
+                factory: iroh.transportFactory
+            ),
+        ] + fallbackRegistrations
+        let transportFactory: CmxRouteTransportFactory
+        do {
+            transportFactory = try CmxRouteTransportFactory(registrations)
+        } catch {
+            preconditionFailure("Invalid mobile transport registrations: \(error)")
+        }
+
+        let runtime = CMUXMobileRuntime(
+            transportFactory: transportFactory,
+            stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
+            stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
+            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
+            independentEventByteStreamProvider: { request in
+                try await iroh.serverEventByteStream(for: request)
+            },
+            terminalLaneProvider: { request, surfaceID, cursor in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
+                    throw MobileIrohTerminalLaneError.invalidSurfaceID
+                }
+                return try await iroh.openTerminalLane(
+                    for: request,
+                    surfaceID: surfaceUUID,
+                    cursor: cursor
+                )
+            },
+            artifactLaneProvider: { request, resourceID, offset in
+                try await iroh.openArtifactLane(
+                    for: request,
+                    resourceID: resourceID,
+                    offset: offset
+                )
+            }
+        )
+
+        return AppCompositionRoot(
+            runtime: runtime,
+            auth: auth,
+            iroh: iroh,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
+        )
     }
 }

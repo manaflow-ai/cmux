@@ -38,17 +38,20 @@ public struct MobileAuthComposition {
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
     /// The runtime Production/Staging switch surface for Settings: the ACTIVE
-    /// environment this process resolved at startup, the PENDING persisted
-    /// override the next launch will read (they diverge until the user closes
-    /// and reopens the app), and whether a build-time override
-    /// (`LocalConfig.plist` or an Info.plist bake) pins this build's backend.
+    /// environment THIS composition resolved when it was built, and whether a
+    /// build-time override (`LocalConfig.plist` or an Info.plist bake) pins
+    /// this build's backend. The live switch transaction rebuilds the whole
+    /// composition after storing the override, so `active` converges to the
+    /// user's choice by re-injection from the new graph (no relaunch notice).
     public let backendEnvironmentSwitch: CMUXBackendEnvironmentSwitchState
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
 
     /// UIKit protected-data availability bridge used by auth session restore.
-    private let protectedDataAvailability: ProtectedDataAvailability
+    /// Internal (not private) so the shutdown test can prove the observation
+    /// is disconnected through the injected notification center.
+    let protectedDataAvailability: ProtectedDataAvailability
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -67,13 +70,17 @@ public struct MobileAuthComposition {
     ///   - reachability: Connectivity probe for fail-fast sign-in.
     ///   - policy: The build-flag policy (dev-auth `42` shortcut).
     ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
+    ///   - notificationCenter: The center delivering protected-data
+    ///     availability notifications. Injected so the shutdown test can post
+    ///     through a private center; production uses `.default`.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         defaults: UserDefaults = .standard,
         reachability: any ReachabilityProviding,
         policy: MobileAuthBuildPolicy = .current,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.reachability = reachability
         let appNamespace = MobileIOSAppNamespace(
@@ -118,8 +125,7 @@ public struct MobileAuthComposition {
             ),
             isPinnedByBuild: Self.backendEnvironmentIsPinned(
                 buildOverrides: buildOverrides
-            ),
-            defaults: defaults
+            )
         )
 
         let client = StackAuthClient(
@@ -131,7 +137,9 @@ public struct MobileAuthComposition {
             ),
             oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
-        let availability = ProtectedDataAvailability()
+        let availability = ProtectedDataAvailability(
+            notificationCenter: notificationCenter
+        )
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
@@ -222,6 +230,19 @@ public struct MobileAuthComposition {
         }
         coordinator.start()
         taskOwner.observeRestore(using: coordinator)
+    }
+
+    /// Tears down this graph's cross-lifetime observation when the app swaps
+    /// composition roots (the live backend switch). After shutdown, a
+    /// protected-data availability notification must not trigger a session
+    /// revalidation, and the bootstrap/revalidation tasks are cancelled so no
+    /// auth work from the old environment races the new graph. Cancellation is
+    /// not joined: both tasks only touch this graph's own coordinator, which is
+    /// discarded with it. The struct may briefly outlive the swap; the task
+    /// owner's `deinit` remains the backstop.
+    public func shutdown() {
+        protectedDataAvailability.stopObserving()
+        taskOwner.cancelAll()
     }
 
     private static var isDevelopmentBuild: Bool {
@@ -330,10 +351,10 @@ public struct MobileAuthComposition {
     }
 
     /// Map the resolved web API origin back to the picker's two channels: the
-    /// staging origin means the staging backend is ACTIVE this launch;
-    /// anything else (cmux.com, a tagged build's isolated localhost origin,
-    /// the localhost dev default) reports as production, so the staging badge
-    /// and the "close and reopen" divergence notice key off the origin the
+    /// staging origin means the staging backend is ACTIVE for this
+    /// composition; anything else (cmux.com, a tagged build's isolated
+    /// localhost origin, the localhost dev default) reports as production, so
+    /// the staging badge and the Settings picker key off the origin the
     /// process actually talks to.
     nonisolated static func activeBackendEnvironment(
         resolvedAPIBaseURL: String
@@ -549,6 +570,16 @@ private final class MobileAuthTaskOwner {
             guard !Task.isCancelled else { return }
             self?.revalidationTask = nil
         }
+    }
+
+    /// Cancels every owned task when the composition shuts down (the live
+    /// backend switch). Same teardown as `deinit`, which stays as the backstop
+    /// for owners that never call shutdown.
+    func cancelAll() {
+        restoreTask?.cancel()
+        restoreTask = nil
+        revalidationTask?.cancel()
+        revalidationTask = nil
     }
 
     deinit {

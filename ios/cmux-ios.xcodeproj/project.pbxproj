@@ -10,6 +10,7 @@
 		8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10172DF5000000A66F90 /* cmuxApp.swift */; };
 		8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */; };
 		8B8A10AA2DF5000000A66F90 /* AppCompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */; };
+		8B8A10AE2DF5000000A66F90 /* AppCompositionHolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10AF2DF5000000A66F90 /* AppCompositionHolder.swift */; };
 		8B8A10AC2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */; };
 		8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10192DF5000000A66F90 /* Assets.xcassets */; };
 		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
@@ -51,6 +52,7 @@
 		8B8A10172DF5000000A66F90 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 		8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAppDelegate.swift; sourceTree = "<group>"; };
 		8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
+		8B8A10AF2DF5000000A66F90 /* AppCompositionHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCompositionHolder.swift; sourceTree = "<group>"; };
 		8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAppLifecycleDiagnostics.swift; sourceTree = "<group>"; };
 		8B8A10182DF5000000A66F90 /* cmux.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = cmux.xctestplan; sourceTree = "<group>"; };
 		8B8A10192DF5000000A66F90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -98,6 +100,7 @@
 				8B8A10172DF5000000A66F90 /* cmuxApp.swift */,
 				8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */,
 				8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */,
+				8B8A10AF2DF5000000A66F90 /* AppCompositionHolder.swift */,
 				8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */,
 				8B8A10182DF5000000A66F90 /* cmux.xctestplan */,
 			);
@@ -282,6 +285,7 @@
 				8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */,
 				8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */,
 				8B8A10AA2DF5000000A66F90 /* AppCompositionRoot.swift in Sources */,
+				8B8A10AE2DF5000000A66F90 /* AppCompositionHolder.swift in Sources */,
 				8B8A10AC2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

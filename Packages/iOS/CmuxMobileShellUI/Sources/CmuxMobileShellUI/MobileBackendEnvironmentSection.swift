@@ -8,31 +8,26 @@ import SwiftUI
 /// (https://cmux.com + the production Stack project) and the staging backend
 /// (the cmux-staging deployment + the development Stack project).
 ///
-/// The choice persists in `UserDefaults` and the composition root applies it
-/// on the NEXT launch: iOS apps must not self-terminate, so after a change the
-/// section shows a persistent "close and reopen" notice instead of exiting.
+/// Switching is live: picking the other environment presents a confirmation
+/// (it signs the user out), then the app root runs the switch transaction —
+/// sign out of the old environment, quiesce the old graph, store the override,
+/// rebuild the SwiftUI tree against the new backend. No relaunch is involved.
 /// Tagged dev builds bake their backend at build time (`LocalConfig.plist` or
 /// Info.plist values); for those the section states the pin and shows the
 /// active environment instead of a picker that would not take effect.
 struct MobileBackendEnvironmentSection: View {
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.backendEnvironmentSwitchAction) private var switchAction
 
     let state: CMUXBackendEnvironmentSwitchState
 
-    /// The picker's selection, seeded from the persisted override when the
-    /// sheet is presented and written through on every change.
-    @State private var pending: CMUXBackendEnvironmentOverride
-
-    /// Whether a non-production override was persisted at presentation.
-    /// Captured once so switching back to production never hides the section
-    /// mid-interaction (the relaunch notice must stay readable).
-    private let presentedWithNonProductionOverride: Bool
+    /// The selection → confirmation → action seam; flipping the picker only
+    /// parks a target here, and only the dialog's confirm button invokes the
+    /// switch action.
+    @State private var confirmation = BackendEnvironmentSwitchConfirmation()
 
     init(state: CMUXBackendEnvironmentSwitchState) {
         self.state = state
-        let pending = state.pending
-        _pending = State(initialValue: pending)
-        presentedWithNonProductionOverride = pending != .production
     }
 
     var body: some View {
@@ -59,19 +54,30 @@ struct MobileBackendEnvironmentSection: View {
                             defaultValue: "Environment"
                         ))
                     }
+                    .disabled(switchAction?.isRunning == true)
                     .accessibilityIdentifier("MobileSettingsBackendEnvironmentPicker")
-
-                    if pending != state.active {
-                        Label(
+                    .confirmationDialog(
+                        confirmationTitle,
+                        isPresented: confirmationPresented,
+                        titleVisibility: .visible
+                    ) {
+                        Button(
                             L10n.string(
-                                "mobile.settings.backend.relaunchNotice",
-                                defaultValue: "Close and reopen cmux to apply."
+                                "mobile.settings.backend.confirmAction",
+                                defaultValue: "Switch & Sign Out"
                             ),
-                            systemImage: "arrow.clockwise.circle"
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier("MobileSettingsBackendRelaunchNotice")
+                            role: .destructive
+                        ) {
+                            confirmation.confirm(using: switchAction)
+                        }
+                        // The system-provided Cancel button dismisses the
+                        // dialog; the isPresented binding reverts the parked
+                        // selection through `confirmation.cancel()`.
+                    } message: {
+                        Text(L10n.string(
+                            "mobile.settings.backend.confirmMessage",
+                            defaultValue: "Staging is a separate environment with separate accounts and data. Switching signs you out, and your Mac and iPhone must be on the same environment to pair."
+                        ))
                     }
                 }
             } header: {
@@ -83,29 +89,49 @@ struct MobileBackendEnvironmentSection: View {
     }
 
     /// The picker is for the team (verified @manaflow.ai) and DEBUG dogfood,
-    /// but production must always be selectable: a persisted non-production
-    /// override or an actively-staging launch keeps the section visible even
-    /// when the account gate says no, so nobody is stranded on staging.
+    /// but production must always be selectable: an actively-staging launch
+    /// keeps the section visible even when the account gate says no, so nobody
+    /// is stranded on staging. (Active always reflects the persisted override
+    /// now — the live switch rebuilds the composition on commit — so there is
+    /// no divergent pending override left to check.)
     private var isVisible: Bool {
         #if DEBUG
         return true
         #else
         return CMUXBackendEnvironmentSwitchGate.allows(authManager.currentUser)
-            || presentedWithNonProductionOverride
             || state.active == .staging
         #endif
     }
 
-    /// Writes through on selection so the choice survives however the app is
-    /// next terminated (the relaunch is what applies it).
+    /// Flipping the picker parks the target behind the confirmation dialog;
+    /// nothing is stored or switched until the user confirms.
     private var environmentSelection: Binding<CMUXBackendEnvironmentOverride> {
         Binding(
-            get: { pending },
+            get: { confirmation.selection(active: state.active) },
             set: { newValue in
-                guard newValue != pending else { return }
-                pending = newValue
-                state.setPending(newValue)
+                confirmation.select(newValue, active: state.active)
             }
+        )
+    }
+
+    private var confirmationPresented: Binding<Bool> {
+        Binding(
+            get: { confirmation.pendingTarget != nil },
+            set: { isPresented in
+                if !isPresented {
+                    confirmation.cancel()
+                }
+            }
+        )
+    }
+
+    private var confirmationTitle: String {
+        String(
+            format: L10n.string(
+                "mobile.settings.backend.confirmTitle",
+                defaultValue: "Switch to %@?"
+            ),
+            environmentName(confirmation.pendingTarget ?? state.active)
         )
     }
 

@@ -445,8 +445,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     @Test func persistedStagingOverrideFlipsTheComposition() throws {
         // Full composition over injected defaults: the persisted override is
         // read from the SAME defaults the caches use, resolves the staging
-        // backend, and reports staging as both ACTIVE and PENDING (no
-        // relaunch divergence right after a staging launch).
+        // backend, and reports staging as ACTIVE.
         let defaults = try freshDefaults()
         CMUXBackendEnvironmentOverride.staging.store(in: defaults)
         let composition = try makeComposition(
@@ -458,7 +457,6 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.config.apiBaseURL == Self.stagingOrigin)
         #expect(composition.config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
         #expect(composition.backendEnvironmentSwitch.active == .staging)
-        #expect(composition.backendEnvironmentSwitch.pending == .staging)
         #expect(!composition.backendEnvironmentSwitch.isPinnedByBuild)
     }
 
@@ -475,7 +473,6 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.config.stack.projectId == Self.developmentProjectID)
         #expect(composition.config.apiBaseURL == "http://localhost:3000")
         #expect(composition.backendEnvironmentSwitch.active == .production)
-        #expect(composition.backendEnvironmentSwitch.pending == .production)
     }
 
     @Test func unknownPersistedOverrideBehavesAsProduction() throws {
@@ -490,7 +487,6 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.config.stack.projectId == Self.developmentProjectID)
         #expect(composition.config.apiBaseURL == "http://localhost:3000")
         #expect(composition.backendEnvironmentSwitch.active == .production)
-        #expect(composition.backendEnvironmentSwitch.pending == .production)
     }
 
     @Test func bakedBuildReportsPinnedBackendEnvironment() throws {
@@ -508,21 +504,86 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.backendEnvironmentSwitch.active == .production)
     }
 
-    @Test func backendSwitchStateWritesThePendingOverrideWithoutChangingActive() throws {
-        // The Settings picker persists for the NEXT launch; the running
-        // process keeps its startup resolution (iOS apps never self-restart).
+    // MARK: - Rebuild without relaunch (the live switch's commit + rebuild)
+
+    @Test func rebuildOverSameDefaultsAppliesStoredStagingOverride() throws {
+        // The live switch stores the override and assembles a SECOND
+        // composition over the same defaults suite, in the same process. The
+        // new composition must resolve the staging origin + the development
+        // Stack project (what the staging web deployment authenticates
+        // against) with no relaunch anywhere, and its switch state must
+        // report staging as ACTIVE so the Settings badge converges by
+        // re-injection alone.
         let defaults = try freshDefaults()
-        let composition = try makeComposition(
-            bundle: fixtureBundle(localConfig: [:]),
-            defaults: defaults
+        let bundle = try fixtureBundle(localConfig: [:])
+        let first = try makeComposition(bundle: bundle, defaults: defaults)
+        #expect(first.backendEnvironmentSwitch.active == .production)
+
+        // The transaction's storeOverride (commit) step.
+        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+
+        let second = try makeComposition(bundle: bundle, defaults: defaults)
+        #expect(second.authEnvironment == .development)
+        #expect(second.config.stack.projectId == Self.developmentProjectID)
+        #expect(second.config.apiBaseURL == Self.stagingOrigin)
+        #expect(second.config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
+        #expect(second.backendEnvironmentSwitch.active == .staging)
+
+        // And back: storing production restores the untouched build default
+        // on the next rebuild (tests compile DEBUG: localhost origin).
+        CMUXBackendEnvironmentOverride.production.store(in: defaults)
+        let third = try makeComposition(bundle: bundle, defaults: defaults)
+        #expect(third.backendEnvironmentSwitch.active == .production)
+        #expect(third.config.apiBaseURL == "http://localhost:3000")
+    }
+
+    @Test func rebuildOntoStagingRequestsTheSessionClearOnRelease() throws {
+        // Release-shaped project resolution over ONE defaults suite: launch A
+        // resolves production (records the production project id), the switch
+        // stores staging, and rebuild B resolves the development project — so
+        // detectAuthProjectSwitch must request the stale-state clear exactly
+        // at the rebuild. (The full-composition variant above cannot show
+        // this: tests compile DEBUG, where both resolutions already use the
+        // development project.)
+        let defaults = try freshDefaults()
+        defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
+
+        let launchOverrides = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: nil,
+            bakedAPIBaseURL: nil
         )
-        composition.backendEnvironmentSwitch.setPending(.staging)
-        #expect(composition.backendEnvironmentSwitch.pending == .staging)
-        #expect(composition.backendEnvironmentSwitch.active == .production)
-        composition.backendEnvironmentSwitch.setPending(.production)
-        #expect(composition.backendEnvironmentSwitch.pending == .production)
-        // Production removes the key, keeping "no key" == production.
-        #expect(defaults.string(forKey: CMUXBackendEnvironmentOverride.defaultsKey) == nil)
+        let launchProjectID = AuthConfig(
+            environment: MobileAuthComposition.resolvedAuthEnvironment(
+                isDevelopmentBuild: false,
+                overrides: launchOverrides
+            ),
+            overrides: launchOverrides
+        ).stack.projectId
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: launchProjectID,
+            buildDefaultProjectID: Self.productionProjectID,
+            defaults: defaults
+        ) == false)
+
+        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        let rebuiltOverrides = MobileAuthComposition.mergingRuntimeBackendOverride(
+            CMUXBackendEnvironmentOverride.load(from: defaults),
+            into: launchOverrides
+        )
+        let rebuiltProjectID = AuthConfig(
+            environment: MobileAuthComposition.resolvedAuthEnvironment(
+                isDevelopmentBuild: false,
+                overrides: rebuiltOverrides
+            ),
+            overrides: rebuiltOverrides
+        ).stack.projectId
+        #expect(rebuiltProjectID == Self.developmentProjectID)
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: rebuiltProjectID,
+            buildDefaultProjectID: Self.productionProjectID,
+            defaults: defaults
+        ) == true)
     }
 
     @Test func stagingSwitchOnReleaseFlipsStackProjectAndRequestsSessionClear() throws {
