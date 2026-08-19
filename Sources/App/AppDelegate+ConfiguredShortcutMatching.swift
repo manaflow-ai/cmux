@@ -70,7 +70,7 @@ extension AppDelegate {
     /// while retaining the shared configured-shortcut matcher.
     func rightSidebarModeShortcut(
         for event: NSEvent,
-        allowingAction: @escaping (KeyboardShortcutSettings.Action) -> Bool
+        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
     ) -> RightSidebarMode? {
         let shortcutWindow = resolvedShortcutEventWindow(event)
             ?? event.window
