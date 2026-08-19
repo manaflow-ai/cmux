@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import struct CMUXMobileCore.MobileBrowserStreamCapability
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

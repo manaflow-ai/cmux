@@ -49,7 +49,7 @@ struct ManagedPolicyRemoteControlTests {
         let exit = await MobileHostService.acceptTransport(
             transport,
             authorization: .legacyPrivateNetworkListener,
-            remoteControlPolicyDisabled: { true },
+            remoteControlDisabledByPolicy: { true },
             isCurrent: { true }
         )
 
