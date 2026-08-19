@@ -31,12 +31,14 @@ public struct CmuxConfigLines: Sendable {
     ///   all) to CRLF. A classic-Mac CR-only body reads as ``LineEnding/lf`` and
     ///   is rewritten with LF; ``split(_:)`` still finds its lines.
     public func lineEnding(of contents: String) -> LineEnding {
-        // Character comparison sees "\r\n" as one grapheme cluster, so
-        // `firstIndex(of: "\n")` finds only bare LFs and `firstIndex(of: "\r\n")`
-        // only CRLFs; the earlier of the two is the first line break.
-        guard let crlfIndex = contents.firstIndex(of: "\r\n") else { return .lf }
-        guard let lfIndex = contents.firstIndex(of: "\n") else { return .crlf }
-        return crlfIndex < lfIndex ? .crlf : .lf
+        // Character comparison sees "\r\n" as one grapheme cluster rather than
+        // two, which is what lets one scan tell a CRLF break apart from a bare
+        // LF or a lone CR. The styles ``split(_:)`` recognizes are exactly the
+        // ones tested here, so the two functions agree on where a line ends.
+        guard let firstBreak = contents.first(where: { $0 == "\r\n" || $0 == "\n" || $0 == "\r" }) else {
+            return .lf
+        }
+        return firstBreak == "\r\n" ? .crlf : .lf
     }
 
     /// Splits `contents` into lines, tolerating LF, CRLF, and lone-CR endings.
