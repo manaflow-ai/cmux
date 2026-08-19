@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxGit
-import CmuxIrohTransport
 import CmuxMobileTransport
 import CmuxSettings
 import CmuxTerminalCore
@@ -403,7 +402,7 @@ final class MobileHostService {
     /// Inject the auth dependency. Call once at the composition root.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        MobileHostIrohRuntime.shared.configure(auth: auth)
+        MobileHostPeerRuntime.shared.configure(auth: auth)
     }
 
     func updateIrohRoute(
@@ -416,15 +415,11 @@ final class MobileHostService {
         )
     }
 
-    func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
-        MobileHostPublicStatusCache.update(irohBinding: binding)
-    }
-
-    func closeIrohConnections(bindingID: String) {
+    func closeIrohConnections(initiatorDeviceID: String) {
         for connection in MobileHostConnectionRegistry.shared.removeIrohConnections(
-            bindingID: bindingID
+            initiatorDeviceID: initiatorDeviceID
         ) {
-            Task { await connection.close(reason: "iroh binding deactivated") }
+            Task { await connection.close(reason: "peer binding deactivated") }
         }
     }
 
@@ -628,7 +623,7 @@ final class MobileHostService {
                 Task {
                     await connection.close(
                         reason: "event queue exceeded bounded capacity",
-                        exit: CmxIrohAdmittedConnectionExit(
+                        exit: MobileHostConnectionExit(
                             lifecycle: .controlWriteFailed,
                             failure: .sendQueueOverflow
                         )
@@ -947,15 +942,17 @@ final class MobileHostService {
                 mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
             }
             if plan.activatesIroh {
-                MobileHostIrohRuntime.shared.setDesiredActive(true)
+                MobileHostPeerRuntime.shared.setDesiredActive(true)
             }
             return
         }
 
-        CmxIrohTCPFirstActivation.start(
-            startTCP: { startListener(usePreferredPort: true) },
-            scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
-        )
+        // TCP-first ordering: the required TCP listener starts synchronously
+        // before optional peer-transport policy and credential work is
+        // scheduled, so a relay-policy or Keychain suspension can never delay
+        // the existing listener.
+        startListener(usePreferredPort: true)
+        MobileHostPeerRuntime.shared.setDesiredActive(true)
     }
 
     #if DEBUG
@@ -1033,7 +1030,7 @@ final class MobileHostService {
     }
 
     func stop() {
-        MobileHostIrohRuntime.shared.setDesiredActive(false)
+        MobileHostPeerRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1178,7 +1175,7 @@ final class MobileHostService {
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
-        MobileHostIrohRuntime.shared.setDesiredActive(true)
+        MobileHostPeerRuntime.shared.setDesiredActive(true)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -1252,12 +1249,12 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
-        artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
+        artifactTransfers: MobileHostPeerArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         isCurrent: @escaping @Sendable () async -> Bool
-    ) async -> CmxIrohAdmittedConnectionExit {
-        let expectedExit = CmxIrohAdmittedConnectionExit(
+    ) async -> MobileHostConnectionExit {
+        let expectedExit = MobileHostConnectionExit(
             lifecycle: .explicitlyInvalidated,
             failure: .none
         )
@@ -1364,7 +1361,7 @@ final class MobileHostService {
         case .stackBearer:
             guard requiresAuthorization(method: request.method) else { return nil }
             return await stackAuthorization(request)
-        case .irohAdmission:
+        case .peerAdmission:
             return nil
         }
     }
@@ -1378,7 +1375,7 @@ final class MobileHostService {
         switch authorization {
         case .stackBearer:
             return await stackStatus(request)
-        case .irohAdmission:
+        case .peerAdmission:
             let phonePushStatus = await MainActor.run {
                 (
                     PhonePushClient.shared.currentAdmission(),
@@ -1809,7 +1806,7 @@ final class MobileHostService {
     }
 
     private func handleNetworkPathChange() {
-        MobileHostIrohRuntime.shared.retryIfNeeded()
+        MobileHostPeerRuntime.shared.retryIfNeeded()
         // The cached Tailscale hosts (and any in-flight resolution) may describe
         // the previous network; drop them on EVERY path observation so no later
         // refresh can be satisfied from, or raced by, old-path state. This must
@@ -1991,7 +1988,7 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
     private var isClosed = false
-    private var exit = CmxIrohAdmittedConnectionExit(
+    private var exit = MobileHostConnectionExit(
         lifecycle: .explicitlyInvalidated,
         failure: .none
     )
@@ -2070,7 +2067,7 @@ actor MobileHostConnection {
     /// The caller retains connection ownership until this method returns. This
     /// matters for Iroh, whose sibling application-lane task closes the shared
     /// QUIC session when either side of the task group finishes.
-    func run() async -> CmxIrohAdmittedConnectionExit {
+    func run() async -> MobileHostConnectionExit {
         guard receiveTask == nil, !isClosed else { return exit }
         startFirstFrameTimeout()
         let transport = transport
@@ -2085,7 +2082,7 @@ actor MobileHostConnection {
                     guard let data = try await transport.receive() else {
                         await self?.close(
                             reason: "remote closed",
-                            exit: CmxIrohAdmittedConnectionExit(
+                            exit: MobileHostConnectionExit(
                                 lifecycle: .remoteClosed,
                                 failure: .connectionClosed
                             )
@@ -2099,7 +2096,7 @@ actor MobileHostConnection {
             } catch {
                 await self?.close(
                     reason: String(describing: error),
-                    exit: CmxIrohAdmittedConnectionExit(
+                    exit: MobileHostConnectionExit(
                         lifecycle: .controlReadFailed,
                         failure: DiagnosticFailureKind.classify(error)
                     )
@@ -2120,7 +2117,7 @@ actor MobileHostConnection {
 
     func close(
         reason: String,
-        exit: CmxIrohAdmittedConnectionExit = CmxIrohAdmittedConnectionExit(
+        exit: MobileHostConnectionExit = MobileHostConnectionExit(
             lifecycle: .explicitlyInvalidated,
             failure: .none
         )
@@ -2179,7 +2176,7 @@ actor MobileHostConnection {
                 )
                 await close(
                     reason: "receive buffer exceeded frame limit",
-                    exit: CmxIrohAdmittedConnectionExit(
+                    exit: MobileHostConnectionExit(
                         lifecycle: .controlReadFailed,
                         failure: .protocolViolation
                     )
@@ -2205,7 +2202,7 @@ actor MobileHostConnection {
                     guard startResponseTask(for: frame) else {
                         await close(
                             reason: "rpc work capacity exceeded",
-                            exit: CmxIrohAdmittedConnectionExit(
+                            exit: MobileHostConnectionExit(
                                 lifecycle: .controlReadFailed,
                                 failure: .protocolViolation
                             )
@@ -2227,7 +2224,7 @@ actor MobileHostConnection {
                 )
                 await close(
                     reason: "frame decode error",
-                    exit: CmxIrohAdmittedConnectionExit(
+                    exit: MobileHostConnectionExit(
                         lifecycle: .controlReadFailed,
                         failure: .protocolViolation
                     )
@@ -2370,7 +2367,7 @@ actor MobileHostConnection {
         }
         await close(
             reason: "first frame timed out",
-            exit: CmxIrohAdmittedConnectionExit(
+            exit: MobileHostConnectionExit(
                 lifecycle: .controlReadFailed,
                 failure: .timedOut
             )
@@ -2401,7 +2398,7 @@ actor MobileHostConnection {
         }
         await close(
             reason: "idle after frame timed out",
-            exit: CmxIrohAdmittedConnectionExit(
+            exit: MobileHostConnectionExit(
                 lifecycle: .controlReadFailed,
                 failure: .timedOut
             )
@@ -2429,7 +2426,7 @@ actor MobileHostConnection {
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
             await close(
                 reason: "invalid rpc envelope",
-                exit: CmxIrohAdmittedConnectionExit(
+                exit: MobileHostConnectionExit(
                     lifecycle: .controlReadFailed,
                     failure: .protocolViolation
                 )
@@ -2814,7 +2811,7 @@ actor MobileHostConnection {
             // protocolViolation seconds after admission.
             await close(
                 reason: "event queue exceeded bounded capacity",
-                exit: CmxIrohAdmittedConnectionExit(
+                exit: MobileHostConnectionExit(
                     lifecycle: .controlWriteFailed,
                     failure: .sendQueueOverflow
                 )
@@ -2989,7 +2986,7 @@ actor MobileHostConnection {
         guard eventSendGeneration == generation, !isClosed else { return }
         await close(
             reason: "event send stalled past the bounded deadline",
-            exit: CmxIrohAdmittedConnectionExit(
+            exit: MobileHostConnectionExit(
                 lifecycle: .controlWriteFailed,
                 failure: .timedOut
             )
@@ -3040,7 +3037,7 @@ actor MobileHostConnection {
             // local wire-limit violation, so protocolViolation is honest here.
             await close(
                 reason: "response frame encode failed",
-                exit: CmxIrohAdmittedConnectionExit(
+                exit: MobileHostConnectionExit(
                     lifecycle: .controlWriteFailed,
                     failure: .protocolViolation
                 )
@@ -3059,7 +3056,7 @@ actor MobileHostConnection {
         } catch {
             await close(
                 reason: String(describing: error),
-                exit: CmxIrohAdmittedConnectionExit(
+                exit: MobileHostConnectionExit(
                     lifecycle: .controlWriteFailed,
                     failure: DiagnosticFailureKind.classify(error)
                 )

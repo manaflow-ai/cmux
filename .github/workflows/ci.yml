@@ -1457,7 +1457,7 @@ jobs:
             CmuxAgentChat
             CmuxAuthRuntime
             CmuxBrowser
-            CmuxIrohTransport
+            CmuxPeerTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1490,7 +1490,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime|CmuxPeerTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)

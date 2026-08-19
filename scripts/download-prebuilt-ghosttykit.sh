@@ -85,3 +85,7 @@ mv "$EXTRACT_DIR/GhosttyKit.xcframework" "$OUTPUT_DIR"
 test -d "$OUTPUT_DIR"
 
 echo "Verified and extracted $OUTPUT_DIR"
+
+# Root binary artifacts materialize together (see ensure-ghosttykit.sh):
+# CI happy paths that skip ensure-ghosttykit still need the iroh artifact.
+"$SCRIPT_DIR/ensure-iroh-xcframework.sh"

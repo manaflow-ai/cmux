@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxIrohTransport
 import CmuxMobileRPC
 import Foundation
 @preconcurrency import Network
@@ -384,11 +383,13 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
-        let stream = BlockingMobileHostIrohSendStream()
-        let writer = MobileHostIrohServerEventWriter(
+        let stream = BlockingMobileHostPeerEventStream()
+        let writer = MobileHostPeerServerEventWriter(
             openStream: { stream },
-            clock: ImmediateMobileHostIrohClock(),
-            sendTimeout: 3
+            // An immediately-returning timeout sleep makes the send deadline
+            // fire deterministically while the fake stream blocks.
+            timeoutSleep: { _ in },
+            sendTimeout: .seconds(3)
         )
 
         do {

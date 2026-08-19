@@ -179,7 +179,7 @@ extension TerminalController {
                 try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value
             return ChatArtifactWire.result(chunk)
-        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
+        } catch let error as MobileHostPeerArtifactTransferRegistry.Error {
             switch error.issueFailure {
             case .fileNotFound:
                 debugLogMobileChatArtifactDenial(

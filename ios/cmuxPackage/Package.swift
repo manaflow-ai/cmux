@@ -12,23 +12,20 @@ let package = Package(
     name: "cmuxFeature",
     platforms: [
         .iOS(.v18),
-        .macOS(.v14),
+        // CmuxPeerTransport pins stock iroh-ffi v1.1.0, which declares 14.5.
+        .macOS("14.5"),
     ],
     products: [
         .library(
             name: "cmuxFeature",
             targets: ["cmuxFeature"]
         ),
-        .library(
-            name: "CmuxIrohReleaseGateSupport",
-            targets: ["CmuxIrohReleaseGateSupport"]
-        ),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
-        .package(path: "../../Packages/Shared/CmuxIrohTransport"),
+        .package(path: "../../Packages/Shared/CmuxPeerTransport"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/iOS/CmuxMobileAnalytics"),
         .package(path: "../../Packages/iOS/CmuxMobileBrowser"),
@@ -56,7 +53,8 @@ let package = Package(
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
-                "CmuxIrohTransport",
+                .product(name: "CmuxPeerTransport", package: "CmuxPeerTransport"),
+                .product(name: "CmuxPeerTransportCore", package: "CmuxPeerTransport"),
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
@@ -82,33 +80,15 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
-        .target(
-            name: "CmuxIrohReleaseGateSupport",
-            dependencies: [
-                "cmuxFeature",
-                "CMUXMobileCore",
-                "CmuxIrohTransport",
-                "CmuxMobileShell",
-                .product(
-                    name: "CmuxMobileShellReleaseGateSupport",
-                    package: "CmuxMobileShell"
-                ),
-                "CmuxMobileShellModel",
-                "CmuxMobileShellUI",
-            ],
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-            ]
-        ),
         .testTarget(
             name: "cmuxFeatureTests",
             dependencies: [
                 "cmuxFeature",
-                "CmuxIrohReleaseGateSupport",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
-                "CmuxIrohTransport",
+                .product(name: "CmuxPeerTransport", package: "CmuxPeerTransport"),
+                .product(name: "CmuxPeerTransportCore", package: "CmuxPeerTransport"),
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",

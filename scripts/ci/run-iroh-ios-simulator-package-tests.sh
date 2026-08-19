@@ -5,6 +5,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 expected_arch="${CMUX_EXPECTED_SIMULATOR_ARCH:-$(uname -m)}"
 
+# CmuxPeerTransport's binary target points at the repo-root artifact.
+"$repo_root/scripts/ensure-iroh-xcframework.sh"
+
 case "$expected_arch" in
   arm64|x86_64) ;;
   *)
@@ -269,6 +272,6 @@ run_package_tests \
   CMUXMobileCore \
   CMUXMobileCoreTests
 run_package_tests \
-  Packages/Shared/CmuxIrohTransport \
-  CmuxIrohTransport \
-  CmuxIrohTransportTests
+  Packages/Shared/CmuxPeerTransport \
+  CmuxPeerTransport \
+  CmuxPeerTransportTests

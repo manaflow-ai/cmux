@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxIrohTransport
+import CmuxPeerTransport
 import Foundation
 import Testing
 
@@ -190,103 +190,113 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIrohStartupRetryTests {
+    private static func makeBinding() throws -> PeerBrokerBinding {
+        try JSONDecoder().decode(
+            PeerBrokerBinding.self,
+            from: Data(
+                """
+                {
+                  "binding_id":"123e4567-e89b-42d3-a456-426614174010",
+                  "device_id":"123e4567-e89b-42d3-a456-426614174011",
+                  "app_instance_id":"123e4567-e89b-42d3-a456-426614174012",
+                  "tag":"route-ready",
+                  "platform":"mac",
+                  "display_name":"Test Mac",
+                  "endpoint_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "identity_generation":1,
+                  "pairing_enabled":true,
+                  "capabilities":["mobile-rpc-v1","multistream-v1"],
+                  "path_hints":[],
+                  "last_seen_at":"2026-07-09T12:00:00.000Z"
+                }
+                """.utf8
+            )
+        )
+    }
+
     @Test
     func bindingRemainsUnavailableUntilMatchingHostRuntimeIsActive() throws {
-        let runtime = MobileHostIrohRuntime.shared
+        let runtime = MobileHostPeerRuntime.shared
         let originalRevision = runtime.lifecycleRevision
         let revision: UInt64 = 4_200
-        let binding = try CmxIrohBrokerBindingMetadata(
-            bindingID: "123e4567-e89b-42d3-a456-426614174010",
-            deviceID: "123e4567-e89b-42d3-a456-426614174011",
-            appInstanceID: "123e4567-e89b-42d3-a456-426614174012",
-            tag: "route-ready",
-            platform: .mac,
-            endpointID: CmxIrohPeerIdentity(
-                endpointID: String(repeating: "a", count: 64)
-            ),
-            identityGeneration: 1
-        )
+        let binding = try Self.makeBinding()
         defer {
             runtime.lifecycleRevision = originalRevision
-            runtime.clearIrohRoutePublication()
+            runtime.clearRoutePublication()
             MobileHostPublicStatusCache.removeAll()
         }
         MobileHostPublicStatusCache.removeAll()
         runtime.lifecycleRevision = revision
 
-        runtime.beginIrohRouteActivation(revision: revision)
-        runtime.stageIrohRoute(binding, pathHints: [], revision: revision)
+        runtime.beginRouteActivation(revision: revision)
+        runtime.stageRoute(binding, revision: revision)
 
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
-        #expect(runtime.routePublicationPhase == .starting(revision: revision))
-        #expect(!runtime.publishIrohRouteIfActive(revision: revision - 1))
+        #expect(runtime.pendingRouteBinding?.revision == revision)
+        #expect(!runtime.publishRouteIfActive(revision: revision - 1))
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
-        #expect(runtime.publishIrohRouteIfActive(revision: revision))
+        #expect(runtime.publishRouteIfActive(revision: revision))
         #expect(MobileHostPublicStatusCache.hasIrohRoute())
 
         runtime.lifecycleRevision = revision + 1
-        runtime.beginIrohRouteActivation(revision: revision + 1)
+        runtime.beginRouteActivation(revision: revision + 1)
 
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
-        #expect(runtime.routePublicationPhase == .starting(revision: revision + 1))
+        #expect(runtime.pendingRouteBinding == nil)
     }
 
     @Test
     func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
-        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+        #expect(!MobileHostPeerRuntime.shouldReconcileAuthObservation(
             accountID: "same-account",
             previousAccountID: "same-account",
             activeAccountID: nil,
             hasRuntime: false,
-            transitionInFlight: true,
-            preparedSignOutNeedsPersistence: false
+            transitionInFlight: true
         ))
     }
 
     @Test
     func sameAccountAuthObservationDoesNotRestartActiveRuntime() {
-        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+        #expect(!MobileHostPeerRuntime.shouldReconcileAuthObservation(
             accountID: "same-account",
             previousAccountID: "same-account",
             activeAccountID: "same-account",
             hasRuntime: true,
-            transitionInFlight: false,
-            preparedSignOutNeedsPersistence: false
+            transitionInFlight: false
         ))
     }
 
     @Test
     func sameAccountAuthObservationRetriesAfterFailedActivation() {
-        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+        #expect(MobileHostPeerRuntime.shouldReconcileAuthObservation(
             accountID: "same-account",
             previousAccountID: "same-account",
             activeAccountID: nil,
             hasRuntime: false,
-            transitionInFlight: false,
-            preparedSignOutNeedsPersistence: false
+            transitionInFlight: false
         ))
     }
 
     @Test
     func accountChangeStillSupersedesActivationInFlight() {
-        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+        #expect(MobileHostPeerRuntime.shouldReconcileAuthObservation(
             accountID: "next-account",
             previousAccountID: "previous-account",
             activeAccountID: nil,
             hasRuntime: false,
-            transitionInFlight: true,
-            preparedSignOutNeedsPersistence: false
+            transitionInFlight: true
         ))
     }
 
     @Test
     func networkPathRetryDoesNotSupersedeActivationInFlight() async {
-        let runtime = MobileHostIrohRuntime.shared
+        let runtime = MobileHostPeerRuntime.shared
         let originalDesiredActive = runtime.desiredActive
         let originalObservedAccountID = runtime.observedAccountID
         let originalPreparedSignOut = runtime.preparedSignOut
         let originalSignOutIntentActive = runtime.signOutIntentActive
-        let originalRuntime = runtime.runtime
+        let originalActive = runtime.active
         let originalTransitionTask = runtime.transitionTask
         let originalRevision = runtime.lifecycleRevision
         let gate = MobileHostIrohStartupRetryGate()
@@ -295,7 +305,7 @@ struct MobileHostIrohStartupRetryTests {
         runtime.observedAccountID = "network-path-race-account"
         runtime.preparedSignOut = nil
         runtime.signOutIntentActive = false
-        runtime.runtime = nil
+        runtime.active = nil
         runtime.transitionTask = activation
 
         runtime.retryIfNeeded()
@@ -307,78 +317,13 @@ struct MobileHostIrohStartupRetryTests {
         await gate.resume()
         await scheduled?.value
         runtime.transitionTask = originalTransitionTask
-        runtime.runtime = originalRuntime
+        runtime.active = originalActive
         runtime.desiredActive = originalDesiredActive
         runtime.observedAccountID = originalObservedAccountID
         runtime.preparedSignOut = originalPreparedSignOut
         runtime.signOutIntentActive = originalSignOutIntentActive
         runtime.lifecycleRevision = originalRevision
     }
-
-    @Test
-    func staleDeactivationCannotClearReplacementRuntimeState() async {
-        let runtime = MobileHostIrohRuntime.shared
-        let originalDesiredActive = runtime.desiredActive
-        let originalSignOutIntentActive = runtime.signOutIntentActive
-        let originalRevision = runtime.lifecycleRevision
-        let probe = MobileHostIrohDeactivationProbe()
-        runtime.desiredActive = true
-        runtime.signOutIntentActive = false
-        runtime.lifecycleRevision = 1_000
-
-        await runtime.handleActiveRuntimeDeactivation(
-            revision: 999,
-            stopLANPublication: {
-                probe.didStopLAN = true
-            },
-            clearHostRuntime: {
-                probe.didClearHost = true
-            }
-        )
-
-        #expect(!probe.didStopLAN)
-        #expect(!probe.didClearHost)
-        runtime.desiredActive = originalDesiredActive
-        runtime.signOutIntentActive = originalSignOutIntentActive
-        runtime.lifecycleRevision = originalRevision
-    }
-
-    @Test
-    func deactivationRechecksOwnershipAfterSuspendingCleanup() async {
-        let runtime = MobileHostIrohRuntime.shared
-        let originalDesiredActive = runtime.desiredActive
-        let originalSignOutIntentActive = runtime.signOutIntentActive
-        let originalRevision = runtime.lifecycleRevision
-        let probe = MobileHostIrohDeactivationProbe()
-        runtime.desiredActive = true
-        runtime.signOutIntentActive = false
-        runtime.lifecycleRevision = 2_000
-
-        await runtime.handleActiveRuntimeDeactivation(
-            revision: 2_000,
-            stopLANPublication: {
-                probe.didStopLAN = true
-                // A replacement activation took ownership while the old
-                // callback was suspended in LAN cleanup.
-                runtime.lifecycleRevision = 2_001
-            },
-            clearHostRuntime: {
-                probe.didClearHost = true
-            }
-        )
-
-        #expect(probe.didStopLAN)
-        #expect(!probe.didClearHost)
-        runtime.desiredActive = originalDesiredActive
-        runtime.signOutIntentActive = originalSignOutIntentActive
-        runtime.lifecycleRevision = originalRevision
-    }
-}
-
-@MainActor
-private final class MobileHostIrohDeactivationProbe {
-    var didStopLAN = false
-    var didClearHost = false
 }
 
 private actor MobileHostIrohStartupRetryGate {

@@ -26,10 +26,10 @@
          location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
-         location = "group:CmuxIrohTransport">
+         location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
-         location = "group:CMUXMobileCore">
+         location = "group:CmuxPeerTransport">
       </FileRef>
       <FileRef
          location = "group:CmuxSentryTelemetry">

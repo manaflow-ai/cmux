@@ -777,8 +777,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
-		1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */; };
-		1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */; };
@@ -805,6 +803,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */; };
 		E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000F2 /* CmuxPanes */; };
+		1A0B0C0D0E0F101112132013 /* CmuxPeerTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132012 /* CmuxPeerTransport */; };
+		1A0B0C0D0E0F101112132014 /* CmuxPeerTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132012 /* CmuxPeerTransport */; };
+		1A0B0C0D0E0F101112132016 /* CmuxPeerTransportCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132015 /* CmuxPeerTransportCore */; };
 		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
 		CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE10000000000000000A2 /* CmuxRemoteDaemon */; };
 		CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE30000000000000000A2 /* CmuxRemoteSession */; };
@@ -1409,21 +1410,24 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */; };
 		C1A071000000000000000003 /* MobileHostConnectionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */; };
 		C1A070000000000000000008 /* MobileHostConnectionRegistry+Debug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */; };
+		1B0B09070000000000000002 /* MobileHostConnectivityInvalidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09070000000000000001 /* MobileHostConnectivityInvalidation.swift */; };
 		B8B056D90000000000000001 /* MobileHostIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D90000000000000002 /* MobileHostIdentity.swift */; };
 		B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D80000000000000002 /* MobileHostIdentityTests.swift */; };
 		C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */; };
-		A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */; };
 		C1A070000000000000000002 /* MobileHostIrohAuthObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */; };
-		1B0B09020000000000000002 /* MobileHostIrohRuntime+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */; };
-		C1A070000000000000000003 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */; };
-		1B0B09030000000000000002 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */; };
-		1B0B09040000000000000002 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */; };
-		1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */; };
-		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */; };
 		A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */; };
+		1B0B09050000000000000002 /* MobileHostPeerArtifactTransfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09050000000000000001 /* MobileHostPeerArtifactTransfers.swift */; };
+		A17070900000000000000002 /* MobileHostPeerLaneRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17070900000000000000001 /* MobileHostPeerLaneRouter.swift */; };
+		1B0B09020000000000000002 /* MobileHostPeerRuntime+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09020000000000000001 /* MobileHostPeerRuntime+Activation.swift */; };
+		1B0B09040000000000000002 /* MobileHostPeerRuntime+Sessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09040000000000000001 /* MobileHostPeerRuntime+Sessions.swift */; };
+		1B0B09030000000000000002 /* MobileHostPeerRuntime+Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09030000000000000001 /* MobileHostPeerRuntime+Settings.swift */; };
+		1B0B09010000000000000002 /* MobileHostPeerRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09010000000000000001 /* MobileHostPeerRuntime.swift */; };
+		C1A070000000000000000003 /* MobileHostPeerRuntimeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000013 /* MobileHostPeerRuntimeSupport.swift */; };
+		C1A070000000000000000004 /* MobileHostPeerServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostPeerServerEventWriter.swift */; };
+		1B0B09060000000000000002 /* MobileHostPeerTerminalOutputEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09060000000000000001 /* MobileHostPeerTerminalOutputEnvelope.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
 		C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */; };
 		C0DE00000000000000000C8D /* MobileHostService+TicketAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */; };
@@ -4196,21 +4200,24 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventQueue.swift; sourceTree = "<group>"; };
 		C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionLifecycleTests.swift; sourceTree = "<group>"; };
 		C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Debug/MobileHostConnectionRegistry+Debug.swift"; sourceTree = "<group>"; };
+		1B0B09070000000000000001 /* MobileHostConnectivityInvalidation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectivityInvalidation.swift; sourceTree = "<group>"; };
 		B8B056D90000000000000002 /* MobileHostIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentity.swift; sourceTree = "<group>"; };
 		B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentityTests.swift; sourceTree = "<group>"; };
 		C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAdmissionTests.swift; sourceTree = "<group>"; };
-		A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohApplicationLaneRouter.swift; sourceTree = "<group>"; };
 		C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAuthObserver.swift; sourceTree = "<group>"; };
-		1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Activation.swift"; sourceTree = "<group>"; };
-		C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Lifecycle.swift"; sourceTree = "<group>"; };
-		1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
-		1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsSnapshot.swift"; sourceTree = "<group>"; };
-		1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
-		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedInputTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedRequestQueue.swift; sourceTree = "<group>"; };
+		1B0B09050000000000000001 /* MobileHostPeerArtifactTransfers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPeerArtifactTransfers.swift; sourceTree = "<group>"; };
+		A17070900000000000000001 /* MobileHostPeerLaneRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPeerLaneRouter.swift; sourceTree = "<group>"; };
+		1B0B09020000000000000001 /* MobileHostPeerRuntime+Activation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostPeerRuntime+Activation.swift"; sourceTree = "<group>"; };
+		1B0B09040000000000000001 /* MobileHostPeerRuntime+Sessions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostPeerRuntime+Sessions.swift"; sourceTree = "<group>"; };
+		1B0B09030000000000000001 /* MobileHostPeerRuntime+Settings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostPeerRuntime+Settings.swift"; sourceTree = "<group>"; };
+		1B0B09010000000000000001 /* MobileHostPeerRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPeerRuntime.swift; sourceTree = "<group>"; };
+		C1A070000000000000000013 /* MobileHostPeerRuntimeSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPeerRuntimeSupport.swift; sourceTree = "<group>"; };
+		C1A070000000000000000014 /* MobileHostPeerServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPeerServerEventWriter.swift; sourceTree = "<group>"; };
+		1B0B09060000000000000001 /* MobileHostPeerTerminalOutputEnvelope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPeerTerminalOutputEnvelope.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+Capabilities.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+TicketAuthorization.swift"; sourceTree = "<group>"; };
@@ -5594,11 +5601,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
-				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
+				1A0B0C0D0E0F101112132013 /* CmuxPeerTransport in Frameworks */,
+				1A0B0C0D0E0F101112132016 /* CmuxPeerTransportCore in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */,
 				CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */,
@@ -5680,10 +5688,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */,
 				CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
-				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
+				1A0B0C0D0E0F101112132014 /* CmuxPeerTransport in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -5871,15 +5879,18 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
 				A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */,
-				1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */,
-				1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */,
-				1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */,
-				1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */,
+				1B0B09010000000000000001 /* MobileHostPeerRuntime.swift */,
+				1B0B09050000000000000001 /* MobileHostPeerArtifactTransfers.swift */,
+				1B0B09060000000000000001 /* MobileHostPeerTerminalOutputEnvelope.swift */,
+				1B0B09070000000000000001 /* MobileHostConnectivityInvalidation.swift */,
+				1B0B09020000000000000001 /* MobileHostPeerRuntime+Activation.swift */,
+				1B0B09030000000000000001 /* MobileHostPeerRuntime+Settings.swift */,
+				1B0B09040000000000000001 /* MobileHostPeerRuntime+Sessions.swift */,
 				C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */,
 				C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */,
-				C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */,
-				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
-				C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */,
+				C1A070000000000000000013 /* MobileHostPeerRuntimeSupport.swift */,
+				A17070900000000000000001 /* MobileHostPeerLaneRouter.swift */,
+				C1A070000000000000000014 /* MobileHostPeerServerEventWriter.swift */,
 				C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */,
 				C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */,
 				C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */,
@@ -8555,7 +8566,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C617000000000000000000A2 /* CmuxGit */,
-				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
+				1A0B0C0D0E0F101112132012 /* CmuxPeerTransport */,
+				1A0B0C0D0E0F101112132015 /* CmuxPeerTransportCore */,
 				C5B6A10000000000000000A2 /* CmuxSidebarGit */,
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
@@ -8665,7 +8677,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
-				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
+				1A0B0C0D0E0F101112132012 /* CmuxPeerTransport */,
 				C1A072000000000000000002 /* CmuxMobileRPC */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
@@ -8773,7 +8785,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
-				1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */,
+				1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxPeerTransport" */,
 				C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */,
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 			);
@@ -9781,17 +9793,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */,
 				C1A070000000000000000008 /* MobileHostConnectionRegistry+Debug.swift in Sources */,
+				1B0B09070000000000000002 /* MobileHostConnectivityInvalidation.swift in Sources */,
 				B8B056D90000000000000001 /* MobileHostIdentity.swift in Sources */,
-				A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */,
 				C1A070000000000000000002 /* MobileHostIrohAuthObserver.swift in Sources */,
-				1B0B09020000000000000002 /* MobileHostIrohRuntime+Activation.swift in Sources */,
-				C1A070000000000000000003 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */,
-				1B0B09030000000000000002 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */,
-				1B0B09040000000000000002 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */,
-				1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */,
-				C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */,
+				1B0B09050000000000000002 /* MobileHostPeerArtifactTransfers.swift in Sources */,
+				A17070900000000000000002 /* MobileHostPeerLaneRouter.swift in Sources */,
+				1B0B09020000000000000002 /* MobileHostPeerRuntime+Activation.swift in Sources */,
+				1B0B09040000000000000002 /* MobileHostPeerRuntime+Sessions.swift in Sources */,
+				1B0B09030000000000000002 /* MobileHostPeerRuntime+Settings.swift in Sources */,
+				1B0B09010000000000000002 /* MobileHostPeerRuntime.swift in Sources */,
+				C1A070000000000000000003 /* MobileHostPeerRuntimeSupport.swift in Sources */,
+				C1A070000000000000000004 /* MobileHostPeerServerEventWriter.swift in Sources */,
+				1B0B09060000000000000002 /* MobileHostPeerTerminalOutputEnvelope.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
 				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
 				C0DE00000000000000000C8D /* MobileHostService+TicketAuthorization.swift in Sources */,
@@ -11723,7 +11738,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
@@ -11757,7 +11772,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -11785,7 +11800,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -11901,7 +11916,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					"@executable_path/../Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				PRODUCT_MODULE_NAME = cmux_cli;
 				PRODUCT_NAME = cmux;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -11920,7 +11935,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					"@executable_path/../Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_MODULE_NAME = cmux_cli;
 				PRODUCT_NAME = cmux;
@@ -11936,7 +11951,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
@@ -11960,7 +11975,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 0.64.22;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -11985,7 +12000,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 0.64.22;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -12003,7 +12018,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
@@ -12022,7 +12037,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
@@ -12097,9 +12112,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CMUXMobileCore;
 		};
-		1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */ = {
+		1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxPeerTransport" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/Shared/CmuxIrohTransport;
+			relativePath = Packages/Shared/CmuxPeerTransport;
 		};
 		1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -12618,10 +12633,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			package = 0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */;
 			productName = CMUXMobileCore;
 		};
-		1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */ = {
+		1A0B0C0D0E0F101112132012 /* CmuxPeerTransport */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */;
-			productName = CmuxIrohTransport;
+			package = 1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxPeerTransport" */;
+			productName = CmuxPeerTransport;
+		};
+		1A0B0C0D0E0F101112132015 /* CmuxPeerTransportCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxPeerTransport" */;
+			productName = CmuxPeerTransportCore;
 		};
 		1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */ = {
 			isa = XCSwiftPackageProductDependency;

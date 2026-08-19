@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAuthRuntime
-import CmuxIrohTransport
 import CmuxMobileTransport
 import CmuxSettings
 import CmuxTerminalCore
@@ -12,9 +11,42 @@ import OSLog
 import StackAuth
 import os
 
+/// The privacy-safe reason an admitted host connection stopped. Carries the
+/// bounded diagnostic categories the previous transport's connection exit
+/// carried, so log attribution is unchanged.
+struct MobileHostConnectionExit: Equatable, Sendable {
+    /// The local operation that ended the admitted connection.
+    let lifecycle: DiagnosticSessionLifecycleKind
+
+    /// The bounded failure category, or ``DiagnosticFailureKind/none`` for an
+    /// expected close.
+    let failure: DiagnosticFailureKind
+
+    init(
+        lifecycle: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
+    ) {
+        self.lifecycle = lifecycle
+        self.failure = failure
+    }
+}
+
+/// The exact admitted peer tuple carried from grant verification into RPC
+/// dispatch: the TLS-proven remote EndpointID plus the grant's device IDs.
+struct MobileHostPeerAdmission: Equatable, Sendable {
+    /// Lowercase hex EndpointID proven by the QUIC TLS handshake.
+    let peerEndpointID: String
+    /// The verified pair-grant ID that admitted this session.
+    let grantID: String
+    /// The iOS device that initiated the pairing grant.
+    let initiatorDeviceID: String
+    /// This Mac's device ID as signed into the grant.
+    let acceptorDeviceID: String
+}
+
 enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case stackBearer
-    case irohAdmission(CmxIrohAdmittedPeer)
+    case peerAdmission(MobileHostPeerAdmission)
 }
 
 extension MobileHostConnectionAuthorizationContext {
@@ -32,14 +64,14 @@ struct MobileHostRPCExecutionContext: Sendable {
     /// originating phone connection.
     let connectionID: UUID
     let authorization: MobileHostConnectionAuthorizationContext
-    let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
+    let artifactTransfers: MobileHostPeerArtifactTransferRegistry?
 
     func issueArtifactTransfer(
         canonicalPath: String
     ) async throws -> ChatArtifactLaneDescriptor {
-        guard case let .irohAdmission(peer) = authorization,
+        guard case let .peerAdmission(peer) = authorization,
               let artifactTransfers else {
-            throw MobileHostIrohArtifactTransferRegistry.Error.unavailable
+            throw MobileHostPeerArtifactTransferRegistry.Error.unavailable
         }
         return try await artifactTransfers.issue(
             canonicalPath: canonicalPath,
@@ -67,6 +99,43 @@ protocol MobileHostIndependentEventWriting: Sendable {
     func close() async
 }
 
+/// Admission policy for active peer sessions owned by one client device.
+///
+/// Two sessions permit a live client to overlap its replacement connection
+/// during route migration or reconnect without monopolizing the host pool.
+/// The registry keeps the authoritative connection collection; this value only
+/// evaluates it, so quota state cannot drift on removal.
+struct MobileHostPeerConnectionQuota: Sendable {
+    static let recommendedMaximumActiveConnectionsPerPeer = 2
+
+    let maximumActiveConnectionsPerPeer: Int
+
+    init(
+        maximumActiveConnectionsPerPeer: Int =
+            Self.recommendedMaximumActiveConnectionsPerPeer
+    ) {
+        precondition(maximumActiveConnectionsPerPeer > 0)
+        self.maximumActiveConnectionsPerPeer = maximumActiveConnectionsPerPeer
+    }
+
+    /// Returns whether one more session for `peerKey` fits within the quota.
+    /// The caller must evaluate and insert inside the same synchronization
+    /// boundary so concurrent admissions cannot both consume the final slot.
+    func allowsAdmission<ActivePeerKeys: Sequence>(
+        for peerKey: String,
+        activePeerKeys: ActivePeerKeys
+    ) -> Bool where ActivePeerKeys.Element == String {
+        var matchingConnectionCount = 0
+        for activeKey in activePeerKeys where activeKey == peerKey {
+            matchingConnectionCount += 1
+            if matchingConnectionCount >= maximumActiveConnectionsPerPeer {
+                return false
+            }
+        }
+        return true
+    }
+}
+
 final class MobileHostConnectionRegistry: @unchecked Sendable {
     private struct Entry {
         let connection: MobileHostConnection
@@ -77,7 +146,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     static let shared = MobileHostConnectionRegistry()
 
     private let lock = NSLock()
-    private let irohBindingConnectionQuota = CmxIrohActiveBindingConnectionQuota()
+    private let peerConnectionQuota = MobileHostPeerConnectionQuota()
     private var connections: [UUID: Entry] = [:]
     private var nextInsertionSequence: UInt64 = 0
 
@@ -98,16 +167,16 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
             lock.unlock()
             return false
         }
-        if case let .irohAdmission(peer) = authorization {
-            let activeBindingIDs = connections.values.lazy.compactMap { entry -> String? in
-                guard case let .irohAdmission(activePeer) = entry.authorization else {
+        if case let .peerAdmission(peer) = authorization {
+            let activePeerKeys = connections.values.lazy.compactMap { entry -> String? in
+                guard case let .peerAdmission(activePeer) = entry.authorization else {
                     return nil
                 }
-                return activePeer.bindingID
+                return activePeer.initiatorDeviceID
             }
-            guard irohBindingConnectionQuota.allowsAdmission(
-                for: peer.bindingID,
-                activeBindingIDs: activeBindingIDs
+            guard peerConnectionQuota.allowsAdmission(
+                for: peer.initiatorDeviceID,
+                activePeerKeys: activePeerKeys
             ) else {
                 lock.unlock()
                 return false
@@ -153,18 +222,18 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         }
     }
 
-    func removeIrohConnections(bindingID: String) -> [MobileHostConnection] {
+    func removeIrohConnections(initiatorDeviceID: String) -> [MobileHostConnection] {
         removeConnections { authorization in
-            guard case let .irohAdmission(peer) = authorization else {
+            guard case let .peerAdmission(peer) = authorization else {
                 return false
             }
-            return peer.bindingID == bindingID
+            return peer.initiatorDeviceID == initiatorDeviceID
         }
     }
 
     func removeAllIrohConnections() -> [MobileHostConnection] {
         removeConnections { authorization in
-            if case .irohAdmission = authorization {
+            if case .peerAdmission = authorization {
                 return true
             }
             return false
@@ -177,15 +246,15 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     func removeOlderIrohConnectionsIfNewest(id: UUID) -> [MobileHostConnection] {
         lock.lock()
         guard let current = connections[id],
-              case let .irohAdmission(currentPeer) = current.authorization else {
+              case let .peerAdmission(currentPeer) = current.authorization else {
             lock.unlock()
             return []
         }
         let sameBinding = connections.filter { _, entry in
-            guard case let .irohAdmission(peer) = entry.authorization else {
+            guard case let .peerAdmission(peer) = entry.authorization else {
                 return false
             }
-            return peer.bindingID == currentPeer.bindingID
+            return peer.initiatorDeviceID == currentPeer.initiatorDeviceID
         }
         guard sameBinding.values.allSatisfy({
             $0.insertionSequence <= current.insertionSequence
@@ -234,12 +303,12 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections[id]?.connection
     }
 
-    func snapshot(irohBindingID: String) -> [MobileHostConnection] {
+    func snapshot(peerInitiatorDeviceID: String) -> [MobileHostConnection] {
         lock.lock()
         defer { lock.unlock() }
         return connections.values.compactMap { entry in
-            guard case let .irohAdmission(peer) = entry.authorization,
-                  peer.bindingID == irohBindingID else {
+            guard case let .peerAdmission(peer) = entry.authorization,
+                  peer.initiatorDeviceID == peerInitiatorDeviceID else {
                 return nil
             }
             return entry.connection
@@ -278,21 +347,6 @@ enum MobileHostPublicStatusCache {
         } else {
             irohRoute = nil
         }
-        lock.unlock()
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-    }
-
-    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
-        lock.lock()
-        irohRoute = try? CmxAttachRoute(
-            id: CmxAttachTransportKind.iroh.rawValue,
-            kind: .iroh,
-            endpoint: .peer(
-                identity: binding.endpointID,
-                pathHints: binding.pathHints
-            ),
-            priority: 0
-        )
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }

@@ -1,6 +1,6 @@
 import CMUXMobileCore
 import CmuxAgentChat
-import CmuxIrohTransport
+import CmuxPeerTransport
 import CmuxMobileRPC
 import Darwin
 import Foundation
@@ -152,46 +152,30 @@ extension MobileHostAuthorizationTests {
         return Data(base64Encoded: base64)
     }
 
-    @Test func testBindingPublicationDoesNotWaitForPersistence() async {
-        let queue = MobileHostIrohPersistenceQueue()
-        let gate = MobileHostIrohPersistenceGate()
-        var published = false
-
-        queue.publishAndEnqueue(
-            publish: { published = true },
-            persist: { await gate.wait() }
-        )
-        await gate.waitUntilStarted()
-
-        #expect(published)
-        await queue.cancel()
-        await gate.resume()
-    }
-
     #if DEBUG
     @Test func testMacIrohVerificationModeIgnoresTheRetiredReleaseRelayOnlyPreference() throws {
         let suiteName = "MobileHostIrohAdmissionTests.transport-mode.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
+        #expect(MobileHostPeerRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
         defaults.set(
             CmxIrohPathPreference.relayOnly.rawValue,
             forKey: CmxIrohPathPreference.defaultsKey
         )
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
+        #expect(MobileHostPeerRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
         defaults.set(
             CmxIrohTransportVerificationMode.directOnly.rawValue,
             forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
         )
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .directOnly)
+        #expect(MobileHostPeerRuntime.debugTransportVerificationMode(defaults: defaults) == .directOnly)
         defaults.removeObject(forKey: CmxIrohTransportVerificationMode.debugDefaultsKey)
         defaults.set(
             CmxIrohPathPreference.automatic.rawValue,
             forKey: CmxIrohPathPreference.defaultsKey
         )
-        defaults.set(true, forKey: MobileHostIrohRuntime.debugRelayOnlyDefaultsKey)
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
+        defaults.set(true, forKey: MobileHostPeerRuntime.debugRelayOnlyDefaultsKey)
+        #expect(MobileHostPeerRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
     }
     #endif
 
@@ -429,18 +413,12 @@ struct IrohTailscaleVersionSkewMacGateTests {
     }
 
     private func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
-        let endpointID = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
-        )
-        let peer = CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174001",
-            deviceID: "123e4567-e89b-42d3-a456-426614174002",
-            tag: "ios-test",
-            platform: .ios,
-            endpointID: endpointID,
-            identityGeneration: 1
-        )
-        return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
+        .peerAdmission(MobileHostPeerAdmission(
+            peerEndpointID: String(repeating: "a", count: 64),
+            grantID: "123e4567-e89b-42d3-a456-426614174000",
+            initiatorDeviceID: "123e4567-e89b-42d3-a456-426614174002",
+            acceptorDeviceID: "123e4567-e89b-42d3-a456-426614174003"
+        ))
     }
 }
 
@@ -496,37 +474,24 @@ extension MobileHostAuthorizationTests {
 
     @Test func testIrohTerminalLaneInputFramingSurvivesQUICChunkBoundaries() throws {
         var buffer = Data([0, 0])
-        #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
+        #expect(try MobileHostPeerLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
         buffer.append(contentsOf: [0, 2, 0xc3])
-        #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
+        #expect(try MobileHostPeerLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
         buffer.append(0xa9)
         #expect(
-            try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer)
+            try MobileHostPeerLaneRouter.decodeTerminalInputFrames(from: &buffer)
                 == ["é"]
         )
         #expect(buffer.isEmpty)
     }
 
     @Test func testIrohDefaultArtifactLaneHandlerRejectsUntilConsumerRegisters() async throws {
-        let stream = CmxIrohBidirectionalStream(
-            receiveStream: ImmediateMobileHostIrohReceiveStream(),
-            sendStream: BlockingMobileHostIrohSendStream()
-        )
-        let handler = MobileHostIrohRejectingArtifactLaneHandler()
-        let resourceID = try CmxIrohResourceID("artifact:preview")
-        let peer = CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174001",
-            deviceID: "123e4567-e89b-42d3-a456-426614174002",
-            tag: "test",
-            platform: .ios,
-            endpointID: try CmxIrohPeerIdentity(
-                endpointID: String(repeating: "a", count: 64)
-            ),
-            identityGeneration: 1
-        ))
+        let stream = RecordingMobileHostPeerArtifactStream()
+        let handler = MobileHostPeerRejectingArtifactLaneHandler()
+        let peer = try irohPeer(endpointCharacter: "a")
         #expect(
             await handler.handleArtifactLane(
-                resourceID: resourceID,
+                resourceID: "artifact:preview",
                 offset: 0,
                 stream: stream,
                 peer: peer
@@ -536,27 +501,27 @@ extension MobileHostAuthorizationTests {
 
     @Test func testIrohArtifactDescriptorFailuresPreserveFileAndCapacitySemantics() {
         #expect(
-            MobileHostIrohArtifactTransferRegistry.Error.invalidFile.issueFailure
+            MobileHostPeerArtifactTransferRegistry.Error.invalidFile.issueFailure
                 == .readFailed
         )
         #expect(
-            MobileHostIrohArtifactTransferRegistry.Error.fileNotFound.issueFailure
+            MobileHostPeerArtifactTransferRegistry.Error.fileNotFound.issueFailure
                 == .fileNotFound
         )
         #expect(
-            MobileHostIrohArtifactTransferRegistry.Error.permissionDenied.issueFailure
+            MobileHostPeerArtifactTransferRegistry.Error.permissionDenied.issueFailure
                 == .permissionDenied
         )
         #expect(
-            MobileHostIrohArtifactTransferRegistry.Error.notRegularFile.issueFailure
+            MobileHostPeerArtifactTransferRegistry.Error.notRegularFile.issueFailure
                 == .notRegularFile
         )
         #expect(
-            MobileHostIrohArtifactTransferRegistry.Error.unavailable.issueFailure
+            MobileHostPeerArtifactTransferRegistry.Error.unavailable.issueFailure
                 == .unavailable
         )
         #expect(
-            MobileHostIrohArtifactTransferRegistry.Error.capacityExceeded.issueFailure
+            MobileHostPeerArtifactTransferRegistry.Error.capacityExceeded.issueFailure
                 == .unavailable
         )
     }
@@ -570,23 +535,22 @@ extension MobileHostAuthorizationTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let fifo = directory.appendingPathComponent("preview.png")
         try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
-        let registry = MobileHostIrohArtifactTransferRegistry()
+        let registry = MobileHostPeerArtifactTransferRegistry()
         let peer = try irohPeer(endpointCharacter: "f")
 
-        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.notRegularFile) {
+        await #expect(throws: MobileHostPeerArtifactTransferRegistry.Error.notRegularFile) {
             try await registry.issue(canonicalPath: fifo.path, peer: peer)
         }
     }
 
     @Test func testIrohArtifactCapabilityIsOpaquePeerBoundAndSeriallyResumable() async throws {
-        let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
+        let fixture = try MobileHostPeerArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let clock = MobileHostIrohArtifactTestClock(now: now)
-        let resourceID = try CmxIrohResourceID(
+        let clock = MobileHostPeerArtifactTestClock(now: now)
+        let resourceID =
             "artifact:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        let registry = MobileHostIrohArtifactTransferRegistry(
+        let registry = MobileHostPeerArtifactTransferRegistry(
             timeToLive: 60,
             now: { clock.now },
             resourceID: { resourceID }
@@ -599,11 +563,11 @@ extension MobileHostAuthorizationTests {
             peer: peer
         )
 
-        #expect(descriptor.resourceID == resourceID.value)
+        #expect(descriptor.resourceID == resourceID)
         #expect(descriptor.totalSize == 6)
         #expect(descriptor.expiresAt == now.addingTimeInterval(60))
         #expect(!descriptor.resourceID.contains(fixture.path))
-        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.peerMismatch) {
+        await #expect(throws: MobileHostPeerArtifactTransferRegistry.Error.peerMismatch) {
             try await registry.claim(
                 resourceID: resourceID,
                 offset: 2,
@@ -618,7 +582,7 @@ extension MobileHostAuthorizationTests {
         )
         #expect(lease.offset == 2)
         #expect(lease.totalSize == 6)
-        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.alreadyInUse) {
+        await #expect(throws: MobileHostPeerArtifactTransferRegistry.Error.alreadyInUse) {
             try await registry.claim(
                 resourceID: resourceID,
                 offset: 3,
@@ -635,10 +599,9 @@ extension MobileHostAuthorizationTests {
         #expect(resumed.offset == 4)
         await registry.release(resumed)
 
-        let unknownResource = try CmxIrohResourceID(
+        let unknownResource =
             "artifact:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        )
-        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.unknownResource) {
+        await #expect(throws: MobileHostPeerArtifactTransferRegistry.Error.unknownResource) {
             try await registry.claim(
                 resourceID: unknownResource,
                 offset: 0,
@@ -646,12 +609,12 @@ extension MobileHostAuthorizationTests {
             )
         }
 
-        let separateSessionRegistry = MobileHostIrohArtifactTransferRegistry(
+        let separateSessionRegistry = MobileHostPeerArtifactTransferRegistry(
             timeToLive: 60,
             now: { clock.now },
             resourceID: { resourceID }
         )
-        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.unknownResource) {
+        await #expect(throws: MobileHostPeerArtifactTransferRegistry.Error.unknownResource) {
             try await separateSessionRegistry.claim(
                 resourceID: resourceID,
                 offset: 0,
@@ -660,7 +623,7 @@ extension MobileHostAuthorizationTests {
         }
 
         clock.advance(by: 61)
-        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.expired) {
+        await #expect(throws: MobileHostPeerArtifactTransferRegistry.Error.expired) {
             try await registry.claim(
                 resourceID: resourceID,
                 offset: 0,
@@ -670,79 +633,67 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testIrohArtifactHandlerStreamsAuthorizedOffsetAtLowPriority() async throws {
-        let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
+        let fixture = try MobileHostPeerArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
-        let resourceID = try CmxIrohResourceID(
+        let resourceID =
             "artifact:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
-        )
-        let registry = MobileHostIrohArtifactTransferRegistry(
+        let registry = MobileHostPeerArtifactTransferRegistry(
             timeToLive: 60,
             now: Date.init,
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "c")
         _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
-        let send = RecordingMobileHostIrohArtifactSendStream()
-        let receive = RecordingMobileHostIrohArtifactReceiveStream()
-        let handler = MobileHostIrohArtifactLaneHandler(registry: registry)
+        let stream = RecordingMobileHostPeerArtifactStream()
+        let handler = MobileHostPeerArtifactLaneHandler(registry: registry)
 
         let didTakeOwnership = await handler.handleArtifactLane(
             resourceID: resourceID,
             offset: 2,
-            stream: CmxIrohBidirectionalStream(
-                receiveStream: receive,
-                sendStream: send
-            ),
+            stream: stream,
             peer: peer
         )
 
         #expect(didTakeOwnership)
-        #expect(await send.payload() == Data("cdef".utf8))
-        #expect(await send.priorities() == [-10])
-        #expect(await send.finishCount() == 1)
-        #expect(await receive.stopCodes() == [0])
+        #expect(await stream.payload() == Data("cdef".utf8))
+        #expect(await stream.finishCount() == 1)
+        #expect(await stream.resetCodes().isEmpty)
     }
 
     @Test func testIrohArtifactHandlerResetsIfFileChangesDuringTransfer() async throws {
-        let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
+        let fixture = try MobileHostPeerArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
-        let resourceID = try CmxIrohResourceID(
+        let resourceID =
             "artifact:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-        )
-        let registry = MobileHostIrohArtifactTransferRegistry(
+        let registry = MobileHostPeerArtifactTransferRegistry(
             timeToLive: 60,
             now: Date.init,
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "d")
         _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
-        let send = MutatingMobileHostIrohArtifactSendStream(path: fixture.path)
-        let receive = RecordingMobileHostIrohArtifactReceiveStream()
+        let stream = MutatingMobileHostPeerArtifactStream(path: fixture.path)
 
-        let didTakeOwnership = await MobileHostIrohArtifactLaneHandler(
+        let didTakeOwnership = await MobileHostPeerArtifactLaneHandler(
             registry: registry
         ).handleArtifactLane(
             resourceID: resourceID,
             offset: 0,
-            stream: CmxIrohBidirectionalStream(
-                receiveStream: receive,
-                sendStream: send
-            ),
+            stream: stream,
             peer: peer
         )
 
         #expect(didTakeOwnership)
-        #expect(await send.finishCount() == 0)
-        #expect(await send.resetCodes() == [6])
-        #expect(await receive.stopCodes() == [0, 6])
+        #expect(await stream.finishCount() == 0)
+        #expect(await stream.resetCodes() == [6])
     }
 
     @Test func testIrohApplicationLaneQuotasReserveArtifactCapacity() {
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount == 4)
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount == 1)
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 5)
+        #expect(MobileHostPeerLaneRouter.maximumConcurrentTerminalLaneCount == 4)
+        #expect(MobileHostPeerLaneRouter.maximumConcurrentArtifactLaneCount == 1)
+        #expect(MobileHostPeerLaneRouter.maximumConcurrentLaneCount == 5)
 
-        var quota = MobileHostIrohApplicationLaneQuota()
+        var quota = MobileHostPeerApplicationLaneQuota()
         let terminalIDs = (0..<5).map { _ in UUID() }
         for id in terminalIDs.prefix(4) {
             let didReserve = quota.reserve(id, laneClass: .terminal)
@@ -769,36 +720,26 @@ extension MobileHostAuthorizationTests {
     private func irohPeer(
         endpointCharacter: Character,
         generation: Int = 1
-    ) throws -> CmxIrohAdmittedPeer {
-        CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174001",
-            deviceID: "123e4567-e89b-42d3-a456-426614174002",
-            tag: "test",
-            platform: .ios,
-            endpointID: try CmxIrohPeerIdentity(
-                endpointID: String(repeating: String(endpointCharacter), count: 64)
-            ),
-            identityGeneration: generation
-        ))
+    ) throws -> MobileHostPeerAdmission {
+        MobileHostPeerAdmission(
+            peerEndpointID: String(repeating: String(endpointCharacter), count: 64),
+            grantID: "123e4567-e89b-42d3-a456-42661417400\(generation)",
+            initiatorDeviceID: "123e4567-e89b-42d3-a456-426614174002",
+            acceptorDeviceID: "123e4567-e89b-42d3-a456-426614174003"
+        )
     }
 
     func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
-        let endpointID = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
-        )
-        let peer = CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174001",
-            deviceID: "123e4567-e89b-42d3-a456-426614174002",
-            tag: "ios-test",
-            platform: .ios,
-            endpointID: endpointID,
-            identityGeneration: 1
-        )
-        return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
+        .peerAdmission(MobileHostPeerAdmission(
+            peerEndpointID: String(repeating: "a", count: 64),
+            grantID: "123e4567-e89b-42d3-a456-426614174000",
+            initiatorDeviceID: "123e4567-e89b-42d3-a456-426614174002",
+            acceptorDeviceID: "123e4567-e89b-42d3-a456-426614174003"
+        ))
     }
 }
 
-private struct MobileHostIrohArtifactFixture {
+private struct MobileHostPeerArtifactFixture {
     let directory: URL
     let path: String
 
@@ -820,7 +761,7 @@ private struct MobileHostIrohArtifactFixture {
     }
 }
 
-private final class MobileHostIrohArtifactTestClock: @unchecked Sendable {
+private final class MobileHostPeerArtifactTestClock: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Date
 
@@ -839,12 +780,12 @@ private final class MobileHostIrohArtifactTestClock: @unchecked Sendable {
     }
 }
 
-private actor RecordingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
+private actor RecordingMobileHostPeerArtifactStream: MobileHostPeerArtifactStreamWriting {
     private var chunks: [Data] = []
-    private var observedPriorities: [Int32] = []
     private var observedFinishCount = 0
+    private var observedResetCodes: [UInt64] = []
 
-    func send(_ data: Data) {
+    func write(_ data: Data) {
         chunks.append(data)
     }
 
@@ -852,33 +793,19 @@ private actor RecordingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
         observedFinishCount += 1
     }
 
-    func reset(errorCode _: UInt64) {}
-
-    func setPriority(_ priority: Int32) {
-        observedPriorities.append(priority)
+    func reset(errorCode: UInt64) {
+        observedResetCodes.append(errorCode)
     }
 
     func payload() -> Data {
         chunks.reduce(into: Data()) { $0.append($1) }
     }
 
-    func priorities() -> [Int32] { observedPriorities }
     func finishCount() -> Int { observedFinishCount }
+    func resetCodes() -> [UInt64] { observedResetCodes }
 }
 
-private actor RecordingMobileHostIrohArtifactReceiveStream: CmxIrohReceiveStream {
-    private var observedStopCodes: [UInt64] = []
-
-    func receive(maximumByteCount _: Int) -> Data? { nil }
-
-    func stop(errorCode: UInt64) {
-        observedStopCodes.append(errorCode)
-    }
-
-    func stopCodes() -> [UInt64] { observedStopCodes }
-}
-
-private actor MutatingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
+private actor MutatingMobileHostPeerArtifactStream: MobileHostPeerArtifactStreamWriting {
     private let path: String
     private var didMutate = false
     private var observedFinishCount = 0
@@ -888,7 +815,7 @@ private actor MutatingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
         self.path = path
     }
 
-    func send(_: Data) throws {
+    func write(_: Data) throws {
         guard !didMutate else { return }
         didMutate = true
         guard let handle = FileHandle(forWritingAtPath: path) else { return }
@@ -905,34 +832,8 @@ private actor MutatingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
         observedResetCodes.append(errorCode)
     }
 
-    func setPriority(_: Int32) {}
-
     func finishCount() -> Int { observedFinishCount }
     func resetCodes() -> [UInt64] { observedResetCodes }
-}
-
-private actor MobileHostIrohPersistenceGate {
-    private var started = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        started = true
-        let waiters = startWaiters
-        startWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
-        await withCheckedContinuation { continuation = $0 }
-    }
-
-    func waitUntilStarted() async {
-        guard !started else { return }
-        await withCheckedContinuation { startWaiters.append($0) }
-    }
-
-    func resume() {
-        continuation?.resume()
-        continuation = nil
-    }
 }
 
 /// In-memory framed transport for the released-iOS compatibility contract.

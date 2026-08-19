@@ -439,7 +439,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
+        MobileHostPeerRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's

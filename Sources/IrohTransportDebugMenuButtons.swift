@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxIrohTransport
 import SwiftUI
 
 #if DEBUG
@@ -59,7 +58,7 @@ struct IrohTransportDebugMenuButtons: View {
     ) -> some View {
         Button {
             Task { @MainActor in
-                await MobileHostIrohRuntime.shared.setIrohDebugTransportVerificationMode(mode)
+                await MobileHostPeerRuntime.shared.setIrohDebugTransportVerificationMode(mode)
             }
         } label: {
             if transportMode == mode {
