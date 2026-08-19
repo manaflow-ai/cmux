@@ -276,7 +276,7 @@ struct CmuxAgentManifestStatusTests {
                 .init(classification: .working, screen: "⠙ Running tool", ruleID: "working", conditionID: "screenRegex[0]"),
                 .init(classification: .idle, screen: "│ ❯                        │", ruleID: "idle", conditionID: "screenRegex[1]"),
             ],
-            helpText: "Grok Build TUI\n      --always-approve Auto-approve all tool executions\n  -m, --model <MODEL> Working directory\n"
+            helpText: "Grok Build TUI\n      --always-approve Auto-approve all tool executions\n  -m, --model <MODEL> Working directory\nstatus | ❯ retry\n"
         ),
         .init(
             id: "hermes-agent",
