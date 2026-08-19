@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
