@@ -104,6 +104,18 @@ final class BrowserAppSessionStoreRegistry {
         livePanels.removeAll()
     }
 
+    /// Snapshot of the live ownership for transfer to a replacement registry
+    /// when the auth graph is rebuilt in-process (live backend-environment
+    /// switch). The receiver registers the stores first so the panels' store
+    /// pairings are accepted by ``register(_:)-(BrowserPanel)``.
+    func ownershipForTransfer() -> (stores: [WKWebsiteDataStore], panels: [BrowserPanel]) {
+        pruneReleasedOwnership()
+        return (
+            stores: liveStores.values.compactMap { $0.value },
+            panels: livePanels.values.compactMap { $0.panel.value }
+        )
+    }
+
     private func pruneReleasedOwnership() {
         liveStores = liveStores.filter { $0.value.value != nil }
         // Mutable panel state is only a read-time cleanup filter. Retain the

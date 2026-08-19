@@ -31,14 +31,4 @@ public enum AccountBackendEnvironment: String, CaseIterable, Sendable {
         }
     }
 
-    /// Whether a relaunch is required for `pending` to become the running
-    /// process's environment. The host resolves its backend once at launch,
-    /// so any divergence between the persisted selection and the active
-    /// value only heals on relaunch.
-    public static func requiresRelaunch(
-        pending: AccountBackendEnvironment,
-        active: AccountBackendEnvironment
-    ) -> Bool {
-        pending != active
-    }
 }

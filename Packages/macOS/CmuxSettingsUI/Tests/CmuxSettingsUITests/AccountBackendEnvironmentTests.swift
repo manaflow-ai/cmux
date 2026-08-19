@@ -16,13 +16,6 @@ struct AccountBackendEnvironmentTests {
         #expect(AccountBackendEnvironment(rawValue: "staging") == .staging)
     }
 
-    @Test func relaunchIsRequiredExactlyWhenPendingDiffersFromActive() {
-        #expect(!AccountBackendEnvironment.requiresRelaunch(pending: .production, active: .production))
-        #expect(!AccountBackendEnvironment.requiresRelaunch(pending: .staging, active: .staging))
-        #expect(AccountBackendEnvironment.requiresRelaunch(pending: .staging, active: .production))
-        #expect(AccountBackendEnvironment.requiresRelaunch(pending: .production, active: .staging))
-    }
-
     @Test func displayNamesAreNonEmptyAndDistinct() {
         #expect(!AccountBackendEnvironment.production.displayName.isEmpty)
         #expect(!AccountBackendEnvironment.staging.displayName.isEmpty)

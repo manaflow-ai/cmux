@@ -135,6 +135,26 @@ final class BrowserAppSessionController {
         storeRegistry.register(panel)
     }
 
+    /// Adopt the previous controller's live app-session store and panel
+    /// ownership after a live backend-environment switch rebuilds the auth
+    /// graph. Open browser panels register once at creation (through
+    /// `AppDelegate.shared?.auth?.browserAppSession`), so without this
+    /// transfer a replacement controller would not know them; ownership that
+    /// survived the switch's sign-out cleanup (a failed WebKit callback
+    /// leaves a fail-closed retry token) must keep blocking admission and
+    /// retrying cleanup under the new controller.
+    func adoptAppSessionOwnership(from previous: BrowserAppSessionController) {
+        let ownership = previous.storeRegistry.ownershipForTransfer()
+        // Stores first: panel registration only sticks when the panel's
+        // store is already registered.
+        for store in ownership.stores {
+            storeRegistry.register(store)
+        }
+        for panel in ownership.panels {
+            storeRegistry.register(panel)
+        }
+    }
+
     /// Synchronously closes the handoff admission gate before any auth
     /// transition publishes or clears coordinator state. Cleanup runs once and
     /// the next authenticated generation cannot reopen admission until it joins.

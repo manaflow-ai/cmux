@@ -17,24 +17,30 @@ import Observation
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
-    private let coordinator: AuthCoordinator
-    private let browserSignIn: HostBrowserSignInFlow
+    /// The live auth graph pieces. `var` because a live backend-environment
+    /// switch replaces them via ``rebind(coordinator:browserSignIn:activeBackendEnvironmentOverride:)``
+    /// while this flow object (and the Settings UI observing it) survives.
+    private var coordinator: AuthCoordinator
+    private var browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
-    /// The backend environment the composition root actually resolved at
-    /// startup (threaded in rather than re-read from defaults, so the value
-    /// always describes the running process even after the user flips the
-    /// picker).
-    private let activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
-    /// The persisted selection, applied at next launch. Stored (not
-    /// re-loaded per read) so `@Observable` re-renders the Settings card
-    /// when ``selectBackendEnvironment(_:)`` changes it.
+    /// The backend environment the composition root actually resolved
+    /// (threaded in rather than re-read from defaults, so the value always
+    /// describes the running graph). Updated by ``rebind`` after a live
+    /// switch.
+    private(set) var activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
+    /// The persisted selection. With the live switch this only diverges from
+    /// the active value if another writer changed the defaults key outside
+    /// the transaction; ``rebind`` re-reads it so the UI converges.
     private var pendingBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
     let backendEnvironmentPinnedByLaunchEnvironment: Bool
     @ObservationIgnored private let backendEnvironmentDefaults: UserDefaults
+    /// The live-switch engine. Attached once by `MacAuthComposition`'s
+    /// startup initializer and kept stable across switches.
+    private var backendEnvironmentSwitchController: MacBackendEnvironmentSwitchController?
 
     init(
         coordinator: AuthCoordinator,
@@ -85,7 +91,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+        coordinator.isLoading
+            || coordinator.isRestoringSession
+            || browserSignIn.isPresentingSignIn
+            || (backendEnvironmentSwitchController?.isSwitching ?? false)
     }
 
     var isAuthenticated: Bool {
@@ -254,28 +263,57 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         Self.accountBackendEnvironment(from: pendingBackendEnvironmentOverride)
     }
 
-    func selectBackendEnvironment(_ value: AccountBackendEnvironment) {
-        let override = Self.backendEnvironmentOverride(from: value)
-        guard override != pendingBackendEnvironmentOverride else { return }
-        override.store(in: backendEnvironmentDefaults)
-        pendingBackendEnvironmentOverride = override
+    var backendEnvironmentSwitchPhase: AccountBackendEnvironmentSwitchPhase {
+        switch backendEnvironmentSwitchController?.phase {
+        case .none, .idle: .idle
+        case .signingOut: .signingOut
+        case .retargeting: .retargeting
+        case .finished: .finished
+        }
     }
 
-    /// Relaunches through the same seams the app already trusts: the
-    /// Sparkle-updater session persist (``AppDelegate/persistSessionForUpdateRelaunch()``)
-    /// followed by the `open -n` + terminate mechanism of
-    /// ``HostSettingsActions/restartApp()``. The new instance resolves the
-    /// pending override at startup and
-    /// ``MacAuthComposition/detectAuthProjectSwitch(resolvedProjectID:buildDefaultProjectID:defaults:)``
-    /// wipes the stale cross-project session.
-    func relaunchToApplyBackendEnvironment() {
-        AppDelegate.shared?.persistSessionForUpdateRelaunch()
-        let bundlePath = Bundle.main.bundlePath
-        let task = Process()
-        task.launchPath = "/usr/bin/open"
-        task.arguments = ["-n", bundlePath]
-        try? task.run()
-        NSApp.terminate(nil)
+    /// Runs the live transactional switch (sign-out under the old defaults,
+    /// quiesce, store, rebuild) through the attached
+    /// ``MacBackendEnvironmentSwitchController``. Pinned builds never start
+    /// it (the transaction guards again, but the flow refuses first so the
+    /// UI contract is enforceable without a controller).
+    func applyBackendEnvironment(_ value: AccountBackendEnvironment) async {
+        guard !backendEnvironmentPinnedByLaunchEnvironment else { return }
+        guard let backendEnvironmentSwitchController else { return }
+        await backendEnvironmentSwitchController.switchEnvironment(
+            to: Self.backendEnvironmentOverride(from: value)
+        )
+    }
+
+    func resetBackendEnvironmentSwitchPhase() {
+        backendEnvironmentSwitchController?.reset()
+    }
+
+    /// Attach the live-switch engine. Called once from `MacAuthComposition`'s
+    /// startup initializer (after both objects exist; the controller's steps
+    /// reference this flow weakly, so neither owns the other strongly in a
+    /// cycle).
+    func attachBackendEnvironmentSwitchController(
+        _ controller: MacBackendEnvironmentSwitchController
+    ) {
+        backendEnvironmentSwitchController = controller
+    }
+
+    /// Adopt the freshly built auth graph after a live backend-environment
+    /// switch, keeping this flow object (and everything observing it) alive.
+    /// Re-reads the persisted selection so active and pending converge on
+    /// the committed override.
+    func rebind(
+        coordinator: AuthCoordinator,
+        browserSignIn: HostBrowserSignInFlow,
+        activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride
+    ) {
+        self.coordinator = coordinator
+        self.browserSignIn = browserSignIn
+        self.activeBackendEnvironmentOverride = activeBackendEnvironmentOverride
+        pendingBackendEnvironmentOverride = CMUXBackendEnvironmentOverride.load(
+            from: backendEnvironmentDefaults
+        )
     }
 
     /// Tagged dev builds bake `CMUX_*` origins into their LSEnvironment via

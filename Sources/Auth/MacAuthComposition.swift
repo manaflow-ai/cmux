@@ -6,12 +6,17 @@ import StackAuth
 
 /// The macOS auth composition root.
 ///
-/// Constructs the de-singletonized auth graph once at app startup, mirroring
-/// the iOS `MobileAuthComposition`: the keychain/file fallback token store, a
+/// Constructs the de-singletonized auth graph, mirroring the iOS
+/// `MobileAuthComposition`: the keychain/file fallback token store, a
 /// `StackClientApp` over it (wrapped in ``CmuxAuthRuntime/StackAuthClient``),
 /// the shared ``CmuxAuthRuntime/AuthCoordinator`` bound to the historical mac
 /// defaults keys, and the ``HostBrowserSignInFlow``. Replaces
 /// `AuthManager.shared`.
+///
+/// Built once at app startup, and rebuilt in-process by the live
+/// backend-environment switch through ``init(rebinding:environment:defaults:)``,
+/// which reuses the existing ``HostAccountFlow`` and hands the fresh graph to
+/// `AppDelegate.adoptRebuiltAuth(_:)`.
 @MainActor
 struct MacAuthComposition {
     /// The shared auth orchestrator (session state, tokens, teams).
@@ -27,7 +32,20 @@ struct MacAuthComposition {
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
 
-    /// Build the auth graph.
+    /// The environment-frozen pieces one build pass produces. Shared by the
+    /// startup initializer and the live-switch rebinding initializer so the
+    /// graph is constructed identically both times.
+    private struct Graph {
+        let coordinator: AuthCoordinator
+        let callbackRouter: AuthCallbackRouter
+        let tokenStore: any StackAuthTokenStoreProtocol
+        let browserSignIn: HostBrowserSignInFlow
+        let browserAppSession: BrowserAppSessionController
+        /// The persisted backend override this pass resolved against.
+        let backendEnvironmentOverride: CMUXBackendEnvironmentOverride
+    }
+
+    /// Build the auth graph at app startup.
     /// - Parameters:
     ///   - environment: The process environment (UI-test launch options).
     ///   - defaults: Persistence for the cached user / has-tokens flag /
@@ -36,8 +54,115 @@ struct MacAuthComposition {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) {
+        let graph = Self.buildGraph(environment: environment, defaults: defaults)
+        coordinator = graph.coordinator
+        callbackRouter = graph.callbackRouter
+        tokenStore = graph.tokenStore
+        browserSignIn = graph.browserSignIn
+        browserAppSession = graph.browserAppSession
+        let accountFlow = HostAccountFlow(
+            coordinator: graph.coordinator,
+            browserSignIn: graph.browserSignIn,
+            activeBackendEnvironmentOverride: graph.backendEnvironmentOverride,
+            backendEnvironmentPinnedByLaunchEnvironment:
+                HostAccountFlow.launchEnvironmentPinsBackendEnvironment(environment),
+            backendEnvironmentDefaults: defaults
+        )
+        self.accountFlow = accountFlow
+        accountFlow.attachBackendEnvironmentSwitchController(
+            Self.makeBackendEnvironmentSwitchController(
+                accountFlow: accountFlow,
+                environment: environment,
+                defaults: defaults
+            )
+        )
+    }
+
+    /// Build a fresh auth graph for the (already committed) new backend
+    /// environment and rebind the existing ``HostAccountFlow`` to it, instead
+    /// of constructing a new flow. Used by the live backend-environment
+    /// switch: the flow object, its attached switch controller, and every
+    /// Settings view observing it survive; only the environment-frozen graph
+    /// underneath is replaced. The fresh ``AuthLaunchOptions`` re-run
+    /// ``detectAuthProjectSwitch(resolvedProjectID:buildDefaultProjectID:defaults:)``,
+    /// so a project flip primes `clearStaleAuthOnLaunch` on the new
+    /// coordinator's `start()`.
+    init(
+        rebinding accountFlow: HostAccountFlow,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) {
+        let graph = Self.buildGraph(environment: environment, defaults: defaults)
+        coordinator = graph.coordinator
+        callbackRouter = graph.callbackRouter
+        tokenStore = graph.tokenStore
+        browserSignIn = graph.browserSignIn
+        browserAppSession = graph.browserAppSession
+        self.accountFlow = accountFlow
+        accountFlow.rebind(
+            coordinator: graph.coordinator,
+            browserSignIn: graph.browserSignIn,
+            activeBackendEnvironmentOverride: graph.backendEnvironmentOverride
+        )
+    }
+
+    /// The production step wiring for the live backend-environment switch.
+    /// Every closure resolves the flow's CURRENT graph at run time (weakly,
+    /// so the controller the flow owns never retains the flow back), which
+    /// keeps a second switch correct after the first rebind.
+    private static func makeBackendEnvironmentSwitchController(
+        accountFlow: HostAccountFlow,
+        environment: [String: String],
+        defaults: UserDefaults
+    ) -> MacBackendEnvironmentSwitchController {
+        MacBackendEnvironmentSwitchController(
+            steps: BackendEnvironmentSwitchTransaction.Steps(
+                isPinnedByBuild: { [weak accountFlow] in
+                    accountFlow?.backendEnvironmentPinnedByLaunchEnvironment ?? true
+                },
+                activeEnvironment: { [weak accountFlow] in
+                    accountFlow?.activeBackendEnvironmentOverride ?? .production
+                },
+                signOut: { [weak accountFlow] in
+                    // The complete existing teardown chain, under the OLD
+                    // defaults: HostBrowserSignInFlow.signOut() (cancels
+                    // in-flight sign-in attempts, clears the cmux web
+                    // session, revokes the iroh binding) plus the flow's
+                    // Pro-state reset.
+                    await accountFlow?.signOut()
+                },
+                quiesce: {
+                    // Stop mobile RPC (listener + iroh + caller verification)
+                    // so nothing verifies tokens against flipped defaults
+                    // while the old coordinator still lives. Restarted by
+                    // AppDelegate.adoptRebuiltAuth(_:) after the rebuild.
+                    MobileHostService.shared.stop()
+                },
+                storeOverride: { override in
+                    override.store(in: defaults)
+                },
+                rebuild: { [weak accountFlow] _ in
+                    guard let accountFlow, let appDelegate = AppDelegate.shared else { return }
+                    appDelegate.adoptRebuiltAuth(
+                        MacAuthComposition(
+                            rebinding: accountFlow,
+                            environment: environment,
+                            defaults: defaults
+                        )
+                    )
+                }
+            )
+        )
+    }
+
+    /// One environment-frozen build pass over the persisted override.
+    private static func buildGraph(
+        environment: [String: String],
+        defaults: UserDefaults
+    ) -> Graph {
         let bundleIdentifier = Bundle.main.bundleIdentifier
-        // The persisted backend override resolves ONCE, here at startup, and
+        // The persisted backend override resolves ONCE per build pass (at
+        // startup, and again when the live switch rebuilds the graph), and
         // replaces only the build-default layer: explicit env (including the
         // LSEnvironment values tagged dev builds bake in) still wins inside
         // every resolved* function.
@@ -63,7 +188,6 @@ struct MacAuthComposition {
             ),
             fallback: FileStackTokenStore(directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier))
         )
-        self.tokenStore = tokenStore
 
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
@@ -156,14 +280,12 @@ struct MacAuthComposition {
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
-        self.coordinator = coordinator
         let browserAppSession = BrowserAppSessionController(
             coordinator: coordinator,
             webOrigin: AuthEnvironment.appSessionHandoffOrigin,
             projectID: stackProjectID,
             defaults: defaults
         )
-        self.browserAppSession = browserAppSession
         browserAppSessionSignInRelay.bind(
             beginTransition: { [weak browserAppSession] in
                 browserAppSession?.beginAuthTransition()
@@ -175,7 +297,6 @@ struct MacAuthComposition {
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
-        self.callbackRouter = callbackRouter
         let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
@@ -198,14 +319,13 @@ struct MacAuthComposition {
                 )
             }
         )
-        self.browserSignIn = browserSignIn
-        self.accountFlow = HostAccountFlow(
+        return Graph(
             coordinator: coordinator,
+            callbackRouter: callbackRouter,
+            tokenStore: tokenStore,
             browserSignIn: browserSignIn,
-            activeBackendEnvironmentOverride: backendEnvironmentOverride,
-            backendEnvironmentPinnedByLaunchEnvironment:
-                HostAccountFlow.launchEnvironmentPinsBackendEnvironment(environment),
-            backendEnvironmentDefaults: defaults
+            browserAppSession: browserAppSession,
+            backendEnvironmentOverride: backendEnvironmentOverride
         )
     }
 

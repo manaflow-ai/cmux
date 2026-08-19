@@ -150058,6 +150058,57 @@
         }
       }
     },
+    "settings.account.backendEnvironment.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch & Sign Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替えてサインアウト"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging is a separate environment with separate accounts and data. Switching signs you out, and your Mac and iPhone must be on the same environment to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージングはアカウントとデータが別の独立した環境です。切り替えるとサインアウトされます。MacとiPhoneをペアリングするには両方が同じ環境である必要があります。"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に切り替えますか？"
+          }
+        }
+      }
+    },
     "settings.account.backendEnvironment.footer": {
       "extractionState": "manual",
       "localizations": {
@@ -150109,36 +150160,36 @@
         }
       }
     },
-    "settings.account.backendEnvironment.relaunch": {
+    "settings.account.backendEnvironment.progressSigningOut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relaunch cmux"
+            "value": "Signing out…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxを再起動"
+            "value": "サインアウト中…"
           }
         }
       }
     },
-    "settings.account.backendEnvironment.relaunchNotice": {
+    "settings.account.backendEnvironment.progressSwitching": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux must relaunch to apply the new backend environment."
+            "value": "Switching backend…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいバックエンド環境を適用するには cmux の再起動が必要です。"
+            "value": "バックエンドを切り替え中…"
           }
         }
       }
@@ -150156,6 +150207,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ステージング"
+          }
+        }
+      }
+    },
+    "settings.account.backendEnvironment.switched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now on %@. Sign in to continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在は%@です。続行するにはサインインしてください。"
           }
         }
       }

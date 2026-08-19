@@ -54,6 +54,13 @@ struct cmuxApp: App {
     /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
+    ///
+    /// Init-only wiring: after a live backend-environment switch,
+    /// `AppDelegate.adoptRebuiltAuth(_:)` replaces the graph and
+    /// `AppDelegate.auth` is the live handle. This stored copy is never read
+    /// again after `init`, so it deliberately keeps pointing at the launch
+    /// graph; the stable objects the UI holds (`accountFlow`,
+    /// `settingsRuntime`) are rebound in place by the switch.
     private let authComposition: MacAuthComposition
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore

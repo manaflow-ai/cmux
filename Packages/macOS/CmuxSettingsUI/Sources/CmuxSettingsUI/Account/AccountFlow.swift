@@ -92,23 +92,32 @@ public protocol AccountFlow: AnyObject {
     /// launch. Drives the "Staging" badge on the account card.
     var activeBackendEnvironment: AccountBackendEnvironment { get }
 
-    /// The persisted backend selection, applied at next launch. When this
-    /// differs from ``activeBackendEnvironment`` the UI shows a relaunch
-    /// notice.
+    /// The persisted backend selection. With the live switch this normally
+    /// matches ``activeBackendEnvironment``; it only diverges when another
+    /// writer changed the persisted value outside the switch transaction.
     var pendingBackendEnvironment: AccountBackendEnvironment { get }
 
     /// Whether this build's backend is pinned by explicit launch-environment
     /// variables (tagged dev builds bake `CMUX_*` origins via LSEnvironment),
-    /// in which case the picker's selection only takes effect in unpinned
-    /// builds.
+    /// in which case the picker is inert and the card shows a pinned note.
     var backendEnvironmentPinnedByLaunchEnvironment: Bool { get }
 
-    /// Persists `value` as the backend environment for the next launch.
-    func selectBackendEnvironment(_ value: AccountBackendEnvironment)
+    /// Where the host's live backend-environment switch currently is. The
+    /// card replaces the picker with a progress row while this is a
+    /// transitional phase and shows the switched note at ``AccountBackendEnvironmentSwitchPhase/finished``.
+    var backendEnvironmentSwitchPhase: AccountBackendEnvironmentSwitchPhase { get }
 
-    /// Persists session state and relaunches the app so the pending backend
-    /// environment becomes active.
-    func relaunchToApplyBackendEnvironment()
+    /// Runs the host's live backend-environment switch to `value`: full
+    /// sign-out under the old environment, then retargeting the auth stack,
+    /// without relaunching the app. A no-op on pinned builds and when
+    /// `value` is already active. Returns when the switch has finished.
+    func applyBackendEnvironment(_ value: AccountBackendEnvironment) async
+
+    /// Returns ``backendEnvironmentSwitchPhase`` to
+    /// ``AccountBackendEnvironmentSwitchPhase/idle`` after the UI has shown
+    /// the finished note (the card calls this when it disappears or when a
+    /// new selection starts).
+    func resetBackendEnvironmentSwitchPhase()
 }
 
 extension AccountFlow {
