@@ -40,18 +40,22 @@ Notes:
   `defaults write` of these keys has no effect; this is deliberate, since
   an unmanaged value would not be enforceable anyway.
 - Policy changes are applied at app launch, on preference-change
-  notifications, and re-checked whenever the app becomes active — a
-  profile pushed while cmux is running takes effect no later than the next
-  time the user returns to the app.
+  notifications, whenever the app becomes active, and on a periodic
+  re-check (about once a minute) while the app runs — a profile pushed
+  mid-session takes effect within roughly a minute even if the user never
+  leaves cmux.
 
 ## Lockability
 
-Configuration-profile forced values are locked by macOS itself: user-level
-writes cannot override them, and removing the profile restores normal
-behavior. cmux additionally suppresses its own writers for any forced
-preference key (including keys outside the table above): the Settings UI
-shows the managed state, the `cmux.json` importer skips forced keys, and
-"Reset All Settings" cannot affect them.
+Configuration-profile forced values are locked by macOS itself: no
+user-level write (including "Reset All Settings") can change the effective
+value, and removing the profile restores normal behavior. cmux additionally
+suppresses its own writers: the `cmux.json` importer skips every
+profile-forced key, and for the browser and remote-control controls the
+Settings UI shows the managed state, the command palette hides the matching
+commands, and the CLI refuses with a managed-policy error — including when
+an administrator forces the user-level `browserDisabledOverride` key
+directly instead of the dedicated policy key.
 
 ## Supported platforms and versions
 

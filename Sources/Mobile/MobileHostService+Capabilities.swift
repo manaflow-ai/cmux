@@ -143,7 +143,11 @@ extension MobileHostService {
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
             ),
-            includingBrowser: BrowserAvailabilitySettings.isEnabled()
+            // Managed policy only: under it every browser pane is closed, so
+            // no browser affordance can work. A user-level disable keeps live
+            // panes (session restore re-materializes them), and iOS must
+            // still be able to view/stream those, so keep advertising then.
+            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy
         )
     }
 
@@ -252,9 +256,9 @@ extension MobileHostService {
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
         }
         if !includingBrowser {
-            // The embedded browser is disabled (user setting or MDM policy):
-            // stop advertising browser streaming/creation so iOS never shows
-            // browser affordances whose first RPC would refuse anyway.
+            // The embedded browser is disabled by MDM policy: every pane is
+            // closed and none can be created, so stop advertising browser
+            // streaming/creation and iOS feature-detects the affordances away.
             let browserCapabilities: Set<String> = [
                 MobileBrowserStreamCapability.identifier,
                 MobileBrowserStreamCapability.viewportIdentifier,

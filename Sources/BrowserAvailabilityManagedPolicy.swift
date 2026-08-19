@@ -19,11 +19,14 @@ extension BrowserAvailabilitySettings {
     nonisolated(unsafe) static var managedPolicyOverrideForTesting: Bool?
 
     /// Whether an administrator's configuration profile disables the
-    /// embedded browser. When `true` the gate is locked: the user cannot
-    /// re-enable it, and no creation path — including session restore and
-    /// layout application — may build a browser pane.
+    /// embedded browser — via the dedicated policy key or by forcing the
+    /// user-level key to true directly. When `true` the gate is locked: the
+    /// user cannot re-enable it, and no creation path — including session
+    /// restore and layout application — may build a browser pane.
     static var isManagedByPolicy: Bool {
         if let managedPolicyOverrideForTesting { return managedPolicyOverrideForTesting }
-        return managedDevicePolicy.isEnforced(.disableEmbeddedBrowser)
+        return managedDevicePolicy.isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: disabledKey
+        )
     }
 }

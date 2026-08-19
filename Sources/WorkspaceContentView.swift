@@ -873,10 +873,23 @@ struct EmptyPanelView: View {
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
         .task {
             browserAvailable = BrowserAvailabilitySettings.isEnabled()
-            for await _ in NotificationCenter.default.notifications(
-                named: BrowserAvailabilitySettings.didChangeNotification
-            ) {
-                browserAvailable = BrowserAvailabilitySettings.isEnabled()
+            // The gate is mutated from several entrypoints that signal
+            // differently: palette/policy post didChangeNotification, the
+            // Settings toggle writes defaults directly (defaults
+            // notification), and the CLI writes from another process
+            // (caught on app activation at the latest).
+            await withTaskGroup(of: Void.self) { group in
+                for name in [
+                    BrowserAvailabilitySettings.didChangeNotification,
+                    UserDefaults.didChangeNotification,
+                    NSApplication.didBecomeActiveNotification,
+                ] {
+                    group.addTask { @MainActor in
+                        for await _ in NotificationCenter.default.notifications(named: name) {
+                            browserAvailable = BrowserAvailabilitySettings.isEnabled()
+                        }
+                    }
+                }
             }
         }
 #if DEBUG

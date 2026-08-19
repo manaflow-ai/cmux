@@ -27,6 +27,12 @@ public struct ManagedDevicePolicy: Sendable {
     /// profile: the release app's bundle identifier.
     public static let releasePayloadDomain = "com.cmuxterm.app"
 
+    /// Posted (on the default `NotificationCenter`) by the app's policy
+    /// enforcement whenever the enforced state of any
+    /// ``ManagedDevicePolicyKey`` changes at runtime. UI that renders managed
+    /// state observes this to re-read the resolver promptly.
+    public static let didChangeNotification = Notification.Name("cmux.managedDevicePolicyDidChange")
+
     /// Returns the profile-forced object stored for `key` in `defaults`, or
     /// `nil` when no profile forces the key. The default probe uses
     /// `UserDefaults.objectIsForced(forKey:)`; tests inject their own probe
@@ -103,6 +109,49 @@ public struct ManagedDevicePolicy: Sendable {
             return value as? Bool
         }
         return nil
+    }
+
+    /// A stream that yields once per ``didChangeNotification`` post. Elements
+    /// are `Void`, so SwiftUI `.task` loops can iterate it under strict
+    /// concurrency; the underlying observer is removed when the stream's
+    /// consumer cancels.
+    ///
+    /// ```swift
+    /// .task {
+    ///     for await _ in ManagedDevicePolicy.changeSignals() {
+    ///         managed = ManagedDevicePolicy().isEnforced(.disableEmbeddedBrowser)
+    ///     }
+    /// }
+    /// ```
+    public static func changeSignals(
+        notificationCenter: NotificationCenter = .default
+    ) -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let token = NotificationObserverToken(
+                notificationCenter.addObserver(
+                    forName: didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in continuation.yield(()) },
+                notificationCenter: notificationCenter
+            )
+            continuation.onTermination = { _ in token.remove() }
+        }
+    }
+
+    /// Whether the embedded-browser disable is management-locked: the
+    /// dedicated ``ManagedDevicePolicyKey/disableEmbeddedBrowser`` policy is
+    /// enforced, or the user-level browser-disabled key itself is forced to
+    /// `true` by a profile. Every entrypoint (runtime gate, Settings badge,
+    /// palette, CLI) composes the check through this single definition.
+    ///
+    /// - Parameter browserDisabledUserDefaultsKey: The user-level key
+    ///   (`browserDisabledOverride`) from the settings catalog.
+    public func isBrowserDisableLocked(browserDisabledUserDefaultsKey: String) -> Bool {
+        if isEnforced(.disableEmbeddedBrowser) {
+            return true
+        }
+        return forcedBool(forUserDefaultsKey: browserDisabledUserDefaultsKey) == true
     }
 
     /// Whether a profile forces `userDefaultsKey` in the app's *own* domain.

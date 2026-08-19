@@ -40,13 +40,15 @@ public struct BrowserSection: View {
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
 
-    /// Whether an MDM configuration profile disables the embedded browser.
-    /// Computed so every render re-reads the authoritative resolver — a
-    /// profile pushed while the Settings window stays open takes effect on
-    /// the next render instead of sticking to a construction-time snapshot.
-    private var browserManagedByPolicy: Bool {
-        ManagedDevicePolicy().isEnforced(.disableEmbeddedBrowser)
-    }
+    /// Whether management locks the embedded-browser disable (policy key
+    /// enforced, or the user key itself forced). Refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so a
+    /// profile pushed while the Settings window stays open re-renders
+    /// the row.
+    @State private var browserManagedByPolicy = ManagedDevicePolicy()
+        .isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
+        )
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -96,6 +98,13 @@ public struct BrowserSection: View {
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
         }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
+                    browserDisabledUserDefaultsKey: catalog.browser.disabled.userDefaultsKey
+                )
+            }
+        }
     }
 
     @ViewBuilder

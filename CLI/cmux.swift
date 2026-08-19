@@ -3365,42 +3365,51 @@ struct CMUXCLI {
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
-    /// Mirrors `ManagedDevicePolicyKey.disableEmbeddedBrowser` in CmuxSettings
-    /// (the CLI target does not link that package). Documented in
-    /// docs/managed-device-policies.md.
-    private static let managedBrowserPolicyKey = "DisableEmbeddedBrowser"
+    /// The shared MDM resolver, bound to the target `domain`'s suite with the
+    /// channel → release-domain fallback keyed off that domain.
+    private static func managedDevicePolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> ManagedDevicePolicy {
+        ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: ManagedDevicePolicy.defaultReleaseDomainDefaults(
+                bundleIdentifier: domain
+            )
+        )
+    }
 
     /// Whether MDM locks browser availability for `domain`: the dedicated
-    /// policy key is enforced — forced `true`, matching
-    /// `ManagedDevicePolicy.isEnforced(_:)` semantics (a key forced `false`
-    /// or to a non-Boolean does not lock the user toggle, whose writes go to
-    /// a different key) — or an administrator forces the user-level key
-    /// directly, in which case a write would fight the forced value.
+    /// policy key is enforced (forced `true`, `ManagedDevicePolicy.isEnforced`
+    /// semantics — a key forced `false` or non-Boolean does not lock the user
+    /// toggle, whose writes go to a different key), or an administrator forces
+    /// the user-level key directly, in which case a write would fight the
+    /// forced value.
     private static func browserAvailabilityManagedByProfile(
         defaults: UserDefaults,
         domain: String
     ) -> Bool {
-        if browserDisabledByManagedPolicy(defaults: defaults, domain: domain) {
+        let policy = managedDevicePolicy(defaults: defaults, domain: domain)
+        if policy.isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: browserDisabledDefaultsKey
+        ) {
             return true
         }
-        return defaults.objectIsForced(forKey: browserDisabledDefaultsKey)
+        // A user key forced to any value (even false) still refuses writes:
+        // they could never change the effective value.
+        return policy.isKeyForcedInAppDomain(browserDisabledDefaultsKey)
     }
 
-    /// Whether the `DisableEmbeddedBrowser` policy is enforced (forced true)
-    /// for `domain`.
+    /// Whether the browser is disabled by management for `domain` (the policy
+    /// key enforced, or the user key forced to true).
     private static func browserDisabledByManagedPolicy(
         defaults: UserDefaults,
         domain: String
     ) -> Bool {
-        if defaults.objectIsForced(forKey: managedBrowserPolicyKey) {
-            return (defaults.object(forKey: managedBrowserPolicyKey) as? Bool) == true
-        }
-        if domain != defaultBrowserSettingsDomain,
-           let releaseDefaults = UserDefaults(suiteName: defaultBrowserSettingsDomain),
-           releaseDefaults.objectIsForced(forKey: managedBrowserPolicyKey) {
-            return (releaseDefaults.object(forKey: managedBrowserPolicyKey) as? Bool) == true
-        }
-        return false
+        managedDevicePolicy(defaults: defaults, domain: domain)
+            .isBrowserDisableLocked(
+                browserDisabledUserDefaultsKey: browserDisabledDefaultsKey
+            )
     }
 
     private static func containingAppBundleIdentifier() -> String? {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 /// Applies MDM managed-policy transitions to a running app.
@@ -8,14 +9,22 @@ import Foundation
 /// `BrowserAvailabilitySettings.didChangeNotification` so gated UI refreshes;
 /// when the remote-control policy flips either way it runs the injected
 /// mobile enforcement (`MobileHostService.syncToSettings()`, which tears the
-/// host down or re-arms it).
+/// host down or re-arms it). Every transition also posts
+/// `ManagedDevicePolicy.didChangeNotification` so Settings UI re-reads the
+/// resolver.
 ///
 /// Managed-preference pushes do not reliably fire
-/// `UserDefaults.didChangeNotification`, so the observer also re-evaluates
-/// on app activation — a profile installed while cmux is frontmost-inactive
-/// takes effect the next time the user returns to the app at the latest.
+/// `UserDefaults.didChangeNotification`, so the observer also re-evaluates on
+/// app activation and on a periodic cadence (``recheckInterval``) — an MDM
+/// push against a Mac that stays frontmost is enforced within one interval,
+/// not only at the next activation.
 @MainActor
 final class ManagedPolicyEnforcementObserver {
+    /// Upper bound on enforcement latency for out-of-band MDM pushes that
+    /// fire no local notification. Justified periodic re-check: there is no
+    /// callback API for managed-preference changes, and an enforcement
+    /// deadline is the intended behavior (matches MDM check-in semantics).
+    static let recheckInterval: Duration = .seconds(60)
     private let notificationCenter: NotificationCenter
     private let isBrowserDisabledByPolicy: () -> Bool
     private let isRemoteControlDisabledByPolicy: () -> Bool
@@ -45,6 +54,17 @@ final class ManagedPolicyEnforcementObserver {
         remoteControlPolicyActive = isRemoteControlDisabledByPolicy()
         observe(UserDefaults.didChangeNotification)
         observe(NSApplication.didBecomeActiveNotification)
+        observationTasks.append(Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: Self.recheckInterval)
+                } catch {
+                    break
+                }
+                guard let self else { break }
+                self.reevaluate()
+            }
+        })
     }
 
     deinit {
@@ -65,9 +85,11 @@ final class ManagedPolicyEnforcementObserver {
     /// matching enforcement on a transition. Exposed for tests and for the
     /// startup call after construction.
     func reevaluate() {
+        var anyTransition = false
         let browserNow = isBrowserDisabledByPolicy()
         if browserNow != browserPolicyActive {
             browserPolicyActive = browserNow
+            anyTransition = true
             if browserNow {
                 enforceBrowserPolicy()
             }
@@ -80,8 +102,16 @@ final class ManagedPolicyEnforcementObserver {
         let remoteNow = isRemoteControlDisabledByPolicy()
         if remoteNow != remoteControlPolicyActive {
             remoteControlPolicyActive = remoteNow
+            anyTransition = true
             // syncToSettings() handles both teardown and re-arming.
             enforceRemoteControlPolicy()
+        }
+        if anyTransition {
+            // Settings UI re-reads the resolver on this signal.
+            notificationCenter.post(
+                name: ManagedDevicePolicy.didChangeNotification,
+                object: nil
+            )
         }
     }
 }

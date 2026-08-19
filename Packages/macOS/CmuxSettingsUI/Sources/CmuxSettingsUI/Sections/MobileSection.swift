@@ -27,12 +27,11 @@ public struct MobileSection: View {
     @State private var isApplying = false
 
     /// Whether an MDM configuration profile disables iOS remote control.
-    /// Computed so every render re-reads the authoritative resolver — a
-    /// profile pushed while the Settings window stays open takes effect on
-    /// the next render instead of sticking to a construction-time snapshot.
-    private var remoteControlManagedByPolicy: Bool {
+    /// Refreshed from ``ManagedDevicePolicy/changeSignals(notificationCenter:)``
+    /// so a profile pushed while the Settings window stays open re-renders
+    /// the section.
+    @State private var remoteControlManagedByPolicy =
         ManagedDevicePolicy().isEnforced(.disableRemoteControl)
-    }
 
     /// Host bridge: opens the pairing window, applies the port (availability
     /// checked), and supplies the live pairing status and default display name.
@@ -125,6 +124,11 @@ public struct MobileSection: View {
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                remoteControlManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
     }
 
     private func startObservingSettings() {

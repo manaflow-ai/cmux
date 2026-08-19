@@ -11,12 +11,11 @@ public struct IrohNetworkingSection: View {
     @State private var pendingCustomRemovalID: String?
 
     /// Whether an MDM configuration profile disables iOS remote control,
-    /// which this networking stack exists to serve. Computed so every render
-    /// re-reads the authoritative resolver instead of a construction-time
-    /// snapshot.
-    private var remoteControlManagedByPolicy: Bool {
+    /// which this networking stack exists to serve. Refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so a
+    /// profile pushed while the Settings window stays open re-renders it.
+    @State private var remoteControlManagedByPolicy =
         ManagedDevicePolicy().isEnforced(.disableRemoteControl)
-    }
 
     public init(hostActions: SettingsHostActions) {
         _model = State(initialValue: IrohSettingsModel(controller: hostActions.irohSettingsController()))
@@ -46,6 +45,11 @@ public struct IrohNetworkingSection: View {
             diagnosticsCard
         }
         .task { await model.observe() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                remoteControlManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
         .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
