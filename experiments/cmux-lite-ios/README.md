@@ -13,12 +13,14 @@ stream and tests it against a deterministic fake Mac host. Neither package has
 a dependency on the existing cmux mobile implementation.
 `Packages/CmuxLiteTransport` now owns route ordering and one serialized dial
 attempt, while still leaving concrete network adapters out of the experiment.
-`Packages/CmuxLiteIroh` adds the unit-testable Swift adapter boundary around a
-future native binding, with no Rust or C code linked yet.
+`Packages/CmuxLiteIroh` adds the unit-testable Swift adapter boundary and a
+concrete provider backed by the isolated `manaflow-ai/iroh-ffi` `cmux-lite`
+branch. The provider binds one endpoint lazily, validates route identity, and
+opens one bidirectional stream without wiring the experiment into production.
 
 Later slices will add, in order:
 
-1. the native Rust/C Iroh binding;
+1. a real two-endpoint Iroh listener/dialer harness;
 2. a Tailscale compatibility adapter;
 3. session reconnect and migration policy;
 4. terminal synchronization over deterministic transcripts;

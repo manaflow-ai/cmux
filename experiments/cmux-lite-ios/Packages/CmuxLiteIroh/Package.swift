@@ -17,6 +17,10 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxLiteProtocol"),
         .package(path: "../CmuxLiteTransport"),
+        .package(
+            url: "https://github.com/manaflow-ai/iroh-ffi.git",
+            branch: "cmux-lite"
+        ),
     ],
     targets: [
         .target(
@@ -24,6 +28,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
                 .product(name: "CmuxLiteTransport", package: "CmuxLiteTransport"),
+                .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -37,6 +42,7 @@ let package = Package(
                 "CmuxLiteIroh",
                 .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
                 .product(name: "CmuxLiteTransport", package: "CmuxLiteTransport"),
+                .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

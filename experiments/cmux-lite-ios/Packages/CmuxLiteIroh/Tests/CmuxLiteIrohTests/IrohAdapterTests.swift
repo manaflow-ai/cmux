@@ -1,11 +1,145 @@
 internal import Foundation
-import CmuxLiteIroh
+@testable import CmuxLiteIroh
 import CmuxLiteProtocol
 import CmuxLiteTransport
+import IrohLib
 import Testing
 
 @Suite("Iroh byte-stream adapter")
 struct IrohAdapterTests {
+    @Test("the native provider shares one endpoint across concurrent callers")
+    func providerSharesEndpoint() async throws {
+        let endpoint = RecordingEndpointDriver()
+        let factory = GatedEndpointFactory(endpoint: endpoint)
+        let provider = IrohLibConnectionProvider(
+            configuration: .standard,
+            factory: factory
+        )
+        let route = try IrohRoute(
+            endpointID: "peer-1",
+            relayURL: "https://relay.example",
+            directAddresses: ["192.0.2.1:7842"]
+        )
+
+        let first = Task { try await provider.connect(to: route) }
+        await factory.waitUntilBindIsPending()
+        let second = Task { try await provider.connect(to: route) }
+        await factory.release()
+
+        _ = try await first.value
+        _ = try await second.value
+        #expect(await factory.bindCount() == 1)
+        #expect(await endpoint.routes() == [route, route])
+        #expect(
+            await endpoint.alpns() == [
+                IrohLibConfiguration.standard.alpn,
+                IrohLibConfiguration.standard.alpn,
+            ]
+        )
+
+        await provider.close()
+        #expect(await endpoint.isClosed())
+        await #expect(throws: IrohOpenFailure.closed) {
+            _ = try await provider.connect(to: route)
+        }
+    }
+
+    @Test("native binding failures remain classified before fallback")
+    func providerPreservesClassifiedFailure() async throws {
+        let factory = FailingEndpointFactory(failure: .unauthorized)
+        let provider = IrohLibConnectionProvider(
+            configuration: .standard,
+            factory: factory
+        )
+        let route = try IrohRoute(endpointID: "peer-1")
+
+        await #expect(throws: IrohOpenFailure.unauthorized) {
+            _ = try await provider.connect(to: route)
+        }
+        #expect(await factory.bindCount() == 1)
+    }
+
+    @Test("configuration rejects unsafe native inputs")
+    func configurationValidation() {
+        #expect(
+            throws: IrohLibConfiguration.Failure.emptyALPN
+        ) {
+            try IrohLibConfiguration(alpn: Data())
+        }
+        #expect(
+            throws: IrohLibConfiguration.Failure.invalidSecretKeyLength(3)
+        ) {
+            try IrohLibConfiguration(
+                alpn: Data("cmux-lite".utf8),
+                secretKeyBytes: Data([1, 2, 3])
+            )
+        }
+        #expect(
+            throws: IrohLibConfiguration.Failure.invalidReceiveChunkLimit
+        ) {
+            try IrohLibConfiguration(
+                alpn: Data("cmux-lite".utf8),
+                maximumReceiveChunkBytes: 0
+            )
+        }
+    }
+
+    @Test("IrohLib error kinds map to explicit transport outcomes")
+    func nativeFailureMapping() {
+        #expect(
+            IrohLibFailureMapper.openFailure(for: .invalidInput)
+                == .invalidRoute
+        )
+        #expect(
+            IrohLibFailureMapper.openFailure(for: .alpn)
+                == .incompatiblePeer
+        )
+        #expect(
+            IrohLibFailureMapper.openFailure(for: .closed)
+                == .closed
+        )
+        #expect(
+            IrohLibFailureMapper.openFailure(for: .timeout)
+                == .unavailable
+        )
+
+        let allKinds: [IrohErrorKind] = [
+            .invalidInput,
+            .bind,
+            .connect,
+            .connection,
+            .alpn,
+            .keyParsing,
+            .ticketParsing,
+            .relay,
+            .stream,
+            .datagram,
+            .callback,
+            .closed,
+            .timeout,
+            .internal,
+        ]
+        #expect(allKinds.count == 14)
+    }
+
+    @Test("native route conversion validates identity before dialing")
+    func nativeRouteConversion() throws {
+        let route = try IrohRoute(
+            endpointID: "523c7996bad77424e96786cf7a7205115337a5b4565cd25506a0f297b191a5ea",
+            relayURL: "https://relay.example",
+            directAddresses: ["192.0.2.1:7842"]
+        )
+        let address = try IrohLibRouteAddress.make(for: route)
+        #expect(address.id().toBytes().count == 32)
+        #expect(address.relayUrl() == route.relayURL)
+        #expect(address.directAddresses() == route.directAddresses)
+
+        let malformed = try IrohRoute(endpointID: "not-an-endpoint-id")
+        #expect(throws: IrohOpenFailure.invalidRoute) {
+            try IrohLibRouteAddress.make(for: malformed)
+        }
+    }
+
     @Test("the adapter delegates lifecycle and bytes to the native connection")
     func lifecycleAndBytes() async throws {
         let connection = FakeIrohConnection(inbound: [Data("reply".utf8)])
@@ -144,6 +278,103 @@ struct IrohAdapterTests {
         await connection.releaseClose()
         await closeTask.value
         #expect(await connection.isClosed())
+    }
+}
+
+private actor GatedEndpointFactory: IrohEndpointFactory {
+    private let endpoint: RecordingEndpointDriver
+    private var continuation: CheckedContinuation<
+        any IrohEndpointDriver,
+        any Error
+    >?
+    private var observer: CheckedContinuation<Void, Never>?
+    private var binds = 0
+
+    init(endpoint: RecordingEndpointDriver) {
+        self.endpoint = endpoint
+    }
+
+    func bind(
+        configuration: IrohLibConfiguration
+    ) async throws -> any IrohEndpointDriver {
+        binds += 1
+        observer?.resume()
+        observer = nil
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilBindIsPending() async {
+        if continuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            observer = continuation
+        }
+    }
+
+    func release() {
+        continuation?.resume(returning: endpoint)
+        continuation = nil
+    }
+
+    func bindCount() -> Int {
+        binds
+    }
+}
+
+private actor FailingEndpointFactory: IrohEndpointFactory {
+    private let failure: IrohOpenFailure
+    private var binds = 0
+
+    init(failure: IrohOpenFailure) {
+        self.failure = failure
+    }
+
+    func bind(
+        configuration: IrohLibConfiguration
+    ) async throws -> any IrohEndpointDriver {
+        binds += 1
+        throw failure
+    }
+
+    func bindCount() -> Int {
+        binds
+    }
+}
+
+private actor RecordingEndpointDriver: IrohEndpointDriver {
+    private var recordedRoutes: [IrohRoute] = []
+    private var recordedALPNs: [Data] = []
+    private var closed = false
+
+    func connect(
+        to route: IrohRoute,
+        alpn: Data
+    ) async throws -> any IrohConnection {
+        guard !closed else {
+            throw IrohOpenFailure.closed
+        }
+        recordedRoutes.append(route)
+        recordedALPNs.append(alpn)
+        return FakeIrohConnection()
+    }
+
+    func close() async {
+        closed = true
+    }
+
+    func routes() -> [IrohRoute] {
+        recordedRoutes
+    }
+
+    func alpns() -> [Data] {
+        recordedALPNs
+    }
+
+    func isClosed() -> Bool {
+        closed
     }
 }
 
