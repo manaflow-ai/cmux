@@ -68,6 +68,75 @@ describe("Iroh build compatibility", () => {
     expect(canIOSBindingUseMac(ios, stableMac)).toBe(true);
     expect(canIOSBindingUseMac(ios, stagingMac)).toBe(true);
   });
+
+  test("a legacy default-lane iOS binding may use default and nightly Macs", () => {
+    const legacyIos = binding({
+      platform: "ios",
+      tag: "default",
+      clientNamespace: "legacy",
+    });
+    const defaultMac = binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app",
+    });
+    const nightlyMac = binding({
+      platform: "mac",
+      tag: "nightly",
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+    });
+    const featureMac = binding({
+      platform: "mac",
+      tag: "feature-b",
+      clientNamespace: "mac:feature-b",
+    });
+
+    expect(canIOSBindingUseMac(legacyIos, defaultMac)).toBe(true);
+    expect(canIOSBindingUseMac(legacyIos, nightlyMac)).toBe(true);
+    expect(canIOSBindingUseMac(legacyIos, featureMac)).toBe(false);
+  });
+
+  test("the legacy fallback stays on the default lane", () => {
+    const taggedLegacyIos = binding({
+      platform: "ios",
+      tag: "feature-a",
+      clientNamespace: "legacy",
+    });
+    const nightlyMac = binding({
+      platform: "mac",
+      tag: "nightly",
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+    });
+    const sameLaneMac = binding({
+      platform: "mac",
+      tag: "feature-a",
+      clientNamespace: "mac:feature-a",
+    });
+
+    expect(canIOSBindingUseMac(taggedLegacyIos, nightlyMac)).toBe(false);
+    expect(canIOSBindingUseMac(taggedLegacyIos, sameLaneMac)).toBe(true);
+  });
+
+  test("the legacy fallback does not broaden Mac forgetting", () => {
+    const legacyIos = binding({
+      platform: "ios",
+      tag: "default",
+      clientNamespace: "legacy",
+    });
+    const defaultMac = binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app",
+    });
+    const nightlyMac = binding({
+      platform: "mac",
+      tag: "nightly",
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+    });
+
+    expect(canIOSBindingForgetMac(legacyIos, defaultMac)).toBe(true);
+    expect(canIOSBindingForgetMac(legacyIos, nightlyMac)).toBe(false);
+  });
 });
 
 describe("Iroh trust broker registration", () => {
@@ -1376,6 +1445,101 @@ describe("Iroh discovery and grants", () => {
 
     expect(result.grant.split(".")).toHaveLength(3);
     expect(fixture.repository.pairGrantAudits).toHaveLength(1);
+  });
+
+  test("a pre-namespace legacy iOS binding can pair with a Nightly Mac", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({
+      userId: USER_A,
+      clientNamespace: "legacy",
+      tag: "default",
+      platform: "ios",
+    });
+    const acceptor = binding({
+      userId: USER_A,
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+      tag: "nightly",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(initiator, acceptor);
+
+    // Old Beta builds cannot send X-Cmux-App-Namespace or a binding request
+    // proof; the absence of both is the legacy migration signal.
+    const result = await Effect.runPromise(fixture.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    }, NOW)) as { grant: string };
+
+    expect(result.grant.split(".")).toHaveLength(3);
+    expect(fixture.repository.pairGrantAudits).toHaveLength(1);
+  });
+
+  test("a legacy iOS binding outside the default lane keeps exact lane matching", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({
+      userId: USER_A,
+      clientNamespace: "legacy",
+      tag: "feature-a",
+      platform: "ios",
+    });
+    const acceptor = binding({
+      userId: USER_A,
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+      tag: "nightly",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(initiator, acceptor);
+
+    await expectEffectFailure(fixture.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    }, NOW), "IrohForbiddenError");
+    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
+  test("a proofed legacy iOS binding discovers nightly Macs but not feature lanes", async () => {
+    const fixture = makeFixture();
+    const ios = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      clientNamespace: "legacy",
+      tag: "default",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const nightlyMac = binding({
+      userId: USER_A,
+      clientNamespace: "mac:com.cmuxterm.app.nightly",
+      tag: "nightly",
+      platform: "mac",
+    });
+    const featureMac = binding({
+      userId: USER_A,
+      clientNamespace: "mac:feature-b",
+      tag: "feature-b",
+      platform: "mac",
+    });
+    fixture.repository.bindings.push(ios, nightlyMac, featureMac);
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(
+      USER_A,
+      NOW,
+      undefined,
+      "legacy",
+      fixture.bindingProof(
+        ios.id,
+        "GET",
+        "api/devices/iroh",
+        undefined,
+      ),
+    )) as { bindings: Array<{ binding_id: string }> };
+
+    const ids = discovered.bindings.map((row) => row.binding_id);
+    expect(ids).toContain(ios.id);
+    expect(ids).toContain(nightlyMac.id);
+    expect(ids).not.toContain(featureMac.id);
   });
 
   test("a namespaced app cannot discover or mutate a sibling app binding", async () => {
