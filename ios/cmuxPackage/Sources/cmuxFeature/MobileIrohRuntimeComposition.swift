@@ -2261,7 +2261,7 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
-    private static func keychainAccessGroup(
+    static func keychainAccessGroup(
         infoDictionary: [String: Any]?
     ) -> String? {
         let raw = infoDictionary?["CMUXKeychainAccessGroup"] as? String
