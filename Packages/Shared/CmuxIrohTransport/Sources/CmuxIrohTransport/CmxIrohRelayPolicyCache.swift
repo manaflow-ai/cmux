@@ -97,16 +97,36 @@ public actor CmxIrohRelayPolicyCache {
     /// - Parameters:
     ///   - trustRoot: App-pinned public verification keys.
     ///   - now: Verification time.
+    ///   - staleGrace: Bounded staleness allowance for broker outages. When
+    ///     positive and the cached policy expired no more than this long ago,
+    ///     it is re-verified as of one second before its own expiry, a moment
+    ///     it was valid, so signature, shape, and rollback checks still hold.
+    ///     Relay credentials keep their own independent expiry, so the relay
+    ///     itself remains the hard authorization floor while the policy list
+    ///     rides out an unreachable policy endpoint.
     /// - Returns: The verified policy, or `nil` when no policy is cached.
     /// - Throws: ``CmxIrohRelayPolicyError`` or a secure-storage error.
     public func load(
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        now: Date
+        now: Date,
+        staleGrace: TimeInterval = 0
     ) async throws -> CmxIrohManagedRelayPolicy? {
         await acquire()
         defer { release() }
         guard let record = try await storedRecord() else { return nil }
-        let policy = try verifier.verify(record.signedPolicy, trustRoot: trustRoot, now: now)
+        let policy: CmxIrohManagedRelayPolicy
+        do {
+            policy = try verifier.verify(record.signedPolicy, trustRoot: trustRoot, now: now)
+        } catch let error as CmxIrohRelayPolicyError where error == .expired {
+            guard staleGrace > 0, let expirySeconds = record.expiresAt else { throw error }
+            let expiryDate = Date(timeIntervalSince1970: TimeInterval(expirySeconds))
+            guard now.timeIntervalSince(expiryDate) <= staleGrace else { throw error }
+            policy = try verifier.verify(
+                record.signedPolicy,
+                trustRoot: trustRoot,
+                now: expiryDate.addingTimeInterval(-1)
+            )
+        }
         guard policy.sequence == record.highestSequence,
               Self.metadataMatches(policy, record: record) else {
             throw CmxIrohRelayPolicyError.rollback

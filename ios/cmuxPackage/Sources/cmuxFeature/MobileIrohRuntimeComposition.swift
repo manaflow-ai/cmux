@@ -1833,7 +1833,8 @@ public final class MobileIrohRuntimeComposition:
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     relayCredential: cachedRelay,
-                    now: now()
+                    now: now(),
+                    staleGrace: Self.relayPolicyOutageStaleGrace
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
@@ -1857,7 +1858,8 @@ public final class MobileIrohRuntimeComposition:
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         relayCredential: cachedRelay,
-                        now: now()
+                        now: now(),
+                        staleGrace: Self.relayPolicyOutageStaleGrace
                     )
                     relayPolicyNeedsImmediateRefresh = true
                 }
@@ -2849,7 +2851,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     let expired = await service.restore(
                         accountID: accountID,
                         trustRoot: trustRoot,
-                        now: wakeDate
+                        now: wakeDate,
+                        staleGrace: Self.relayPolicyOutageStaleGrace
                     )
                     try? await self.applyRelayPolicy(expired)
                     relayAuthorityExpired = true
@@ -2885,7 +2888,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         let expired = await service.restore(
                             accountID: accountID,
                             trustRoot: trustRoot,
-                            now: failureDate
+                            now: failureDate,
+                            staleGrace: Self.relayPolicyOutageStaleGrace
                         )
                         try? await self.applyRelayPolicy(expired)
                         relayAuthorityExpired = true
@@ -2910,6 +2914,16 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             }
         }
     }
+
+    /// Bounded staleness for the verified relay policy while the policy
+    /// endpoint is unreachable (field incident: a 2.5-minute endpoint outage
+    /// emptied every dial plan and stranded the phone on "Reconnecting" for
+    /// 151s, https://github.com/manaflow-ai/cmux/issues/10375). The signed
+    /// policy's relay list stays authoritative for dial-plan membership up to
+    /// this long past its expiry; the relay's own credential expiry remains
+    /// the hard authorization floor, and any successful refresh replaces the
+    /// graced policy immediately.
+    nonisolated static let relayPolicyOutageStaleGrace: TimeInterval = 24 * 60 * 60
 
     /// The signed policy bootstrap includes a fresh relay credential. Tests
     /// that suspend automatic credential renewal must therefore suspend this
