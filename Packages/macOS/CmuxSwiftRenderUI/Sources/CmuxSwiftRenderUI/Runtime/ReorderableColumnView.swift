@@ -43,6 +43,14 @@ struct ReorderableColumnView: View {
     @State private var localOrder: [String]?
     @State private var rowHeights: [String: CGFloat] = [:]
 
+    /// stderr trace of lift/crossing/drop, enabled with CMUX_REORDER_DEBUG=1.
+    private static let debugEnabled = ProcessInfo.processInfo.environment["CMUX_REORDER_DEBUG"] == "1"
+
+    private static func debugLog(_ message: @autoclosure () -> String) {
+        guard debugEnabled else { return }
+        FileHandle.standardError.write(Data("reorder: \(message())\n".utf8))
+    }
+
     private static let gapSpring = Animation.spring(response: 0.25, dampingFraction: 0.78)
     private static let liftSpring = Animation.spring(response: 0.2, dampingFraction: 0.8)
     private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.76)
@@ -95,17 +103,21 @@ struct ReorderableColumnView: View {
                     model.sourceIndex = sourceIndex
                     model.targetIndex = sourceIndex
                     model.draggedHeight = rowHeights[childId] ?? 0
+                    Self.debugLog("lift id=\(childId) source=\(sourceIndex) height=\(model.draggedHeight) heights=\(order.map { rowHeights[$0] ?? 0 })")
                 }
                 guard model.draggedId == childId else { return }
                 // Continuous: tracks the pointer, deliberately unanimated.
                 model.translation = value.translation.height
-                // Discrete: one spring per slot crossing.
+                // Discrete: one spring per slot crossing, with hysteresis so
+                // pointer jitter on a boundary can't flip-flop the target.
                 let target = ReorderMath.targetIndex(
                     heights: order.map { rowHeights[$0] ?? 0 },
                     sourceIndex: model.sourceIndex,
-                    translation: value.translation.height
+                    translation: value.translation.height,
+                    current: model.targetIndex
                 )
                 if target != model.targetIndex {
+                    Self.debugLog("cross translation=\(value.translation.height) target \(model.targetIndex) -> \(target)")
                     withAnimation(Self.gapSpring) {
                         model.targetIndex = target
                     }
@@ -162,6 +174,7 @@ struct ReorderableColumnView: View {
             model.isSettling = false
         }
 
+        Self.debugLog("drop source=\(source) target=\(target) translation-residual=\(residual)")
         guard target != source else { return }
         sink.send(node.id, "move", ["id": itemKey(forChildAt: target, in: newOrder), "index": target])
     }

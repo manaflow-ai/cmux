@@ -9,18 +9,20 @@ struct ReorderMathTests {
         #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 1, translation: 0) == 1)
     }
 
-    @Test func dragDownCrossesNextRowCenter() {
-        // Row 0's center starts at 15; row 1's center is 45. The reorder
-        // happens when the dragged center passes it (translation > 30).
-        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: 16) == 0)
-        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: 31) == 1)
-        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: 61) == 2)
+    @Test func dragDownSwapsWhenBottomEdgePassesNextMidpoint() {
+        // Row 0's bottom edge starts at 30; row 1's midpoint is 45 and
+        // row 2's is 75. Swaps at translation > 15 and > 45.
+        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: 14) == 0)
+        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: 16) == 1)
+        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: 46) == 2)
     }
 
-    @Test func dragUpCrossesPreviousRowCenter() {
-        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 2, translation: -16) == 2)
-        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 2, translation: -31) == 1)
-        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 2, translation: -61) == 0)
+    @Test func dragUpSwapsWhenTopEdgePassesPreviousMidpoint() {
+        // Row 2's top edge starts at 60; row 1's midpoint is 45 and row 0's
+        // is 15. Swaps at translation < -15 and < -45.
+        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 2, translation: -14) == 2)
+        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 2, translation: -16) == 1)
+        #expect(ReorderMath.targetIndex(heights: heights, sourceIndex: 2, translation: -46) == 0)
     }
 
     @Test func targetClampsToBounds() {
@@ -29,11 +31,11 @@ struct ReorderMathTests {
     }
 
     @Test func unevenHeightsUseMidpoints() {
-        // Rows 10/100/10. Row 1's center sits at 60; dragging row 0 (center 5)
-        // down must cross it (translation > 55) before taking its slot.
+        // Rows 10/100/10. Row 1's midpoint sits at 60; dragging row 0 down,
+        // its bottom edge (10) must pass it (translation > 50).
         let uneven: [CGFloat] = [10, 100, 10]
-        #expect(ReorderMath.targetIndex(heights: uneven, sourceIndex: 0, translation: 40) == 0)
-        #expect(ReorderMath.targetIndex(heights: uneven, sourceIndex: 0, translation: 56) == 1)
+        #expect(ReorderMath.targetIndex(heights: uneven, sourceIndex: 0, translation: 49) == 0)
+        #expect(ReorderMath.targetIndex(heights: uneven, sourceIndex: 0, translation: 51) == 1)
     }
 
     @Test func rowsShiftTowardTheVacatedSlot() {
@@ -46,6 +48,21 @@ struct ReorderMathTests {
         // Rows outside the affected span do not move.
         #expect(ReorderMath.rowShift(index: 2, sourceIndex: 0, targetIndex: 1, draggedHeight: 30) == 0)
         #expect(ReorderMath.rowShift(index: 0, sourceIndex: 0, targetIndex: 1, draggedHeight: 30) == 0)
+    }
+
+    @Test func hysteresisSplitsTheSwapBoundary() {
+        // Static boundary for source 0 -> 1 is t > 15 (bottom edge 30 vs
+        // midpoint 45). With margin 6: forward fires past 21, backward past 9.
+        func target(_ t: CGFloat, current: Int) -> Int {
+            ReorderMath.targetIndex(heights: heights, sourceIndex: 0, translation: t, current: current, hysteresis: 6)
+        }
+        #expect(target(16, current: 0) == 0)   // inside the dead band: hold
+        #expect(target(22, current: 0) == 1)   // clearly past: swap
+        #expect(target(16, current: 1) == 1)   // jitter back inside band: hold
+        #expect(target(14, current: 1) == 1)   // still inside band: hold
+        #expect(target(8, current: 1) == 0)    // clearly retreated: swap back
+        // A large pull-back in one event returns multiple slots.
+        #expect(target(8, current: 2) == 0)
     }
 
     @Test func settleResidualPreservesVisualPosition() {

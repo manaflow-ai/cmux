@@ -6,12 +6,13 @@ import Foundation
 enum ReorderMath {
     /// The insertion index for a dragged row.
     ///
-    /// Model: the dragged row's center is compared against the other rows'
-    /// midpoints at their pre-drag positions; the insertion index is the count
-    /// of midpoints above the dragged center. A reorder therefore happens
-    /// exactly when the dragged row's center crosses a neighbor's center
-    /// (symmetric up/down, no jump at drag start), which matches the feel of
-    /// native list reordering.
+    /// Model: the dragged row's LEADING edge triggers the swap. Moving up,
+    /// the swap happens when the row's top edge passes the midpoint of the
+    /// row above; moving down, when its bottom edge passes the midpoint of
+    /// the row below. Neighbor midpoints are taken at their pre-drag
+    /// positions. Keying the edge on the sign of the total translation (not
+    /// the instantaneous direction) keeps the mapping monotonic in
+    /// translation, so there is no flip-flop at a boundary.
     ///
     /// - Parameters:
     ///   - heights: visual row heights, in current display order.
@@ -26,15 +27,51 @@ enum ReorderMath {
             tops.append(y)
             y += height + spacing
         }
-        let draggedCenter = tops[sourceIndex] + heights[sourceIndex] / 2 + translation
+        // Leading edge: top edge when moving up, bottom edge when moving down.
+        let edge = translation < 0
+            ? tops[sourceIndex] + translation
+            : tops[sourceIndex] + heights[sourceIndex] + translation
 
         var index = 0
         for (i, height) in heights.enumerated() {
             if i == sourceIndex { continue }
             let midpoint = tops[i] + height / 2
-            if midpoint < draggedCenter { index += 1 }
+            if midpoint < edge { index += 1 }
         }
         return min(max(index, 0), heights.count - 1)
+    }
+
+    /// ``targetIndex(heights:sourceIndex:translation:spacing:)`` with
+    /// hysteresis: moving AWAY from `current` requires the leading edge to be
+    /// past the boundary by `hysteresis` points. Forward and backward swaps at
+    /// a slot boundary otherwise share one line, and pointer jitter on that
+    /// line flip-flops the target, restarting the gap springs every few
+    /// milliseconds (visible churn). The dead band splits the line in two.
+    static func targetIndex(
+        heights: [CGFloat],
+        sourceIndex: Int,
+        translation: CGFloat,
+        current: Int,
+        hysteresis: CGFloat = 6,
+        spacing: CGFloat = 0
+    ) -> Int {
+        // Shrinking |translation| by the margin is conservative for moving
+        // OUT (away from the source slot); inflating it is conservative for
+        // moving BACK. A transition therefore fires only once its side of the
+        // split boundary is clearly crossed.
+        let sign: CGFloat = translation >= 0 ? 1 : -1
+        let out = targetIndex(
+            heights: heights, sourceIndex: sourceIndex,
+            translation: translation - sign * hysteresis, spacing: spacing
+        )
+        let back = targetIndex(
+            heights: heights, sourceIndex: sourceIndex,
+            translation: translation + sign * hysteresis, spacing: spacing
+        )
+        func distance(_ index: Int) -> Int { abs(index - sourceIndex) }
+        if distance(out) > distance(current) { return out }
+        if distance(back) < distance(current) { return back }
+        return current
     }
 
     /// The vertical shift a non-dragged row takes while a drag is in flight,
