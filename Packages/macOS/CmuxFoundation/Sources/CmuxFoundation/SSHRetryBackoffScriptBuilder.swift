@@ -87,7 +87,7 @@ public struct SSHRetryBackoffScriptBuilder: Sendable {
         // terminal around the existing signal-aware sleep so bytes typed while
         // detached cannot survive into a later shell attachment.
         lines.insert(
-            "  if [ -t 0 ] && [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then if ! /bin/stty -echo -icanon isig min 1 time 0 <&0 2>/dev/null; then exit 255; fi; if ! \"$cmux_ssh_attach_cli\" __ssh-pty-flush-input <&0 >/dev/null 2>&1; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null; exit 255; fi; cmux_ssh_attach_input_paused=1; fi",
+            "  if [ -t 0 ] && [ -n \"${cmux_ssh_attach_terminal_state:-}\" ] && [ -x \"${cmux_ssh_attach_cli:-}\" ]; then if ! /bin/stty -echo -icanon isig min 1 time 0 <&0 2>/dev/null; then exit 255; fi; if ! \"$cmux_ssh_attach_cli\" __ssh-pty-flush-input <&0 >/dev/null 2>&1; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null; exit 255; fi; cmux_ssh_attach_input_paused=1; fi",
             at: 0
         )
         lines.insert(
