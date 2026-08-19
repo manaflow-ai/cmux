@@ -219,6 +219,24 @@ struct PullRequestProbeServiceFetchTests {
         #expect(await service.authHeaderValue() == nil)
         #expect(await runner.runCount == 2)
     }
+
+    @Test func repeatedUnauthorizedEnvironmentCredentialAlsoBacksOff() async {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 401),
+            .init(statusCode: 401),
+        ])
+        let runner = SequencedTokenCommandRunner(tokens: ["should-not-run"])
+        let service = PullRequestProbeService(
+            commandRunner: runner,
+            requestCoordinator: GitHubPullRequestRequestCoordinator(session: makeSession()),
+            environment: ["GH_TOKEN": "environment-token"]
+        )
+
+        _ = await fetch(service: service, branches: ["feat/badge"])
+
+        #expect(await service.authHeaderValue() == nil)
+        #expect(await runner.runCount == 0)
+    }
 }
 
 /// Resolves a stable non-empty auth header so the fetch layer proceeds without a

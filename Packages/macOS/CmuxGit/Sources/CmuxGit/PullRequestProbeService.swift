@@ -25,8 +25,8 @@ public struct PullRequestProbeService: Sendable {
     /// fake without spawning a process.
     let commandRunner: any CommandRunning
 
-    /// Caches `gh auth token` results so refresh passes do not repeatedly spawn
-    /// the GitHub CLI when the app has no environment token.
+    /// Caches the resolved GitHub auth header so refresh passes do not
+    /// repeatedly spawn the CLI or reprocess an environment credential.
     let authHeaderCache: GitHubAuthHeaderCache
 
     /// Shared transport/cache/backoff policy. Copies of this service retain the

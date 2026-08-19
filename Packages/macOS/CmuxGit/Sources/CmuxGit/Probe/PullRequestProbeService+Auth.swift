@@ -6,16 +6,21 @@ extension PullRequestProbeService {
     /// result suppresses transport; GitHub probes never fall back to anonymous
     /// requests.
     nonisolated func authHeaderValue() async -> String? {
-        if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
-            let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return "Bearer \(trimmed)"
-            }
-        }
-
         return await authHeaderCache.header {
-            await ghAuthHeaderValue()
+            if let environmentHeader = environmentAuthHeader() {
+                return environmentHeader
+            }
+            return await ghAuthHeaderValue()
         }
+    }
+
+    private nonisolated func environmentAuthHeader() -> String? {
+        guard let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] else {
+            return nil
+        }
+        let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return "Bearer \(trimmed)"
     }
 
     private nonisolated func ghAuthHeaderValue() async -> String? {
