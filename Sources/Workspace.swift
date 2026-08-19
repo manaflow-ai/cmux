@@ -640,7 +640,8 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                tuiTerminalID: tuiTerminalIDsByPanelId[panelId]
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1485,6 +1486,24 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
+            // cmux-tui terminal-backend spike: when this panel was
+            // daemon-backed and the daemon still owns its terminal, reattach
+            // (the process and scrollback are still alive there) instead of
+            // spawning fresh or resuming an agent on top of it.
+            let tuiAttachTerminalID: String?
+            let tuiAttachCommand: String?
+            if restoredRemotePTYSessionID == nil, restoredTmuxStartCommand == nil,
+               case .reattach(let reattachTerminalID) = TuiTerminalAttachBridge.shared.restoreDecision(
+                   snapshotTerminalID: snapshot.terminal?.tuiTerminalID,
+                   isRemoteTerminal: snapshot.terminal?.isRemoteTerminal == true,
+                   hasRemotePTYSessionID: restoredRemotePTYSessionID != nil
+               ) {
+                tuiAttachTerminalID = reattachTerminalID
+                tuiAttachCommand = TuiTerminalAttachBridge.shared.attachCommand(terminalID: reattachTerminalID)
+            } else {
+                tuiAttachTerminalID = nil
+                tuiAttachCommand = nil
+            }
             // A crash-restart can leave this exact agent session alive from the
             // previous launch (or a duplicate panel can reference the same
             // session in this same restore pass); firing another `codex
@@ -1496,6 +1515,7 @@ extension Workspace {
             // before the freshly spawned process becomes visible to the index.
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
+                      tuiAttachCommand == nil,
                       let restorableAgent else {
                     return false
                 }
@@ -1516,7 +1536,7 @@ extension Workspace {
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
-                    && !agentSessionAlreadyActive {
+                    && tuiAttachCommand == nil && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
@@ -1533,7 +1553,7 @@ extension Workspace {
                 }
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
-                tmuxStartCommand: restoredTmuxStartCommand,
+                tmuxStartCommand: tuiAttachCommand ?? restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
@@ -1543,9 +1563,10 @@ extension Workspace {
                 )
             }
             let restoredStartupCommand =
-                restoredRemotePTYAttachCommand
+                tuiAttachCommand
+                ?? restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript
-            let restoredStartupInput = restoredRemotePTYAttachCommand == nil
+            let restoredStartupInput = restoredRemotePTYAttachCommand == nil && tuiAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
                 : nil
             let startupHandlesWorkingDirectory =
@@ -1657,6 +1678,9 @@ extension Workspace {
                 return nil
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
+            if let tuiAttachTerminalID {
+                tuiTerminalIDsByPanelId[terminalPanel.id] = tuiAttachTerminalID
+            }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -2554,6 +2578,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    /// cmux-tui terminal-backend spike: daemon `terminal_id` per
+    /// daemon-backed panel, captured into `SessionTerminalPanelSnapshot`
+    /// so relaunch reattaches instead of spawning fresh.
+    var tuiTerminalIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
@@ -8056,6 +8084,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        // cmux-tui terminal-backend spike: back a plain local main-grid
+        // terminal with a daemon terminal so it survives quitting the app.
+        // Any provisioning failure falls through to today's spawn path.
+        var tuiProvisionedTerminal: TuiTerminalAttachBridge.ProvisionedTerminal?
+        if TuiTerminalAttachPolicy.shouldProvisionNewTerminal(
+            flagEnabled: TuiTerminalAttachBridge.isEnabled,
+            hasExplicitStartupCommand: startupCommand != nil,
+            hasTmuxStartCommand: tmuxStartCommand != nil,
+            hasRemotePTYSessionID: normalizedRemotePTYSessionID(remotePTYSessionID) != nil,
+            isRemoteWorkspace: remoteConfiguration != nil
+        ) {
+            tuiProvisionedTerminal = TuiTerminalAttachBridge.shared.provisionTerminalForNewSurface()
+        }
+        let effectiveStartupCommand = tuiProvisionedTerminal?.attachCommand ?? startupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let newPanelID = restoredSurfaceId ?? UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
@@ -8074,7 +8116,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
-        if startupCommand != nil {
+        if effectiveStartupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
@@ -8099,7 +8141,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configTemplate: inheritedConfig,
             workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
+            initialCommand: effectiveStartupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
@@ -8115,6 +8157,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if let tuiProvisionedTerminal {
+            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        }
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = effectiveRemotePTYSessionID
@@ -8134,6 +8179,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            tuiTerminalIDsByPanelId.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
             if tracksRemoteTerminalSurface {

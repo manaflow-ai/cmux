@@ -168689,6 +168689,57 @@
         }
       }
     },
+    "settings.betaFeatures.tuiTerminalBackend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui Terminal Backend"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui ターミナルバックエンド"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.tuiTerminalBackend.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps the standard local terminal spawn path until you enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、標準のローカルターミナル起動パスを維持します。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.tuiTerminalBackend.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminals run inside a cmux-tui daemon session and survive quitting the app. Experimental spike; remote workspaces and the dock are unaffected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルは cmux-tui デーモンセッション内で実行され、アプリを終了しても維持されます。実験的なスパイクです。リモートワークスペースとドックには影響しません。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.warning": {
       "extractionState": "manual",
       "localizations": {

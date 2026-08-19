@@ -79,5 +79,28 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// cmux-tui terminal backend (tier-A spike): back each new main-grid
+    /// terminal with a cmux-tui daemon terminal and run
+    /// `cmux-tui attach --terminal <id>` as the Ghostty surface command, so
+    /// the shell survives quitting the app. Defaults off; while off, terminal
+    /// creation and session restore are byte-for-byte today's local spawn
+    /// path. This is a throwaway bridge (the shipped data path is the native
+    /// CMTH renderer); expect it to be deleted, not extended.
+    public let tuiTerminalBackend = DefaultsKey<Bool>(
+        id: "terminal.beta.tuiBackend.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.beta.tuiBackend.enabled"
+    )
+
+    /// Path to the cmux-tui binary used by the `tuiTerminalBackend` spike.
+    /// Dev-only setting with a spike-only default pointing at a locally
+    /// installed npm binary; there is no bundled artifact yet (that is build
+    /// item 1 in the migration plan).
+    public let tuiTerminalBackendBinaryPath = DefaultsKey<String>(
+        id: "terminal.beta.tuiBackend.binaryPath",
+        defaultValue: "/Users/lawrence/.local/bin/cmux-tui-npm",
+        userDefaultsKey: "terminal.beta.tuiBackend.binaryPath"
+    )
+
     public init() {}
 }

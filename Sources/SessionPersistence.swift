@@ -1447,6 +1447,12 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// cmux-tui terminal-backend spike: the daemon `terminal_id` backing this
+    /// panel, when the `tuiTerminalBackend` beta flag provisioned one. On
+    /// restore with the flag on, a live daemon terminal with this id is
+    /// reattached instead of spawning a fresh shell. Nil for every
+    /// non-daemon-backed terminal and for all legacy snapshots.
+    var tuiTerminalID: String?
 
     init(
         workingDirectory: String? = nil,
@@ -1461,7 +1467,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        tuiTerminalID: String? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1476,6 +1483,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.tuiTerminalID = tuiTerminalID
     }
 }
 
