@@ -50,7 +50,7 @@ struct SidebarMarkdownRendererTests {
     }
 
     @Test
-    func inactiveDescriptionRetainsSystemStylingForSafeLink() throws {
+    func inactiveDescriptionQuietsLinkToSecondaryWithUnderline() throws {
         let url = try #require(URL(string: "https://cmux.com"))
         let content = SidebarWorkspaceDescriptionText(
             markdown: "Read [cmux](\(url.absoluteString))",
@@ -61,8 +61,44 @@ struct SidebarMarkdownRendererTests {
         let rendered = try #require(content.renderedMarkdown)
         let linkRun = try #require(rendered.runs.first { $0.link == url })
 
-        #expect(linkRun.foregroundColor == nil)
+        #expect(linkRun.foregroundColor == Color.secondary.opacity(0.95))
+        #expect(linkRun.underlineStyle == .single)
         #expect(linkRun.link == url)
+    }
+
+    @Test
+    func renderWorkspaceDescriptionShortensBareGitHubPullRequestLink() throws {
+        let rendered = try #require(
+            SidebarMarkdownRenderer(
+                markdown: "PR https://github.com/manaflow-ai/cmux/pull/6460"
+            ).workspaceDescription
+        )
+        let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/6460"))
+
+        #expect(String(rendered.characters) == "PR #6460")
+        #expect(rendered.runs.contains { $0.link == url })
+    }
+
+    @Test
+    func renderWorkspaceDescriptionShortensBareNonGitHubLinkToHostAndSegment() throws {
+        let rendered = try #require(
+            SidebarMarkdownRenderer(
+                markdown: "See https://linear.app/team/issue/fix-thing"
+            ).workspaceDescription
+        )
+
+        #expect(String(rendered.characters) == "See linear.app/…/fix-thing")
+    }
+
+    @Test
+    func renderWorkspaceDescriptionKeepsHumanChosenLinkText() throws {
+        let rendered = try #require(
+            SidebarMarkdownRenderer(
+                markdown: "[the fix](https://github.com/manaflow-ai/cmux/pull/6460)"
+            ).workspaceDescription
+        )
+
+        #expect(String(rendered.characters) == "the fix")
     }
 
     @Test

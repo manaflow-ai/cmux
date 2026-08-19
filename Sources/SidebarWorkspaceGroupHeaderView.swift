@@ -181,8 +181,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                    .cmuxFont(size: metrics.nameFontSize, weight: SidebarTextWeight.groupNameSwiftUI)
+                    .foregroundStyle(isAnchorActive ? Color.primary : Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
@@ -191,7 +191,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
+                        // cmux's own accent, not the system accent, so the
+                        // capsule matches the row unread badges when the user's
+                        // system accent is not blue.
+                        .background(Capsule().fill(cmuxAccentColor()))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount

@@ -603,7 +603,8 @@ struct SidebarAppKitRowCellTests {
         let model = Self.makeModel(isActive: true, settings: settings, customDescription: url.absoluteString)
         let cell = Self.configuredCell(model: model)
         Self.layoutCell(cell, model: model)
-        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        // Bare autolinks display the shortened host, not the full URL.
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "cmux.com"))
 
         let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
             for: .dark,
@@ -649,19 +650,24 @@ struct SidebarAppKitRowCellTests {
         #expect(Self.distance(glyphColor, systemLink) > 0.15)
     }
 
+    /// Inactive links match the description body's tier — the underline alone
+    /// marks them — so link blue cannot outrank the row title.
     @Test
-    func inactiveRowLinkKeepsSystemLinkColorAndUnderline() throws {
+    func inactiveRowLinkMatchesDescriptionBodyTierWithUnderline() throws {
         let url = try #require(URL(string: "https://cmux.com"))
         let model = Self.makeModel(isActive: false, customDescription: url.absoluteString)
         let cell = Self.configuredCell(model: model)
         Self.layoutCell(cell, model: model)
-        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "cmux.com"))
 
         let rendered = try #require(
             textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
         )
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
-        let expectedLink = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
+        let expectedLink = try Self.resolvedColor(
+            NSColor.secondaryLabelColor.withAlphaComponent(0.95),
+            in: darkAppearance
+        )
         let renderedSRGB = try Self.resolvedColor(rendered, in: darkAppearance)
         #expect(Self.distance(renderedSRGB, expectedLink) < 0.001)
         #expect(
@@ -734,13 +740,16 @@ struct SidebarAppKitRowCellTests {
             ),
             over: background
         )
-        let resolvedLink = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
 
+        // Inactive links share the prose tier; the underline is the affordance.
         #expect(Self.distance(proseGlyph, resolvedProse) < 0.12)
-        #expect(Self.distance(linkGlyph, resolvedLink) < 0.12)
+        #expect(Self.distance(linkGlyph, resolvedProse) < 0.12)
         #expect(cmuxContrastRatio(foreground: proseGlyph, background: background) >= 3)
         #expect(cmuxContrastRatio(foreground: linkGlyph, background: background) >= 3)
-        #expect(Self.distance(proseGlyph, linkGlyph) > 0.15)
+        #expect(
+            attributed.attribute(.underlineStyle, at: linkLocation, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
     }
 
     @Test
@@ -783,7 +792,7 @@ struct SidebarAppKitRowCellTests {
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
         let window = Self.layoutCell(cell, model: initialModel)
-        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "cmux.com"))
         let initialTextFrame = textView.frame
         let originalLink = try #require(
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
@@ -810,7 +819,7 @@ struct SidebarAppKitRowCellTests {
         cell.layoutSubtreeIfNeeded()
 
         let reconfiguredTextView = try #require(
-            Self.descriptionTextView(in: cell, showing: url.absoluteString)
+            Self.descriptionTextView(in: cell, showing: "cmux.com")
         )
         #expect(reconfiguredTextView === textView)
         #expect(reconfiguredTextView.frame == initialTextFrame)
@@ -843,7 +852,7 @@ struct SidebarAppKitRowCellTests {
         )
         let window = Self.layoutCell(cell, model: initialModel)
         let textView = try #require(
-            Self.descriptionTextView(in: cell, showing: url.absoluteString)
+            Self.descriptionTextView(in: cell, showing: "cmux.com")
         )
         let firstWorkspaceLink = try #require(
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }

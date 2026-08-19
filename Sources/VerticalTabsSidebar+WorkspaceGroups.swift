@@ -363,7 +363,7 @@ extension VerticalTabsSidebar {
     /// closures; row realization performs no observable reads or mutations.
     func sidebarWorkspaceGroupRow(
         snapshot: SidebarWorkspaceGroupRowSnapshot
-    ) -> SidebarWorkspaceGroupRowView {
+    ) -> some View {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
         let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
 #if DEBUG
@@ -535,5 +535,9 @@ extension VerticalTabsSidebar {
                 pointerInteractionMonitor.removeFrame(for: rowId)
             }
         )
+        // With the uniform 2pt row gap, this opens each group with an 8pt beat
+        // so headers read as zone starts rather than just another row. Outside
+        // the row view so pointer and drop-target frames keep their geometry.
+        .padding(.top, 6)
     }
 }

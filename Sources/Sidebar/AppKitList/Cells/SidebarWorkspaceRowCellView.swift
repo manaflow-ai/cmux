@@ -474,7 +474,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        titleView.font = .systemFont(
+            ofSize: model.scaled(12.5),
+            weight: SidebarTextWeight.title(hasUnread: model.unreadCount > 0)
+        )
         titleView.textColor = palette.primaryText
 
         // Badges / spinner / close
@@ -555,11 +558,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if showsRemote {
             remoteTargetView.stringValue = snapshot.remoteWorkspaceSidebarText ?? ""
             remoteTargetView.font = .monospacedSystemFont(ofSize: model.scaled(10), weight: .regular)
-            remoteTargetView.textColor = palette.secondary(0.8)
+            remoteTargetView.textColor = palette.tertiary(0.8)
             remoteTargetView.lineBreakMode = .byTruncatingMiddle
             remoteTargetView.toolTip = snapshot.remoteStateHelpText
             remoteStatusView.stringValue = snapshot.remoteConnectionStatusText
-            remoteStatusView.font = .systemFont(ofSize: model.scaled(9), weight: .medium)
+            remoteStatusView.font = .systemFont(ofSize: model.scaled(9), weight: .regular)
             remoteStatusView.textColor = palette.secondary(0.58)
             if !remoteReconnectButton.isHidden {
                 remoteReconnectButton.attributedTitle = NSAttributedString(
@@ -764,7 +767,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.actions?.onOpenStatusURL(url)
             }
         }
-        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: SidebarTextWeight.affordance)
         let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
@@ -908,7 +911,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             portButtons[index].configure(
                 title: SidebarPortDisplayText.label(for: port),
                 font: .monospacedSystemFont(ofSize: model.scaled(10), weight: .regular),
-                color: palette.secondary(0.75),
+                color: palette.tertiary(),
                 underlined: true,
                 toolTip: String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost port")
             ) { [weak self] in
@@ -1048,7 +1051,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.removeInlineRenameSession()
             }
         )
-        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: SidebarTextWeight.restingTitle)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true
@@ -1151,16 +1154,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
         }
 
+        let badgeHorizontalPadding = 5 * model.fontScale
         let leadingSlotActive = (!leadingBadge.isHidden) || (leadingSpinner?.isHidden == false)
         if leadingSlotActive {
-            let side = !leadingBadge.isHidden ? badgeSide : spinnerSide
+            let slotWidth: CGFloat
             if !leadingBadge.isHidden {
-                place(leadingBadge, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+                slotWidth = leadingBadge.fittingWidth(height: badgeSide, horizontalPadding: badgeHorizontalPadding)
+                place(leadingBadge, size: NSSize(width: slotWidth, height: badgeSide), centerY: firstLineCenter)
+            } else {
+                slotWidth = spinnerSide
             }
             if let spinner = leadingSpinner, !spinner.isHidden {
                 place(spinner, size: NSSize(width: spinnerSide, height: spinnerSide), centerY: firstLineCenter)
             }
-            x += side + titleRowSpacing
+            x += slotWidth + titleRowSpacing
         }
         if !pinImageView.isHidden {
             let side = model.scaled(9) + 4
@@ -1182,7 +1189,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        // The badge capsule can outgrow the close-button reserve on multi-digit
+        // counts; the title must clear whichever occupant is widest.
+        let trailingBadgeWidth = trailingBadge.isHidden
+            ? 0
+            : trailingBadge.fittingWidth(height: badgeSide, horizontalPadding: badgeHorizontalPadding)
+        let titleMaxX = trailingSlotActive
+            ? (trailing - max(closeWidth, trailingBadgeWidth) - titleRowSpacing)
+            : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
         let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }
@@ -1201,8 +1215,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 )
                 if !trailingBadge.isHidden {
                     trailingBadge.frame = NSRect(
-                        x: trailing - badgeSide, y: firstLineCenter - badgeSide / 2,
-                        width: badgeSide, height: badgeSide
+                        x: trailing - trailingBadgeWidth, y: firstLineCenter - badgeSide / 2,
+                        width: trailingBadgeWidth, height: badgeSide
                     )
                 }
                 if let spinner = trailingSpinner, !spinner.isHidden {

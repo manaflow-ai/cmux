@@ -21,9 +21,13 @@ struct SidebarWorkspaceDescriptionText: View {
             return (displayMarkdown: displayMarkdown, renderedMarkdown: nil)
         }
         let styledMarkdown = renderedMarkdown.applyingSidebarRowLinkPolicy(
-            activeForegroundColor: isActive ? activeForegroundColor : nil
+            activeForegroundColor: isActive ? activeForegroundColor : nil,
+            inactiveLinkColor: isActive ? nil : Self.inactiveForegroundColor
         )
-        return (displayMarkdown: displayMarkdown, renderedMarkdown: styledMarkdown)
+        return (
+            displayMarkdown: displayMarkdown,
+            renderedMarkdown: styledMarkdown
+        )
     }
 
     var body: some View {
@@ -77,8 +81,10 @@ struct SidebarWorkspaceDescriptionText: View {
             }
     }
 
+    private static let inactiveForegroundColor = Color.secondary.opacity(0.95)
+
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
+        isActive ? activeForegroundColor : Self.inactiveForegroundColor
     }
 
     private func logTextPreview(_ text: String, limit: Int = 120) -> String {

@@ -51,7 +51,7 @@ final class SidebarRowChecklistSummaryLine: NSControl {
             weight: nil
         )
         iconView.contentTintColor = secondary
-        let summaryFont = NSFont.monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .semibold)
+        let summaryFont = NSFont.monospacedDigitSystemFont(ofSize: model.scaled(10), weight: SidebarTextWeight.affordance)
         let itemFont = NSFont.systemFont(ofSize: model.scaled(10))
         countLabel.stringValue = "\(snapshot.checklistCompletedCount)/\(snapshot.checklistTotalCount)"
         countLabel.font = summaryFont

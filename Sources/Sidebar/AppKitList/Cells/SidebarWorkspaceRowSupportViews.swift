@@ -45,13 +45,26 @@ struct SidebarRowPalette {
             : semantic(.secondaryLabelColor, opacity: inactiveOpacity)
     }
 
+    /// Secondary text one step further down (branch, directory, ports, remote,
+    /// PR lines). The alpha scales multiplicatively so the tier stays a fixed
+    /// fraction of `secondaryLabelColor` in both appearances, matching the
+    /// SwiftUI engine's `Color.secondary.opacity(_:)` — `inactiveOpacity`
+    /// above REPLACES the alpha and would make the tier brighter, not dimmer.
+    func tertiary(_ selectedOpacity: CGFloat = 0.75) -> NSColor {
+        guard !model.isActive else { return selectedForeground(selectedOpacity) }
+        let resolved = semantic(.secondaryLabelColor)
+        return resolved.withAlphaComponent(resolved.alphaComponent * 0.75)
+    }
+
     /// Link color for row-owned text. AppKit paints `.link` runs in
     /// `NSColor.linkColor` and ignores the row foreground, which is unreadable
     /// on an active row because the sidebar selection background is the same
     /// blue. Active rows therefore derive the link color from the selected
     /// foreground so a custom `sidebarSelectionColorHex` stays legible.
+    /// Unselected rows keep links at the description body's own alpha — the
+    /// underline alone marks them — so link blue cannot outrank the row title.
     var linkText: NSColor {
-        model.isActive ? selectedForeground(1.0) : semantic(.linkColor)
+        model.isActive ? selectedForeground(1.0) : semantic(.secondaryLabelColor, opacity: 0.95)
     }
 
 }
@@ -399,7 +412,7 @@ final class SidebarRowIconTextLine: NSView {
         iconSize = 0
         stacked = content.stacked && content.branch != nil && !content.directoryCandidates.isEmpty
         let font = NSFont.monospacedSystemFont(ofSize: model.scaled(10), weight: .regular)
-        let color = palette.secondary(0.75)
+        let color = palette.tertiary()
         pendingCandidates = content.directoryCandidates
         if stacked {
             textView.stringValue = content.branch ?? ""
@@ -540,8 +553,8 @@ final class SidebarRowPullRequestLine: NSView {
         clickable: Bool,
         onOpen: @escaping () -> Void
     ) {
-        let color = palette.secondary(0.75)
-        let font = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let color = palette.tertiary()
+        let font = NSFont.systemFont(ofSize: model.scaled(10), weight: SidebarTextWeight.affordance)
         iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
         iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)
         let title = "\(display.label) #\(display.number)"
@@ -566,7 +579,20 @@ final class SidebarRowPullRequestLine: NSView {
         }
         statusLabel.stringValue = statusText
         statusLabel.font = font
-        statusLabel.textColor = color
+        // The status word is the line's one semantic signal, so it carries
+        // the lifecycle colour; active rows stay monochrome like every other
+        // selected-row slot.
+        let statusColor: NSColor
+        if model.isActive {
+            statusColor = color
+        } else {
+            switch display.status {
+            case .open: statusColor = palette.semantic(.systemGreen)
+            case .merged: statusColor = palette.semantic(.systemPurple)
+            case .closed: statusColor = palette.semantic(.systemRed)
+            }
+        }
+        statusLabel.textColor = statusColor
         alphaValue = display.isStale ? 0.5 : 1
         lineHeight = max(iconSize.height, ceil(font.ascender - font.descender + font.leading))
         needsLayout = true

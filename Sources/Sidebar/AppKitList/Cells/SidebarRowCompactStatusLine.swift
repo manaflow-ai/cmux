@@ -41,7 +41,7 @@ final class SidebarRowCompactStatusLine: NSControl {
             localized: "sidebar.status.compactLabel",
             defaultValue: "Status: \(status.displayName)"
         )
-        label.font = .systemFont(ofSize: model.scaled(10), weight: .semibold)
+        label.font = .systemFont(ofSize: model.scaled(10), weight: SidebarTextWeight.affordance)
         label.textColor = palette.secondary(0.9)
         toolTip = String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status")
         setAccessibilityRole(.button)

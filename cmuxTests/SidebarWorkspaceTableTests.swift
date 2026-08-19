@@ -66,7 +66,7 @@ struct SidebarWorkspaceTableTests {
 
         #expect(compact == 31)
         #expect(detailed == 144)
-        #expect(calculator.estimatedGroupHeaderHeight(fontScale: 1) == 36)
+        #expect(calculator.estimatedGroupHeaderHeight(fontScale: 1) == 42)
         #expect(detailed > compact)
     }
 
