@@ -6397,7 +6397,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     nonisolated static let remotePTYSessionEnvironmentKey = "CMUX_REMOTE_PTY_SESSION_ID"
 
-    private nonisolated static func parsedDefaultSSHPTYSessionID(_ value: String) -> (workspaceId: UUID, panelId: UUID)? {
+    nonisolated static func parsedDefaultSSHPTYSessionID(_ value: String) -> (workspaceId: UUID, panelId: UUID)? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("ssh-") else { return nil }
         let suffix = String(trimmed.dropFirst(4))
