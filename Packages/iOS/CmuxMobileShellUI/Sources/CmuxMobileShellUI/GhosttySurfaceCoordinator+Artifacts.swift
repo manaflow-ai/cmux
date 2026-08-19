@@ -614,7 +614,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 ),
                 style: .cancel
             ))
-            alert.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
+            alert.view.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
             outputConsumerRecoveryAlert = alert
             presenter.present(alert, animated: true)
         }
