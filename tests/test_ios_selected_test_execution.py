@@ -48,7 +48,7 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(
             result.stderr,
-            "selected iOS test filter matched zero tests; "
+            "selected test filter matched zero tests; "
             "use target/class or target/class/method syntax\n",
         )
         self.assertNotIn(test_filter, result.stderr)
@@ -73,7 +73,7 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(
             result.stderr,
-            "selected iOS test execution summary was not found; "
+            "selected test execution summary was not found; "
             "verify the test log format\n",
         )
 
@@ -90,7 +90,7 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(
             result.stderr,
-            "selected iOS test execution log is unavailable\n",
+            "selected test execution log is unavailable\n",
         )
         self.assertNotIn(missing_log, result.stderr)
 

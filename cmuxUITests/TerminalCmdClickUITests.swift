@@ -1023,11 +1023,11 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless GUI runners", options: options) {
-            app.launch()
-        }
+        // Activation is required before this suite drives keyboard and pointer
+        // input. Do not mask launch failures with XCTExpectFailure: with
+        // continueAfterFailure disabled, XCTest can stop the test here and
+        // report the expected failure as a passing test without running its body.
+        app.launch()
 
         guard app.state == .runningForeground || app.state == .runningBackground else {
             XCTFail("App failed to start. state=\(app.state.rawValue)")

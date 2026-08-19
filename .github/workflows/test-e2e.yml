@@ -489,30 +489,10 @@ jobs:
             echo "EOFSUM"
           } >> "$GITHUB_OUTPUT"
 
-          EXECUTED_TESTS=$(python3 - /tmp/xcodebuild-e2e.log <<'PY'
-          import re
-          import sys
-
-          log_path = sys.argv[1]
-          with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
-              text = handle.read()
-
-          # XCTest summaries ("Executed N tests") and Swift Testing run summaries
-          # ("Test run with N tests ...") are independent per-framework counts in
-          # one xcodebuild invocation; a filter can select a suite living in either.
-          xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
-          swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
-          # App-hosted Swift Testing can emit a selected run followed by an
-          # auxiliary zero-test run. Count every summary so the later host
-          # teardown cannot erase a test that actually executed.
-          counts = xctest + swift_testing
-          if counts:
-              print(max(counts))
-          PY
-          )
-
-          if [ -z "$EXECUTED_TESTS" ]; then
-            echo "::error::Could not determine executed test count for $TEST_SELECTOR from xcodebuild output"
+          if ! EXECUTED_TESTS=$(./scripts/ci/require_selected_test_execution.sh \
+            /tmp/xcodebuild-e2e.log \
+            "$TEST_SELECTOR"); then
+            echo "::error::Selected test execution guard rejected $TEST_SELECTOR"
             echo "test_result=failed" >> "$GITHUB_OUTPUT"
             {
               echo "test_output<<EOFOUT"
@@ -523,16 +503,6 @@ jobs:
           fi
 
           echo "Executed tests for $TEST_SELECTOR: $EXECUTED_TESTS"
-          if [ "$EXECUTED_TESTS" -eq 0 ]; then
-            echo "::error::test_filter '$TEST_FILTER' resolved to target '$TEST_TARGET' selector '$TEST_SELECTOR' but xcodebuild executed 0 tests"
-            echo "test_result=failed" >> "$GITHUB_OUTPUT"
-            {
-              echo "test_output<<EOFOUT"
-              echo "$OUTPUT" | tail -200
-              echo "EOFOUT"
-            } >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
 
           if [ "$EXIT_CODE" -eq 0 ]; then
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
