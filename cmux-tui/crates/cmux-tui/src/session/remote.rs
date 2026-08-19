@@ -35,6 +35,7 @@ use ghostty_vt::{
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
+use super::cursor_provenance::CursorStyleProvenance;
 #[cfg(test)]
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
@@ -429,6 +430,7 @@ pub struct RemoteSurface {
     pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
+    cursor_provenance: Mutex<CursorStyleProvenance>,
     pub dirty: AtomicBool,
     geometry_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
@@ -456,6 +458,16 @@ impl RemoteSurface {
         if let Some(hook) = hook {
             hook(step);
         }
+    }
+
+    /// Whether the inner application authored the cursor style (DECSCUSR)
+    /// through the raw output stream since the last daemon replay.
+    pub(super) fn cursor_style_authored(&self) -> bool {
+        self.cursor_provenance.lock().unwrap().authored()
+    }
+
+    fn scan_cursor_provenance(&self, bytes: &[u8]) {
+        self.cursor_provenance.lock().unwrap().scan(bytes);
     }
 
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
@@ -657,6 +669,7 @@ impl RemoteSurface {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
         let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let daemon_replay = replay.is_some();
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         #[cfg(test)]
@@ -688,6 +701,11 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         *term = fresh;
+        if daemon_replay {
+            // Daemon-built replays carry resolved state, not application
+            // intent; cursor-style provenance restarts from "not authored".
+            self.cursor_provenance.lock().unwrap().reset_for_replay();
+        }
         self.sync_mouse_encoders(&term);
         self.content_generation.fetch_add(1, Ordering::AcqRel);
         Ok(())
@@ -2137,6 +2155,7 @@ impl RemoteSession {
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&bytes);
                     if let Some(colors) = colors.as_ref() {
@@ -3160,6 +3179,7 @@ impl RemoteSession {
                 kind,
                 term: Mutex::new(term),
                 mouse_encoders: Mutex::new(MouseEncoders::new()?),
+                cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
                 dirty: AtomicBool::new(false),
                 geometry_lifecycle: Mutex::new(()),
                 cell_pixels: Mutex::new(cell_pixels),
@@ -4063,6 +4083,7 @@ pub(super) fn test_unleased_view_surface(
         kind: SurfaceKind::Pty,
         term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
         mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
         dirty: AtomicBool::new(false),
         geometry_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
@@ -4104,6 +4125,7 @@ pub(super) fn test_session_with_browser_pointer_range(
         kind: SurfaceKind::Browser,
         term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
         mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
         dirty: AtomicBool::new(false),
         geometry_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
@@ -5110,6 +5132,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new(cell_pixels),
@@ -7462,6 +7485,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7551,6 +7575,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7613,6 +7638,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7675,6 +7701,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7744,6 +7771,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7792,6 +7820,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -7835,6 +7864,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8149,6 +8179,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8371,6 +8402,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8493,6 +8525,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8528,6 +8561,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8743,6 +8777,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
@@ -8992,6 +9027,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
             dirty: AtomicBool::new(false),
             geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
