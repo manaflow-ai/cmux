@@ -29,7 +29,10 @@ public struct CmuxConfigLines: Sendable {
     /// - Returns: ``LineEnding/crlf`` only when the first break in `contents` is
     ///   a CRLF, so a rewrite never converts an LF file (or one with no break at
     ///   all) to CRLF. A classic-Mac CR-only body reads as ``LineEnding/lf`` and
-    ///   is rewritten with LF; ``split(_:)`` still finds its lines.
+    ///   is rewritten with LF; ``split(_:)`` still finds its lines. That
+    ///   normalization is deliberate: TOML, one of the formats edited through
+    ///   this helper, defines a newline as LF or CRLF only, so writing lone CRs
+    ///   back would emit a file its own parser rejects.
     public func lineEnding(of contents: String) -> LineEnding {
         // Character comparison sees "\r\n" as one grapheme cluster rather than
         // two, which is what lets one scan tell a CRLF break apart from a bare
