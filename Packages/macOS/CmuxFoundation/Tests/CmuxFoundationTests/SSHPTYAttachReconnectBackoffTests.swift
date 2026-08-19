@@ -318,6 +318,41 @@ struct SSHPTYAttachReconnectBackoffTests {
         #expect(leftovers.isEmpty, Comment(rawValue: leftovers.joined(separator: ", ")))
     }
 
+    /// A session that reattaches and then ends cleanly is not a stopped reconnect.
+    @Test func aCleanExitAfterAnOutageSaysNothingAboutHiddenErrors() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let counterURL = directory.appendingPathComponent("attempts")
+
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { :; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  printf 'cmux-test-raw-noise %s\\n' \"$count\" >&2",
+                "  if [ \"$count\" -ge 3 ]; then return 0; fi",
+                "  return 255",
+                "}",
+            ]
+        )
+
+        let result = try Self.runOnTerminal(
+            script,
+            environment: ["CMUX_TEST_COUNTER": counterURL.path],
+            temporaryDirectory: directory
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.transcript))
+        #expect(
+            !result.transcript.contains("stopped reconnecting"),
+            Comment(rawValue: result.transcript)
+        )
+        #expect(Self.statusLineCount(in: result.transcript) == 1, Comment(rawValue: result.transcript))
+    }
+
     // MARK: - Harness
 
     private static func script(stubs: [String]) -> String {

@@ -75,8 +75,9 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             // on its own row.
             "cmux_ssh_attach_close_status_line() { if [ \"$cmux_ssh_attach_status_line_open\" -eq 1 ]; then printf '\\n' >&2 || true; cmux_ssh_attach_status_line_open=0; fi; }",
             // Retrying has ended, so say that repeats were hidden rather than let
-            // the last silenced attempt look like it failed without a reason.
-            "cmux_ssh_attach_stop_retrying() { cmux_ssh_attach_close_status_line; if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cmux_ssh_attach_quiet=0; printf '\\033[33m%s\\033[0m\\n' \"$(printf \(quietedStopFormat) \"${cmux_ssh_attach_status:-0}\")\" >&2 || true; fi; }",
+            // the last silenced attempt look like it failed without a reason. A
+            // session that ended cleanly needs no such note.
+            "cmux_ssh_attach_stop_retrying() { cmux_ssh_attach_close_status_line; if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cmux_ssh_attach_quiet=0; if [ \"${cmux_ssh_attach_status:-0}\" -ne 0 ]; then printf '\\033[33m%s\\033[0m\\n' \"$(printf \(quietedStopFormat) \"$cmux_ssh_attach_status\")\" >&2 || true; fi; fi; }",
             // A compound attach command cannot take an assignment prefix, and the
             // quiet path needs a redirect, so one attempt gets its own function.
             "cmux_ssh_attach_run_attempt() {",
