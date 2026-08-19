@@ -35,6 +35,7 @@ export interface DeviceDeliveryClaim {
 export async function claimDeviceDeliveryTargets(
   db: PushDatabase,
   userId: string,
+  targetBundleId: string,
   now = new Date(),
 ): Promise<DeviceDeliveryClaim> {
   return db.transaction(async (tx) => {
@@ -54,6 +55,7 @@ export async function claimDeviceDeliveryTargets(
       .where(and(
         eq(deviceTokens.userId, userId),
         eq(deviceTokens.platform, "ios"),
+        eq(deviceTokens.bundleId, targetBundleId),
       ))
       .limit(MAX_DEVICE_TOKENS_PER_USER)
       .for("update");
@@ -86,6 +88,7 @@ export async function claimDeviceDeliveryTargets(
       .where(and(
         eq(deviceTokens.userId, userId),
         eq(deviceTokens.platform, "ios"),
+        eq(deviceTokens.bundleId, targetBundleId),
         inArray(deviceTokens.id, rows.map((row) => row.targetId)),
       ));
 

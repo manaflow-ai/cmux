@@ -2039,26 +2039,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// revealing the verified renderer. Without this drain, a render-grid
     /// update can reveal the pre-scroll viewport for one frame while the
     /// display-link batch is still waiting behind the frozen presentation.
+    ///
+    /// This transaction owns only the work present when it is admitted. New
+    /// gesture callbacks belong to the next presentation. Chasing newly
+    /// produced scroll batches here can keep this main-actor task runnable for
+    /// the entire gesture and trip iOS's scene-update watchdog.
     @discardableResult
     public func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
-        var drained = false
-        while true {
-            if let flushed = flushPendingScrollIfNeeded() {
-                guard flushed.appliedLocally else { return drained }
-                guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
-                    return drained
-                }
-                drained = true
-                continue
-            }
-            guard let generation = pendingLocalScrollTargetGenerationForReveal() else {
-                return drained
-            }
-            guard await waitForLocalScrollApplied(upTo: generation) else {
-                return drained
-            }
-            drained = true
+        let targetGeneration: UInt64
+        if let flushed = flushPendingScrollIfNeeded() {
+            guard flushed.appliedLocally else { return false }
+            targetGeneration = flushed.generation
+        } else if let pendingGeneration = pendingLocalScrollTargetGenerationForReveal() {
+            targetGeneration = pendingGeneration
+        } else {
+            return false
         }
+        return await waitForLocalScrollApplied(upTo: targetGeneration)
     }
 
     private func pendingLocalScrollTargetGenerationForReveal() -> UInt64? {

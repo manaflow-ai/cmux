@@ -391,6 +391,15 @@ extension MobileShellComposite {
                         isReady: terminal.isReady
                     )
                 },
+                surfaces: record.surfaces?.map { surface in
+                    MobileSyncWorkspaceListResponse.Surface(
+                        surfaceID: surface.surfaceID,
+                        kind: surface.kind,
+                        title: surface.title,
+                        filePath: surface.filePath,
+                        todo: surface.todo
+                    )
+                },
                 simulators: record.simulators
             )
         }

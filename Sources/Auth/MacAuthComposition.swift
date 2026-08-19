@@ -114,14 +114,18 @@ struct MacAuthComposition {
             ),
             defaults: defaults
         )
+        let includesDevAuth = Self.includesDevAuth(
+            resolvedAuthEnvironment: resolvedAuthEnvironment
+        )
+        let replacesStoredDevSession = includesDevAuth
+            && resolvedEnvironment["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1"
         let launch = AuthLaunchOptions(
             clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: false,
             environment: resolvedEnvironment,
-            includesDevAuth: Self.includesDevAuth(
-                resolvedAuthEnvironment: resolvedAuthEnvironment
-            ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            includesDevAuth: includesDevAuth,
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: replacesStoredDevSession
         )
 
         let anchor = AuthPresentationContextProvider()
@@ -282,11 +286,32 @@ struct MacAuthComposition {
             )
         }
         guard let resolved = resolver.resolve() else {
-            return environment
+            var unresolved = environment
+            unresolved["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = nil
+            unresolved["CMUX_DEV_AUTH_REPLACE_SESSION"] = nil
+            return unresolved
         }
+        let replacementRequested = environment[DebugDogfoodCredentialResolver.authProfileEnvironmentKey] != nil
+            || environment[DebugDogfoodCredentialResolver.explicitCredentialsFileEnvironmentKey] != nil
+            || environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
         var merged = environment
         merged["CMUX_UITEST_STACK_EMAIL"] = resolved.email
         merged["CMUX_UITEST_STACK_PASSWORD"] = resolved.password
+        if replacementRequested {
+            // Credential resolution is the deterministic identity selection
+            // for an explicit tagged DEBUG launch, even when the source is a
+            // file and the secret values never arrive in the process
+            // environment. Mirror the iOS launch contract so a stale stored
+            // session cannot survive under a different account.
+            merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = "1"
+            merged["CMUX_DEV_AUTH_REPLACE_SESSION"] = "1"
+        } else {
+            // Preserve legacy launches that only discover ambient credentials:
+            // they may auto-login when signed out, but must not clear an active
+            // persisted session on every ordinary restart.
+            merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = nil
+            merged["CMUX_DEV_AUTH_REPLACE_SESSION"] = nil
+        }
         return merged
     }
     #else

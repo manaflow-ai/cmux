@@ -30,6 +30,7 @@ export interface ApnsSendResult {
   /** Stable database identity used for retry persistence; never sent to APNs. */
   readonly targetId?: string;
   readonly deviceToken: string;
+  readonly bundleId?: string;
   readonly status: number; // 0 = transport error / timeout
   readonly reason?: string;
   /** Provider-requested retry delay, never surfaced to clients verbatim. */
@@ -665,6 +666,7 @@ function canonicalApnsId(
 function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
   return hostTargets.map((target) => ({
     deviceToken: target.deviceToken,
+    bundleId: target.bundleId,
     status: 0,
     reason: "connection_error",
     prune: false,
@@ -860,6 +862,7 @@ function sendOne(
       settled = true;
       resolve({
         deviceToken: target.deviceToken,
+        bundleId: target.bundleId,
         status,
         reason,
         ...(retryAfterSeconds == null ? {} : { retryAfterSeconds }),

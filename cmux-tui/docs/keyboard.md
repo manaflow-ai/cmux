@@ -119,6 +119,8 @@ Keys are read from `~/.config/cmux/cmux-tui.json`, with legacy `mux.json` used w
 
 Each action accepts a string, an array of strings, or `"none"`. Setting an action replaces all default chords for that action before adding the configured chords. `"none"` leaves the action unbound.
 
+User commands from the top-level `commands` config section bind through the same chord grammar and appear in the `Ctrl-b ?` shortcut modal under their configured names. A command chord replaces whatever action previously held that chord. See [Configuration](configuration.md#commands).
+
 ```json
 {
   "keys": {
