@@ -38121,13 +38121,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-session-attach: persisted SSH PTY session state is unavailable"
+            "value": "ssh-session-attach: persisted SSH PTY session state is unavailable. Run 'cmux ssh-session-list --all-workspaces' and retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-session-attach: 永続 SSH PTY セッションの状態を利用できません"
+            "value": "ssh-session-attach: 永続 SSH PTY セッションの状態を利用できません。'cmux ssh-session-list --all-workspaces' を実行してから再試行してください。"
           }
         }
       }
@@ -38145,6 +38145,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh-session-attach: セッション '%1$@' はワークスペース %2$@ に属していますが、--workspace では別のワークスペースが指定されました"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' exists in multiple workspaces (%2$@). Pass --workspace <workspace> to choose one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' は複数のワークスペース (%2$@) に存在します。--workspace <workspace> で指定してください。"
           }
         }
       }

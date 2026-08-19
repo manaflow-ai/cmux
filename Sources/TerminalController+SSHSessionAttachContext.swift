@@ -43,20 +43,57 @@ extension TerminalController {
             payload: payload
         )
         guard !matchingWorkspaceIDs.isEmpty else {
-            // An absent session is still an invalid attach target even when a
-            // different remote workspace was unavailable during the inventory
-            // read. Keep the error actionable and point callers to the complete
-            // cross-workspace listing command.
-            return .err(
-                code: "not_found",
-                message: sshSessionAttachNotFoundMessage(sessionID: sessionID),
-                data: ["session_id": sessionID]
-            )
+            let inventoryErrors = payload["errors"] as? [[String: Any]] ?? []
+            if !inventoryErrors.isEmpty,
+               let inferredWorkspaceID = Workspace.parsedDefaultSSHPTYSessionID(sessionID)?.workspaceId,
+               case .ok(let scopedRawPayload) = v2WorkspaceRemotePTYSessions(
+                   params: ["workspace_id": inferredWorkspaceID.uuidString]
+               ),
+               let scopedPayload = scopedRawPayload as? [String: Any] {
+                let scopedMatches = matchingSSHSessionWorkspaceIDs(
+                    sessionID: sessionID,
+                    payload: scopedPayload
+                )
+                if !scopedMatches.isEmpty {
+                    return sshSessionAttachOwnerResult(
+                        sessionID: sessionID,
+                        requestedWorkspaceID: requestedWorkspaceID,
+                        owningWorkspaceIDs: scopedMatches
+                    )
+                }
+            }
+
+            // A partial inventory cannot prove that the session is unknown.
+            // Report unavailable so callers can retry after the remote
+            // workspace reconnects; a complete empty inventory is definitive.
+            return inventoryErrors.isEmpty
+                ? .err(
+                    code: "not_found",
+                    message: sshSessionAttachNotFoundMessage(sessionID: sessionID),
+                    data: ["session_id": sessionID]
+                )
+                : .err(
+                    code: "unavailable",
+                    message: sshSessionAttachStateUnavailableMessage(),
+                    data: ["session_id": sessionID]
+                )
         }
 
+        return sshSessionAttachOwnerResult(
+            sessionID: sessionID,
+            requestedWorkspaceID: requestedWorkspaceID,
+            owningWorkspaceIDs: matchingWorkspaceIDs
+        )
+    }
+
+    private nonisolated func sshSessionAttachOwnerResult(
+        sessionID: String,
+        requestedWorkspaceID: UUID?,
+        owningWorkspaceIDs: Set<UUID>
+    ) -> V2CallResult {
         if let requestedWorkspaceID,
-           !matchingWorkspaceIDs.contains(requestedWorkspaceID) {
-            let owningWorkspaceID = matchingWorkspaceIDs.sorted { $0.uuidString < $1.uuidString }[0]
+           !owningWorkspaceIDs.contains(requestedWorkspaceID) {
+            let owningWorkspaceID = owningWorkspaceIDs.sorted { $0.uuidString < $1.uuidString }[0]
             return .err(
                 code: "invalid_params",
                 message: sshSessionAttachWorkspaceMismatchMessage(
@@ -70,12 +107,27 @@ extension TerminalController {
             )
         }
 
-        guard matchingWorkspaceIDs.count == 1,
-              let workspaceID = matchingWorkspaceIDs.first else {
+        if let requestedWorkspaceID {
+            return .ok([
+                "workspace_id": requestedWorkspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: requestedWorkspaceID),
+            ])
+        }
+
+        guard owningWorkspaceIDs.count == 1,
+              let workspaceID = owningWorkspaceIDs.first else {
             return .err(
-                code: "unavailable",
-                message: sshSessionAttachStateUnavailableMessage(),
-                data: ["session_id": sessionID]
+                code: "invalid_params",
+                message: sshSessionAttachAmbiguousMessage(
+                    sessionID: sessionID,
+                    owningWorkspaceIDs: owningWorkspaceIDs
+                ),
+                data: [
+                    "session_id": sessionID,
+                    "owning_workspace_ids": owningWorkspaceIDs
+                        .sorted { $0.uuidString < $1.uuidString }
+                        .map(\.uuidString),
+                ]
             )
         }
         return .ok([
@@ -130,6 +182,23 @@ extension TerminalController {
         String(
             localized: "cli.error.sshSessionAttachStateUnavailable",
             defaultValue: "ssh-session-attach: persisted SSH PTY session state is unavailable"
+        )
+    }
+
+    private nonisolated func sshSessionAttachAmbiguousMessage(
+        sessionID: String,
+        owningWorkspaceIDs: Set<UUID>
+    ) -> String {
+        String.localizedStringWithFormat(
+            String(
+                localized: "cli.error.sshSessionAttachWorkspaceAmbiguous",
+                defaultValue: "ssh-session-attach: session '%1$@' exists in multiple workspaces (%2$@). Pass --workspace <workspace> to choose one."
+            ),
+            sessionID,
+            owningWorkspaceIDs
+                .sorted { $0.uuidString < $1.uuidString }
+                .map(\.uuidString)
+                .joined(separator: ", ")
         )
     }
 }

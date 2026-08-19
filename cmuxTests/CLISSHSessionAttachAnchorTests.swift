@@ -63,6 +63,41 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(!methods.contains("surface.split"), Comment(rawValue: methods.joined(separator: ",")))
     }
 
+    @Test func explicitWorkspaceDisambiguatesDuplicateSessionOwnership() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--workspace", Self.targetWorkspaceId,
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .duplicate
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout + result.stderr))
+        let create = try #require(requests.last(where: { $0["method"] as? String == "surface.create" }))
+        let params = try #require(create["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+    }
+
+    @Test func partialInventoryFailsAsUnavailableWithoutCreatingSurface() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .partialInventory
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stdout + result.stderr))
+        #expect(result.stderr.contains("ssh-session-list --all-workspaces"), Comment(rawValue: result.stderr))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("surface.create"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
     @Test func splitWithExplicitWorkspaceOmitsCallerEnvSurfaceAnchor() throws {
         let (requests, result) = try runSSHSessionAttach(
             arguments: [
@@ -172,6 +207,7 @@ struct CLISSHSessionAttachAnchorTests {
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
+            let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
             case "surface.ssh_session_attach.resolve":
                 switch sessionResolution ?? .owner(responseWorkspaceId) {
@@ -197,6 +233,31 @@ struct CLISSHSessionAttachAnchorTests {
                         error: [
                             "code": "invalid_params",
                             "message": "ssh-session-attach: session 'ssh-test' belongs to another workspace",
+                        ]
+                    )
+                case .duplicate:
+                    if params["workspace_id"] as? String == Self.targetWorkspaceId {
+                        return Self.v2Response(
+                            id: id,
+                            ok: true,
+                            result: ["workspace_id": Self.targetWorkspaceId, "workspace_ref": "workspace:4"]
+                        )
+                    }
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "invalid_params",
+                            "message": "ssh-session-attach: session 'ssh-test' exists in multiple workspaces; pass --workspace",
+                        ]
+                    )
+                case .partialInventory:
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "unavailable",
+                            "message": "ssh-session-attach: persisted SSH PTY session state is unavailable. Run 'cmux ssh-session-list --all-workspaces' and retry.",
                         ]
                     )
                 }
@@ -239,6 +300,8 @@ struct CLISSHSessionAttachAnchorTests {
         case owner(String)
         case notFound
         case workspaceMismatch
+        case duplicate
+        case partialInventory
     }
 
     private func cliEnvironment(socketPath: String) -> [String: String] {
