@@ -20,11 +20,9 @@ final class ShortcutPrefixChordCoordinator {
     }
 
     private var router = ShortcutPrefixChordRouter()
-    private lazy var expiryTimer = MainActorCoalescingDeadlineTimer(
-        owner: self
-    ) { owner in
-        owner.expireIfNeeded()
-    }
+    /// Allocated only after the first prefix is armed, preserving the
+    /// default-off terminal fast path and avoiding a permanent timer source.
+    private var expiryTimer: MainActorCoalescingDeadlineTimer<ShortcutPrefixChordCoordinator>?
     private let hud = ShortcutPrefixHUD()
     private weak var owner: AppDelegate?
 
@@ -51,7 +49,7 @@ final class ShortcutPrefixChordCoordinator {
         let configuredPrefix = prefixStroke(from: KeyboardShortcutSettings.prefixShortcut())
         guard router.configuredPrefix != configuredPrefix else { return }
         router.setPrefix(configuredPrefix)
-        expiryTimer.cancel()
+        cancelExpiry()
         hud.hide()
     }
 
@@ -171,7 +169,7 @@ final class ShortcutPrefixChordCoordinator {
                 // ledger still returns the original consumed decision, but
                 // the presentation must follow the live state rather than
                 // leaving a stale HUD/timer visible until another event.
-                expiryTimer.cancel()
+                cancelExpiry()
                 hud.hide()
             }
             return .consume
@@ -179,15 +177,15 @@ final class ShortcutPrefixChordCoordinator {
             if handled.wasDuplicate {
                 return .consume
             }
-            expiryTimer.cancel()
+            cancelExpiry()
             hud.hide()
             return .execute(binding)
         case let .disarmed(consume):
-            expiryTimer.cancel()
+            cancelExpiry()
             hud.hide()
             return consume ? .consume : .passThrough
         case .mismatchPassThrough:
-            expiryTimer.cancel()
+            cancelExpiry()
             hud.hide()
             return handled.wasDuplicate ? .duplicatePassThrough : .mismatchPassThrough
         case .passThrough:
@@ -195,7 +193,7 @@ final class ShortcutPrefixChordCoordinator {
                 // A timeout or a window change can clear the pending state and
                 // still produce ordinary pass-through for the current event.
                 // Tear down the one-shot presentation immediately.
-                expiryTimer.cancel()
+                cancelExpiry()
                 hud.hide()
             }
             return handled.wasDuplicate ? .duplicatePassThrough : .passThrough
@@ -203,20 +201,29 @@ final class ShortcutPrefixChordCoordinator {
     }
 
     func reset() {
-        expiryTimer.cancel()
+        cancelExpiry()
         router.reset()
         hud.hide()
     }
 
     private func scheduleExpiry(at deadline: TimeInterval) {
         let delay = max(deadline - ProcessInfo.processInfo.systemUptime, 0.001)
-        expiryTimer.schedule(after: .milliseconds(Int((delay * 1_000).rounded(.up))))
+        if expiryTimer == nil {
+            expiryTimer = MainActorCoalescingDeadlineTimer(owner: self) { owner in
+                owner.expireIfNeeded()
+            }
+        }
+        expiryTimer?.schedule(after: .milliseconds(Int((delay * 1_000).rounded(.up))))
     }
 
     private func expireIfNeeded() {
         guard router.expire(now: ProcessInfo.processInfo.systemUptime) != nil else { return }
-        expiryTimer.cancel()
+        cancelExpiry()
         hud.hide()
+    }
+
+    private func cancelExpiry() {
+        expiryTimer?.cancel()
     }
 
     /// Routes a normalized stroke through the shared router and presents the
