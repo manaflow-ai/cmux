@@ -107,7 +107,7 @@ actor GitHubAuthHeaderCache {
 
     /// Clears an authentication-failure streak after a request succeeds.
     func recordSuccess(ifMatching expectedHeader: String) {
-        guard cachedHeader == expectedHeader else { return }
+        guard cachedHeader == nil || cachedHeader == expectedHeader else { return }
         consecutiveFailureCount = 0
         preservesFailureCountAcrossResolution = false
         retryAt = nil
