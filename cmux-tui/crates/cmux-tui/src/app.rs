@@ -7143,10 +7143,18 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         // continuously cannot keep this loop away from the stop, timeout,
         // and exit checks below.
         if let Some(pipe) = stdout.as_mut() {
+            // While the command runs, each pass reads a bounded amount so a
+            // continuous writer cannot keep the loop away from the stop and
+            // timeout checks. The final pass after exit drains what the pipe
+            // buffered (kernels allow enlarged pipes) so the documented last
+            // line is the real one; it stays finite so a lingering
+            // descendant cannot pin this loop either.
+            const EXIT_DRAIN_CAP: usize = 4 * 1024 * 1024;
+            let pass_cap = if exited { EXIT_DRAIN_CAP } else { MAX_STATUS_OUTPUT_BYTES };
             let mut chunk = [0u8; 4096];
             let mut drained = 0usize;
             loop {
-                if drained >= MAX_STATUS_OUTPUT_BYTES {
+                if drained >= pass_cap {
                     break;
                 }
                 match pipe.read(&mut chunk) {
