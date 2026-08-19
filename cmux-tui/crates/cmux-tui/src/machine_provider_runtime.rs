@@ -2534,6 +2534,9 @@ mod tests {
             MachineUpdate::DurableNotice(notice) => {
                 panic!("expected UI update, received durable notice {notice:?}")
             }
+            MachineUpdate::ConnectionProgress { machine_id, message } => {
+                panic!("expected UI update, received progress {machine_id:?}: {message:?}")
+            }
         }
     }
 
@@ -5699,6 +5702,9 @@ mod tests {
                         "legacy snapshot warning duplicated the durable event"
                     );
                     saw_refresh = true;
+                }
+                MachineUpdate::ConnectionProgress { machine_id, message } => {
+                    panic!("unexpected progress {machine_id:?}: {message:?}")
                 }
             }
         }
