@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -23,8 +24,10 @@ struct NotificationSoundOverridesView: View {
 
     @State private var validationMessage: String?
     @State private var isValidatingCustomFile = false
-    @State private var validationTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var validationRequestID: UUID?
+
+    private static let validationTaskKey = "customSoundValidation"
 
     private let alertTypes = NotificationSoundAlertType.allCases
     private let soundCatalog = NotificationSoundOptionCatalog()
@@ -91,8 +94,7 @@ struct NotificationSoundOverridesView: View {
         }
         .accessibilityIdentifier("NotificationSoundOverridesMatrix")
         .onDisappear {
-            validationTask?.cancel()
-            validationTask = nil
+            tasks.cancel(Self.validationTaskKey)
             validationRequestID = nil
         }
     }
@@ -152,12 +154,12 @@ struct NotificationSoundOverridesView: View {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let path = url.path
-        validationTask?.cancel()
+        tasks.cancel(Self.validationTaskKey)
         let requestID = UUID()
         validationRequestID = requestID
         isValidatingCustomFile = true
         validationMessage = nil
-        validationTask = Task { @MainActor in
+        tasks.replaceOnMainActor(Self.validationTaskKey) { @MainActor in
             let hasSecurityScope = url.startAccessingSecurityScopedResource()
             defer {
                 if hasSecurityScope {
@@ -167,7 +169,6 @@ struct NotificationSoundOverridesView: View {
             let isValid = await hostActions.validateNotificationSoundFile(path: path)
             guard !Task.isCancelled, validationRequestID == requestID else { return }
             isValidatingCustomFile = false
-            validationTask = nil
             guard isValid else {
                 validationMessage = String(
                     localized: "settings.notifications.soundOverrides.invalidFile",

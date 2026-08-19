@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -11,8 +12,10 @@ struct NotificationSoundGlobalRow: View {
 
     @State private var isValidatingCustomFile = false
     @State private var validationMessage: String?
-    @State private var validationTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var validationRequestID: UUID?
+
+    private static let validationTaskKey = "customSoundValidation"
 
     private let soundCatalog = NotificationSoundOptionCatalog()
     private let allowedContentTypes = NotificationSoundAllowedContentTypes()
@@ -89,8 +92,7 @@ struct NotificationSoundGlobalRow: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .onDisappear {
-            validationTask?.cancel()
-            validationTask = nil
+            tasks.cancel(Self.validationTaskKey)
             validationRequestID = nil
         }
     }
@@ -115,8 +117,7 @@ struct NotificationSoundGlobalRow: View {
                 localized: "settings.notifications.sound.custom.clear.button",
                 defaultValue: "Clear"
             )) {
-                validationTask?.cancel()
-                validationTask = nil
+                tasks.cancel(Self.validationTaskKey)
                 validationRequestID = nil
                 customFileModel.reset()
                 validationMessage = nil
@@ -164,12 +165,12 @@ struct NotificationSoundGlobalRow: View {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        validationTask?.cancel()
+        tasks.cancel(Self.validationTaskKey)
         let requestID = UUID()
         validationRequestID = requestID
         isValidatingCustomFile = true
         validationMessage = nil
-        validationTask = Task { @MainActor in
+        tasks.replaceOnMainActor(Self.validationTaskKey) { @MainActor in
             let hasSecurityScope = url.startAccessingSecurityScopedResource()
             defer {
                 if hasSecurityScope {
@@ -181,7 +182,6 @@ struct NotificationSoundGlobalRow: View {
             )
             guard !Task.isCancelled, validationRequestID == requestID else { return }
             isValidatingCustomFile = false
-            validationTask = nil
             guard isValid else {
                 validationMessage = String(
                     localized: "settings.notifications.sound.custom.invalid.message",
