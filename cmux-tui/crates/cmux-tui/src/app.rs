@@ -46,6 +46,8 @@ use ghostty_vt::{
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::style::Color;
+use wait_timeout::ChildExt;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -213,6 +215,8 @@ enum AppEvent {
     BrowserResizeFailed(BrowserResizeFailure),
     GraphicsWriterReady,
     PtyFailuresReady,
+    /// A status bar command segment produced new output; redraw the bar.
+    StatusCommandsUpdated,
     PtyOperationFailed(PtyOperationFailure),
     ClearHistorySucceeded {
         surface: SurfaceId,
@@ -6780,6 +6784,11 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Latest output per status-bar command segment, keyed by the segment's
+    /// combined left-then-right index. Written by the status command worker.
+    status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
+    /// Stop flag for the running status command worker, if any.
+    status_command_worker_stop: Option<Arc<AtomicBool>>,
 }
 
 struct QueuedDurableNotice {
@@ -6879,6 +6888,113 @@ fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option
     // `then_some` evaluates eagerly and would clamp with min > max while the
     // outer terminal is still publishing its initial zero-width geometry.
     (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
+}
+
+/// One status segment resolved for drawing.
+pub(crate) struct StatusSegmentView {
+    pub(crate) text: String,
+    pub(crate) fg: Option<Color>,
+    pub(crate) bg: Option<Color>,
+}
+
+/// Background worker for status bar command segments: runs each command on
+/// its interval, stores the last nonempty stdout line, and pokes the event
+/// loop when any output changed. Exits when the stop flag is set.
+fn run_status_command_worker(
+    commands: Vec<(usize, Vec<String>, Duration)>,
+    outputs: Arc<Mutex<HashMap<usize, String>>>,
+    events: SyncSender<AppEvent>,
+    stop: Arc<AtomicBool>,
+) {
+    const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    let mut due: Vec<Instant> = vec![Instant::now(); commands.len()];
+    while !stop.load(Ordering::Acquire) {
+        let now = Instant::now();
+        let mut changed = false;
+        for (slot, (index, argv, interval)) in commands.iter().enumerate() {
+            if now < due[slot] {
+                continue;
+            }
+            due[slot] = now + *interval;
+            let output = run_status_command(argv, STATUS_COMMAND_TIMEOUT);
+            let mut map = outputs.lock().unwrap();
+            if map.get(index) != Some(&output) {
+                map.insert(*index, output);
+                changed = true;
+            }
+        }
+        if changed {
+            // A full or closed queue drops one poke; the next tick retries.
+            let _ = events.try_send(AppEvent::StatusCommandsUpdated);
+        }
+        let next = due.iter().min().copied().unwrap_or(now);
+        let wait = next
+            .saturating_duration_since(Instant::now())
+            .clamp(Duration::from_millis(200), Duration::from_secs(1));
+        std::thread::sleep(wait);
+    }
+}
+
+/// Run one status command with a bounded runtime and return its last
+/// nonempty stdout line, stripped of escape sequences and length-capped.
+fn run_status_command(argv: &[String], timeout: Duration) -> String {
+    const MAX_STATUS_OUTPUT_CHARS: usize = 200;
+    let Some(program) = argv.first() else { return String::new() };
+    let mut command = std::process::Command::new(program);
+    command
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    let Ok(mut child) = command.spawn() else { return String::new() };
+    if !matches!(child.wait_timeout(timeout), Ok(Some(_))) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let mut text = String::new();
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::Read;
+        let _ = stdout.take(64 * 1024).read_to_string(&mut text);
+    }
+    let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+    strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect()
+}
+
+/// Drop ESC-introduced sequences (CSI/OSC and two-byte escapes) and other
+/// control characters so colored tool output degrades to its plain text.
+fn strip_escape_sequences(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            match chars.next() {
+                Some('[') => {
+                    for terminator in chars.by_ref() {
+                        if ('@'..='~').contains(&terminator) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(next) = chars.next() {
+                        if next == '\u{7}' {
+                            break;
+                        }
+                        if next == '\u{1b}' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if !character.is_control() {
+            result.push(character);
+        }
+    }
+    result
 }
 
 fn sidebar_layout_for(
@@ -8253,7 +8369,10 @@ fn run_with_machine_updates_inner(
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
+        status_command_worker_stop: None,
     };
+    app.ensure_status_command_worker();
     if app.session_available() {
         app.session.refresh_clients_background();
     }
@@ -12120,6 +12239,95 @@ impl App {
             help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
         }
         self.sidebar_followed_surface = None;
+        self.ensure_status_command_worker();
+    }
+
+    /// Stop any running status command worker and start a new one when the
+    /// visible status bar has command segments. Called at startup and after
+    /// every config reload.
+    fn ensure_status_command_worker(&mut self) {
+        if let Some(stop) = self.status_command_worker_stop.take() {
+            stop.store(true, Ordering::Release);
+        }
+        self.status_command_outputs.lock().unwrap().clear();
+        if !self.config.status_bar.visible || self.is_surface_only() {
+            return;
+        }
+        let commands = self.config.status_bar.command_segments();
+        if commands.is_empty() {
+            return;
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let outputs = self.status_command_outputs.clone();
+        let events = self.app_events.clone();
+        if std::thread::Builder::new()
+            .name("status-commands".into())
+            .spawn(move || run_status_command_worker(commands, outputs, events, worker_stop))
+            .is_ok()
+        {
+            self.status_command_worker_stop = Some(stop);
+        }
+    }
+
+    /// Resolve the configured status segments to displayable text: literal
+    /// segments expand `{variable}`s, command segments read the worker's
+    /// latest output.
+    pub(crate) fn resolved_status_segments(
+        &self,
+    ) -> (Vec<StatusSegmentView>, Vec<StatusSegmentView>) {
+        let outputs = self.status_command_outputs.lock().unwrap();
+        let mut index = 0usize;
+        let mut resolve = |segments: &[crate::config::StatusSegment]| {
+            segments
+                .iter()
+                .map(|segment| {
+                    let text = match &segment.content {
+                        crate::config::StatusSegmentContent::Text(template) => {
+                            self.expand_status_template(template)
+                        }
+                        crate::config::StatusSegmentContent::Command { .. } => {
+                            outputs.get(&index).cloned().unwrap_or_default()
+                        }
+                    };
+                    index += 1;
+                    StatusSegmentView { text, fg: segment.fg, bg: segment.bg }
+                })
+                .collect::<Vec<_>>()
+        };
+        let left = resolve(&self.config.status_bar.left);
+        let right = resolve(&self.config.status_bar.right);
+        (left, right)
+    }
+
+    /// `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and
+    /// `{user}`. Unknown braces stay literal.
+    fn expand_status_template(&self, template: &str) -> String {
+        if !template.contains('{') {
+            return template.to_string();
+        }
+        let workspace = self.tree.active_workspace();
+        let workspace_name = workspace.map(|ws| ws.name.clone()).unwrap_or_default();
+        let screens = workspace.map(|ws| ws.screens.len()).unwrap_or(0);
+        let screen_name = workspace
+            .and_then(|ws| {
+                ws.screens.get(ws.active_screen).map(|screen| screen.display_name(ws.active_screen))
+            })
+            .unwrap_or_default();
+        let title = self
+            .tree
+            .active_screen()
+            .and_then(|screen| screen.pane(screen.active_pane))
+            .and_then(|pane| pane.tabs.get(pane.active_tab))
+            .map(|tab| tab.name.clone().unwrap_or_else(|| tab.title.clone()))
+            .unwrap_or_default();
+        template
+            .replace("{session}", &self.session_label)
+            .replace("{workspace}", &workspace_name)
+            .replace("{screen}", &screen_name)
+            .replace("{screens}", &screens.to_string())
+            .replace("{title}", &title)
+            .replace("{user}", &std::env::var("USER").unwrap_or_default())
     }
 
     fn focused_surface_cwd(&self) -> Option<PathBuf> {
@@ -13032,6 +13240,13 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
+            AppEvent::StatusCommandsUpdated => Ok(
+                if self.config.status_bar.visible && !self.is_surface_only() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                },
+            ),
             AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
                 destination_generation,
@@ -22832,6 +23047,67 @@ mod tests {
         assert!(mux.surface(hidden.id).is_some());
         mux.close_surface(attached.id).unwrap();
         mux.close_surface(hidden.id).unwrap();
+    }
+
+    #[test]
+    fn status_command_runner_returns_last_clean_line() {
+        let output = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "printf 'one\\ntwo\\n\\n'".to_string()],
+            Duration::from_secs(5),
+        );
+        assert_eq!(output, "two", "the last nonempty line wins");
+        let colored = run_status_command(
+            &[
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                "printf '\\033[31mred\\033[0m done'".to_string(),
+            ],
+            Duration::from_secs(5),
+        );
+        assert_eq!(colored, "red done", "escape sequences are stripped");
+        assert_eq!(
+            run_status_command(&["/nonexistent-status-cmd".to_string()], Duration::from_secs(1)),
+            "",
+            "spawn failures resolve to an empty segment"
+        );
+    }
+
+    #[test]
+    fn status_segments_expand_variables_and_read_command_outputs() {
+        let (mux, _surface) = test_mux("status-segments-test", None);
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.status_bar.left = vec![crate::config::StatusSegment {
+            content: crate::config::StatusSegmentContent::Text(
+                " {session} {workspace} {screens} ".to_string(),
+            ),
+            fg: None,
+            bg: None,
+        }];
+        app.config.status_bar.right = vec![crate::config::StatusSegment {
+            content: crate::config::StatusSegmentContent::Command {
+                argv: vec!["true".to_string()],
+                interval: Duration::from_secs(5),
+            },
+            fg: Some(Color::Indexed(114)),
+            bg: None,
+        }];
+        app.status_command_outputs.lock().unwrap().insert(1, "widget".to_string());
+
+        let (left, right) = app.resolved_status_segments();
+        assert_eq!(left.len(), 1);
+        assert!(
+            left[0].text.contains(" work 1 "),
+            "workspace and screen count expand: {:?}",
+            left[0].text
+        );
+        assert!(!left[0].text.contains('{'), "no unexpanded braces: {:?}", left[0].text);
+        assert_eq!(right[0].text, "widget", "command segments read the worker output");
+        assert_eq!(right[0].fg, Some(Color::Indexed(114)));
+
+        for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]
@@ -39835,6 +40111,8 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
+            status_command_worker_stop: None,
         };
         (app, receiver)
     }

@@ -23,6 +23,9 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `theme.notification_warning` | color | `179` | Warning notification attention dot and border |
 | `theme.notification_error` | color | `167` | Error notification attention dot and border |
 | `theme.border_style` | `"single"`, `"rounded"`, `"thick"`, `"double"`, or `"none"` | `"single"` | Pane border glyph set; `"none"` leaves the border cells blank so panes separate by empty space |
+| `theme.status_bg` | color | chrome default | Status bar background |
+| `theme.status_fg` | color | chrome default | Status bar foreground |
+| `theme.dim_inactive` | boolean | `false` | Renders unfocused terminal panes with the DIM attribute |
 
 ## Tabs
 
@@ -221,6 +224,29 @@ Padding shrinks the PTY size accordingly and never pads a pane below one content
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `status_bar.visible` | boolean | `true` | Shows the bottom screens bar |
+| `status_bar.show_screens` | boolean | `true` | Renders the clickable screens strip |
+| `status_bar.show_session` | boolean | `true` | Renders the right-aligned `[session]` label |
+| `status_bar.left` | array of segments | `[]` | Segments before the screens strip |
+| `status_bar.right` | array of segments | `[]` | Segments right-aligned before the session label |
+| `status_bar.left[].text` | string | one of text/run | Literal text with `{variable}` interpolation |
+| `status_bar.left[].run` | string array | one of text/run | Argv run on an interval; the last nonempty stdout line becomes the segment text, escape sequences stripped, capped at 200 characters |
+| `status_bar.left[].interval` | integer seconds | `5` | Refresh interval for `run` segments, clamped to 1 through 3600 |
+| `status_bar.left[].fg` / `bg` | color | bar colors | Segment colors |
+
+Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. At most 8 segments per side. Transient status messages keep priority over the session label.
+
+```json
+{
+  "theme": {"status_bg": "#1c1c1c", "status_fg": "#87d787"},
+  "status_bar": {
+    "left": [{"text": " {session} · {workspace} ", "fg": "#87d787"}],
+    "right": [
+      {"run": ["sh", "-lc", "git -C \"$HOME/src\" branch --show-current"], "interval": 30},
+      {"run": ["date", "+%H:%M"], "interval": 30, "fg": "#d7af5f"}
+    ]
+  }
+}
+```
 
 Hiding the bar gives its row back to the panes. Transient status messages still overlay the bottom row until dismissed, single-surface style. The screens strip, the session label, and the horizontal viewport track are not rendered while hidden; screens stay reachable through `prev-screen`, `next-screen`, `select-screen-N`, and the sidebar.
 

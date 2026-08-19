@@ -469,6 +469,18 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &app.chrome,
         |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
     );
+    if !focused && theme.dim_inactive {
+        let screen = frame.area();
+        let max_x = rect.x.saturating_add(rect.width).min(screen.width);
+        let max_y = rect.y.saturating_add(rect.height).min(screen.height);
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let buf = frame.buffer_mut();
+        for y in rect.y..max_y {
+            for x in rect.x..max_x {
+                buf[(x, y)].set_style(dim);
+            }
+        }
+    }
     DrawCursors { input: None, terminal: focused.then_some(cursor).flatten() }
 }
 

@@ -220,6 +220,23 @@ struct RawPane {
 #[serde(deny_unknown_fields)]
 struct RawStatusBar {
     visible: Option<bool>,
+    show_screens: Option<bool>,
+    show_session: Option<bool>,
+    left: Option<Vec<RawStatusSegment>>,
+    right: Option<Vec<RawStatusSegment>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusSegment {
+    /// Literal text with `{variable}` interpolation.
+    text: Option<String>,
+    /// Argv run on an interval; the last stdout line replaces the segment.
+    run: Option<Vec<String>>,
+    /// Refresh interval in seconds for `run` segments.
+    interval: Option<u64>,
+    fg: Option<ColorValue>,
+    bg: Option<ColorValue>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -275,6 +292,9 @@ struct RawTheme {
     notification_warning: Option<ColorValue>,
     notification_error: Option<ColorValue>,
     border_style: Option<BorderStyle>,
+    status_bg: Option<ColorValue>,
+    status_fg: Option<ColorValue>,
+    dim_inactive: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -812,6 +832,11 @@ pub struct Theme {
     pub notification_warning: Color,
     pub notification_error: Color,
     pub border_style: BorderStyle,
+    /// Status bar background/foreground; `None` follows the chrome theme.
+    pub status_bg: Option<Color>,
+    pub status_fg: Option<Color>,
+    /// Render unfocused terminal panes with the DIM attribute.
+    pub dim_inactive: bool,
 }
 
 impl Default for Theme {
@@ -831,6 +856,9 @@ impl Default for Theme {
             notification_warning: Color::Indexed(179),
             notification_error: Color::Indexed(167),
             border_style: BorderStyle::Single,
+            status_bg: None,
+            status_fg: None,
+            dim_inactive: false,
         }
     }
 }
@@ -2741,15 +2769,104 @@ pub struct PaneOptions {
 
 /// Bottom screens-bar options. A hidden bar gives its row back to the
 /// panes; transient status messages still overlay the last row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusBarOptions {
     pub visible: bool,
+    /// Renders the clickable screens strip.
+    pub show_screens: bool,
+    /// Renders the right-aligned session label when no message is shown.
+    pub show_session: bool,
+    /// Segments before the screens strip.
+    pub left: Vec<StatusSegment>,
+    /// Segments right-aligned before the session label.
+    pub right: Vec<StatusSegment>,
 }
 
 impl Default for StatusBarOptions {
     fn default() -> Self {
-        Self { visible: true }
+        Self {
+            visible: true,
+            show_screens: true,
+            show_session: true,
+            left: Vec::new(),
+            right: Vec::new(),
+        }
     }
+}
+
+impl StatusBarOptions {
+    /// Command segments in draw order: left side first, then right.
+    pub fn command_segments(&self) -> Vec<(usize, Vec<String>, std::time::Duration)> {
+        self.left
+            .iter()
+            .chain(self.right.iter())
+            .enumerate()
+            .filter_map(|(index, segment)| match &segment.content {
+                StatusSegmentContent::Command { argv, interval } => {
+                    Some((index, argv.clone(), *interval))
+                }
+                StatusSegmentContent::Text(_) => None,
+            })
+            .collect()
+    }
+}
+
+/// The maximum number of configured segments per status bar side.
+pub const MAX_STATUS_SEGMENTS: usize = 8;
+
+/// One status bar segment: literal text with `{variable}` interpolation, or
+/// a command whose last stdout line becomes the segment text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusSegment {
+    pub content: StatusSegmentContent,
+    pub fg: Option<Color>,
+    pub bg: Option<Color>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusSegmentContent {
+    Text(String),
+    Command { argv: Vec<String>, interval: std::time::Duration },
+}
+
+fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<StatusSegment> {
+    let mut segments = Vec::new();
+    for segment in raw {
+        if segments.len() >= MAX_STATUS_SEGMENTS {
+            eprintln!(
+                "cmux-tui: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
+            );
+            break;
+        }
+        let content = match (segment.text, segment.run) {
+            (Some(_), Some(_)) | (None, None) => {
+                eprintln!(
+                    "cmux-tui: ignoring status_bar.{side} segment: exactly one of text or run is required"
+                );
+                continue;
+            }
+            (Some(text), None) => StatusSegmentContent::Text(text),
+            (None, Some(run)) => {
+                let argv: Vec<String> =
+                    run.into_iter().filter(|argument| !argument.is_empty()).collect();
+                if argv.is_empty() {
+                    eprintln!("cmux-tui: ignoring status_bar.{side} segment with an empty run argv");
+                    continue;
+                }
+                let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
+                StatusSegmentContent::Command {
+                    argv,
+                    interval: std::time::Duration::from_secs(interval),
+                }
+            }
+        };
+        segments.push(StatusSegment {
+            content,
+            fg: segment.fg.as_ref().and_then(ColorValue::to_color),
+            bg: segment.bg.as_ref().and_then(ColorValue::to_color),
+        });
+    }
+    segments
 }
 
 /// One resolved user command from the top-level `commands` section.
@@ -3205,11 +3322,32 @@ pub fn load() -> Config {
     if let Some(style) = raw.theme.border_style {
         config.theme.border_style = style;
     }
+    if let Some(c) = raw.theme.status_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.status_bg = Some(c);
+    }
+    if let Some(c) = raw.theme.status_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.status_fg = Some(c);
+    }
+    if let Some(dim) = raw.theme.dim_inactive {
+        config.theme.dim_inactive = dim;
+    }
     if let Some(padding) = raw.pane.padding {
         config.pane.padding = padding.min(MAX_PANE_PADDING);
     }
     if let Some(visible) = raw.status_bar.visible {
         config.status_bar.visible = visible;
+    }
+    if let Some(show_screens) = raw.status_bar.show_screens {
+        config.status_bar.show_screens = show_screens;
+    }
+    if let Some(show_session) = raw.status_bar.show_session {
+        config.status_bar.show_session = show_session;
+    }
+    if let Some(left) = raw.status_bar.left {
+        config.status_bar.left = resolve_status_segments(left, "left");
+    }
+    if let Some(right) = raw.status_bar.right {
+        config.status_bar.right = resolve_status_segments(right, "right");
     }
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
@@ -7505,6 +7643,58 @@ mod tests {
         ] {
             assert_eq!(glyph, " ");
         }
+    }
+
+    #[test]
+    fn status_bar_segments_parse_validate_and_cap() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "status_bar": {
+                "show_screens": false,
+                "show_session": false,
+                "left": [
+                    {"text": " {session} ", "fg": "#87d787", "bg": 236},
+                    {"text": "x", "run": ["true"]},
+                    {"run": []},
+                    {}
+                ],
+                "right": [
+                    {"run": ["date", "+%H:%M"], "interval": 0},
+                    {"text": "{workspace}"}
+                ]
+            }
+        }))
+        .unwrap();
+        let left = resolve_status_segments(raw.status_bar.left.unwrap(), "left");
+        assert_eq!(left.len(), 1, "text+run, empty run, and empty segments are rejected");
+        assert_eq!(left[0].content, StatusSegmentContent::Text(" {session} ".to_string()));
+        assert!(left[0].fg.is_some() && left[0].bg.is_some());
+        let right = resolve_status_segments(raw.status_bar.right.unwrap(), "right");
+        assert_eq!(right.len(), 2);
+        assert_eq!(
+            right[0].content,
+            StatusSegmentContent::Command {
+                argv: vec!["date".to_string(), "+%H:%M".to_string()],
+                interval: std::time::Duration::from_secs(1),
+            },
+            "interval clamps to at least one second"
+        );
+
+        let options = StatusBarOptions {
+            left,
+            right,
+            ..StatusBarOptions::default()
+        };
+        let commands = options.command_segments();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].0, 1, "command index counts left segments first");
+
+        let overflow: Vec<RawStatusSegment> = (0..MAX_STATUS_SEGMENTS + 3)
+            .map(|index| RawStatusSegment {
+                text: Some(format!("{index}")),
+                ..RawStatusSegment::default()
+            })
+            .collect();
+        assert_eq!(resolve_status_segments(overflow, "left").len(), MAX_STATUS_SEGMENTS);
     }
 
     #[test]
