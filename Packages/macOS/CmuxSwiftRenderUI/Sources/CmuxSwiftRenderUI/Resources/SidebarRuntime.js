@@ -172,6 +172,7 @@
     "width", "height", "minWidth", "maxWidth", "minHeight", "maxHeight",
     "alignment", "fill", "stroke", "strokeWidth", "systemName", "value",
     "help", "truncation", "weight", "secondary", "borderColor", "borderWidth",
+    "hoverBackground", "paddingHorizontal", "paddingVertical",
   ];
 
   function makeHandle(id) {
@@ -290,7 +291,12 @@
   function keyedList(type, opts, template) {
     const items = opts.items;
     const keyFn = opts.key || ((item) => String(item && item.id !== undefined ? item.id : item));
-    const node = makeNode(type, {}, []);
+    // Scalar options (e.g. spacing) become node props; the wiring keys are not.
+    const props = {};
+    for (const k of Object.keys(opts)) {
+      if (k !== "items" && k !== "key" && k !== "onMove") props[k] = opts[k];
+    }
+    const node = makeNode(type, props, []);
     const id = node.__nodeId;
     if (opts.onMove) {
       handlers[id] = handlers[id] || {};

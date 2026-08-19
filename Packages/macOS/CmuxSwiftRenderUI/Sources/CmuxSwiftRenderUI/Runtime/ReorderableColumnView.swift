@@ -55,14 +55,21 @@ struct ReorderableColumnView: View {
     private static let liftSpring = Animation.spring(response: 0.2, dampingFraction: 0.8)
     private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.76)
 
+    /// Inter-row spacing (the `spacing` option of `Reorderable`), also fed
+    /// into the geometry so slot math matches the layout.
+    private var rowSpacing: CGFloat {
+        CGFloat(node.double("spacing") ?? 0)
+    }
+
     var body: some View {
         let order = displayOrder
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: rowSpacing) {
             ForEach(Array(order.enumerated()), id: \.element) { index, childId in
                 ReorderableRowView(
                     childId: childId,
                     index: index,
-                    model: model
+                    model: model,
+                    spacing: rowSpacing
                 )
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
                     rowHeights[childId] = height
@@ -114,7 +121,8 @@ struct ReorderableColumnView: View {
                     heights: order.map { rowHeights[$0] ?? 0 },
                     sourceIndex: model.sourceIndex,
                     translation: value.translation.height,
-                    current: model.targetIndex
+                    current: model.targetIndex,
+                    spacing: rowSpacing
                 )
                 if target != model.targetIndex {
                     Self.debugLog("cross translation=\(value.translation.height) target \(model.targetIndex) -> \(target)")
@@ -146,7 +154,8 @@ struct ReorderableColumnView: View {
             heights: heights,
             sourceIndex: source,
             targetIndex: target,
-            translation: model.translation
+            translation: model.translation,
+            spacing: rowSpacing
         )
 
         // Phase 1, no animation: the array order, source/target, and residual
@@ -203,6 +212,7 @@ private struct ReorderableRowView: View {
     let childId: String
     let index: Int
     let model: ReorderDragModel
+    let spacing: CGFloat
 
     var body: some View {
         // Read discrete fields first; `translation` is only read on the
@@ -230,7 +240,8 @@ private struct ReorderableRowView: View {
             index: index,
             sourceIndex: model.sourceIndex,
             targetIndex: model.targetIndex,
-            draggedHeight: model.draggedHeight
+            draggedHeight: model.draggedHeight,
+            spacing: spacing
         )
     }
 }

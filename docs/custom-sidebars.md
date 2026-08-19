@@ -109,14 +109,16 @@ Rules of the runtime:
   `(props, children)` or just `(children)`.
 - Chainable props: `.font(name|size)` `.weight` `.bold()` `.italic()`
   `.monospaced()` `.color` `.secondary()` `.lineLimit` `.truncation`
-  `.padding` `.background` `.cornerRadius` `.borderColor` `.borderWidth`
-  `.opacity` `.frame({width,height,minWidth,maxWidth,...})` `.fill` `.stroke`
-  `.strokeWidth` `.size` `.onTap(fn)`. Any of them (except handlers) accepts a
-  function for a live binding. Colors are the same tokens as Swift sidebars
-  (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
+  `.padding` `.paddingHorizontal` `.paddingVertical` `.background`
+  `.hoverBackground` (host-side hover wash, no JS round trip)
+  `.cornerRadius` (continuous/squircle curvature) `.borderColor`
+  `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  `.fill` `.stroke` `.strokeWidth` `.size` `.onTap(fn)`. Any of them (except
+  handlers) accepts a function for a live binding. Colors are the same tokens
+  as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
   template runs once per key and `item()` is the row's live item signal.
-- `Reorderable({ items, key, onMove }, template)` is the drag-to-reorder list:
+- `Reorderable({ items, key, onMove, spacing }, template)` is the drag-to-reorder list:
   the grabbed row lifts and follows the pointer, the other rows spring aside
   live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
   there to persist).

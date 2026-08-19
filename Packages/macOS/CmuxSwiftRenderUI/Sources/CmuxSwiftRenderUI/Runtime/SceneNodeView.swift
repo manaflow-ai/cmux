@@ -198,18 +198,27 @@ private struct SceneTextLimits: ViewModifier {
     }
 }
 
-/// Padding, background, corner radius, border, frame, opacity — the box
-/// styling half of the fixed modifier order.
+/// Padding, background (with hover), corner radius, border, frame, opacity —
+/// the box styling half of the fixed modifier order.
+///
+/// All rounding uses `.continuous` corner curvature (the squircle), matching
+/// modern macOS chrome. `hoverBackground` is a host-side visual: the hover
+/// state never round-trips through the JS runtime, so it is latency-free and
+/// costs nothing when the prop is absent.
 private struct SceneBoxStyle: ViewModifier {
     let node: SceneNode
+    @State private var isHovered = false
 
     func body(content: Content) -> some View {
+        let hoverColor = dslColor(node.string("hoverBackground"))
+        let baseColor = dslColor(node.string("background"))
+        let background = isHovered ? (hoverColor ?? baseColor) : baseColor
         let padded = content.padding(paddingInsets)
         let backed = Group {
-            if let background = dslColor(node.string("background")) {
-                padded.background(background, in: RoundedRectangle(cornerRadius: cornerRadius))
+            if let background {
+                padded.background(background, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             } else if cornerRadius > 0 {
-                padded.clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                padded.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             } else {
                 padded
             }
@@ -217,7 +226,7 @@ private struct SceneBoxStyle: ViewModifier {
         let bordered = Group {
             if let borderColor = dslColor(node.string("borderColor")) {
                 backed.overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(borderColor, lineWidth: CGFloat(node.double("borderWidth") ?? 1))
                 )
             } else {
@@ -234,6 +243,12 @@ private struct SceneBoxStyle: ViewModifier {
             )
             .frame(width: dimension("width"), height: dimension("height"))
             .opacity(node.double("opacity") ?? 1)
+            .onHover { hovering in
+                guard hoverColor != nil else { return }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    isHovered = hovering
+                }
+            }
     }
 
     private var cornerRadius: CGFloat {
@@ -242,7 +257,9 @@ private struct SceneBoxStyle: ViewModifier {
 
     private var paddingInsets: EdgeInsets {
         let all = node.double("padding") ?? 0
-        return EdgeInsets(top: all, leading: all, bottom: all, trailing: all)
+        let horizontal = node.double("paddingHorizontal") ?? all
+        let vertical = node.double("paddingVertical") ?? all
+        return EdgeInsets(top: vertical, leading: horizontal, bottom: vertical, trailing: horizontal)
     }
 
     private func dimension(_ key: String) -> CGFloat? {
