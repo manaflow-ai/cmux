@@ -6786,8 +6786,11 @@ pub struct App {
     /// Latest output per status-bar command segment, keyed by the segment's
     /// combined left-then-right index. Written by the status command worker.
     status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
-    /// Stop flag for the running status segment workers, if any.
-    status_command_worker_stop: Option<Arc<AtomicBool>>,
+    /// Stop signal for the running status segment workers, if any.
+    status_command_worker_stop: Option<Arc<StatusWorkerStop>>,
+    /// Coalesces status redraw pokes across workers: set when an event is
+    /// in flight, cleared when the event loop consumes it.
+    status_poke_pending: Arc<AtomicBool>,
     /// One worker thread per configured status command segment.
     status_command_workers: Vec<JoinHandle<()>>,
     /// Stopped worker generations that have not finished yet; bounded, so
@@ -6911,24 +6914,72 @@ pub(crate) struct StatusSegmentView {
     pub(crate) bg: Option<Color>,
 }
 
+/// Shared stop signal for status workers. `raise` wakes idle waiters
+/// immediately, so retiring a worker never waits out a sleep interval, and
+/// an idle worker wakes once per interval instead of polling.
+struct StatusWorkerStop {
+    raised: AtomicBool,
+    lock: Mutex<()>,
+    condvar: Condvar,
+}
+
+impl StatusWorkerStop {
+    fn new() -> Self {
+        Self { raised: AtomicBool::new(false), lock: Mutex::new(()), condvar: Condvar::new() }
+    }
+
+    fn raise(&self) {
+        self.raised.store(true, Ordering::Release);
+        let _guard = self.lock.lock().unwrap();
+        self.condvar.notify_all();
+    }
+
+    fn is_raised(&self) -> bool {
+        self.raised.load(Ordering::Acquire)
+    }
+
+    /// Wait until raised or the duration elapses; returns whether raised.
+    fn wait_timeout(&self, duration: Duration) -> bool {
+        let deadline = Instant::now() + duration;
+        let mut guard = self.lock.lock().unwrap();
+        while !self.is_raised() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, _) = self.condvar.wait_timeout(guard, remaining).unwrap();
+            guard = next;
+        }
+        self.is_raised()
+    }
+}
+
 /// Per-segment status worker: runs one command on its own interval, so one
 /// slow command never delays another segment, and publishes on change.
-/// The capture path checks the stop flag every poll tick, so a stopped
-/// worker exits within milliseconds, never one full command runtime.
-fn run_status_segment_loop(
+/// The capture path checks the stop flag every poll tick and the idle wait
+/// is condvar-based, so a stopped worker exits within milliseconds and an
+/// idle worker never busy-polls. The shared `poke` flag coalesces redraw
+/// events: when several segments change together, only one event is sent
+/// until the event loop consumes it.
+struct StatusSegmentWorker {
     index: usize,
     argv: Vec<String>,
     interval: Duration,
     outputs: Arc<Mutex<HashMap<usize, String>>>,
     generation: Arc<AtomicU64>,
+    poke: Arc<AtomicBool>,
     events: SyncSender<AppEvent>,
-    stop: Arc<AtomicBool>,
-) {
+    stop: Arc<StatusWorkerStop>,
+}
+
+fn run_status_segment_loop(worker: StatusSegmentWorker) {
     const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    let StatusSegmentWorker { index, argv, interval, outputs, generation, poke, events, stop } =
+        worker;
     let mut pending_notify = false;
-    while !stop.load(Ordering::Acquire) {
+    while !stop.is_raised() {
         let output = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
-        if stop.load(Ordering::Acquire) {
+        if stop.is_raised() {
             return;
         }
         let changed = {
@@ -6944,22 +6995,24 @@ fn run_status_segment_loop(
             generation.fetch_add(1, Ordering::Release);
             pending_notify = true;
         }
-        // A full queue cannot lose the update: the poke stays pending and
-        // retries every sleep slice until the event loop accepts it.
-        if pending_notify && events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
-            pending_notify = false;
-        }
-        let deadline = Instant::now() + interval;
-        while Instant::now() < deadline {
-            if stop.load(Ordering::Acquire) {
-                return;
-            }
-            if pending_notify && events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+        if pending_notify {
+            if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                if events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+                    pending_notify = false;
+                } else {
+                    // A full queue cannot lose the update: release the poke
+                    // and retry on the next wake; the fingerprint also picks
+                    // the change up on any draw in the meantime.
+                    poke.store(false, Ordering::Release);
+                }
+            } else {
+                // Another worker's poke is already in flight; the draw it
+                // triggers reads the shared outputs and covers this change.
                 pending_notify = false;
             }
-            std::thread::sleep(
-                deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(200)),
-            );
+        }
+        if stop.wait_timeout(interval) {
+            return;
         }
     }
 }
@@ -6980,7 +7033,7 @@ fn cached_status_user() -> &'static str {
     })
 }
 
-fn run_status_command(argv: &[String], timeout: Duration, stop: &AtomicBool) -> String {
+fn run_status_command(argv: &[String], timeout: Duration, stop: &StatusWorkerStop) -> String {
     const MAX_STATUS_OUTPUT_CHARS: usize = 200;
     let captured = capture_status_output(argv, timeout, stop);
     let text = String::from_utf8_lossy(&captured);
@@ -6992,7 +7045,7 @@ const MAX_STATUS_OUTPUT_BYTES: usize = 64 * 1024;
 const STATUS_POLL_TICK: Duration = Duration::from_millis(25);
 
 #[cfg(unix)]
-fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) -> Vec<u8> {
+fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorkerStop) -> Vec<u8> {
     use std::io::Read;
 
     let Some(program) = argv.first() else { return Vec::new() };
@@ -7065,7 +7118,7 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
             exited = true;
             continue;
         }
-        if stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+        if stop.is_raised() || Instant::now() >= deadline {
             kill_status_command_group(&mut child);
             exited = true;
             continue;
@@ -7084,7 +7137,7 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
 }
 
 #[cfg(windows)]
-fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) -> Vec<u8> {
+fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorkerStop) -> Vec<u8> {
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::AtomicU64;
 
@@ -7140,10 +7193,13 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
         }
         // Bound the file while the command runs: a spewing command is
         // killed once the file passes the cap, so it cannot fill the
-        // temporary volume for the rest of the timeout.
+        // temporary volume for the rest of the timeout. The bound is
+        // enforced per poll tick, so up to one tick of disk throughput can
+        // land past the cap before the kill; the file is removed below
+        // either way.
         let oversized = std::fs::metadata(&path)
             .is_ok_and(|metadata| metadata.len() > MAX_STATUS_OUTPUT_BYTES as u64);
-        if oversized || stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+        if oversized || stop.is_raised() || Instant::now() >= deadline {
             job.terminate();
             kill_status_command_group(&mut child);
             break;
@@ -8722,6 +8778,7 @@ fn run_with_machine_updates_inner(
         quit: false,
         status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
         status_command_worker_stop: None,
+        status_poke_pending: Arc::new(AtomicBool::new(false)),
         status_command_workers: Vec::new(),
         retiring_status_workers: Vec::new(),
         status_outputs_generation: Arc::new(AtomicU64::new(0)),
@@ -9882,7 +9939,7 @@ impl App {
 
     fn shutdown_background_workers(&mut self) {
         if let Some(stop) = self.status_command_worker_stop.take() {
-            stop.store(true, Ordering::Release);
+            stop.raise();
         }
         // Join, so a status command's process group is reaped before exit.
         // The capture loop observes the flag every poll tick, so each join
@@ -12613,7 +12670,7 @@ impl App {
     /// every config reload.
     fn ensure_status_command_worker(&mut self) {
         if let Some(stop) = self.status_command_worker_stop.take() {
-            stop.store(true, Ordering::Release);
+            stop.raise();
         }
         // Stopped workers observe the flag at every capture poll tick, so
         // they exit within milliseconds. Keep their handles and enforce a
@@ -12632,6 +12689,7 @@ impl App {
         // belongs to a different segment.
         self.status_command_outputs = Arc::new(Mutex::new(HashMap::new()));
         self.status_outputs_generation = Arc::new(AtomicU64::new(1));
+        self.status_poke_pending = Arc::new(AtomicBool::new(false));
         self.status_segments_cache = None;
         if !self.config.status_bar.visible || self.is_surface_only() {
             return;
@@ -12640,23 +12698,25 @@ impl App {
         if commands.is_empty() {
             return;
         }
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(StatusWorkerStop::new());
         for (index, argv, interval) in commands {
             let outputs = self.status_command_outputs.clone();
             let generation = self.status_outputs_generation.clone();
+            let poke = self.status_poke_pending.clone();
             let events = self.app_events.clone();
             let worker_stop = stop.clone();
             match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
                 move || {
-                    run_status_segment_loop(
+                    run_status_segment_loop(StatusSegmentWorker {
                         index,
                         argv,
                         interval,
                         outputs,
                         generation,
+                        poke,
                         events,
-                        worker_stop,
-                    );
+                        stop: worker_stop,
+                    });
                 },
             ) {
                 Ok(handle) => self.status_command_workers.push(handle),
@@ -13683,6 +13743,7 @@ impl App {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
             AppEvent::StatusCommandsUpdated => {
+                self.status_poke_pending.store(false, Ordering::Release);
                 Ok(if self.config.status_bar.visible && !self.is_surface_only() {
                     RenderAction::Draw
                 } else {
@@ -22218,10 +22279,10 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
         SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        StatusWorkerStop, StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer,
+        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
+        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
         WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
@@ -23500,7 +23561,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn status_command_runner_returns_last_clean_line() {
-        let run = AtomicBool::new(false);
+        let run = StatusWorkerStop::new();
         let output = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "printf 'one\\ntwo\\n\\n'".to_string()],
             Duration::from_secs(5),
@@ -23532,7 +23593,7 @@ mod tests {
     #[test]
     fn status_command_timeout_kills_the_process_tree_and_keeps_partial_output() {
         let started = Instant::now();
-        let run = AtomicBool::new(false);
+        let run = StatusWorkerStop::new();
         let output = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
             Duration::from_secs(1),
@@ -23548,7 +23609,8 @@ mod tests {
         // A raised stop flag makes the capture return within one poll tick
         // instead of running out the timeout, so config reloads and app
         // shutdown never wait on a slow command.
-        let stopped = AtomicBool::new(true);
+        let stopped = StatusWorkerStop::new();
+        stopped.raise();
         let started = Instant::now();
         let output = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "sleep 60".to_string()],
@@ -40606,6 +40668,7 @@ mod tests {
             quit: false,
             status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
             status_command_worker_stop: None,
+            status_poke_pending: Arc::new(AtomicBool::new(false)),
             status_command_workers: Vec::new(),
             retiring_status_workers: Vec::new(),
             status_outputs_generation: Arc::new(AtomicU64::new(0)),

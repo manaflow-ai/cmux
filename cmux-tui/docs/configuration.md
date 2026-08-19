@@ -283,7 +283,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | --- | --- | --- | --- |
 | `commands[].id` | string | required | Stable unique identity; duplicates and empty ids are ignored |
 | `commands[].name` | string | the id | Display name in the shortcut modal |
-| `commands[].run` | string array | required | Argv executed directly, without a shell; empty argv entries are dropped |
+| `commands[].run` | string array | required | Argv executed directly, without a shell; the program must be nonempty, later arguments pass through verbatim (empty ones included) |
 | `commands[].keys` | chord string or array | unset | Chords that run the command; Alt- and Super-modified chords are modeless, other chords run after the prefix |
 | `commands[].cwd` | string | active pane cwd | Working directory for the child process |
 
