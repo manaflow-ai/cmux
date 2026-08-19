@@ -6787,8 +6787,13 @@ pub struct App {
     /// Latest output per status-bar command segment, keyed by the segment's
     /// combined left-then-right index. Written by the status command worker.
     status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
-    /// Stop flag for the running status command worker, if any.
+    /// Stop flag for the running status segment workers, if any.
     status_command_worker_stop: Option<Arc<AtomicBool>>,
+    /// One worker thread per configured status command segment.
+    status_command_workers: Vec<JoinHandle<()>>,
+    /// Stopped worker generations that have not finished yet; bounded, so
+    /// reload storms cannot stack live workers.
+    retiring_status_workers: Vec<JoinHandle<()>>,
 }
 
 struct QueuedDurableNotice {
@@ -6897,63 +6902,73 @@ pub(crate) struct StatusSegmentView {
     pub(crate) bg: Option<Color>,
 }
 
-/// Background worker for status bar command segments: runs each command on
-/// its interval, stores the last nonempty stdout line, and pokes the event
-/// loop when any output changed. Exits when the stop flag is set.
-fn run_status_command_worker(
-    commands: Vec<(usize, Vec<String>, Duration)>,
+/// Per-segment status worker: runs one command on its own interval, so one
+/// slow command never delays another segment, publishes on change, and
+/// keeps at most one outstanding blocked reader instead of stacking new
+/// runs behind a wedged descendant. Exits when the stop flag is set.
+fn run_status_segment_loop(
+    index: usize,
+    argv: Vec<String>,
+    interval: Duration,
     outputs: Arc<Mutex<HashMap<usize, String>>>,
     events: SyncSender<AppEvent>,
     stop: Arc<AtomicBool>,
 ) {
     const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-    let mut due: Vec<Instant> = vec![Instant::now(); commands.len()];
+    let mut blocked_reader: Option<JoinHandle<String>> = None;
     while !stop.load(Ordering::Acquire) {
-        let now = Instant::now();
-        for (slot, (index, argv, interval)) in commands.iter().enumerate() {
-            // Re-check between commands so a config reload retires this
-            // worker within at most one command runtime, not one full pass.
+        match blocked_reader.take() {
+            Some(handle) if !handle.is_finished() => {
+                // The previous reader is still pinned open by a detached
+                // descendant. Keep exactly one outstanding reader for this
+                // segment and retry after the interval.
+                blocked_reader = Some(handle);
+            }
+            finished => {
+                if let Some(handle) = finished {
+                    let _ = handle.join();
+                }
+                let (output, stuck) = run_status_command(&argv, STATUS_COMMAND_TIMEOUT);
+                blocked_reader = stuck;
+                let changed = {
+                    let mut map = outputs.lock().unwrap();
+                    if map.get(&index) != Some(&output) {
+                        map.insert(index, output);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if changed {
+                    // A full or closed queue drops one poke; the next tick
+                    // retries.
+                    let _ = events.try_send(AppEvent::StatusCommandsUpdated);
+                }
+            }
+        }
+        let deadline = Instant::now() + interval;
+        while Instant::now() < deadline {
             if stop.load(Ordering::Acquire) {
                 return;
             }
-            if now < due[slot] {
-                continue;
-            }
-            due[slot] = now + *interval;
-            let output = run_status_command(argv, STATUS_COMMAND_TIMEOUT);
-            let changed = {
-                let mut map = outputs.lock().unwrap();
-                if map.get(index) != Some(&output) {
-                    map.insert(*index, output);
-                    true
-                } else {
-                    false
-                }
-            };
-            if changed {
-                // Publish per command so one slow segment cannot hold back
-                // the others. A full or closed queue drops one poke; the
-                // next tick retries.
-                let _ = events.try_send(AppEvent::StatusCommandsUpdated);
-            }
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(200)),
+            );
         }
-        let next = due.iter().min().copied().unwrap_or(now);
-        let wait = next
-            .saturating_duration_since(Instant::now())
-            .clamp(Duration::from_millis(200), Duration::from_secs(1));
-        std::thread::sleep(wait);
     }
 }
 
-/// Run one status command with a bounded runtime and return its last
-/// nonempty stdout line, stripped of escape sequences and length-capped.
+/// Run one status command with a bounded runtime. Returns its last nonempty
+/// stdout line, stripped of escape sequences and length-capped, plus the
+/// reader handle when a descendant that survived the group kill still pins
+/// the pipe open; the caller keeps at most one such reader per segment.
 /// Stdout is drained concurrently so a chatty command never deadlocks on
 /// the pipe buffer, and on Unix the command runs in its own process group
 /// so a timeout kills the whole tree, which also forces stdout to close.
-fn run_status_command(argv: &[String], timeout: Duration) -> String {
+fn run_status_command(argv: &[String], timeout: Duration) -> (String, Option<JoinHandle<String>>) {
     const MAX_STATUS_OUTPUT_CHARS: usize = 200;
     const MAX_STATUS_OUTPUT_BYTES: u64 = 64 * 1024;
-    let Some(program) = argv.first() else { return String::new() };
+    let Some(program) = argv.first() else { return (String::new(), None) };
     let mut command = std::process::Command::new(program);
     command
         .args(&argv[1..])
@@ -6965,7 +6980,7 @@ fn run_status_command(argv: &[String], timeout: Duration) -> String {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let Ok(mut child) = command.spawn() else { return String::new() };
+    let Ok(mut child) = command.spawn() else { return (String::new(), None) };
     let reader = child.stdout.take().map(|stdout| {
         std::thread::spawn(move || {
             use std::io::Read;
@@ -6979,22 +6994,27 @@ fn run_status_command(argv: &[String], timeout: Duration) -> String {
     }
     // The reader finishes when the pipe closes. If a descendant still holds
     // stdout open after the command itself exited (for example `cmd &`),
-    // kill the whole group so the pipe closes and the reader can finish,
-    // instead of detaching a blocked thread per interval.
+    // kill the whole group so the pipe closes and the reader can finish.
     let mut text = String::new();
+    let mut stuck = None;
     if let Some(handle) = reader {
         if !wait_for_reader(&handle, Duration::from_secs(2)) {
             kill_status_command_group(&mut child);
             wait_for_reader(&handle, Duration::from_millis(500));
         }
-        if handle.is_finished()
-            && let Ok(captured) = handle.join()
-        {
-            text = captured;
+        if handle.is_finished() {
+            if let Ok(captured) = handle.join() {
+                text = captured;
+            }
+        } else {
+            // Only a descendant that started its own session can reach
+            // this: it survived the group kill and owns the pipe. Hand the
+            // reader back instead of detaching it.
+            stuck = Some(handle);
         }
     }
     let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
-    strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect()
+    (strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect(), stuck)
 }
 
 /// The `USER` environment value, read once: template expansion runs on the
@@ -8438,6 +8458,8 @@ fn run_with_machine_updates_inner(
         quit: false,
         status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
         status_command_worker_stop: None,
+        status_command_workers: Vec::new(),
+        retiring_status_workers: Vec::new(),
     };
     app.ensure_status_command_worker();
     if app.session_available() {
@@ -12319,7 +12341,18 @@ impl App {
         if let Some(stop) = self.status_command_worker_stop.take() {
             stop.store(true, Ordering::Release);
         }
-        // A fresh map per worker: a stopped worker mid-command can only
+        // Stopped workers exit within at most one command runtime. Keep
+        // their handles and enforce a hard bound, so reload storms cannot
+        // stack live worker generations; joining here happens only past the
+        // bound and blocks at most that one runtime.
+        const MAX_RETIRING_STATUS_WORKERS: usize = 8;
+        self.retiring_status_workers.append(&mut self.status_command_workers);
+        self.retiring_status_workers.retain(|handle| !handle.is_finished());
+        while self.retiring_status_workers.len() > MAX_RETIRING_STATUS_WORKERS {
+            let handle = self.retiring_status_workers.remove(0);
+            let _ = handle.join();
+        }
+        // A fresh map per generation: a stopped worker mid-command can only
         // write into its own orphaned map, never under an index that now
         // belongs to a different segment.
         self.status_command_outputs = Arc::new(Mutex::new(HashMap::new()));
@@ -12331,18 +12364,22 @@ impl App {
             return;
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
-        let outputs = self.status_command_outputs.clone();
-        let events = self.app_events.clone();
-        match std::thread::Builder::new()
-            .name("status-commands".into())
-            .spawn(move || run_status_command_worker(commands, outputs, events, worker_stop))
-        {
-            Ok(_) => self.status_command_worker_stop = Some(stop),
-            Err(error) => {
-                eprintln!("cmux-tui: could not start the status command worker: {error}");
+        for (index, argv, interval) in commands {
+            let outputs = self.status_command_outputs.clone();
+            let events = self.app_events.clone();
+            let worker_stop = stop.clone();
+            match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
+                move || {
+                    run_status_segment_loop(index, argv, interval, outputs, events, worker_stop);
+                },
+            ) {
+                Ok(handle) => self.status_command_workers.push(handle),
+                Err(error) => {
+                    eprintln!("cmux-tui: could not start a status segment worker: {error}");
+                }
             }
         }
+        self.status_command_worker_stop = Some(stop);
     }
 
     /// Resolve the configured status segments to displayable text: literal
@@ -15155,6 +15192,12 @@ impl App {
     /// The server defaults the working directory to the pane's current
     /// directory when the command has no configured `cwd`.
     fn run_user_command(&mut self, index: usize, pane: Option<PaneId>) -> anyhow::Result<()> {
+        // `action_available` already rejects user commands for single-surface
+        // clients; keep the invariant local so no future route can create a
+        // tab this mode cannot reach.
+        if self.is_surface_only() {
+            return Ok(());
+        }
         let Some(command) = self.config.commands.get(index) else {
             return Ok(());
         };
@@ -23126,12 +23169,13 @@ mod tests {
 
     #[test]
     fn status_command_runner_returns_last_clean_line() {
-        let output = run_status_command(
+        let (output, stuck) = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "printf 'one\\ntwo\\n\\n'".to_string()],
             Duration::from_secs(5),
         );
         assert_eq!(output, "two", "the last nonempty line wins");
-        let colored = run_status_command(
+        assert!(stuck.is_none(), "a finished command leaves no blocked reader");
+        let (colored, _) = run_status_command(
             &[
                 "/bin/sh".to_string(),
                 "-c".to_string(),
@@ -23141,7 +23185,7 @@ mod tests {
         );
         assert_eq!(colored, "red done", "escape sequences are stripped");
         assert_eq!(
-            run_status_command(&["/nonexistent-status-cmd".to_string()], Duration::from_secs(1)),
+            run_status_command(&["/nonexistent-status-cmd".to_string()], Duration::from_secs(1)).0,
             "",
             "spawn failures resolve to an empty segment"
         );
@@ -23151,11 +23195,12 @@ mod tests {
     #[test]
     fn status_command_timeout_kills_the_process_tree_and_keeps_partial_output() {
         let started = Instant::now();
-        let output = run_status_command(
+        let (output, stuck) = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
             Duration::from_secs(1),
         );
         assert_eq!(output, "early", "output before the timeout survives the group kill");
+        assert!(stuck.is_none(), "the group kill closes the pipe and frees the reader");
         assert!(
             started.elapsed() < Duration::from_secs(10),
             "the runtime bound is real: {:?}",
@@ -40204,6 +40249,8 @@ mod tests {
             quit: false,
             status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
             status_command_worker_stop: None,
+            status_command_workers: Vec::new(),
+            retiring_status_workers: Vec::new(),
         };
         (app, receiver)
     }
