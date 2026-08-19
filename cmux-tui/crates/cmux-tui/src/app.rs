@@ -6172,7 +6172,12 @@ fn full_pane_parts_for_layout(
     } else if stacked_headers.contains(&pane.id) {
         stacked_header_parts_for_virtual_rect(full_rect)?
     } else {
-        pane_parts_for_virtual_rect(full_rect, scrollbar_position, pane_padding, has_browser_omnibar)?
+        pane_parts_for_virtual_rect(
+            full_rect,
+            scrollbar_position,
+            pane_padding,
+            has_browser_omnibar,
+        )?
     };
     Some((surface_id, parts))
 }
@@ -6916,8 +6921,7 @@ fn sidebar_layout_for_state(
     let (width, height) = size;
     // The bottom row belongs to the screens status bar unless the user
     // hides it; a hidden bar gives the row back to the panes.
-    let content_height =
-        if config.status_bar.visible { height.saturating_sub(1) } else { height };
+    let content_height = if config.status_bar.visible { height.saturating_sub(1) } else { height };
     if !visible {
         return SidebarLayout {
             content: Rect { x: 0, y: 0, width, height: content_height },
@@ -7892,7 +7896,8 @@ fn run_with_machine_updates_inner(
             SidebarWidthOverrides::default(),
         )
         .content;
-        content_size_for_rect(pane, config.scrollbar.position, config.pane.padding).unwrap_or((1, 1))
+        content_size_for_rect(pane, config.scrollbar.position, config.pane.padding)
+            .unwrap_or((1, 1))
     });
     ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
     let initial_workspace_error = recover_initial_workspace_failure(
@@ -17189,8 +17194,12 @@ impl App {
         let has_omnibar = if area.surface == surface {
             area.omnibar.is_some()
         } else {
-            let (_, omnibar, _, _) =
-                pane_parts_for_rect(area.rect, self.config.scrollbar.position, self.config.pane.padding, true);
+            let (_, omnibar, _, _) = pane_parts_for_rect(
+                area.rect,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+                true,
+            );
             omnibar.is_some()
         };
         if !has_omnibar {
@@ -21553,13 +21562,13 @@ mod tests {
         WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
-        enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
-        keyboard_protocol_accepts, layout_undo_error_completion,
-        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
-        record_surface_resize_dispatch_result, report_after_unwind,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_host_input,
+        forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
+        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
@@ -26460,7 +26469,8 @@ mod tests {
     #[test]
     fn pane_padding_insets_content_and_keeps_at_least_one_cell() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
-        let (bar, _, content, track) = pane_parts_for_rect(rect, ScrollbarPosition::Column, 2, false);
+        let (bar, _, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, 2, false);
         // Bar and track keep the border geometry; only content is inset.
         assert_eq!(bar, Some(Rect { x: 10, y: 4, width: 80, height: 1 }));
         assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
@@ -26657,7 +26667,10 @@ mod tests {
     #[test]
     fn browser_tab_size_hint_uses_omnibar_reduced_content() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
-        assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column, 0), Some((77, 21)));
+        assert_eq!(
+            browser_content_size_for_rect(rect, ScrollbarPosition::Column, 0),
+            Some((77, 21))
+        );
     }
 
     #[test]
@@ -29498,8 +29511,12 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
-        let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, app.config.pane.padding, false);
+        let (bar, omnibar, content, track) = pane_parts_for_rect(
+            rect,
+            app.config.scrollbar.position,
+            app.config.pane.padding,
+            false,
+        );
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
@@ -29566,8 +29583,12 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
-        let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, app.config.pane.padding, false);
+        let (bar, omnibar, content, track) = pane_parts_for_rect(
+            rect,
+            app.config.scrollbar.position,
+            app.config.pane.padding,
+            false,
+        );
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
