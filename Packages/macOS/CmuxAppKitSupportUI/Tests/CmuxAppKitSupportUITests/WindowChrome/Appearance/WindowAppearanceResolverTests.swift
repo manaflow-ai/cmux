@@ -28,6 +28,8 @@ import Testing
         #expect(snapshot.terminalRenderingMode == .windowHostBackdrop)
         #expect(snapshot.terminalBackgroundOpacity == 0.72)
         #expect(snapshot.sidebarContentColorScheme == .dark)
+        #expect(snapshot.resolvedColorScheme == snapshot.chromeColorScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == snapshot.resolvedColorScheme)
 
         guard case let .sidebarMaterial(sidebarPolicy) = snapshot.policy(for: .leftSidebar) else {
             Issue.record("Expected separate left sidebar material policy")
@@ -43,6 +45,67 @@ import Testing
         #expect(plan.hostingPhase == .windowGlass)
         #expect(plan.usesWindowGlass)
         #expect(plan.glass?.style == .regular)
+    }
+
+    @Test(arguments: [
+        ("#F8F8F2", ColorScheme.light),
+        ("#101820", ColorScheme.dark),
+    ])
+    func resolverUsesOneTerminalSchemeForSeparateSidebar(
+        backgroundHex: String,
+        expectedScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: backgroundHex) ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true
+            )
+        )
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: false,
+            sidebarBlendMode: "withinWindow",
+            sidebarTintHexDark: "#FF0000",
+            bgGlassEnabled: false
+        ))
+
+        #expect(snapshot.resolvedColorScheme == expectedScheme)
+        #expect(snapshot.chromeColorScheme == expectedScheme)
+        #expect(snapshot.sidebarContentColorScheme == expectedScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
+    }
+
+    @Test(arguments: [
+        (ColorScheme.light, ColorScheme.light),
+        (ColorScheme.light, ColorScheme.dark),
+        (ColorScheme.dark, ColorScheme.light),
+        (ColorScheme.dark, ColorScheme.dark),
+    ])
+    func resolverPropagatesOneInjectedTerminalAuthority(
+        terminalScheme: ColorScheme,
+        ambientScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: terminalScheme == .dark ? "#101820" : "#F8F8F2") ?? .black,
+                backgroundOpacity: 0.35,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: terminalScheme
+            )
+        )
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: false,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false,
+            colorScheme: ambientScheme
+        ))
+
+        #expect(snapshot.resolvedColorScheme == terminalScheme)
+        #expect(snapshot.chromeColorScheme == terminalScheme)
+        #expect(snapshot.sidebarContentColorScheme == terminalScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == terminalScheme)
     }
 
     @Test func ghosttyMacOSGlassStyleForcesClearRootAndTerminalTintedGlass() {
@@ -80,11 +143,12 @@ import Testing
         sidebarBlendMode: String,
         sidebarTintHexDark: String? = nil,
         sidebarTintOpacity: Double = WindowChromeSidebarTintDefaults().opacity,
-        bgGlassEnabled: Bool
+        bgGlassEnabled: Bool,
+        colorScheme: ColorScheme = .dark
     ) -> WindowAppearanceUserSettingsSnapshot {
         WindowAppearanceUserSettingsSnapshot(
             unifySurfaceBackdrops: unifySurfaceBackdrops,
-            colorScheme: .dark,
+            colorScheme: colorScheme,
             sidebarMaterial: WindowChromeSidebarMaterialOption.sidebar.rawValue,
             sidebarBlendMode: sidebarBlendMode,
             sidebarState: WindowChromeSidebarStateOption.followWindow.rawValue,

@@ -11,11 +11,11 @@ import Darwin
 final class TerminalNotificationSocketActionTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     override func tearDown() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         super.tearDown()
     }
 
@@ -255,7 +255,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
 
         @MainActor
         func cleanup() {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             if let windowId {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }

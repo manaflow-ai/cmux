@@ -114,6 +114,38 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
     }
 
+    @Test func presenceDuringStartupReconnectDoesNotSupersedeTheActiveDial() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [1])
+        defer { fixture.release() }
+
+        let startupReconnect = Task {
+            await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        #expect(await fixture.factory.waitForAttemptCount(1))
+        let startupGeneration = fixture.store.storedMacReconnectGeneration
+        #expect(fixture.store.isReconnectingStoredMac)
+
+        fixture.store.recoverMobileConnection(trigger: .presencePush)
+
+        #expect(!fixture.store.connectionRecoveryOwner.isActive)
+        #expect(fixture.store.storedMacReconnectGeneration == startupGeneration)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+
+        fixture.factory.releaseHeldConnects()
+        #expect(await startupReconnect.value)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.storedMacReconnectGeneration == startupGeneration)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
+
+    @Test func manualRetryDuringStartupReconnectReplacesTheActiveDial() async throws {
+        try await expectExplicitRecoveryToReplaceStartupDial(trigger: .manual)
+    }
+
+    @Test func connectionMethodChangeDuringStartupReconnectReplacesTheActiveDial() async throws {
+        try await expectExplicitRecoveryToReplaceStartupDial(trigger: .connectionMethodChanged)
+    }
+
     @Test func staleRecoveryCleanupCannotClearNewerAttempt() async throws {
         let owner = MobileConnectionRecoveryOwner()
         defer { owner.cancel() }
@@ -634,6 +666,36 @@ extension ReconnectRouteSelectionTests {
             diagnosticLog: diagnosticLog,
             directory: directory
         )
+    }
+
+    private func expectExplicitRecoveryToReplaceStartupDial(
+        trigger: MobileShellComposite.RecoveryTrigger
+    ) async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [1])
+        defer { fixture.release() }
+
+        let startupReconnect = Task {
+            await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        #expect(await fixture.factory.waitForAttemptCount(1))
+        let startupGeneration = fixture.store.storedMacReconnectGeneration
+        #expect(fixture.store.isReconnectingStoredMac)
+
+        fixture.store.recoverMobileConnection(trigger: trigger)
+
+        #expect(fixture.store.connectionRecoveryOwner.isActive)
+        #expect(fixture.store.connectionRecoveryOwner.activeAttempt?.trigger == trigger.description)
+        #expect(await fixture.factory.waitForAttemptCount(2))
+        #expect(fixture.store.storedMacReconnectGeneration > startupGeneration)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        #expect(try await pollUntil {
+            fixture.store.connectionState == .connected
+        })
+
+        fixture.factory.releaseHeldConnects()
+        #expect(!(await startupReconnect.value))
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
     }
 }
 

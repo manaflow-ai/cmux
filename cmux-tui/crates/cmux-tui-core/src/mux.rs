@@ -2724,16 +2724,20 @@ impl Mux {
                 return Err(error);
             }
             if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
-                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                );
+                // Commit the durable exit before deleting the record. The
+                // record is the only proof that this host ever existed, so a
+                // failed commit must leave the next startup able to retry
+                // instead of facing a lifecycle row with no evidence.
                 self.mark_terminal_exited_and_detach(
                     &terminal_id,
                     "terminal-host-proven-dead",
                     "host-process-ended-before-adoption",
                     &options,
                 )?;
+                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                    &record_path,
+                    &record,
+                );
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
@@ -2751,16 +2755,16 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
                         self.mark_terminal_exited_and_detach(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
                             &options,
                         )?;
+                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                            &record_path,
+                            &record,
+                        );
                         handled_terminals.insert(terminal_id.clone());
                     } else {
                         // Socket loss and descriptor pressure are not process
@@ -11658,6 +11662,9 @@ impl Mux {
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
                     fence_layout_undo_for_tab_membership(&mut state, &[pane_id]);
+                    if let Some(identity) = surface.resource_identity().cloned() {
+                        state.register_tab_identity(surface.id, &identity);
+                    }
                     state.surfaces.insert(surface.id, surface.clone());
                     let delta = (|| {
                         let (wi, si) = state.screen_of(pane_id)?;
@@ -15132,6 +15139,12 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
         );
     }
     register_terminal_runtime_checked(state, &surface)?;
+    // Surface insertion is the only way a tab placement enters live state, so
+    // it is also where the topology takes ownership of that tab's identity.
+    // Every later reader takes identity from the topology, never from here.
+    if let Some(identity) = surface.resource_identity().cloned() {
+        state.register_tab_identity(surface.id, &identity);
+    }
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
@@ -16193,13 +16206,6 @@ fn layout_undo_confirmation_details(
                 .tab_ids
                 .get(surface)
                 .cloned()
-                .or_else(|| {
-                    state
-                        .surfaces
-                        .get(surface)
-                        .and_then(|surface| surface.resource_identity())
-                        .map(|identity| identity.tab_id.clone())
-                })
                 .with_context(|| format!("tab {surface} has no public identity"))?;
             update_layout_undo_token_part(&mut hasher, tab_id.to_string().as_bytes());
         }
@@ -17177,6 +17183,51 @@ mod tests {
         assert_eq!(state.surfaces.len(), 0);
         assert_eq!(restored.contents.len(), 6);
         assert!(restored.next_id > 100);
+    }
+
+    #[test]
+    fn restored_tabs_keep_durable_identity_without_any_live_surface() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let mut restored = restore_resource_state(snapshot, topology.clone()).unwrap();
+        assert!(restored.state.surfaces.is_empty(), "restore must not fabricate runtime");
+
+        restored.state.rebuild_resource_indexes();
+        restored.state.ensure_tab_identity_coverage().unwrap();
+
+        for tab in &topology.tabs {
+            let slot = restored
+                .state
+                .resource_indexes
+                .tabs
+                .get(&tab.public_id)
+                .copied()
+                .expect("restored tab lost its slot");
+            assert_eq!(
+                restored.state.resource_indexes.content_ids.get(&slot),
+                Some(&tab.content_id),
+                "restored tab lost its content identity"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tab_without_durable_identity_fails_loudly_instead_of_vanishing() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let mut restored = restore_resource_state(snapshot, topology).unwrap();
+        let slot = *restored
+            .state
+            .panes
+            .values()
+            .find(|pane| !pane.tabs.is_empty())
+            .expect("fixture has a placed tab")
+            .tabs
+            .first()
+            .expect("checked above");
+
+        restored.state.resource_indexes.tab_ids.remove(&slot);
+
+        let error = restored.state.ensure_tab_identity_coverage().unwrap_err();
+        assert!(error.to_string().contains("has no durable identity"), "unexpected error: {error}");
     }
 
     #[test]

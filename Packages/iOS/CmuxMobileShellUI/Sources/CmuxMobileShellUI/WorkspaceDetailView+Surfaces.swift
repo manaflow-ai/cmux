@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -37,6 +38,14 @@ extension WorkspaceDetailView {
             } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
                 simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if case let .macSurface(macSurface) = surface {
+                macSurfaceContent(macSurface)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
+                    // System colors, materials, and list backgrounds must
+                    // resolve against the terminal theme the surface sits on,
+                    // not the device appearance, or rows flash white over a
+                    // dark theme (and vice versa).
+                    .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -67,6 +76,62 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
+    /// Kind → renderer dispatch for the selected non-terminal Mac surface.
+    ///
+    /// `MacSurfaceRenderer.resolve` owns the gating policy (capability +
+    /// payload presence); unhandled kinds stay on the fallback card.
+    @ViewBuilder
+    func macSurfaceContent(_ macSurface: MobileSurfacePreview) -> some View {
+        let renderer = MacSurfaceRenderer.resolve(
+            surface: macSurface,
+            supportsTodo: store.supportsTodo(in: workspace.id),
+            supportsPanelArtifacts: store.supportsPanelArtifacts(in: workspace.id)
+        )
+        let openOnMac: () async -> Bool = { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
+            await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
+        }
+        let canOpenOnMac = store.supportsSurfaceFocus(in: workspace.id)
+        switch renderer {
+        case .todo(let todo):
+            TodoSurfaceView(
+                surface: macSurface,
+                todo: todo
+            ) { mutation in
+                try await store.performTodoMutation(mutation, workspaceID: workspace.id)
+            }
+            .id(macSurface.id.rawValue)
+        case .filePreview(let path):
+            PanelFileSurfaceView(
+                surface: macSurface,
+                path: path,
+                loader: panelArtifactLoader(
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    surfaceID: macSurface.id.rawValue
+                ),
+                connectionStatus: effectiveConnectionStatus
+            )
+            .id(macSurface.id.rawValue)
+        case .markdown(let path):
+            MarkdownSurfaceView(
+                surface: macSurface,
+                path: path,
+                loader: panelArtifactLoader(
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    surfaceID: macSurface.id.rawValue
+                ),
+                connectionStatus: effectiveConnectionStatus
+            )
+            .id(macSurface.id.rawValue)
+        case .fallbackCard:
+            SurfaceFallbackCardView(
+                surface: macSurface,
+                workspaceName: workspace.name,
+                canOpenOnMac: canOpenOnMac,
+                openOnMac: openOnMac
+            )
+        }
+    }
+
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
@@ -164,6 +229,12 @@ extension WorkspaceDetailView {
                         payloadBytes: payloadBytes
                     )
                 },
+                presentationStalled: { panelID in
+                    await store.handleStaleMobileSimulatorStream(panelID: panelID)
+                },
+                presentationSucceeded: { panelID in
+                    await store.mobileSimulatorFrameDidPresent(panelID: panelID)
+                },
                 inputDiagnostic: { panelID, state, kind, detail in
                     await store.recordMobileSimulatorInputDiagnostic(
                         panelID: panelID,
@@ -177,23 +248,6 @@ extension WorkspaceDetailView {
         )
         .id(simulator.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDisappear {
-            // Panel-scoped: when switching simulator A -> B, A's onDisappear
-            // fires AFTER B was activated, so the unconditional deactivate
-            // would clear B's fresh selection. The stop targets only this
-            // pane's panel and is a no-op on the Mac if it was already
-            // stopped by the selection switch.
-            simulatorStreamStore.deactivate(
-                panelID: simulator.id,
-                in: workspace.rpcWorkspaceID.rawValue
-            )
-            Task {
-                await store.stopMobileSimulatorStream(
-                    panelID: simulator.id,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue
-                )
-            }
-        }
     }
     #endif
 }

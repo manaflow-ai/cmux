@@ -3225,15 +3225,15 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
-            if let tabId = surfaceView.tabId,
-               let sourceSurface = surfaceView.terminalSurface,
-               let terminalLifecycleID = callbackContext?.terminalLifecycleID {
+            if let callbackContext,
+               let tabId = callbackTabId {
                 surfaceView.titleUpdateIngress.submit(
                     tabId: tabId,
-                    surfaceId: sourceSurface.id,
-                    sourceSurface: sourceSurface,
-                    terminalLifecycleID: terminalLifecycleID,
-                    title: title
+                    surfaceId: callbackContext.surfaceId,
+                    sourceSurfaceIdentifier: callbackContext.sourceSurfaceIdentifier,
+                    terminalLifecycleID: callbackContext.terminalLifecycleID,
+                    title: title,
+                    titleOverride: callbackContext.titleOverride
                 )
             }
             return true
@@ -3385,7 +3385,12 @@ class GhosttyApp {
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
             return performOnMain {
-                TerminalLinkOpenCoordinator().open(request)
+                // Mark the dispatch before routing: this action fires
+                // synchronously inside `ghostty_surface_mouse_button`, and the
+                // release path must see it even when routing returns false
+                // (Ghostty then opens the URL with its own fallback).
+                surfaceView.noteGhosttyOpenURLActionDispatched()
+                return TerminalLinkOpenCoordinator().open(request)
             }
         default:
             return false
@@ -3788,6 +3793,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
+    /// Monotonic count of Ghostty `open_url` actions dispatched for this
+    /// surface. Ghostty fires that action synchronously inside
+    /// `ghostty_surface_mouse_button` when a release lands on a link, so the
+    /// release path snapshots this counter around the call: an advance means
+    /// Ghostty already routed the clicked link through
+    /// `TerminalLinkOpenCoordinator`, and the cmd-click word-path fallback
+    /// must not deliver the same click to a second handler (#10222).
+    private var ghosttyOpenURLDispatchCount: UInt64 = 0
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -4358,7 +4371,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             coalescePixelOnlyResize: TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: isWindowLiveResizeActive,
                 interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
-                bypass: bypassLiveResizeCoalescing
+                bypass: bypassLiveResizeCoalescing,
+                surfaceKind: terminalSurface.ioMode == .exec ? .processOwned : .manualIO
             ).shouldCoalescePixelOnlyResize,
             // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
             // would hold it at the pre-drag (larger) size and paint past the
@@ -4505,6 +4519,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
         }
         return true
+    }
+
+    func cancelKeyboardCopyMode() {
+        guard keyboardCopyModeActive else { return }
+        if let surface {
+            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        }
+        setKeyboardCopyModeActive(false)
     }
 
     private func setKeyboardCopyModeActive(_ active: Bool) {
@@ -5327,6 +5349,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
+            cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -6478,6 +6501,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    /// Records that Ghostty dispatched an `open_url` action for this surface.
+    /// Called by the runtime action handler so the in-flight mouse release can
+    /// tell that Ghostty owns the clicked link, whatever the routing outcome.
+    func noteGhosttyOpenURLActionDispatched() {
+        ghosttyOpenURLDispatchCount += 1
+    }
+
     @discardableResult
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
         if routeInputDuringClipboardRead(event) { return true }
@@ -6485,13 +6515,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
+        let openURLCountBeforeRelease = ghosttyOpenURLDispatchCount
         let consumed = sendGhosttyMouseButton(
             surface,
             state: GHOSTTY_MOUSE_RELEASE,
             button: GHOSTTY_MOUSE_LEFT,
             mods: mouseModsFromEvent(event)
         )
-        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        _ = handleCommandClickRelease(
+            at: point,
+            modifierFlags: event.modifierFlags,
+            ghosttyConsumed: consumed,
+            ghosttyDispatchedOpenURL: ghosttyOpenURLDispatchCount != openURLCountBeforeRelease
+        )
         return true
     }
 
@@ -6843,9 +6879,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleCommandClickRelease(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
-        ghosttyConsumed: Bool
+        ghosttyConsumed: Bool,
+        ghosttyDispatchedOpenURL: Bool
     ) -> WordPathResolution? {
         guard let surface else { return nil }
+        // Ghostty dispatched its open-url action for this release, so the
+        // clicked link is already being routed through
+        // TerminalLinkOpenCoordinator. Resolving and opening the word under
+        // the pointer as well would deliver the same click to two handlers —
+        // e.g. an image opening in both Preview and the preferred editor
+        // (#10222). `ghosttyConsumed` alone cannot gate this: Ghostty also
+        // consumes releases for mouse reporting and prompt clicks, where the
+        // snapshot fallback must keep working.
+        guard !ghosttyDispatchedOpenURL else {
+#if DEBUG
+            cmuxDebugLog("link.wordFallback skipped reason=ghostty_open_url_dispatched")
+#endif
+            return nil
+        }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
         let cmdHeld = modifierFlags.contains(.command)
         let resolvedPoint = preferredPointerPoint(from: point)
@@ -7099,16 +7150,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mods
         )
+        let openURLCountBeforeRelease = ghosttyOpenURLDispatchCount
         let releaseConsumed = sendGhosttyMouseButton(
             surface,
             state: GHOSTTY_MOUSE_RELEASE,
             button: GHOSTTY_MOUSE_LEFT,
             mods: mods
         )
+        let dispatchedOpenURL = ghosttyOpenURLDispatchCount != openURLCountBeforeRelease
         let resolution = handleCommandClickRelease(
             at: clampedPoint,
             modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed
+            ghosttyConsumed: releaseConsumed,
+            ghosttyDispatchedOpenURL: dispatchedOpenURL
         )
 
         var payload: [String: Any] = [
@@ -7816,8 +7870,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        executePreparedImageTransfer(
-            .fileURLs(urls),
+        let dragTypes = NSPasteboard(name: .drag).types ?? []
+        guard let durableURLs = GhosttyApp.terminalPasteboard.durableDroppedFileURLs(
+            urls,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
+                dragTypes
+            )
+        ) else {
+            return false
+        }
+        return executePreparedImageTransfer(
+            .fileURLs(durableURLs),
             onCancel: {}
         )
     }
@@ -9899,6 +9962,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard paneDropTargetView.dropContext != nil else { return nil }
         guard bounds.contains(localPoint) else { return nil }
         let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
         guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
@@ -10058,6 +10122,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setActive(_ active: Bool) {
         let wasActive = isActive
+        if !active {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         isActive = active
 #if DEBUG
         if wasActive != active {

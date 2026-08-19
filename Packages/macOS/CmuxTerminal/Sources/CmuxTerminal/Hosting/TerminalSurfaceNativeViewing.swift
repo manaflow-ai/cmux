@@ -27,6 +27,9 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool
 
+    /// Ends keyboard copy mode and clears its selection when focus leaves the view.
+    func cancelKeyboardCopyMode()
+
     /// Re-applies the window background for the active surface.
     func applyWindowBackgroundIfActive()
 

@@ -6,11 +6,8 @@ import Testing
 @MainActor
 struct ToastCenterTests {
     @Test func recordsLifecycleWithoutToastCopy() async throws {
-        let suiteName = "toast-diagnostic-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.set(true, forKey: ToastCenter.enabledDefaultsKey)
         let log = DiagnosticLog(capacity: 8)
-        let center = ToastCenter(defaults: defaults, diagnosticLog: log)
+        let center = ToastCenter(clock: ContinuousClock(), enabled: true, diagnosticLog: log)
         let toast = Toast.failure("private message")
 
         center.present(toast)
@@ -41,31 +38,37 @@ struct ToastCenterTests {
         let clock = ManualClock()
         let center = ToastCenter(
             clock: clock,
-            defaults: UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
+            enabled: true
         )
-        center.isEnabled = true
         center.prefersExtendedDwell = { false }
         return (center, clock)
     }
 
     @Test func disabledCenterDropsEveryPresent() {
         let clock = ManualClock()
-        let center = ToastCenter(
-            clock: clock,
-            defaults: UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
-        )
-        // Off by default (beta flag).
+        let center = ToastCenter(clock: clock)
+        // The shipped product policy is permanently off.
         #expect(center.isEnabled == false)
         center.present(.success("dropped"))
         #expect(center.presented == nil)
         #expect(center.queue.isEmpty)
 
+        // The internal injection still exercises the dormant presenter logic.
         center.isEnabled = true
         center.present(.success("shown"))
         #expect(center.presented?.toast.message == "shown")
 
         // Turning the flag off clears anything on screen.
         center.isEnabled = false
+        #expect(center.presented == nil)
+    }
+
+    @Test func productionInitializerRemainsDisabled() {
+        // A value left by the removed beta setting cannot affect a new
+        // presenter because the production initializer reads no preference.
+        let center = ToastCenter()
+        #expect(center.isEnabled == false)
+        center.present(.success("still disabled"))
         #expect(center.presented == nil)
     }
 

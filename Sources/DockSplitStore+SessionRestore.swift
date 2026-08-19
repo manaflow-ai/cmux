@@ -293,7 +293,8 @@ extension DockSplitStore {
         // A rebuilt shell must not inherit socket-report dedupe state from a
         // closed surface whose persisted ID it is reusing.
         TerminalController.shared.cleanupSurfaceState(
-            surfaceIds: [reusableSurfaceId]
+            surfaceIds: [reusableSurfaceId],
+            workspaceID: workspaceId
         )
         let terminal = TerminalPanel(
             id: reusableSurfaceId,

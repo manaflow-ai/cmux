@@ -41,6 +41,8 @@ struct cmuxApp: App {
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
             diagnosticLog: diagnosticLog
         )
         let connectivityInvalidationServiceURL = PresenceClient
@@ -171,6 +173,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,

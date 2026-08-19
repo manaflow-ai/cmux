@@ -48,6 +48,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// All workspace surfaces. `nil` when an older Mac omits the field.
+        public let surfaces: [Surface]?
         /// Simulator panes belonging to this workspace.
         public let simulators: [MobileSimulatorPanelDescriptor]
 
@@ -67,6 +69,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case surfaces
             case simulators
         }
 
@@ -89,6 +92,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt: Double?,
             hasUnread: Bool?,
             terminals: [Terminal],
+            surfaces: [Surface]? = nil,
             simulators: [MobileSimulatorPanelDescriptor] = []
         ) {
             self.id = id
@@ -106,6 +110,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
             self.terminals = terminals
+            self.surfaces = surfaces
             self.simulators = simulators
         }
 
@@ -126,10 +131,48 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
             hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
             terminals = try container.decode([Terminal].self, forKey: .terminals)
+            surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
             simulators = try container.decodeIfPresent(
                 [MobileSimulatorPanelDescriptor].self,
                 forKey: .simulators
             ) ?? []
+        }
+    }
+
+    /// A Mac-rendered surface in workspace spatial order.
+    public struct Surface: Decodable, Equatable, Sendable {
+        /// Stable Mac-local surface identifier.
+        public let surfaceID: String
+        /// Open surface-kind wire value.
+        public let kind: String
+        /// User-facing surface title.
+        public let title: String
+        /// Backing path for file-oriented surfaces, when present.
+        public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
+
+        private enum CodingKeys: String, CodingKey {
+            case surfaceID = "surface_id"
+            case kind
+            case title
+            case filePath = "file_path"
+            case todo
+        }
+
+        /// Creates a projected surface DTO.
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil
+        ) {
+            self.surfaceID = surfaceID
+            self.kind = kind
+            self.title = title
+            self.filePath = filePath
+            self.todo = todo
         }
     }
 

@@ -141,6 +141,17 @@ verify_ipa_bundle_identity() {
     rm -rf "$workdir"
     return 1
   fi
+  if ! python3 - "$ent" "$expected_app_id" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as f:
+    entitlements = plistlib.load(f)
+raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]] else 1)
+PY
+  then
+    echo "error: signed IPA keychain-access-groups must contain exactly '$expected_app_id': $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
 
   rm -rf "$workdir"
   return 0
@@ -1202,6 +1213,12 @@ for key in [k for k in merged if k not in profile]:
 with open(merged_path, "wb") as f:
     plistlib.dump(merged, f)
 PY
+  # A wildcard in the provisioning profile is only an authorization envelope.
+  # The app signature must claim the one exact group for this bundle, otherwise
+  # sibling cmux apps signed by the same team can read each other's items.
+  plutil -replace keychain-access-groups \
+    -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
+    "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
