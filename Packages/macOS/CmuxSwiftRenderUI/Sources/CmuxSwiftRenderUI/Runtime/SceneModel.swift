@@ -28,10 +28,17 @@ public enum ScenePropValue: Equatable, Sendable {
     }
 
     init?(json: Any) {
-        if let b = json as? Bool {
-            self = .bool(b)
-        } else if let n = json as? NSNumber {
-            self = .number(n.doubleValue)
+        // `as? Bool` is NOT a safe discriminator: NSNumber(0)/NSNumber(1)
+        // bridge to Bool successfully, which silently turned numeric props
+        // like lineLimit(1) and opacity(1) into booleans. JSONSerialization
+        // produces CFBoolean for JSON true/false and CFNumber for numbers,
+        // so the type id is the reliable test.
+        if let n = json as? NSNumber {
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                self = .bool(n.boolValue)
+            } else {
+                self = .number(n.doubleValue)
+            }
         } else if let s = json as? String {
             self = .string(s)
         } else {

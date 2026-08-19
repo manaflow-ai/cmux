@@ -129,6 +129,22 @@ struct SidebarJSRuntimeTests {
         #expect(captured == [.cmux(method: "workspace.reorder", params: ["workspace_id": "a", "index": "1"])])
     }
 
+    @Test func numericPropsWithValueOneStayNumeric() {
+        // Regression: NSNumber(1) bridges to Bool via `as?`, which turned
+        // lineLimit(1)/opacity(1) into booleans and silently dropped them.
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => Text("t").lineLimit(1).opacity(1).padding(0))
+        """)
+        let rootId = try! #require(runtime.store.rootId)
+        let node = try! #require(runtime.store.node(rootId))
+        #expect(node.props["lineLimit"] == .number(1))
+        #expect(node.props["opacity"] == .number(1))
+        #expect(node.props["padding"] == .number(0))
+        // Booleans still decode as booleans.
+        #expect(node.props["tappable"] == nil)
+    }
+
     @Test func programErrorSurfacesWithLine() {
         let runtime = SidebarJSRuntime()
         let ok = runtime.start(source: "sidebar(() => notAFunction())")
