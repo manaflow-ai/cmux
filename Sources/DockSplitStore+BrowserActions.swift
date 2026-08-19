@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import Foundation
 
@@ -14,6 +15,9 @@ extension DockSplitStore {
             return nil
         }
         let tabs = bonsplitController.tabs(inPane: paneId)
+        if focus {
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        }
         guard let anchorIndex = tabs.firstIndex(where: {
             $0.id == anchorTabId
         }),
@@ -21,7 +25,7 @@ extension DockSplitStore {
             kind: .browser,
             inPane: paneId,
             url: browser.currentURLForTabDuplication,
-            focus: focus,
+            focus: false,
             preferredProfileID: browser.profileID,
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy:
@@ -46,6 +50,12 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(
                 duplicatedTabId,
                 toIndex: desiredIndex
+            )
+        }
+        if focus {
+            focusPanelFromDockInteraction(
+                duplicatedPanelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
             )
         }
         return duplicatedPanel

@@ -302,7 +302,10 @@ extension DockSplitStore {
         ) else {
             return false
         }
-        bonsplitController.focusPane(targetPaneId)
+        focusPaneFromDockInteraction(
+            targetPaneId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
         applyFocusedShortcutSelection()
         return true
     }
@@ -335,6 +338,7 @@ extension DockSplitStore {
 
         let didMove: Bool
         if let destinationPaneId {
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
             let destinationTabs =
                 bonsplitController.tabs(inPane: destinationPaneId)
             let insertionIndex: Int
@@ -353,7 +357,10 @@ extension DockSplitStore {
                 atIndex: insertionIndex
             )
             if didMove {
-                bonsplitController.focusPane(destinationPaneId)
+                focusPaneFromDockInteraction(
+                    destinationPaneId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
                 bonsplitController.selectTab(tabId)
                 applyFocusedShortcutSelection()
             }
@@ -364,7 +371,10 @@ extension DockSplitStore {
                       movingTab: tabId,
                       insertFirst: directionalSplit.insertFirst
                   ) {
-            bonsplitController.focusPane(newPaneId)
+            focusPaneFromDockInteraction(
+                newPaneId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
             bonsplitController.selectTab(tabId)
             applyFocusedShortcutSelection()
             didMove = true
