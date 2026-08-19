@@ -583,8 +583,8 @@ class TabManager: ObservableObject {
             titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy
         )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
