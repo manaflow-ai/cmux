@@ -11,7 +11,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
     private var theme: AgentSessionWebTheme = .resolve(
-        appearance: .fromConfig(GhosttyConfig.load())
+        appearance: .fromConfig(GhosttyConfig.loadForCmux())
     )
     private var loadedRendererKind: AgentSessionRendererKind?
     private var trustedShellURL: URL?

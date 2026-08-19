@@ -71,7 +71,7 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
         case .freshInstall:
             return String(
                 localized: "debug.startupAppearance.profile.freshInstall.detail",
-                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+                defaultValue: "No user Ghostty settings, so cmux applies its managed default colors."
             )
         case .userThemePair:
             return String(
@@ -1043,6 +1043,18 @@ class GhosttyApp {
             }
         })
 
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: TerminalAdaptiveDefaultThemeSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            _ = MainActor.assumeIsolated {
+                self?.reloadConfiguration(
+                    source: "settings.terminal.adaptiveDefaultTheme"
+                )
+            }
+        })
+
         #endif
     }
 
@@ -1137,16 +1149,21 @@ class GhosttyApp {
         )
     }
 
-    /// Loads the user's resolved Ghostty config with cmux's managed default appearance
-    /// applied first, as the base: only an explicit user `theme` suppresses it, while
-    /// individual color keys override just those colors (issue #7161).
+    /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
+    /// default appearance is applied only if the config contains no directives;
+    /// otherwise Ghostty's own resolved colors are preserved.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
         themeColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
         let appearanceSummary = Self.userAppearanceConfigSummary()
-        if appearanceSummary.shouldApplyDefaultAppearance {
+        let adaptiveDefaultThemeEnabled =
+            TerminalAdaptiveDefaultThemeSettings().isEnabled
+        let shouldApplyManagedDefaultAppearance =
+            adaptiveDefaultThemeEnabled
+            && appearanceSummary.shouldApplyDefaultAppearance
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
         ghostty_config_load_default_files(config)
@@ -1156,12 +1173,12 @@ class GhosttyApp {
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. When the user set no appearance directives at all, re-assert
-        // the managed default so that skipped legacy file's colors cannot override it.
-        if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
+        // is non-empty. For an otherwise untouched config, re-assert the managed
+        // default so that skipped legacy-file colors cannot override it.
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
-        hasUserGhosttyCommand = GhosttyConfig.load(
+        hasUserGhosttyCommand = GhosttyConfig.loadForCmux(
             preferredColorScheme: preferredColorScheme,
             useCache: false
         ).command != nil
@@ -1383,9 +1400,14 @@ class GhosttyApp {
     }
 
     static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        adaptiveDefaultThemeEnabled: Bool =
+            TerminalAdaptiveDefaultThemeSettings().isEnabled
     ) -> Bool {
-        configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        configDiscovery.shouldApplyManagedDefaultAppearance(
+            configPaths: configPaths,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+        )
     }
 
     static func userAppearanceConfigSummary(configPaths: [String]? = nil) -> GhosttyConfig.UserAppearanceConfigSummary {
@@ -2149,7 +2171,7 @@ class GhosttyApp {
 
         return WorkspaceTerminalFontConfigurationSnapshot(
             configuredRuntimePoints: Float32(
-                GhosttyConfig.load(
+                GhosttyConfig.loadForCmux(
                     globalFontMagnificationPercent:
                         magnificationPercent
                 ).fontSize
@@ -2417,10 +2439,26 @@ class GhosttyApp {
 
         let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
         let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
-        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
-        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
-        let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
-        let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
+        let resolvedCursor = ghosttyColorValue(
+            from: config,
+            key: "cursor-color",
+            fallback: resolvedForeground
+        )
+        let resolvedCursorText = ghosttyColorValue(
+            from: config,
+            key: "cursor-text",
+            fallback: resolvedColor
+        )
+        let resolvedSelectionBackground = ghosttyColorValue(
+            from: config,
+            key: "selection-background",
+            fallback: resolvedForeground
+        )
+        let resolvedSelectionForeground = ghosttyColorValue(
+            from: config,
+            key: "selection-foreground",
+            fallback: resolvedColor
+        )
         var opacity = baseline.backgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
@@ -2465,7 +2503,7 @@ class GhosttyApp {
         guard useOnDiskResolvedConfig else {
             return baseline
         }
-        let resolved = GhosttyConfig.load(
+        let resolved = GhosttyConfig.loadForCmux(
             preferredColorScheme: preferredColorScheme,
             useCache: false,
             globalFontMagnificationPercent:
