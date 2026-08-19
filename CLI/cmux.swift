@@ -22450,7 +22450,7 @@ struct CMUXCLI {
 
         let appServerLogURL = codexTeamsLogURL(port: appServerPort, name: "app-server")
         let watcherLogURL = codexTeamsLogURL(port: appServerPort, name: "watcher")
-        let appServer = try startCodexTeamsProcess(
+        let appServer = try CodexTeamsAppServerProcess(
             executablePath: codexExecutablePath,
             arguments: ["app-server", "--listen", appServerURL],
             environment: launcherEnvironment,
@@ -22565,6 +22565,7 @@ struct CMUXCLI {
         restoreRootCodexForegroundIfNeeded()
         codexTeamsTerminateProcess(watcher)
         codexTeamsTerminateProcess(appServer)
+        appServer.waitUntilExit()
         exit(status)
     }
 
@@ -22838,6 +22839,10 @@ struct CMUXCLI {
     private func codexTeamsTerminateProcess(_ process: Process?) {
         guard let process, process.isRunning else { return }
         process.terminate()
+    }
+
+    private func codexTeamsTerminateProcess(_ process: CodexTeamsAppServerProcess?) {
+        process?.terminate()
     }
 
     private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient, socketPassword: String?) throws {
