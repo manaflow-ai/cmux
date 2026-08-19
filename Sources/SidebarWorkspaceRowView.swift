@@ -8,7 +8,10 @@ struct SidebarWorkspaceRowView: View {
     let shouldCollectWorkspaceDropTargets: Bool
 
     var body: some View {
-        TabItemView(snapshot: snapshot, actions: actions)
+        TabItemView(
+            snapshot: snapshot,
+            actions: actions
+        )
             .equatable()
             .id(snapshot.workspaceId)
             .accessibilityIdentifier("sidebarWorkspace.\(snapshot.workspaceId.uuidString)")

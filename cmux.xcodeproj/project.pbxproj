@@ -2011,7 +2011,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B804A0350000000000000035 /* SidebarRowChecklistTransparentButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0350000000000000035 /* SidebarRowChecklistTransparentButton.swift */; };
 		B804A0330000000000000033 /* SidebarRowCompactStatusLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0330000000000000033 /* SidebarRowCompactStatusLine.swift */; };
 		B804A0380000000000000038 /* SidebarRowContentContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0380000000000000038 /* SidebarRowContentContainerView.swift */; };
-		AABBCC00000000000000020A /* SidebarRowDragGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000209 /* SidebarRowDragGate.swift */; };
+		A50C00000000000000000012 /* SidebarTabDragSessionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C00000000000000000011 /* SidebarTabDragSessionSource.swift */; };
+		A50C00000000000000000014 /* SidebarTabDragSourceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C00000000000000000013 /* SidebarTabDragSourceCoordinator.swift */; };
+		A50C00000000000000000016 /* SidebarTabDragAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C00000000000000000015 /* SidebarTabDragAnchorView.swift */; };
+		A50C00000000000000000018 /* SidebarTabDragModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C00000000000000000017 /* SidebarTabDragModifier.swift */; };
+		A50C0000000000000000001A /* SidebarTabDragEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C00000000000000000019 /* SidebarTabDragEvent.swift */; };
+		A50C0000000000000000001C /* SidebarTabDragImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C0000000000000000001B /* SidebarTabDragImage.swift */; };
+		A50C0000000000000000001E /* SidebarTabDragSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50C0000000000000000001D /* SidebarTabDragSourceTests.swift */; };
 		B804A03794950000000000B1 /* SidebarRowInlineRenameSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B03794950000000000B1 /* SidebarRowInlineRenameSession.swift */; };
 		B804A0370000000000000037 /* SidebarRowPressedDim.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0370000000000000037 /* SidebarRowPressedDim.swift */; };
 		B804A0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift */; };
@@ -2024,7 +2030,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */; };
 		F57072635F25EBCA741E125D /* SidebarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */; };
 		D7344F010000000000000001 /* SidebarTabDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7344F010000000000000002 /* SidebarTabDragPayload.swift */; };
-		D73440010000000000000001 /* SidebarTabDragPayloadProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D73440010000000000000002 /* SidebarTabDragPayloadProviderTests.swift */; };
 		D7AB34300000000000000105 /* SidebarTabDropIndicatorPredicateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000106 /* SidebarTabDropIndicatorPredicateTests.swift */; };
 		F7216006000000000000001 /* SidebarTabItemContextMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216006000000000000002 /* SidebarTabItemContextMenuState.swift */; };
 		8430A0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */; };
@@ -4791,7 +4796,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B804B0350000000000000035 /* SidebarRowChecklistTransparentButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistTransparentButton.swift; sourceTree = "<group>"; };
 		B804B0330000000000000033 /* SidebarRowCompactStatusLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowCompactStatusLine.swift; sourceTree = "<group>"; };
 		B804B0380000000000000038 /* SidebarRowContentContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowContentContainerView.swift; sourceTree = "<group>"; };
-		AABBCC000000000000000209 /* SidebarRowDragGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowDragGate.swift; sourceTree = "<group>"; };
+		A50C00000000000000000011 /* SidebarTabDragSessionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragSessionSource.swift; sourceTree = "<group>"; };
+		A50C00000000000000000013 /* SidebarTabDragSourceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragSourceCoordinator.swift; sourceTree = "<group>"; };
+		A50C00000000000000000015 /* SidebarTabDragAnchorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragAnchorView.swift; sourceTree = "<group>"; };
+		A50C00000000000000000017 /* SidebarTabDragModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragModifier.swift; sourceTree = "<group>"; };
+		A50C00000000000000000019 /* SidebarTabDragEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragEvent.swift; sourceTree = "<group>"; };
+		A50C0000000000000000001B /* SidebarTabDragImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragImage.swift; sourceTree = "<group>"; };
+		A50C0000000000000000001D /* SidebarTabDragSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabDragSourceTests.swift; sourceTree = "<group>"; };
 		B804B03794950000000000B1 /* SidebarRowInlineRenameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowInlineRenameSession.swift; sourceTree = "<group>"; };
 		B804B0370000000000000037 /* SidebarRowPressedDim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowPressedDim.swift; sourceTree = "<group>"; };
 		B804B0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowSwiftUIPopoverPresenter.swift; sourceTree = "<group>"; };
@@ -4804,7 +4815,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
 		D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarState.swift; sourceTree = "<group>"; };
 		D7344F010000000000000002 /* SidebarTabDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTabDragPayload.swift; sourceTree = "<group>"; };
-		D73440010000000000000002 /* SidebarTabDragPayloadProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabDragPayloadProviderTests.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000106 /* SidebarTabDropIndicatorPredicateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabDropIndicatorPredicateTests.swift; sourceTree = "<group>"; };
 		F7216006000000000000002 /* SidebarTabItemContextMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabItemContextMenuState.swift; sourceTree = "<group>"; };
 		8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabItemSettingsSnapshot.swift; sourceTree = "<group>"; };
@@ -6196,8 +6206,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				3E3E449BD36EA0670CC7D75C /* ChecklistInputField.swift */,
 				AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */,
 				AABBCC000000000000000207 /* SidebarRowAccessibilityModifier.swift */,
-				AABBCC000000000000000209 /* SidebarRowDragGate.swift */,
+				A50C00000000000000000015 /* SidebarTabDragAnchorView.swift */,
+				A50C00000000000000000019 /* SidebarTabDragEvent.swift */,
+				A50C0000000000000000001B /* SidebarTabDragImage.swift */,
+				A50C00000000000000000017 /* SidebarTabDragModifier.swift */,
 				D7344F010000000000000002 /* SidebarTabDragPayload.swift */,
+				A50C00000000000000000011 /* SidebarTabDragSessionSource.swift */,
+				A50C00000000000000000013 /* SidebarTabDragSourceCoordinator.swift */,
 				C9A57104C9A57104C9A57104 /* SidebarWorkspaceGroupConfigOpener.swift */,
 				C9A57106C9A57106C9A57106 /* SidebarWorkspaceGroupContextMenuRunner.swift */,
 				C9A57108C9A57108C9A57108 /* SidebarWorkspaceGroupDialogs.swift */,
@@ -8037,6 +8052,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					469200014692000146920002 /* VaultPaneDropRoutingTests.swift */,
 					469200064692000146920002 /* VaultPaneDropTestSupport.swift */,
 					469200044692000146920002 /* VaultPaneTransferLifecycleTests.swift */,
+					A50C0000000000000000001D /* SidebarTabDragSourceTests.swift */,
 					469200054692000146920002 /* VaultNativeDragSourceTests.swift */,
 					D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */,
 				EC010C02 /* TerminalUploadCommandTests.swift */,
@@ -8360,7 +8376,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8624D040000000000000004 /* SidebarWorkspaceRowRetirementTests.swift */,
 				B8624D030000000000000003 /* SidebarWorkspaceTableSuspensionTests.swift */,
 				D7AB34300000000000000106 /* SidebarTabDropIndicatorPredicateTests.swift */,
-				D73440010000000000000002 /* SidebarTabDragPayloadProviderTests.swift */,
 				AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */,
 				A47E00010000000000000002 /* AuthEnvironmentTests.swift */,
 				C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */,
@@ -10177,7 +10192,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B804A0350000000000000035 /* SidebarRowChecklistTransparentButton.swift in Sources */,
 				B804A0330000000000000033 /* SidebarRowCompactStatusLine.swift in Sources */,
 				B804A0380000000000000038 /* SidebarRowContentContainerView.swift in Sources */,
-				AABBCC00000000000000020A /* SidebarRowDragGate.swift in Sources */,
+				A50C00000000000000000012 /* SidebarTabDragSessionSource.swift in Sources */,
+				A50C00000000000000000014 /* SidebarTabDragSourceCoordinator.swift in Sources */,
+				A50C00000000000000000016 /* SidebarTabDragAnchorView.swift in Sources */,
+				A50C00000000000000000018 /* SidebarTabDragModifier.swift in Sources */,
+				A50C0000000000000000001A /* SidebarTabDragEvent.swift in Sources */,
+				A50C0000000000000000001C /* SidebarTabDragImage.swift in Sources */,
 				B804A03794950000000000B1 /* SidebarRowInlineRenameSession.swift in Sources */,
 				B804A0370000000000000037 /* SidebarRowPressedDim.swift in Sources */,
 				B804A0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift in Sources */,
@@ -11519,7 +11539,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5B0C00010000000000000003 /* SidebarResizerOcclusionResolverTests.swift in Sources */,
 				C9A57513C9A57513C9A57513 /* SidebarScrollViewConfiguratorTests.swift in Sources */,
 				B804C0020000000000000002 /* SidebarSelectionCoalescerTests.swift in Sources */,
-				D73440010000000000000001 /* SidebarTabDragPayloadProviderTests.swift in Sources */,
 				D7AB34300000000000000105 /* SidebarTabDropIndicatorPredicateTests.swift in Sources */,
 				CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */,
 				6707F0176707F0176707F017 /* SidebarWorkspaceContextMenuWindowTargetsTests.swift in Sources */,
@@ -11625,6 +11644,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
 				468100000000000000000003 /* TypingHotPathRegressionTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+				A50C0000000000000000001E /* SidebarTabDragSourceTests.swift in Sources */,
 				469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */,
 				469200014692000146920001 /* VaultPaneDropRoutingTests.swift in Sources */,
 				469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */,

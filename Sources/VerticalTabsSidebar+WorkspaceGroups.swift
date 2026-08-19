@@ -365,13 +365,6 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
-#if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
-#endif
-            dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload(tabId: anchorId).provider()
-        }
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
@@ -404,7 +397,6 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
-            onDragStart: onDragStart,
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },

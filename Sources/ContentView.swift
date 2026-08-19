@@ -10899,6 +10899,10 @@ struct VerticalTabsSidebar: View, Equatable {
     )
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
+    // Owns AppKit-native sidebar tab/group drag sessions. Plain class (not
+    // @Observable) so rows below the LazyVStack never invalidate on it; see
+    // SidebarTabDragSourceCoordinator. Wired to `dragState` in `.onAppear`.
+    @State var sidebarTabDragCoordinator = SidebarTabDragSourceCoordinator()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
     @State private var isBonsplitWorkspaceDropTargetCollectionActive = false
@@ -11400,6 +11404,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // Inject the shared drag coordinator once, above every sidebar surface
+        // (native workspace list and extension browser stack alike): rows read
+        // it via `@Environment`, keeping lazy boundaries free of store
+        // properties and coordinator parameter threading.
+        .environment(\.sidebarTabDragCoordinator, sidebarTabDragCoordinator)
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
@@ -11415,6 +11424,22 @@ struct VerticalTabsSidebar: View, Equatable {
             .frame(width: 0, height: 0)
         )
         .onAppear {
+            // Wire the native drag coordinator once, symmetric end to end: a
+            // begun drag arms drag state (row opacity + failsafe), and the
+            // session's conclusion clears it through the same injected closure
+            // path — no notification round-trip between the coordinator and
+            // the state it bookends. The `requestClear` notification below
+            // remains the failsafe/drop-side channel it already was.
+            sidebarTabDragCoordinator.onDragBegin = { tabId in
+                dragState.beginDragging(tabId: tabId)
+            }
+            sidebarTabDragCoordinator.onDragEnd = { _ in
+                guard dragState.draggedTabId != nil || dragState.dropIndicator != nil else { return }
+#if DEBUG
+                cmuxDebugLog("sidebar.dragClear tab=\(sidebarShortTabId(dragState.draggedTabId)) reason=native_drag_session_ended")
+#endif
+                dragState.clearDrag()
+            }
             if isPresented { activateSidebarInteractions() }
         }
         .onDisappear {
@@ -13092,11 +13117,10 @@ struct VerticalTabsSidebar: View, Equatable {
         .frame(maxWidth: .infinity)
         .safeHelp(row.title)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
-        }
-        .internalOnlyTabDrag()
+        .appKitTabDrag(
+            workspaceId: row.workspaceId,
+            isEditing: false
+        )
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
             orderedRows: dropRows,
@@ -13170,11 +13194,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .buttonStyle(.plain)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
-        }
-        .internalOnlyTabDrag()
+        .appKitTabDrag(
+            workspaceId: row.workspaceId,
+            isEditing: false
+        )
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
             orderedRows: dropRows,
@@ -14664,13 +14687,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             },
             checklist: checklistActions,
-            onDragStart: {
-#if DEBUG
-                cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
-#endif
-                dragState.beginDragging(tabId: tabId)
-                return SidebarTabDragPayload(tabId: tabId).provider()
-            },
             bonsplitSourceWorkspaceId: { bonsplitTabId in
                 AppDelegate.shared?.locateBonsplitSurface(tabId: bonsplitTabId)?.workspaceId
             },
@@ -16164,8 +16180,10 @@ struct TabItemView: View, Equatable {
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
-        .sidebarRowDragGate(isEditing: isEditing, actions.onDragStart)
-        .internalOnlyTabDrag()
+        .appKitTabDrag(
+            workspaceId: workspaceId,
+            isEditing: isEditing
+        )
         .modifier(SidebarBonsplitWorkspaceRowDropModifier(
             isEnabled: isBonsplitWorkspaceDropActive,
             targetWorkspaceId: workspaceId,
