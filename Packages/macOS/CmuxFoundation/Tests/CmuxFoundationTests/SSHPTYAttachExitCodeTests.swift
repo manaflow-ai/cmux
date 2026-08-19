@@ -185,6 +185,22 @@ struct SSHPTYAttachExitCodeTests {
         #expect(progress.receivedLiveOutput)
     }
 
+    @Test("managed reconnects preserve output appended after the prior snapshot")
+    func managedReconnectPreservesAppendedReplayOutput() {
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 10,
+            suppressReplayBytes: 6
+        )
+        let output = progress.terminalOutput(
+            from: Data("oldoldnew!".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(String(decoding: output, as: UTF8.self) == "new!")
+        #expect(progress.replayBytesRemaining == 0)
+        #expect(progress.receivedLiveOutput)
+    }
+
     private static func writeExecutable(_ url: URL, _ source: String) throws {
         try source.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)

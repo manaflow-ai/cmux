@@ -13159,6 +13159,14 @@ struct CMUXCLI {
               !sessionID.isEmpty else {
             throw CLIError(message: "ssh-pty-attach requires --session-id <id>")
         }
+        let suppressReplay = Self.normalizedEnvValue(
+            ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"]
+        ) == "1" && requireExisting
+        let replayState = SSHPTYAttachReplayState(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )
+        let previousReplayBytes = suppressReplay ? replayState.loadReplayBytes() : nil
         let environmentSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
         let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
@@ -13447,10 +13455,32 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: bridge write failed")
         }
         var reconnectInputFilterStopRequested = false
-        var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
-        let suppressReplay = Self.normalizedEnvValue(
-            ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"]
-        ) == "1" && requireExisting
+        let suppressReplayBytes: Int?
+        if suppressReplay {
+            if let previousReplayBytes {
+                // The daemon appends detached output to the replay snapshot.
+                // Only suppress a prefix whose length was fully delivered by
+                // the prior attach; if the bounded snapshot shrank, forwarding
+                // it is safer than discarding bytes whose identity is unknown.
+                suppressReplayBytes = previousReplayBytes <= bridgeReplayBytes
+                    ? previousReplayBytes
+                    : 0
+            } else {
+                // Older wrappers do not persist a prefix length, so retain the
+                // legacy full-replay suppression behavior for compatibility.
+                suppressReplayBytes = nil
+            }
+        } else {
+            suppressReplayBytes = 0
+        }
+        var outputProgress = SSHPTYAttachOutputProgress(
+            replayBytes: bridgeReplayBytes,
+            suppressReplayBytes: suppressReplayBytes
+        )
+        var replayStateStored = bridgeReplayBytes == 0
+        if replayStateStored {
+            replayState.storeReplayBytes(bridgeReplayBytes)
+        }
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
             readinessDelivery?.cancel()
@@ -13476,6 +13506,10 @@ struct CMUXCLI {
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 if !output.isEmpty {
                     cliWriteStdout(output)
+                }
+                if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
+                    replayState.storeReplayBytes(bridgeReplayBytes)
+                    replayStateStored = true
                 }
             } else if count == 0 {
                 try finishBridgeClosedNormally()
@@ -13604,6 +13638,9 @@ struct CMUXCLI {
             params["lifecycle_id"] = lifecycleID
         }
         _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: params)
+        if let sessionID, let lifecycleID {
+            SSHPTYAttachReplayState(sessionID: sessionID, lifecycleID: lifecycleID).remove()
+        }
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {

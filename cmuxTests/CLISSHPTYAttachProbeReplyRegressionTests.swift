@@ -16,12 +16,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceID = "22222222-2222-2222-2222-222222222222"
         let surfaceID = "33333333-3333-3333-3333-333333333333"
         let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+        let lifecycleID = "44444444-4444-4444-4444-444444444444"
         let replay = Data("old-prompt$ ".utf8)
+        let detachedOutput = Data("detached-output\n".utf8)
         let liveOutput = Data("fresh-output\n".utf8)
         defer { Darwin.close(bridge.fd) }
 
         func runAttach(
             socketName: String,
+            replay: Data,
             suppressingReplay: Bool
         ) throws -> CLINotifyProcessIntegrationRegressionTests.ProcessRunResult {
             let socketPath = makeSocketPath(socketName)
@@ -87,6 +90,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "--require-existing",
                     "--workspace", workspaceID,
                     "--session-id", sessionID,
+                    "--lifecycle-id", lifecycleID,
                     "--attachment-id", surfaceID,
                 ],
                 environment: environment,
@@ -97,7 +101,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return result
         }
 
-        let first = try runAttach(socketName: "sshptyreplay1", suppressingReplay: false)
+        let first = try runAttach(
+            socketName: "sshptyreplay1",
+            replay: replay,
+            suppressingReplay: false
+        )
         #expect(!first.timedOut)
         #expect(first.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
         #expect(
@@ -105,10 +113,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 String(decoding: replay, as: UTF8.self) + String(decoding: liveOutput, as: UTF8.self)
         )
 
-        let second = try runAttach(socketName: "sshptyreplay2", suppressingReplay: true)
+        let second = try runAttach(
+            socketName: "sshptyreplay2",
+            replay: replay + detachedOutput,
+            suppressingReplay: true
+        )
         #expect(!second.timedOut)
         #expect(second.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
-        #expect(second.stdout == String(decoding: liveOutput, as: UTF8.self))
+        #expect(
+            second.stdout ==
+                String(decoding: detachedOutput, as: UTF8.self) +
+                String(decoding: liveOutput, as: UTF8.self)
+        )
         #expect(!second.stdout.contains(String(decoding: replay, as: UTF8.self)))
     }
 
