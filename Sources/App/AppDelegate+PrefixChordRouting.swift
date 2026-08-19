@@ -10,11 +10,11 @@ extension AppDelegate {
         for event: NSEvent,
         fallbackWindow: NSWindow? = nil
     ) -> Int {
-        if let configured = configuredShortcutChordWindowNumber(for: event) {
-            return configured
-        }
         if let window = event.window {
             return window.windowNumber
+        }
+        if let configured = configuredShortcutChordWindowNumber(for: event) {
+            return configured
         }
         if let fallbackWindow {
             return fallbackWindow.windowNumber
