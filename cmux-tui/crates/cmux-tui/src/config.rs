@@ -178,6 +178,10 @@ struct RawConfig {
     machine_provider: RawMachineProvider,
     #[serde(default)]
     machines: Vec<RawMachine>,
+    /// User commands: named argv programs, each optionally bound to key
+    /// chords, opened as a new PTY tab in the active pane.
+    #[serde(default)]
+    commands: Vec<RawUserCommand>,
     #[serde(default)]
     browser: RawBrowser,
     #[serde(default)]
@@ -199,6 +203,21 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawUserCommand {
+    id: Option<String>,
+    name: Option<String>,
+    /// Chord string, array of chord strings, or absent for an unbound
+    /// command. Alt- and Super-modified chords are modeless; other chords
+    /// run after the prefix.
+    keys: Option<Value>,
+    /// Argv executed directly, without a shell.
+    run: Option<Vec<String>>,
+    /// Working directory; defaults to the target pane's current directory.
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1199,6 +1218,25 @@ impl ActionIndex {
     }
 }
 
+/// The maximum number of configurable user commands. Chords bound past this
+/// limit are rejected at config load with a visible warning.
+pub const MAX_USER_COMMANDS: usize = 32;
+
+/// A validated zero-based index into the configured `commands` list. Its
+/// private field prevents unregistered command actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UserCommandIndex(u8);
+
+impl UserCommandIndex {
+    pub const fn new(value: usize) -> Option<Self> {
+        if value < MAX_USER_COMMANDS { Some(Self(value as u8)) } else { None }
+    }
+
+    pub const fn get(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -1250,6 +1288,9 @@ pub enum Action {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    /// A user-configured command from the top-level `commands` section,
+    /// opened as a new PTY tab through the mux `run` command.
+    UserCommand(UserCommandIndex),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1303,6 +1344,7 @@ pub(crate) enum ActionExecution {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    UserCommand(UserCommandIndex),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1728,6 +1770,17 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
     &DEFINITIONS
 }
 
+/// Fallback definition for `Action::UserCommand`. It is intentionally not in
+/// `action_definitions()`: user commands are named by the user's config, and
+/// presentation surfaces look the display name up there. The `action` field
+/// pins index 0 only because a definition must carry one concrete action.
+static USER_COMMAND_FALLBACK_DEFINITION: ActionDefinition = action_definition!(
+    Action::UserCommand(UserCommandIndex(0)),
+    "user-command",
+    "User command",
+    "ユーザーコマンド"
+);
+
 impl Action {
     /// Compiled source of truth for programmability classification and
     /// execution routing. The specification inventory checker reads this
@@ -2029,6 +2082,12 @@ impl Action {
                 "close frontend transport",
                 ActionExecution::Detach,
             ),
+            Action::UserCommand(index) => ActionMetadata::new(
+                "user-command-{index}",
+                ActionClassification::Composite,
+                "frontend command config + run",
+                ActionExecution::UserCommand(*index),
+            ),
         }
     }
 }
@@ -2084,6 +2143,11 @@ impl Action {
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
+            // One shared fallback: presentation surfaces resolve the
+            // configured display name through the command list instead of
+            // this static definition, which is deliberately outside the
+            // action catalog.
+            Action::UserCommand(_) => &USER_COMMAND_FALLBACK_DEFINITION,
         }
     }
 
@@ -2091,6 +2155,20 @@ impl Action {
         match ActionIndex::new(number) {
             Some(index) => Some(Self::SelectScreen(index)),
             None => None,
+        }
+    }
+
+    pub const fn user_command(number: usize) -> Option<Self> {
+        match UserCommandIndex::new(number) {
+            Some(index) => Some(Self::UserCommand(index)),
+            None => None,
+        }
+    }
+
+    pub fn user_command_index(&self) -> Option<usize> {
+        match self {
+            Action::UserCommand(index) => Some(index.get()),
+            _ => None,
         }
     }
 
@@ -2378,6 +2456,19 @@ impl Keys {
             .collect()
     }
 
+    /// Bind one user-command chord, stealing the chord from any action or
+    /// earlier command that held it. The prefix chord stays reserved.
+    fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) {
+        if chord == self.prefix {
+            eprintln!(
+                "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
+            );
+            return;
+        }
+        self.bindings.retain(|(existing, _)| existing != &chord);
+        self.bindings.push((chord, action));
+    }
+
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
@@ -2541,6 +2632,20 @@ pub struct Config {
     pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
+    pub commands: Vec<UserCommandConfig>,
+}
+
+/// One resolved user command from the top-level `commands` section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserCommandConfig {
+    /// Stable config identity, unique across the list.
+    pub id: String,
+    /// Display name for shortcut help; defaults to the id.
+    pub name: String,
+    /// Argv executed directly, without a shell.
+    pub run: Vec<String>,
+    /// Working directory; `None` follows the target pane's current directory.
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -2986,7 +3091,65 @@ pub fn load() -> Config {
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
+    config.commands = resolve_user_commands(raw.commands, &mut config.keys);
     config
+}
+
+/// Validate the raw `commands` section and bind each command's chords.
+/// Command chords are bound after `keys` overrides, so an explicit command
+/// chord replaces whatever action previously held that chord, matching the
+/// last-write-wins behavior of the `keys` section itself.
+fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserCommandConfig> {
+    let mut commands = Vec::new();
+    let mut ids = HashSet::new();
+    for command in raw {
+        let id = command.id.as_deref().unwrap_or("").trim().to_string();
+        if id.is_empty() {
+            eprintln!("cmux-tui: ignoring command with a missing or empty id");
+            continue;
+        }
+        if !ids.insert(id.clone()) {
+            eprintln!("cmux-tui: ignoring command with duplicate id {id:?}");
+            continue;
+        }
+        let run: Vec<String> = command
+            .run
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|argument| !argument.is_empty())
+            .collect();
+        if run.is_empty() {
+            eprintln!("cmux-tui: ignoring command {id:?} with an empty run argv");
+            continue;
+        }
+        let Some(action) = Action::user_command(commands.len()) else {
+            eprintln!(
+                "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
+            );
+            continue;
+        };
+        if let Some(value) = command.keys.as_ref() {
+            for raw_chord in key_values(value) {
+                if raw_chord.eq_ignore_ascii_case("none") {
+                    continue;
+                }
+                let Some(chord) = parse_chord(raw_chord) else {
+                    eprintln!(
+                        "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
+                    );
+                    continue;
+                };
+                keys.bind_user_command_chord(&id, action, chord);
+            }
+        }
+        let name = command
+            .name
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| id.clone());
+        commands.push(UserCommandConfig { id, name, run, cwd: command.cwd });
+    }
+    commands
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
@@ -7182,6 +7345,111 @@ mod tests {
             "the prefix chord must not remain advertised as a modeless action"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
+    }
+
+    #[test]
+    fn raw_config_accepts_commands_section() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "commands": [
+                {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
+                {"id": "scratch", "keys": ["alt+s"], "run": ["nvim", "/tmp/scratch.md"], "cwd": "/tmp"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(raw.commands.len(), 2);
+    }
+
+    #[test]
+    fn user_commands_bind_chords_and_resolve() {
+        let mut keys = Keys::default();
+        let raw = vec![
+            RawUserCommand {
+                id: Some("lazygit".to_string()),
+                name: Some("LazyGit".to_string()),
+                keys: Some(Value::String("g".to_string())),
+                run: Some(vec!["lazygit".to_string()]),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("scratch".to_string()),
+                name: None,
+                // The prefix chord is reserved, so only alt+s binds.
+                keys: Some(json!(["alt+s", "ctrl+b"])),
+                run: Some(vec!["nvim".to_string(), "/tmp/scratch.md".to_string()]),
+                cwd: Some("/tmp".to_string()),
+            },
+            RawUserCommand {
+                id: Some("lazygit".to_string()),
+                name: None,
+                keys: Some(Value::String("y".to_string())),
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("empty-run".to_string()),
+                name: None,
+                keys: Some(Value::String("e".to_string())),
+                run: Some(Vec::new()),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: None,
+                name: None,
+                keys: Some(Value::String("i".to_string())),
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            },
+        ];
+        let commands = resolve_user_commands(raw, &mut keys);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0].id, "lazygit");
+        assert_eq!(commands[0].name, "LazyGit");
+        assert_eq!(commands[0].run, ["lazygit"]);
+        assert_eq!(commands[1].name, "scratch");
+        assert_eq!(commands[1].cwd.as_deref(), Some("/tmp"));
+
+        let lazygit = Action::user_command(0).unwrap();
+        let scratch = Action::user_command(1).unwrap();
+        // An explicit command chord steals the default chord it collides with.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(lazygit)
+        );
+        assert_eq!(keys.shortcut_labels(Action::NewPaneRight), Vec::<String>::new());
+        // Alt chords are modeless, exactly like built-in Alt bindings.
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)),
+            Some(scratch)
+        );
+        // The prefix chord stays reserved for send-prefix.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::SendPrefix)
+        );
+        // Rejected chords do not bind: `y`, `e`, and `i` keep their defaults.
+        assert_ne!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            Some(Action::user_command(2).unwrap())
+        );
+        assert_eq!(keys.shortcut_labels(lazygit), ["Ctrl-b g"]);
+        assert_eq!(keys.shortcut_labels(scratch), ["Alt-s"]);
+    }
+
+    #[test]
+    fn user_commands_stop_at_the_command_limit() {
+        let mut keys = Keys::default();
+        let raw = (0..MAX_USER_COMMANDS + 2)
+            .map(|index| RawUserCommand {
+                id: Some(format!("command-{index}")),
+                name: None,
+                keys: None,
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            })
+            .collect();
+        let commands = resolve_user_commands(raw, &mut keys);
+        assert_eq!(commands.len(), MAX_USER_COMMANDS);
+        assert!(Action::user_command(MAX_USER_COMMANDS).is_none());
     }
 
     #[test]

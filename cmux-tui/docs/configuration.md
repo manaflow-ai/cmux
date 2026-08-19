@@ -232,6 +232,29 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
+## Commands
+
+`commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `commands[].id` | string | required | Stable unique identity; duplicates and empty ids are ignored |
+| `commands[].name` | string | the id | Display name in the shortcut modal |
+| `commands[].run` | string array | required | Argv executed directly, without a shell; empty argv entries are dropped |
+| `commands[].keys` | chord string or array | unset | Chords that run the command; Alt- and Super-modified chords are modeless, other chords run after the prefix |
+| `commands[].cwd` | string | active pane cwd | Working directory for the child process |
+
+Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo run -p cmux-tui -- --session commands`. At most 32 commands are honored; extra entries are ignored with a warning. A command chord replaces whatever action previously held that chord, matching the last-write-wins behavior of the `keys` section, and the prefix chord stays reserved. Shell pipelines need an explicit shell argv, for example `["zsh", "-lc", "git diff | delta"]`.
+
+```json
+{
+  "commands": [
+    {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
+    {"id": "scratch", "keys": ["alt+s"], "run": ["nvim", "~/notes/scratch.md"], "cwd": "~"}
+  ]
+}
+```
+
 ## Keys
 
 | Key | Type | Default | Effect |

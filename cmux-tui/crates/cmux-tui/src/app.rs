@@ -5022,13 +5022,24 @@ pub struct ShortcutHelp {
 
 impl ShortcutHelp {
     fn resolved_rows(config: &Config, surface_only: bool) -> Vec<(Action, String)> {
-        config
+        let mut rows: Vec<(Action, String)> = config
             .keys
             .resolved_shortcuts()
             .into_iter()
             .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
-            .collect()
+            .collect();
+        for index in 0..config.commands.len() {
+            let Some(action) = Action::user_command(index) else { break };
+            if !action_available_in_mode(action, surface_only) {
+                continue;
+            }
+            let shortcuts = config.keys.shortcut_labels(action);
+            if !shortcuts.is_empty() {
+                rows.push((action, shortcuts.join(", ")));
+            }
+        }
+        rows
     }
 
     fn from_config(config: &Config, surface_only: bool) -> Self {
@@ -14805,6 +14816,22 @@ impl App {
         )
     }
 
+    /// Run one configured user command as a new PTY tab in the target pane.
+    /// The server defaults the working directory to the pane's current
+    /// directory when the command has no configured `cwd`.
+    fn run_user_command(&mut self, index: usize, pane: Option<PaneId>) -> anyhow::Result<()> {
+        let Some(command) = self.config.commands.get(index) else {
+            return Ok(());
+        };
+        let pane = pane.or_else(|| self.active_pane());
+        self.session.run_command(
+            command.run.clone(),
+            pane,
+            command.cwd.clone(),
+            self.terminal_tab_size_hint(pane),
+        )
+    }
+
     fn terminal_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
         match pane {
             Some(pane) => {
@@ -16955,6 +16982,11 @@ impl App {
                 // running server-side (detach).
                 self.quit = true;
                 return Ok(RenderAction::None);
+            }
+            Action::UserCommand(_) => {
+                if let Some(index) = action.user_command_index() {
+                    self.run_user_command(index, pane)?;
+                }
             }
         }
         if !self.status_message_hovered() {
@@ -20395,6 +20427,17 @@ impl App {
         action_available_in_mode(action, self.surface_only.is_some())
     }
 
+    /// The display label for an action: the localized catalog label, or the
+    /// user's configured command name for `Action::UserCommand`.
+    pub(crate) fn action_display_label(&self, action: Action) -> &str {
+        if let Some(index) = action.user_command_index()
+            && let Some(command) = self.config.commands.get(index)
+        {
+            return command.name.as_str();
+        }
+        localization::catalog().action_label(action)
+    }
+
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
         vec![
             MenuAction::ToggleSidebar { visible: self.sidebar_visible },
@@ -22732,6 +22775,43 @@ mod tests {
         assert!(mux.surface(hidden.id).is_some());
         mux.close_surface(attached.id).unwrap();
         mux.close_surface(hidden.id).unwrap();
+    }
+
+    #[test]
+    fn user_command_action_runs_configured_argv_in_a_new_tab() {
+        let (mux, _surface) = test_mux("user-command-run-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.commands = vec![crate::config::UserCommandConfig {
+            id: "sleeper".to_string(),
+            name: "Sleeper".to_string(),
+            run: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
+            cwd: None,
+        }];
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let initial_surfaces = mux.with_state(|state| state.surfaces.len());
+
+        app.run_action_for_pane(Action::user_command(0).unwrap(), Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), initial_surfaces + 1);
+
+        // An index without a configured command is a no-op.
+        app.run_action_for_pane(Action::user_command(1).unwrap(), Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), initial_surfaces + 1);
+
+        // The shortcut modal shows the configured display name.
+        assert_eq!(app.action_display_label(Action::user_command(0).unwrap()), "Sleeper");
+
+        for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]
