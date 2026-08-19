@@ -67,7 +67,9 @@ struct NativeNotificationFallbackCommandTests {
         let didAttemptSchedule = BoolRecorder()
         let commands = CommandInvocationRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(false, .denied)
+            MainActor.assumeIsolated {
+                completion(false, .denied)
+            }
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
             didAttemptSchedule.setTrue()
@@ -98,7 +100,9 @@ struct NativeNotificationFallbackCommandTests {
 
         let commands = CommandInvocationRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(true, .authorized)
+            MainActor.assumeIsolated {
+                completion(true, .authorized)
+            }
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
             completion(NSError(domain: "cmuxTests.NotificationScheduling", code: 1))
@@ -134,7 +138,9 @@ struct NativeNotificationFallbackCommandTests {
         defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
 
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(true, .authorized)
+            MainActor.assumeIsolated {
+                completion(true, .authorized)
+            }
         }
         store.configureNotificationCommandRunnerForTesting { _, _, _ in }
 
