@@ -1,51 +1,42 @@
 {
-  "originHash" : "0f42f23ab0d4dbb93cdc789d197dadc7ae0728db41792e6537706943ee9d37ff",
-  "pins" : [
+  "originHash": "0f42f23ab0d4dbb93cdc789d197dadc7ae0728db41792e6537706943ee9d37ff",
+  "pins": [
     {
-      "identity" : "highlightr",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/raspu/Highlightr.git",
-      "state" : {
-        "revision" : "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef",
-        "version" : "2.3.0"
+      "identity": "highlightr",
+      "kind": "remoteSourceControl",
+      "location": "https://github.com/raspu/Highlightr.git",
+      "state": {
+        "revision": "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef",
+        "version": "2.3.0"
       }
     },
     {
-      "identity" : "iroh-ffi",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/n0-computer/iroh-ffi.git",
-      "state" : {
-        "revision" : "5e451092dba0c1a09ee83ff6e5be37b1152a5c58",
-        "version" : "1.1.0"
+      "identity": "sentry-cocoa",
+      "kind": "remoteSourceControl",
+      "location": "https://github.com/getsentry/sentry-cocoa.git",
+      "state": {
+        "revision": "d82bb1c5eb353a593573a5624bb370f5a1f500ce",
+        "version": "9.24.0"
       }
     },
     {
-      "identity" : "sentry-cocoa",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/getsentry/sentry-cocoa.git",
-      "state" : {
-        "revision" : "d82bb1c5eb353a593573a5624bb370f5a1f500ce",
-        "version" : "9.24.0"
+      "identity": "swift-asn1",
+      "kind": "remoteSourceControl",
+      "location": "https://github.com/apple/swift-asn1.git",
+      "state": {
+        "revision": "a9a5efd40eaf558a2bcd48d64b1d1646be686008",
+        "version": "1.7.1"
       }
     },
     {
-      "identity" : "swift-asn1",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-asn1.git",
-      "state" : {
-        "revision" : "a9a5efd40eaf558a2bcd48d64b1d1646be686008",
-        "version" : "1.7.1"
-      }
-    },
-    {
-      "identity" : "swift-crypto",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-crypto.git",
-      "state" : {
-        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
-        "version" : "3.15.1"
+      "identity": "swift-crypto",
+      "kind": "remoteSourceControl",
+      "location": "https://github.com/apple/swift-crypto.git",
+      "state": {
+        "revision": "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
+        "version": "3.15.1"
       }
     }
   ],
-  "version" : 3
+  "version": 3
 }

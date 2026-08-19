@@ -21,13 +21,33 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CMUXMobileCore"),
-        .package(
-            url: "https://github.com/n0-computer/iroh-ffi.git",
-            exact: "1.1.0"
-        ),
+        .package(path: "../CMUXMobileCore")
     ],
     targets: [
+        // Upstream n0-computer/iroh-ffi v1.1.0 binaries, rewrapped
+        // framework-style by scripts/ensure-iroh-xcframework.sh (run it once
+        // per checkout; setup.sh and the CI lanes do this automatically).
+        .binaryTarget(
+            name: "Iroh",
+            path: "../../../IrohFFI.xcframework"
+        ),
+        // Unmodified generated Swift bindings vendored from the same tag;
+        // see Sources/IrohLib/README.md.
+        .target(
+            name: "IrohLib",
+            dependencies: ["Iroh"],
+            // Upstream builds these generated bindings with swift-tools 5.9
+            // semantics; Swift 6 strict concurrency rejects the generated
+            // uniffi continuation plumbing.
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ],
+            linkerSettings: [
+                .linkedFramework("Network"),
+                .linkedFramework("CoreWLAN", .when(platforms: [.macOS])),
+                .linkedFramework("SystemConfiguration"),
+            ]
+        ),
         .target(
             name: "CmuxPeerTransportCore",
             dependencies: [
@@ -44,7 +64,7 @@ let package = Package(
             dependencies: [
                 "CmuxPeerTransportCore",
                 "CMUXMobileCore",
-                .product(name: "IrohLib", package: "iroh-ffi"),
+                "IrohLib",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -73,7 +93,7 @@ let package = Package(
                 "CmuxPeerTransport",
                 "CmuxPeerTransportCore",
                 "CMUXMobileCore",
-                .product(name: "IrohLib", package: "iroh-ffi"),
+                "IrohLib",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

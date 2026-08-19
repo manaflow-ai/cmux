@@ -269,3 +269,8 @@ fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
 ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
+
+# Root binary artifacts materialize together: every build lane that needs
+# GhosttyKit also needs the rewrapped upstream iroh-ffi xcframework that
+# CmuxPeerTransport's binary target points at.
+"$SCRIPT_DIR/ensure-iroh-xcframework.sh"
