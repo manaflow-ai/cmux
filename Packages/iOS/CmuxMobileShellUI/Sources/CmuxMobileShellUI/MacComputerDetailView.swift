@@ -45,7 +45,10 @@ struct MacComputerDetailView: View {
 
     private var pairedMac: MobilePairedMac? {
         store.displayPairedMacs.first {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            $0.id == MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
@@ -66,16 +69,15 @@ struct MacComputerDetailView: View {
         )
     }
     private var isForeground: Bool {
-        store.connectedMacDeviceID == macDeviceID
-            && normalizedInstanceTag(store.connectedMacInstanceTag)
-                == normalizedInstanceTag(instanceTag)
+        MobilePairedMac.pairingID(
+            macDeviceID: store.connectedMacDeviceID ?? "",
+            instanceTag: store.connectedMacInstanceTag
+        ) == MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 
-    private func normalizedInstanceTag(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else { return nil }
-        return value
-    }
     private var displayTitle: String {
         let baseName = pairedMac?.resolvedName ?? macDeviceID
         return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName

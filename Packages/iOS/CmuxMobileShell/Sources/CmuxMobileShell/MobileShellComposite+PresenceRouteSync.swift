@@ -102,7 +102,10 @@ extension MobileShellComposite {
         }
         pushedRouteSyncScope = scope
         for instance in hostInstances {
-            let key = "\(cmxCanonicalDeviceID(instance.deviceId))\u{0}\(instance.tag)"
+            let key = CmxMacAppInstanceIdentity(
+                macDeviceID: instance.deviceId,
+                instanceTag: instance.tag
+            ).id
             pushedRouteSyncPendingInstances[key] = instance
         }
         if let pushedRouteSyncTask {

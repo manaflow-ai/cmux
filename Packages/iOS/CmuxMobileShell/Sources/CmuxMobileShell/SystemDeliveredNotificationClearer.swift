@@ -103,11 +103,16 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
     ) -> Bool {
         guard let macDeviceID = normalized(macDeviceID) else { return true }
         guard let cmux = request.content.userInfo["cmux"] as? [String: Any],
-              let deliveredDeviceID = normalized(cmux["macDeviceId"] as? String),
-              cmxCanonicalDeviceID(deliveredDeviceID) == cmxCanonicalDeviceID(macDeviceID) else {
+              let deliveredDeviceID = normalized(cmux["macDeviceId"] as? String) else {
             return false
         }
-        return normalized(cmux["macInstanceTag"] as? String) == normalized(instanceTag)
+        return CmxMacAppInstanceIdentity(
+            macDeviceID: deliveredDeviceID,
+            instanceTag: cmux["macInstanceTag"] as? String
+        ).id == CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
     }
 
     private static func normalized(_ value: String?) -> String? {

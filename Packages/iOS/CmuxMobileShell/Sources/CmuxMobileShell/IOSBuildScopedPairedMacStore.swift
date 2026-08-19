@@ -574,7 +574,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         instanceTag: String?
     ) -> Bool {
-        mac.macDeviceID == macDeviceID && mac.instanceTag == instanceTag
+        MacPairingKey(mac) == MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 
     /// A legacy nil-tag row and a tagged row are the same app instance only

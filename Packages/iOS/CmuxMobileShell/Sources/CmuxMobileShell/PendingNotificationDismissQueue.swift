@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// One durable phone-to-Mac dismissal, scoped to its exact Mac app instance.
@@ -8,8 +9,17 @@ public struct PendingNotificationDismiss: Hashable, Sendable {
 
     public init(id: String, macDeviceID: String?, instanceTag: String?) {
         self.id = id
-        self.macDeviceID = macDeviceID
-        self.instanceTag = instanceTag
+        guard let macDeviceID else {
+            self.macDeviceID = nil
+            self.instanceTag = nil
+            return
+        }
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.instanceTag = identity.instanceTag
     }
 }
 

@@ -541,7 +541,10 @@ extension MobileShellComposite {
     public func hideMac(macDeviceID: String, instanceTag: String?) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let targets = pairedMacsForIdentityMatching.filter {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)
@@ -682,7 +685,10 @@ extension MobileShellComposite {
     public func hideStoredMac(macDeviceID: String, instanceTag: String?) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let targets = pairedMacsForIdentityMatching.filter {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)

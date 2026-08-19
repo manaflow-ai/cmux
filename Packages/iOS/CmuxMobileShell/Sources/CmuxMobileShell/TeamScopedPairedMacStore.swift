@@ -380,7 +380,8 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     ) async throws -> MobilePairedMac? {
         let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
             .filter {
-                $0.macDeviceID == macDeviceID
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
                     && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
             }
         guard requiresExactInstanceTag || matches.count == 1 else { return nil }

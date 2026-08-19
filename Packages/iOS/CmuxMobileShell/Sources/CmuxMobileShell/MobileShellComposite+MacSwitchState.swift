@@ -51,11 +51,10 @@ extension MobileShellComposite {
             seenIDs.insert(MacPairingKey(mac)).inserted
         }
         if let direct = candidates.first(where: {
-            $0.macDeviceID == previousForegroundMacDeviceID
-                && macInstanceTagAuthority.sameStoredAuthority(
-                    $0.instanceTag,
-                    previousForegroundInstanceTag
-                )
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: previousForegroundMacDeviceID,
+                instanceTag: previousForegroundInstanceTag
+            )
         }) {
             return direct
         }
@@ -66,11 +65,15 @@ extension MobileShellComposite {
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
         return candidates.first { candidate in
-            guard candidate.macDeviceID != macDeviceID,
-                  macInstanceTagAuthority.sameStoredAuthority(
-                      candidate.instanceTag,
-                      previousForegroundInstanceTag
-                  ) else { return false }
+            guard MacPairingKey(candidate) != MacPairingKey(
+                      macDeviceID: macDeviceID,
+                      instanceTag: switchingToInstanceTag
+                  ),
+                  MacPairingKey(candidate).normalizedInstanceTag
+                      == MacPairingKey(
+                          macDeviceID: previousForegroundMacDeviceID,
+                          instanceTag: previousForegroundInstanceTag
+                      ).normalizedInstanceTag else { return false }
             return aliasSetsByMacID[candidate.id]?.contains(previousForegroundMacDeviceID) == true
         }
     }

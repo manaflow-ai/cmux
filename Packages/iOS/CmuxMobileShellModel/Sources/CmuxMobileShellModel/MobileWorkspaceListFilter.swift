@@ -22,7 +22,7 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
     /// Create a workspace list filter from read-state and machine dimensions.
     public init(readState: MobileWorkspaceReadStateFilter = .all, machines: Set<String> = []) {
         self.readState = readState
-        self.machines = machines
+        self.machines = Self.normalizedMachineIDs(machines)
     }
 
     /// The identity filter: show every workspace.
@@ -62,8 +62,6 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
     }
 
     /// The pairing-id separator shared with `MobilePairedMac.pairingID`.
-    private static let pairingSeparator: Character = "\u{1F}"
-
     public static func machineEntryMatches(
         _ entry: String,
         deviceID: String,
@@ -83,21 +81,23 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         public let instanceTag: String?
 
         public init(_ entry: String) {
-            let parts = entry.split(
-                separator: pairingSeparator, maxSplits: 1, omittingEmptySubsequences: false
-            )
-            self.deviceID = parts.first.map(String.init) ?? entry
-            self.instanceTag = parts.count == 2 ? String(parts[1]) : nil
+            let identity = CmxMacAppInstanceIdentity(id: entry)
+            self.deviceID = identity.macDeviceID
+            self.instanceTag = identity.instanceTag
         }
 
         public func matches(deviceID rowDeviceID: String, rowTag: String?) -> Bool {
-            guard deviceID == rowDeviceID else { return false }
-            guard let instanceTag else { return rowTag == nil || rowTag?.isEmpty == true }
+            let rowIdentity = CmxMacAppInstanceIdentity(
+                macDeviceID: rowDeviceID,
+                instanceTag: rowTag
+            )
+            guard deviceID == rowIdentity.macDeviceID else { return false }
+            guard let instanceTag else { return rowIdentity.instanceTag == nil }
             // An exact pairing entry matches only rows proven to be that
             // build. Unknown-tag rows stay visible under device entries and
             // All Computers, never inside a sibling build's scope where
             // acting on them could route to the wrong build.
-            guard let rowTag, !rowTag.isEmpty else { return false }
+            guard let rowTag = rowIdentity.instanceTag else { return false }
             return instanceTag == rowTag
         }
     }
@@ -115,10 +115,11 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
 
     /// Add or remove a machine from the filter set.
     public mutating func toggleMachine(_ macDeviceID: String) {
-        if machines.contains(macDeviceID) {
-            machines.remove(macDeviceID)
+        let identityID = CmxMacAppInstanceIdentity(id: macDeviceID).id
+        if machines.contains(identityID) {
+            machines.remove(identityID)
         } else {
-            machines.insert(macDeviceID)
+            machines.insert(identityID)
         }
     }
 
@@ -143,12 +144,10 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
     }
 
     private static func pairingID(macDeviceID: String, instanceTag: String?) -> String {
-        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        guard let instanceTag,
-              !instanceTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return canonicalDeviceID
-        }
-        return "\(canonicalDeviceID)\(pairingSeparator)\(instanceTag)"
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
     }
 
     /// Drop any selected machines that are no longer present in the list, so a
@@ -156,10 +155,15 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
     /// hide everything. Returns whether the filter changed.
     @discardableResult
     public mutating func pruneMachines(notIn present: [String]) -> Bool {
-        let presentSet = Set(present)
+        let presentSet = Self.normalizedMachineIDs(present)
         let kept = machines.intersection(presentSet)
         guard kept != machines else { return false }
         machines = kept
         return true
+    }
+
+    private static func normalizedMachineIDs<S: Sequence>(_ entries: S) -> Set<String>
+    where S.Element == String {
+        Set(entries.map { CmxMacAppInstanceIdentity(id: $0).id })
     }
 }

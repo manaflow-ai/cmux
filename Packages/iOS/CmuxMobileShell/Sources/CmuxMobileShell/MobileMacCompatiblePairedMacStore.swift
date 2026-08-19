@@ -122,7 +122,10 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?
     ) async throws {
         let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .filter { $0.macDeviceID == macDeviceID }
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
         guard matches.count == 1, let target = matches.first else { return }
         try await setActive(
             macDeviceID: macDeviceID,
@@ -161,7 +164,10 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         now: Date
     ) async throws {
         let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .filter { $0.macDeviceID == macDeviceID }
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
         guard matches.count == 1, let target = matches.first else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
@@ -204,7 +210,10 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?
     ) async throws {
         let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .filter { $0.macDeviceID == macDeviceID }
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
         guard matches.count == 1, let target = matches.first else { return }
         try await remove(
             macDeviceID: macDeviceID,

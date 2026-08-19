@@ -435,6 +435,22 @@ import Testing
         ])
     }
 
+    @Test func foregroundOrderUsesCanonicalPairingIdentity() {
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: " nightly ",
+            displayName: "Alpha",
+            status: .connected
+        )
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: [state.id: state],
+            foregroundMacDeviceID: "mac-a\u{1F} nightly "
+        )
+
+        #expect(ordered == ["mac-a\u{1F}nightly"])
+        #expect(state.id == "mac-a\u{1F}nightly")
+    }
+
     @Test func lastOpenedOrdersUnprioritizedMacsByRecencyThenName() {
         let states = [
             "mac-a": state("mac-a", name: "Alpha", ["a1"]),

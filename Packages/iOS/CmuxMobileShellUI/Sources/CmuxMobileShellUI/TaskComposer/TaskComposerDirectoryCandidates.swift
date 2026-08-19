@@ -40,10 +40,23 @@ struct TaskComposerDirectoryCandidates {
             )
         }
 
-        let includeUnscoped = selectedMacDeviceID == store.connectedMacDeviceID
-            && store.connectedMacInstanceTag == selectedMacInstanceTag
-        for workspace in store.workspaces where workspace.macDeviceID == selectedMacDeviceID
-            && (workspace.macInstanceTag ?? "") == (selectedMacInstanceTag ?? "")
+        let includeUnscoped = !selectedMacDeviceID.isEmpty
+            && store.connectedMacDeviceID != nil
+            && MobilePairedMac.pairingID(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+            ) == MobilePairedMac.pairingID(
+                macDeviceID: store.connectedMacDeviceID ?? "",
+                instanceTag: store.connectedMacInstanceTag
+            )
+        for workspace in store.workspaces where
+            (workspace.macDeviceID.map {
+                MobileWorkspaceListFilter.machineEntryMatches(
+                    selectedPairingID,
+                    deviceID: $0,
+                    rowTag: workspace.macInstanceTag
+                )
+            } ?? false)
             || (workspace.macDeviceID == nil && includeUnscoped) {
             let isActiveWorkspace = workspace.id == store.selectedWorkspaceID
             append(

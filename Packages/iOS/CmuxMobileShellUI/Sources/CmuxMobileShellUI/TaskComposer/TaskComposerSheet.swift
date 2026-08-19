@@ -134,15 +134,19 @@ struct TaskComposerSheet: View {
         // sibling that happens to sort first.
         let draftMac = draft?.macDeviceID.flatMap { draftMacDeviceID in
             availablePairedMacs.first {
-                $0.macDeviceID == draftMacDeviceID
-                    && ($0.instanceTag ?? "") == (draft?.macInstanceTag ?? "")
+                $0.id == MobilePairedMac.pairingID(
+                    macDeviceID: draftMacDeviceID,
+                    instanceTag: draft?.macInstanceTag
+                )
             }
         }
         // The authenticated foreground identity outranks a possibly stale
         // persisted active flag.
         let foregroundMac = availablePairedMacs.first {
-            $0.macDeviceID == foregroundMacID
-                && ($0.instanceTag ?? "") == (foregroundMacInstanceTag ?? "")
+            $0.id == MobilePairedMac.pairingID(
+                macDeviceID: foregroundMacID ?? "",
+                instanceTag: foregroundMacInstanceTag
+            )
         }
         let selectedMac = draftMac
             ?? restoredMac
@@ -158,9 +162,15 @@ struct TaskComposerSheet: View {
                 ? foregroundMacInstanceTag
                 : nil
         }
-        let draftMatchesSelectedMac = draft?.macDeviceID
-            == (selectedMacID.isEmpty ? nil : selectedMacID)
-            && (draft?.macInstanceTag ?? "") == (selectedMacInstanceTag ?? "")
+        let draftMatchesSelectedMac = draft == nil || draft.map {
+            MobilePairedMac.pairingID(
+                macDeviceID: $0.macDeviceID ?? "",
+                instanceTag: $0.macInstanceTag
+            ) == MobilePairedMac.pairingID(
+                macDeviceID: selectedMacID,
+                instanceTag: selectedMacInstanceTag
+            )
+        } == true
         // Keep a restored group ID until the live inventory proves whether it
         // still exists. The workspace/group projection is populated after the
         // sheet can be initialized, so an empty snapshot here means
@@ -589,8 +599,7 @@ struct TaskComposerSheet: View {
 
     var selectedMachine: MobilePairedMac? {
         machines.first {
-            $0.macDeviceID == selectedMacDeviceID
-                && $0.instanceTag == selectedMacInstanceTag
+            $0.id == selectedMacPairingID
         }
     }
 
@@ -757,7 +766,10 @@ struct TaskComposerSheet: View {
     private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {
         guard !submissionPhase.disablesRequestEditing,
               machines.contains(where: {
-                  $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+                  $0.id == MobilePairedMac.pairingID(
+                      macDeviceID: macDeviceID,
+                      instanceTag: instanceTag
+                  )
               }) else { return }
         store.recordAppEvent(
             .taskMachineSelected,

@@ -168,4 +168,21 @@ import Testing
         #expect(Set(derived.compactMap(\.macInstanceTag)) == ["nightly", "default"])
         #expect(Set(derived.compactMap(\.machineColorIndex)) == [0, 1])
     }
+
+    @Test func identitySpellingNormalizesBuildTagsAcrossFiltersAndRows() {
+        var row = MobileWorkspacePreview(
+            id: "nightly",
+            macDeviceID: "mac-a",
+            name: "ws",
+            terminals: []
+        )
+        row.macInstanceTag = " nightly "
+        let filter = MobileWorkspaceListFilter(machines: ["mac-a\u{1F} nightly "])
+
+        #expect(filter.matches(row))
+        #expect(filter.machines == ["mac-a\u{1F}nightly"])
+        #expect(MobileWorkspaceListFilter.machineIDs(in: [row]) == [
+            "mac-a\u{1F}nightly",
+        ])
+    }
 }

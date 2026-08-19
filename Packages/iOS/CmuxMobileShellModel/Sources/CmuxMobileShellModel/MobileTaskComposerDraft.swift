@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// The restorable, unsent state of the mobile task composer.
@@ -42,11 +43,20 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         operationID: UUID? = nil,
         completedOperationID: UUID? = nil
     ) {
+        let identity: CmxMacAppInstanceIdentity?
+        if let macDeviceID {
+            identity = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: macInstanceTag
+            )
+        } else {
+            identity = nil
+        }
         self.prompt = prompt
         self.modelID = modelID
         self.templateID = templateID
-        self.macDeviceID = macDeviceID
-        self.macInstanceTag = macInstanceTag
+        self.macDeviceID = identity?.macDeviceID
+        self.macInstanceTag = identity?.instanceTag
         self.directory = directory
         self.didEditDirectory = didEditDirectory
         self.workspaceName = workspaceName

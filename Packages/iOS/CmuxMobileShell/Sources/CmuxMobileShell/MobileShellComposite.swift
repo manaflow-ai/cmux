@@ -3140,11 +3140,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return storedPairedMacsByCanonicalDeviceID[
             cmxCanonicalDeviceID(macDeviceID)
         ]?.first {
-            $0.macDeviceID == macDeviceID
-                && macInstanceTagAuthority.sameStoredAuthority(
-                    $0.instanceTag,
-                    instanceTag
-                )
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
     }
 
@@ -3764,11 +3763,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let matchesTarget: (MobilePairedMac) -> Bool = { mac in
-            mac.macDeviceID == macDeviceID
-                && self.macInstanceTagAuthority.sameStoredAuthority(
-                    mac.instanceTag,
-                    instanceTag
-                )
+            MacPairingKey(mac) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         let targetMatches = storeMacs.filter(matchesTarget)
         // A device-only request against MULTIPLE stored sibling builds is
@@ -3862,11 +3860,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         var switched = connectionState == .connected
             && remoteClient != nil
-            && foregroundMacDeviceID == macDeviceID
-            && macInstanceTagAuthority.sameStoredAuthority(
-                refreshedTarget.instanceTag,
-                activeMacInstanceTag
-            )
+            && MacPairingKey(
+                macDeviceID: foregroundMacDeviceID ?? "",
+                instanceTag: activeMacInstanceTag
+            ) == MacPairingKey(refreshedTarget)
         if !switched, let scope {
             refreshOutcome = await freshReconnectRoutesAfterLocalFailure(
                 for: refreshedTarget,
@@ -3892,11 +3889,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             switched = connectionState == .connected
                 && remoteClient != nil
-                && foregroundMacDeviceID == macDeviceID
-                && macInstanceTagAuthority.sameStoredAuthority(
-                    refreshedTarget.instanceTag,
-                    activeMacInstanceTag
-                )
+                && MacPairingKey(
+                    macDeviceID: foregroundMacDeviceID ?? "",
+                    instanceTag: activeMacInstanceTag
+                ) == MacPairingKey(refreshedTarget)
         }
         // The switch succeeded only if the live foreground identity is THIS Mac.
         // `connect(..., pairedMacDeviceID:)` stamps the foreground state with the

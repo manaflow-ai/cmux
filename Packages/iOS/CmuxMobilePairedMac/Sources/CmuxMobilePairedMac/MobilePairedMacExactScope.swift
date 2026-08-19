@@ -16,9 +16,12 @@ public struct MobilePairedMacExactScope: Sendable, Equatable, Hashable {
         stackUserID: String?,
         teamID: String?
     ) {
-        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let normalizedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.instanceTag = normalizedTag?.isEmpty == false ? normalizedTag : nil
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.instanceTag = identity.instanceTag
         self.stackUserID = stackUserID
         self.teamID = teamID
     }

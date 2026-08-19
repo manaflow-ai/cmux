@@ -313,10 +313,12 @@ extension MobileShellComposite {
             )))
         }
         guard let pinnedContext = captureWorkspaceCreateContext(),
-              pinnedContext.macDeviceID == macDeviceID,
-              macInstanceTagAuthority.sameStoredAuthority(
-                  pinnedContext.instanceTag,
-                  instanceTag
+              MacPairingKey(
+                  macDeviceID: pinnedContext.macDeviceID ?? "",
+                  instanceTag: pinnedContext.instanceTag
+              ) == MacPairingKey(
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
               ) else {
             return finish(.failure(.notConnected(
                 hostDisplayName: taskComposerTargetName(
@@ -345,12 +347,16 @@ extension MobileShellComposite {
 
     func taskComposerTargetName(macDeviceID: String, instanceTag: String?) -> String {
         displayPairedMacs.first {
-            $0.macDeviceID == macDeviceID
-                && macInstanceTagAuthority.sameStoredAuthority($0.instanceTag, instanceTag)
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }?.resolvedName
             ?? pairedMacs.first {
-                $0.macDeviceID == macDeviceID
-                    && macInstanceTagAuthority.sameStoredAuthority($0.instanceTag, instanceTag)
+                MacPairingKey($0) == MacPairingKey(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
             }?.resolvedName
             ?? macDeviceID
     }
@@ -358,10 +364,13 @@ extension MobileShellComposite {
     /// Whether the foreground connection already targets this exact Mac pairing.
     /// A missing tag matches only another untagged legacy pairing.
     func matchesForegroundPairing(macDeviceID: String, instanceTag: String?) -> Bool {
-        foregroundMacDeviceID == macDeviceID
-            && macInstanceTagAuthority.sameStoredAuthority(
-                instanceTag,
-                activeMacInstanceTag
-            )
+        guard let foregroundMacDeviceID else { return false }
+        return MacPairingKey(
+            macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag
+        ) == MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 }

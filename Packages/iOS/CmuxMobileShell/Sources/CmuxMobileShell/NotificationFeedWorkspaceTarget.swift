@@ -11,18 +11,21 @@ struct NotificationFeedWorkspaceTarget: Sendable {
         instanceTag: String?
     ) {
         rowIDs.insert(rowID)
-        if let instanceTag, !instanceTag.isEmpty {
-            exactRowIDsByInstanceTag[instanceTag, default: []].insert(rowID)
-        }
         let owner = MacPairingKey(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
+        if let instanceTag = owner.normalizedInstanceTag {
+            exactRowIDsByInstanceTag[instanceTag, default: []].insert(rowID)
+        }
         owners.insert(owner)
     }
 
     func rowID(instanceTag: String?) -> MobileWorkspacePreview.ID? {
-        if let instanceTag, !instanceTag.isEmpty {
+        if let instanceTag = MacPairingKey(
+            macDeviceID: "",
+            instanceTag: instanceTag
+        ).normalizedInstanceTag {
             guard let exactRowIDs = exactRowIDsByInstanceTag[instanceTag],
                   exactRowIDs.count == 1 else { return nil }
             return exactRowIDs.first
