@@ -387,6 +387,19 @@ export async function upsertAccountMetadata(input: {
     });
 }
 
+/**
+ * Counts every provider account the team has connected, in any state.
+ * Broken and cooling-down accounts still occupy a slot: the team controls
+ * them and can remove them; only removal frees the slot.
+ */
+export async function countAccountsForTeam(teamId: string): Promise<number> {
+  const [row] = await cloudDb()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(coderouterAccounts)
+    .where(eq(coderouterAccounts.teamId, teamId));
+  return Number(row?.count ?? 0);
+}
+
 export async function findAccountByProviderIdentity(
   teamId: string,
   provider: CodeRouterProvider,
