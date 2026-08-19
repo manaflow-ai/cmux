@@ -220,6 +220,44 @@ struct SSHPTYAttachReconnectBackoffTests {
         #expect(Self.delays(in: try Self.events(in: logURL)) == [cap])
     }
 
+    /// The reconnect limit is free-form text too, and an oversized one used to
+    /// make both budget comparisons fail instead of answering.
+    @Test func anAbsurdReconnectLimitDoesNotBreakTheBudgetChecks() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("events.log")
+        let counterURL = directory.appendingPathComponent("attempts")
+
+        let script = Self.script(
+            stubs: [
+                "date() { printf '%s\\n' 1000; }",
+                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_test_attach() {",
+                "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+                "  count=$((count + 1))",
+                "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+                "  if [ \"$count\" -ge 3 ]; then return 7; fi",
+                "  return 254",
+                "}",
+            ]
+        )
+
+        let result = try Self.run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_TEST_COUNTER": counterURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "999999999999999999999",
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
+            ]
+        )
+
+        #expect(result.status == 7, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        #expect(Self.delays(in: try Self.events(in: logURL)) == ["2", "4"])
+    }
+
     // MARK: - The generated loop collapses its status output
 
     @Test func repeatedFailuresRewriteOneStatusLineInsteadOfAppendingMore() throws {

@@ -6,6 +6,14 @@ internal import Foundation
 /// so retry limits, backoff, authentication phases, and exit-status handling
 /// cannot drift between entrypoints.
 public struct SSHPTYAttachRetryScriptBuilder: Sendable {
+    /// The largest reconnect limit the generated loop compares against.
+    ///
+    /// `CMUX_SSH_RECONNECT_LIMIT` is free-form text, and a value too large for
+    /// shell arithmetic makes both `-lt` and `-ge` fail with `integer expression
+    /// expected` instead of answering, so the limit is capped at a count no
+    /// outage reaches before the host comes back.
+    private static let maximumConfigurableRetryLimit = 1_000_000
+
     private let backoff: SSHPTYAttachReconnectBackoffPolicy
 
     /// Creates a persistent SSH PTY retry script builder.
@@ -55,7 +63,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let hardMaximumDelay = SSHPTYAttachReconnectBackoffPolicy.maximumConfigurableDelaySeconds
         var lines = [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; ???????*) cmux_ssh_attach_reconnect_limit=\(Self.maximumConfigurableRetryLimit); cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-\(backoff.initialDelaySeconds)}\"",
             // A configured delay is free-form text. Reject non-numbers, then clamp
             // before any arithmetic: a six-digit or longer value already exceeds
