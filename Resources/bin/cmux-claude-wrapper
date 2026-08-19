@@ -169,7 +169,16 @@ cmux_claude_wrapper_hook_reentry_state_dir_is_ours() {
 cmux_claude_wrapper_hook_reentry_state_file_is_ours() {
     [[ ! -L "$1" ]] || return 1
     [[ -e "$1" ]] || return 0
-    [[ -f "$1" && -O "$1" ]]
+    [[ -f "$1" && -O "$1" ]] || return 1
+    # Present and ours by mode, but only cmux's to overwrite or remove if cmux
+    # stamped it: another process of this user can create this name too.
+    cmux_claude_wrapper_hook_reentry_state_file_is_tagged "$1"
+}
+
+cmux_claude_wrapper_hook_reentry_state_file_is_tagged() {
+    local line
+    IFS= read -r line < "$1" 2>/dev/null || return 1
+    [[ "$line" == "$cmux_claude_hook_state_tag "* ]]
 }
 
 cmux_claude_wrapper_read_hook_reentry_state() {
@@ -219,10 +228,9 @@ cmux_claude_wrapper_prune_hook_reentry_state() {
     # Candidates are yesterday's all-digit names -- what this wrapper writes
     # ($$) -- and each one is removed only if it carries the state tag, so a file
     # another process of this user left here is never swept.
-    local entry line
+    local entry
     while IFS= read -r -d '' entry; do
-        IFS= read -r line < "$entry" 2>/dev/null || continue
-        [[ "$line" == "$cmux_claude_hook_state_tag "* ]] || continue
+        cmux_claude_wrapper_hook_reentry_state_file_is_tagged "$entry" || continue
         rm -f "$entry" 2>/dev/null || true
     done < <(find "$dir" -maxdepth 1 -type f -name '[0-9]*' ! -name '*[!0-9]*' -mtime +1 -print0 2>/dev/null)
 }

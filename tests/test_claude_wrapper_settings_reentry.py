@@ -14,9 +14,8 @@ import json
 import os
 import re
 import shutil
-import stat
-import time
 import socket
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -105,6 +104,7 @@ class ReentryRun:
         passes: list[list[str]],
         real_argv: list[str],
         state_entries: list[tuple[str, str]],
+        state_contents: list[tuple[str, str]],
     ) -> None:
         self.returncode = returncode
         self.stderr = stderr
@@ -113,6 +113,8 @@ class ReentryRun:
         # (name, kind) of what is left in the wrapper's state directory, sampled
         # before the fixture's temporary tree goes away.
         self.state_entries = state_entries
+        # (name, contents) for the regular files among them.
+        self.state_contents = state_contents
 
 
 def run_reentry(
@@ -123,7 +125,7 @@ def run_reentry(
     scrub_state_file: bool = False,
     reserialize_settings: bool = False,
     hostile_state_dir: Path | None = None,
-    occupy_state_path: bool = False,
+    occupy_state_path: str = "",
     seed_state_dir: int = 0,
     timeout: float = 30.0,
 ) -> ReentryRun:
@@ -142,11 +144,12 @@ def run_reentry(
     hooks object behind any large user-owned key that sorts before it.
     `hostile_state_dir` plants a symlink where the re-entry state directory
     belongs, pointing at that directory, the way a squatter in a shared /tmp
-    would. `occupy_state_path` puts a fifo where the state file belongs, inside
-    the wrapper's own verified directory, so the paths that write, read and
-    delete it meet something that is not a regular file. `seed_state_dir` fills
-    that directory with that many day-old pid-shaped entries plus one day-old
-    file nobody named after a pid, to exercise the sweep.
+    would. `occupy_state_path` puts a fifo ("fifo") or an untagged regular file
+    ("file") where the state file belongs, inside the wrapper's own verified
+    directory, so the paths that write, read and delete it meet something cmux
+    did not stamp. `seed_state_dir` fills that directory with that many day-old
+    tagged entries plus two day-old files cmux did not write -- one named after
+    a pid, one not -- to exercise the sweep.
     """
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-") as td:
@@ -187,7 +190,7 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
         # `execvp` do in a user launcher, which is what finds cmux's shim.
         break_after_literal = "None" if break_after is None else str(break_after)
         victim_literal = "None" if hostile_state_dir is None else repr(str(hostile_state_dir))
-        occupy_literal = "True" if occupy_state_path else "False"
+        occupy_literal = repr(occupy_state_path)
         scrub_literal = "True" if scrub_env_marker else "False"
         scrub_state_literal = "True" if scrub_state_file else "False"
         reserialize_literal = "True" if reserialize_settings else "False"
@@ -215,10 +218,17 @@ if occupy_state_path:
     state_dir = os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-claude-hook-reentry-%d" % os.getuid())
     os.makedirs(state_dir, mode=0o700, exist_ok=True)
     state_path = os.path.join(state_dir, str(os.getpid()))
-    if not os.path.exists(state_path) or not stat.S_ISFIFO(os.stat(state_path).st_mode):
-        if os.path.exists(state_path):
-            os.unlink(state_path)
-        os.mkfifo(state_path)
+    if occupy_state_path == "fifo":
+        occupied = os.path.exists(state_path) and stat.S_ISFIFO(os.stat(state_path).st_mode)
+        if not occupied:
+            if os.path.lexists(state_path):
+                os.unlink(state_path)
+            os.mkfifo(state_path)
+    else:
+        occupied = os.path.isfile(state_path) and open(state_path).read() == "not cmux state"
+        if not occupied:
+            with open(state_path, "w") as handle:
+                handle.write("not cmux state")
 if scrub_env_marker:
     for key in ("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", "cmux_claude_wrapper_reexec_guard", "cmux_claude_wrapper_reexec_targets"):
         os.environ.pop(key, None)
@@ -256,7 +266,10 @@ exec {launcher_dir / "claude-launcher"} claude "$@"
         if seed_state_dir:
             state_dir = wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}"
             state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            stale = time.time() - 2 * 24 * 3600
+            # A fixed historical timestamp: the sweep only cares that the entry
+            # is older than a day, and a fixed value keeps the fixture off the
+            # wall clock.
+            stale = 1600000000.0
             for index in range(seed_state_dir):
                 entry = state_dir / str(900000 + index)
                 entry.write_text(f"{CMUX_STATE_TAG} 1\n", encoding="utf-8")
@@ -311,6 +324,7 @@ exec {launcher_dir / "claude-launcher"} claude "$@"
         real_argv = json.loads(real_argv_log.read_text(encoding="utf-8")) if real_argv_log.exists() else []
         state_dir = wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}"
         state_entries: list[tuple[str, str]] = []
+        state_contents: list[tuple[str, str]] = []
         if state_dir.is_dir():
             for entry in sorted(state_dir.iterdir()):
                 mode = entry.lstat().st_mode
@@ -323,7 +337,9 @@ exec {launcher_dir / "claude-launcher"} claude "$@"
                 else:
                     kind = "file"
                 state_entries.append((entry.name, kind))
-        return ReentryRun(returncode, stderr, passes, real_argv, state_entries)
+                if kind == "file":
+                    state_contents.append((entry.name, entry.read_text(encoding="utf-8", errors="replace")))
+        return ReentryRun(returncode, stderr, passes, real_argv, state_entries, state_contents)
 
 
 def test_reentry_does_not_duplicate_injected_hooks(failures: list[str]) -> None:
@@ -571,7 +587,7 @@ def test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures: list[
     wrapper has to leave it alone and still stop the loop on the env-side count.
     """
 
-    run = run_reentry(argv=[], break_after=None, occupy_state_path=True, timeout=30.0)
+    run = run_reentry(argv=[], break_after=None, occupy_state_path="fifo", timeout=30.0)
 
     if run.returncode == -1:
         failures.append(f"a fifo at the state path stalled or unbounded the launch: {run.stderr!r}")
@@ -583,6 +599,30 @@ def test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures: list[
     kinds = [kind for _, kind in run.state_entries]
     if kinds != ["fifo"]:
         failures.append(f"wrapper did not leave the fifo at its state path alone: {run.state_entries!r}")
+
+
+def test_untagged_file_at_the_state_path_is_left_alone(failures: list[str]) -> None:
+    """A regular file cmux did not stamp is neither overwritten nor deleted.
+
+    The mode checks pass here -- it is a regular file owned by this user, at the
+    pid-scoped path cmux composes -- so only the tag tells the two apart. The
+    launcher writes it on every pass; if the wrapper overwrote it, the content
+    would come back as cmux state, and if it deleted it at the guard, it would
+    be gone.
+    """
+
+    run = run_reentry(argv=[], break_after=None, occupy_state_path="file", timeout=30.0)
+
+    if run.returncode == -1:
+        failures.append(f"an untagged file at the state path unbounded the launch: {run.stderr!r}")
+        return
+    if run.returncode == 0:
+        failures.append(f"expected a non-zero exit from the re-entry guard, got 0: {run.stderr!r}")
+    if [name for name, _ in run.state_entries] == []:
+        failures.append("wrapper deleted the untagged file at its state path")
+    for name, contents in run.state_contents:
+        if contents != "not cmux state":
+            failures.append(f"wrapper overwrote the untagged file at its state path: {name} -> {contents!r}")
 
 
 def test_state_directory_sweep_only_removes_its_own_entries(failures: list[str]) -> None:
@@ -699,6 +739,7 @@ def main() -> int:
     test_unbounded_reentry_loop_is_stopped(failures)
     test_env_scrubbed_reentry_loop_is_stopped(failures)
     test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures)
+    test_untagged_file_at_the_state_path_is_left_alone(failures)
     test_state_directory_sweep_only_removes_its_own_entries(failures)
     test_hostile_state_directory_is_not_written_through(failures)
     test_hostile_state_directory_survives_the_guard_trip(failures)
