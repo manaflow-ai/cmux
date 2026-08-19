@@ -1341,6 +1341,9 @@ impl ActionIndex {
 /// limit are rejected at config load with a visible warning.
 pub const MAX_USER_COMMANDS: usize = 32;
 
+/// The maximum number of chords one command may bind.
+pub const MAX_USER_COMMAND_CHORDS: usize = 8;
+
 /// A validated zero-based index into the configured `commands` list. Its
 /// private field prevents unregistered command actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2814,6 +2817,9 @@ impl StatusBarOptions {
 /// The maximum number of configured segments per status bar side.
 pub const MAX_STATUS_SEGMENTS: usize = 8;
 
+/// The maximum length of one literal status segment, in characters.
+pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
+
 /// One status bar segment: literal text with `{variable}` interpolation, or
 /// a command whose last stdout line becomes the segment text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2845,18 +2851,17 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
                 );
                 continue;
             }
-            (Some(text), None) => StatusSegmentContent::Text(text),
+            (Some(text), None) => {
+                // Bound per-draw expansion work on the render path.
+                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+            }
             (None, Some(run)) => {
-                let argv: Vec<String> =
-                    run.into_iter().filter(|argument| !argument.is_empty()).collect();
-                if argv.is_empty() {
-                    eprintln!(
-                        "cmux-tui: ignoring status_bar.{side} segment with an empty run argv"
-                    );
+                if run.first().is_none_or(|program| program.is_empty()) {
+                    eprintln!("cmux-tui: ignoring status_bar.{side} segment without a run program");
                     continue;
                 }
                 let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
-                StatusSegmentContent::Command { argv, interval: Duration::from_secs(interval) }
+                StatusSegmentContent::Command { argv: run, interval: Duration::from_secs(interval) }
             }
         };
         segments.push(StatusSegment {
@@ -3371,18 +3376,15 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
             eprintln!("cmux-tui: ignoring command with a missing or empty id");
             continue;
         }
-        if !ids.insert(id.clone()) {
+        if ids.contains(&id) {
             eprintln!("cmux-tui: ignoring command with duplicate id {id:?}");
             continue;
         }
-        let run: Vec<String> = command
-            .run
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|argument| !argument.is_empty())
-            .collect();
-        if run.is_empty() {
-            eprintln!("cmux-tui: ignoring command {id:?} with an empty run argv");
+        // Empty positional arguments stay: argv executes directly, and an
+        // empty argument is valid there. Only the program itself must exist.
+        let run = command.run.unwrap_or_default();
+        if run.first().is_none_or(|program| program.is_empty()) {
+            eprintln!("cmux-tui: ignoring command {id:?} without a run program");
             continue;
         }
         let Some(action) = Action::user_command(commands.len()) else {
@@ -3391,10 +3393,20 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
             );
             continue;
         };
+        // The id is reserved only after validation, so an ignored invalid
+        // entry never blocks a later valid entry with the same id.
+        ids.insert(id.clone());
         if let Some(value) = command.keys.as_ref() {
+            let mut bound = 0usize;
             for raw_chord in key_values(value) {
                 if raw_chord.eq_ignore_ascii_case("none") {
                     continue;
+                }
+                if bound >= MAX_USER_COMMAND_CHORDS {
+                    eprintln!(
+                        "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
+                    );
+                    break;
                 }
                 let Some(chord) = parse_chord(raw_chord) else {
                     eprintln!(
@@ -3403,6 +3415,7 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
                     continue;
                 };
                 keys.bind_user_command_chord(&id, action, chord);
+                bound += 1;
             }
         }
         let name = command
@@ -3410,7 +3423,8 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| id.clone());
-        commands.push(UserCommandConfig { id, name, run, cwd: command.cwd });
+        let cwd = command.cwd.map(|cwd| cwd.trim().to_string()).filter(|cwd| !cwd.is_empty());
+        commands.push(UserCommandConfig { id, name, run, cwd });
     }
     commands
 }
@@ -7748,6 +7762,29 @@ mod tests {
         let commands = resolve_user_commands(raw, &mut keys);
         assert_eq!(commands.len(), 2);
         assert_eq!(commands[0].id, "lazygit");
+        // An ignored invalid entry does not reserve its id: a later valid
+        // entry with the same id is accepted.
+        let mut keys_retry = Keys::default();
+        let retry = vec![
+            RawUserCommand {
+                id: Some("retry".to_string()),
+                name: None,
+                keys: None,
+                run: Some(Vec::new()),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("retry".to_string()),
+                name: None,
+                keys: None,
+                run: Some(vec!["true".to_string()]),
+                cwd: Some("   ".to_string()),
+            },
+        ];
+        let retried = resolve_user_commands(retry, &mut keys_retry);
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].id, "retry");
+        assert_eq!(retried[0].cwd, None, "blank cwd is treated as absent");
         assert_eq!(commands[0].name, "LazyGit");
         assert_eq!(commands[0].run, ["lazygit"]);
         assert_eq!(commands[1].name, "scratch");

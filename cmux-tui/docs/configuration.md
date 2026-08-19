@@ -277,7 +277,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 
 ## Commands
 
-`commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory.
+`commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -293,7 +293,7 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 {
   "commands": [
     {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
-    {"id": "scratch", "keys": ["alt+s"], "run": ["nvim", "~/notes/scratch.md"], "cwd": "~"}
+    {"id": "scratch", "keys": ["alt+s"], "run": ["sh", "-lc", "cd \"$HOME/notes\" && exec \"${EDITOR:-vi}\" scratch.md"]}
   ]
 }
 ```

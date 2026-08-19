@@ -6937,8 +6937,12 @@ fn run_status_command_worker(
 
 /// Run one status command with a bounded runtime and return its last
 /// nonempty stdout line, stripped of escape sequences and length-capped.
+/// Stdout is drained concurrently so a chatty command never deadlocks on
+/// the pipe buffer, and on Unix the command runs in its own process group
+/// so a timeout kills the whole tree, which also forces stdout to close.
 fn run_status_command(argv: &[String], timeout: Duration) -> String {
     const MAX_STATUS_OUTPUT_CHARS: usize = 200;
+    const MAX_STATUS_OUTPUT_BYTES: u64 = 64 * 1024;
     let Some(program) = argv.first() else { return String::new() };
     let mut command = std::process::Command::new(program);
     command
@@ -6946,15 +6950,44 @@ fn run_status_command(argv: &[String], timeout: Duration) -> String {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let Ok(mut child) = command.spawn() else { return String::new() };
+    let reader = child.stdout.take().map(|stdout| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut text = String::new();
+            let _ = stdout.take(MAX_STATUS_OUTPUT_BYTES).read_to_string(&mut text);
+            text
+        })
+    });
     if !matches!(child.wait_timeout(timeout), Ok(Some(_))) {
+        #[cfg(unix)]
+        // SAFETY: plain syscall on the child's own process group id.
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
         let _ = child.kill();
         let _ = child.wait();
     }
+    // The reader finishes when the pipe closes; the group kill above forces
+    // that on timeout. A grandchild that detached into its own group can
+    // still hold the pipe, so give up after a bounded grace instead of
+    // blocking the worker forever.
     let mut text = String::new();
-    if let Some(stdout) = child.stdout.take() {
-        use std::io::Read;
-        let _ = stdout.take(64 * 1024).read_to_string(&mut text);
+    if let Some(handle) = reader {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !handle.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if handle.is_finished()
+            && let Ok(captured) = handle.join()
+        {
+            text = captured;
+        }
     }
     let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
     strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect()
@@ -6990,7 +7023,9 @@ fn strip_escape_sequences(text: &str) -> String {
             }
             continue;
         }
-        if !character.is_control() {
+        if character == '\t' {
+            result.push(' ');
+        } else if !character.is_control() {
             result.push(character);
         }
     }
@@ -9526,6 +9561,9 @@ impl App {
     }
 
     fn shutdown_background_workers(&mut self) {
+        if let Some(stop) = self.status_command_worker_stop.take() {
+            stop.store(true, Ordering::Release);
+        }
         self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
             updates.stop_and_join();
@@ -12249,7 +12287,10 @@ impl App {
         if let Some(stop) = self.status_command_worker_stop.take() {
             stop.store(true, Ordering::Release);
         }
-        self.status_command_outputs.lock().unwrap().clear();
+        // A fresh map per worker: a stopped worker mid-command can only
+        // write into its own orphaned map, never under an index that now
+        // belongs to a different segment.
+        self.status_command_outputs = Arc::new(Mutex::new(HashMap::new()));
         if !self.config.status_bar.visible || self.is_surface_only() {
             return;
         }
@@ -12261,12 +12302,14 @@ impl App {
         let worker_stop = stop.clone();
         let outputs = self.status_command_outputs.clone();
         let events = self.app_events.clone();
-        if std::thread::Builder::new()
+        match std::thread::Builder::new()
             .name("status-commands".into())
             .spawn(move || run_status_command_worker(commands, outputs, events, worker_stop))
-            .is_ok()
         {
-            self.status_command_worker_stop = Some(stop);
+            Ok(_) => self.status_command_worker_stop = Some(stop),
+            Err(error) => {
+                eprintln!("cmux-tui: could not start the status command worker: {error}");
+            }
         }
     }
 
@@ -23069,6 +23112,22 @@ mod tests {
             run_status_command(&["/nonexistent-status-cmd".to_string()], Duration::from_secs(1)),
             "",
             "spawn failures resolve to an empty segment"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_command_timeout_kills_the_process_tree_and_keeps_partial_output() {
+        let started = Instant::now();
+        let output = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
+            Duration::from_secs(1),
+        );
+        assert_eq!(output, "early", "output before the timeout survives the group kill");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the runtime bound is real: {:?}",
+            started.elapsed()
         );
     }
 
