@@ -4767,6 +4767,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         // Persist the rejection marker so reload cannot treat it as a plain default Codex hook.
+        // Unwrapped rather than pattern-matched: a store the hook never wrote is a failure of
+        // this test's subject, not a reason to skip its assertions.
         let data = try Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json"))
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
@@ -4774,9 +4776,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any])
         XCTAssertEqual(launchCommand["source"] as? String, "rejected")
         XCTAssertEqual(
-            launchCommand["rejection_reason"] as? String,
-            "sanitizer-rejected-arguments",
-            "rejected launch captures must explain why the argv was not persisted: \(launchCommand)"
+            launchCommand["rejectionReason"] as? String,
+            "sanitizerRejectedArgv",
+            "a rejected capture must record the ground it was rejected on; launchCommand=\(launchCommand)"
         )
         let env = launchCommand["environment"] as? [String: String]
         XCTAssertNil(

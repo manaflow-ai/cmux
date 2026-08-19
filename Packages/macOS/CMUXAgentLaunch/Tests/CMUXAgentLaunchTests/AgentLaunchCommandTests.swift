@@ -4,14 +4,14 @@ import Testing
 
 @Suite("Agent launch command persistence")
 struct AgentLaunchCommandTests {
-    @Test("Preserves the rejection reason in the stored snake-case field")
+    @Test("Preserves the rejection reason in the stored field")
     func rejectedCaptureRoundTripsReason() throws {
         let input = Data(#"""
         {
           "launcher": "codex",
           "arguments": [],
           "source": "rejected",
-          "rejection_reason": "launcher-does-not-describe-kind"
+          "rejectionReason": "sanitizerRejectedArgv"
         }
         """#.utf8)
 
@@ -20,6 +20,6 @@ struct AgentLaunchCommandTests {
         let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
 
         #expect(object["source"] as? String == "rejected")
-        #expect(object["rejection_reason"] as? String == "launcher-does-not-describe-kind")
+        #expect(object["rejectionReason"] as? String == "sanitizerRejectedArgv")
     }
 }
