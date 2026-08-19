@@ -301,11 +301,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     @discardableResult
     func recordUserViewportScrollInteraction() -> UInt64 {
-        viewportRestoreGate.withLock {
+        let generation = viewportRestoreGate.withLock {
             $0.interactionGeneration &+= 1
             $0.preservesUserViewportAnchor = true
             return $0.interactionGeneration
         }
+        // A queued prompt reveal is valid only until the next user gesture.
+        // Invalidate it before the local scroll is admitted to the serial
+        // surface queue, so a stale try-only completion cannot retry after
+        // the user deliberately moves above live output.
+        scrollToBottomRequested = false
+        scrollToBottomRetryCount = 0
+        scrollToBottomRetryAt = nil
+        scrollToBottomInteractionGeneration = nil
+        return generation
     }
     @discardableResult
     func recordFollowBottomInteraction() -> UInt64 {
@@ -2094,6 +2103,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollToBottomRequested = false
         scrollToBottomRetryCount = 0
         scrollToBottomRetryAt = nil
+        scrollToBottomInteractionGeneration = nil
         completePendingLocalScrollDrains(returning: false)
     }
 
@@ -2819,6 +2829,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func scrollInitialOutputToBottomIfNeeded() {
         guard shouldScrollInitialOutputToBottom, surface != nil else { return }
         shouldScrollInitialOutputToBottom = false
+        guard !preservesUserViewportAnchor else { return }
         enqueueScrollToBottom()
     }
 
@@ -2831,7 +2842,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
-        recordFollowBottomInteraction()
+        let interactionGeneration = recordFollowBottomInteraction()
+        scrollToBottomInteractionGeneration = interactionGeneration
         if !scrollToBottomRequested && !scrollToBottomInFlight {
             scrollToBottomRetryCount = 0
             scrollToBottomRetryAt = nil
@@ -2843,6 +2855,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// True while a non-blocking prompt-reveal operation is queued or running
     /// on the serial surface queue.
     var scrollToBottomInFlight = false
+    /// Generation of the current follow-bottom intent. A user scroll clears
+    /// this token, invalidating queued or in-flight prompt reveal work.
+    var scrollToBottomInteractionGeneration: UInt64?
     /// Coalesced prompt-reveal work. A busy renderer mutex leaves this set and
     /// the display link retries it on a later frame; no output operation waits
     /// behind an unbounded Ghostty binding action.
@@ -2866,9 +2881,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollToBottomRequested = false
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
-        let interactionGeneration = viewportRestoreGate.withLock {
-            $0.interactionGeneration
-        }
+        let interactionGeneration = scrollToBottomInteractionGeneration
+            ?? viewportRestoreGate.withLock { $0.interactionGeneration }
         let gate = viewportRestoreGate
         outputQueue.async { [weak self] in
             // This C entry point is deliberately try-only. A false result is
@@ -2889,6 +2903,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // request state.
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.scrollToBottomInFlight = false
+                guard self.scrollToBottomInteractionGeneration == interactionGeneration else {
+                    self.needsDraw = true
+                    return
+                }
                 if !applied {
                     if self.scrollToBottomRetryCount >= Self.maximumScrollToBottomRetries {
                         self.scrollToBottomRequested = false
