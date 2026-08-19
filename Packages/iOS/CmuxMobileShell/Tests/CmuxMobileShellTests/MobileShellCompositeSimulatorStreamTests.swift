@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import Foundation
 import Testing
+import CmuxMobileShellModel
 @testable import CmuxMobileShell
 
 @MainActor
@@ -44,6 +45,52 @@ import Testing
         // The restart failed (no capability, no client); the stall must not
         // be masked by the attempt.
         #expect(store.state(for: "sim-1")?.streamStatus == .stalled)
+    }
+
+    /// Leaving the workspace is explicit navigation intent. The composite owns
+    /// both selection and wire state, so one owner-level action must clear the
+    /// selected panel and drain its active session together.
+    @Test func leavingWorkspaceStopsSelectedSimulatorSession() async {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [Self.descriptor()])
+        store.activate(panelID: "sim-1", in: "workspace-1")
+        let composite = MobileShellComposite(simulatorStreamStore: store)
+        composite.startedMobileSimulatorPanelIDs.insert("sim-1")
+
+        composite.stopActiveMobileSimulatorStream(in: "workspace-1")
+
+        #expect(store.activeState(in: "workspace-1") == nil)
+        await composite.mobileSimulatorStreamOperationsByPanel["sim-1"]?.value
+        #expect(!composite.startedMobileSimulatorPanelIDs.contains("sim-1"))
+    }
+
+    /// Route navigation carries the aggregate row id, while simulator state
+    /// remains keyed by the Mac-local RPC id. The composite boundary must
+    /// resolve that identity before clearing selection and wire state.
+    @Test func leavingAggregatedWorkspaceStopsRemoteKeyedSimulatorSession() async {
+        let rowID = MobileWorkspacePreview.ID(rawValue: "mac-a::workspace-1")
+        let remoteID = MobileWorkspacePreview.ID(rawValue: "workspace-1")
+        var workspace = MobileWorkspacePreview(
+            id: rowID,
+            name: "Workspace",
+            terminals: [],
+            simulators: [Self.descriptor()]
+        )
+        workspace.remoteWorkspaceID = remoteID
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: remoteID.rawValue, with: [Self.descriptor()])
+        store.activate(panelID: "sim-1", in: remoteID.rawValue)
+        let composite = MobileShellComposite(
+            workspaces: [workspace],
+            simulatorStreamStore: store
+        )
+        composite.startedMobileSimulatorPanelIDs.insert("sim-1")
+
+        composite.stopActiveMobileSimulatorStream(in: rowID)
+
+        #expect(store.activeState(in: remoteID.rawValue) == nil)
+        await composite.mobileSimulatorStreamOperationsByPanel["sim-1"]?.value
+        #expect(!composite.startedMobileSimulatorPanelIDs.contains("sim-1"))
     }
 
     private static func descriptor() -> MobileSimulatorPanelDescriptor {

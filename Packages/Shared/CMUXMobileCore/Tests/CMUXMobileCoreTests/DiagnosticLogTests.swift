@@ -29,6 +29,23 @@ import os
         )
     }
 
+    /// Await the observer itself instead of treating the ring's processed
+    /// count as a callback-delivery barrier. The store increments that count
+    /// before the drain task invokes the tap, so those are separate events.
+    private func waitForTappedEvents(
+        _ received: OSAllocatedUnfairLock<[DiagnosticEvent]>,
+        count expected: Int
+    ) async {
+        for _ in 0..<1_000_000 {
+            if received.withLock({ $0.count }) >= expected { return }
+            await Task.yield()
+        }
+        #expect(
+            received.withLock({ $0.count }) >= expected,
+            "diagnostic event tap did not reach the required barrier"
+        )
+    }
+
     /// Record one event and await it draining into the ring, so the next record
     /// never overflows the stream buffer. Draining each event before recording
     /// the next means what survives is governed only by the ring's eviction
@@ -307,6 +324,9 @@ import os
         #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 63)
         #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 64)
         #expect(DiagnosticEventCode.appFeatureAction.rawValue == 65)
+        #expect(DiagnosticEventCode.transportDialSessionLinked.rawValue == 77)
+        #expect(DiagnosticEventCode.transportDialCancelled.rawValue == 78)
+        #expect(DiagnosticEventCode.transportCloseReason.rawValue == 79)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 
@@ -787,6 +807,7 @@ import os
         log.record(first)
         log.record(second)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 2)
 
         #expect(received.withLock { $0 } == [first, second])
     }
@@ -811,6 +832,7 @@ import os
         log.record(relay)
         log.record(repeatRelay)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
 
         #expect(received.withLock { $0 } == [relay])
     }
@@ -838,14 +860,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: UInt64(burst + 1))
         log.record(live)
         await waitForProcessed(log, burst + 1)
-        // The store actor can expose its updated processed count after append
-        // returns but just before the drain task invokes the synchronous tap.
-        // Wait for that final nonisolated step instead of treating the actor
-        // count as a tap-delivery barrier.
-        for _ in 0..<1_000 {
-            if !received.withLock({ $0.isEmpty }) { break }
-            await Task.yield()
-        }
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
     }
 
@@ -861,6 +876,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: 2)
         log.record(live)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
 
         log.setEventTap(nil)

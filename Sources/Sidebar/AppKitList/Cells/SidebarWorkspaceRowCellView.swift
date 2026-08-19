@@ -393,7 +393,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
+            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -463,7 +463,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     status: taskStatus,
                     hasOverride: true,
                     usesMonochrome: model.isActive,
-                    fontScale: model.fontScale
+                    fontScale: model.fontScale,
+                    colorScheme: palette.colorScheme
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)
@@ -602,8 +603,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             emphasis: model.isActive ? 1.0 : 0.9,
             representedIdentity: model.workspaceId
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
+        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -623,8 +624,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
     /// with two direct view mutations instead of a full-list apply.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
+            ?? SidebarAppearanceColorResolver().currentColorScheme()
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -645,7 +649,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
                 return color
             }
-            return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : cmuxAccentNSColor()
+            return model.isActive
+                ? palette.primaryText.withAlphaComponent(0.25)
+                : cmuxAccentNSColor(for: palette.colorScheme)
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
@@ -669,6 +675,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
+            colorScheme: palette.colorScheme,
             presentationActive: isPresentationActive,
             in: contentContainer
         )
@@ -676,6 +683,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
+            colorScheme: palette.colorScheme,
             presentationActive: isPresentationActive,
             in: contentContainer
         )
@@ -694,6 +702,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         existing: GPUSpinnerNSView?,
         visible: Bool,
         color: NSColor,
+        colorScheme: ColorScheme,
         presentationActive: Bool,
         in parent: NSView
     ) -> GPUSpinnerNSView? {
@@ -701,6 +710,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let spinner = existing ?? GPUSpinnerNSView()
             spinner.style = .macOSSpokes
             spinner.color = color
+            spinner.colorScheme = colorScheme
             spinner.isPresentationActive = presentationActive
             if spinner.superview == nil {
                 parent.addSubview(spinner)
@@ -833,8 +843,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive ? palette.selectedForeground(0.15) : NSColor.secondaryLabelColor.withAlphaComponent(0.2),
-                fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
+                trackColor: model.isActive
+                    ? palette.selectedForeground(0.15)
+                    : palette.semantic(.secondaryLabelColor, opacity: 0.2),
+                fillColor: model.isActive
+                    ? palette.selectedForeground(0.8)
+                    : cmuxAccentNSColor(for: palette.colorScheme),
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)

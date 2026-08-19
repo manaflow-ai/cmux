@@ -59,7 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "phone_push.status.changed",
+                    "phone_push.status.changed", "caffeine.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -68,7 +68,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "phone_push.status.changed",
+                    "phone_push.status.changed", "caffeine.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -77,7 +77,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "phone_push.status.changed",
+                    "phone_push.status.changed", "caffeine.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -141,12 +141,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
+    static let panelArtifactCapability = "panel.artifact.v1"
     static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
     static let phonePushSettingsCapability = "phone_push.settings.v1"
     static let phonePushTestCapability = "phone_push.test.v1"
+    static let caffeineControlCapability = "caffeine.control.v1"
     nonisolated private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
@@ -196,6 +198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 correlationID: foregroundMacDeviceID,
                 count: connectionState == .connected ? 1 : 0
             )
+            recordForegroundTransportSelected()
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
@@ -277,8 +280,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var activeRoute: CmxAttachRoute? {
         didSet {
             guard oldValue != activeRoute, connectionState == .connected else { return }
+            recordForegroundTransportSelected()
             restartTerminalLanesForMountedSurfaces()
         }
+    }
+
+    /// Records which transport actually carries the foreground connection, so
+    /// a shared report states Iroh vs Tailscale usage explicitly instead of
+    /// leaving it implied by whichever dial events survived the ring.
+    ///
+    /// Hooked to both the connected transition and active-route changes: some
+    /// connect flows pin the route before flipping the state and others after,
+    /// and a mid-connection promotion swaps the route with no state change.
+    private func recordForegroundTransportSelected() {
+        guard connectionState == .connected, let route = activeRoute else { return }
+        recordAppEvent(
+            .foregroundTransportSelected,
+            correlationID: foregroundMacDeviceID,
+            count: DiagnosticTransportKind(route.kind).rawValue
+        )
     }
     /// Authenticated Mac app-instance identity for the foreground connection.
     /// `nil` only for a fresh/legacy host that has not reported one.
@@ -328,6 +348,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
+    /// Set when a connection-method change arrives during a reconnect. The
+    /// latest forced retry starts as soon as the current attempt settles.
+    var pendingForcedStoredMacReconnect = false
     var automaticReconnectBackoffOwner = MobileAutomaticReconnectBackoffOwner()
     var automaticReconnectRetryTask: Task<Void, Never>?
     var automaticReconnectRetryAccountID: String?
@@ -501,6 +524,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// means no attached Mac has proved same-account ownership and exposed the
     /// independent Mac privacy gate.
     public internal(set) var phonePushMacStatus: MobileHostPhonePushStatus?
+    /// The connected Mac's current cmux-owned keep-awake state. `nil` means
+    /// the state has not been read or the current Mac is unavailable.
+    public internal(set) var caffeineStatus: MobileCaffeineStatus?
+    /// Whether a caffeine RPC mutation is currently awaiting the Mac.
+    public internal(set) var isCaffeineMutationInFlight = false
+    @ObservationIgnored var caffeineMutationID: UUID?
+    /// Monotonic fence for authoritative caffeine snapshots. It survives
+    /// connection resets so an older reconciliation cannot match newer state.
+    @ObservationIgnored var caffeineStatusRevision: UInt64 = 0
 
     /// Whether the authenticated Mac supports changing its independent phone
     /// forwarding privacy gates from iOS.
@@ -511,6 +543,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the authenticated Mac can enqueue a correlated test alert.
     public var supportsPhonePushTest: Bool {
         supportedHostCapabilities.contains(Self.phonePushTestCapability)
+    }
+
+    /// Whether the authenticated Mac supports the Keep Mac Awake RPC.
+    public var supportsCaffeineControl: Bool {
+        supportedHostCapabilities.contains(Self.caffeineControlCapability)
     }
     /// Published workspace-list chip snapshots keyed by Mac-local workspace id.
     ///
@@ -803,9 +840,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            if selectedWorkspaceID != oldValue {
+                selectedMacSurfaceID = nil
+            }
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// The Mac surface shown in the workspace detail instead of the selected
+    /// terminal, or nil when the terminal is visible. Independent of
+    /// ``selectedTerminalID`` (so dismissing the surface returns to the same
+    /// terminal and composer draft) and cleared when the workspace changes.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing
@@ -1331,9 +1376,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryControlReassertionTokensByOwnerKey: [MacPairingKey: UUID] = [:]
     private var secondaryControlReassertionOwnerIDsByOwnerKey:
         [MacPairingKey: ObjectIdentifier] = [:]
-    /// The disconnected-Mac reconnect started by a team boundary transition.
-    /// Replaced and cancelled by every newer team switch or account sign-out.
-    private var teamScopeReconnectTask: Task<Void, Never>?
+    /// Cleanup for paired-Mac backup reads crossing a team boundary. This task
+    /// never owns a transport dial; startup connection ownership lives at the
+    /// app root so scope notifications cannot replace an admitted Iroh client.
+    private var teamScopeCleanupTask: Task<Void, Never>?
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -1789,7 +1835,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         foregroundWorkspaceMutationRefreshPending = false
         foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
-        teamScopeReconnectTask?.cancel()
+        teamScopeCleanupTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
@@ -1919,6 +1965,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // reconnect is superseded and can't re-set these flags after sign-out.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
@@ -1936,8 +1983,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // synchronously first; the actor cleanup below is still fire-and-forget
         // because signOut is sync.
         pairedMacRestoreBoundary?.invalidate()
-        teamScopeReconnectTask?.cancel()
-        teamScopeReconnectTask = nil
+        teamScopeCleanupTask?.cancel()
+        teamScopeCleanupTask = nil
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
         }
@@ -1991,7 +2038,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func currentTeamDidChange() {
         cancelComputerVisibilityMutations()
         secondaryAggregationScopeGeneration &+= 1
-        let teamScopeGeneration = secondaryAggregationScopeGeneration
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -2012,10 +2058,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // fire-and-forget (this method is sync) and does not wipe the local store.
         clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: true)
         // A reconnect that captured the previous team must not finish against the
-        // new scope. The recovery task below starts one fresh pass after backup
-        // restore cancellation has crossed the same team boundary.
+        // new scope. Starting the replacement is deliberately left to the app
+        // root's startup coordinator.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
         pairedMacRestoreBoundary?.invalidate()
         let refresher = pairedMacStore as? any PairedMacBackupRefreshing
@@ -2032,20 +2079,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenComputers = []
         hasHiddenComputers = false
         registryDevices = []
-        teamScopeReconnectTask?.cancel()
-        teamScopeReconnectTask = Task { @MainActor [weak self] in
-            guard let self,
-                  self.secondaryAggregationScopeGeneration == teamScopeGeneration else { return }
+        teamScopeCleanupTask?.cancel()
+        teamScopeCleanupTask = Task {
             if let refresher {
                 await refresher.cancelInFlightRestores()
             }
-            guard !Task.isCancelled,
-                  self.secondaryAggregationScopeGeneration == teamScopeGeneration,
-                  self.isSignedIn,
-                  self.connectionState != .connected else { return }
-            _ = await self.reconnectActiveMacIfAvailable(
-                stackUserID: self.identityProvider?.currentUserID
-            )
         }
     }
 
@@ -2360,7 +2398,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             return
         }
         let attemptID = beginPairingAttempt()
@@ -2384,7 +2422,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             // The pairing input field is an explicit in-app code entry (scan
             // or paste), the act that authorizes a compatibility Tailscale dial.
             await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
@@ -2568,13 +2606,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func reconnectActiveMacIfAvailable(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        force: Bool = false
     ) async -> Bool {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.reconnectStarted)
         let outcome = await reconnectActiveMacOutcome(
             stackUserID: stackUserID,
-            refreshBackupBeforeDial: refreshBackupBeforeDial
+            refreshBackupBeforeDial: refreshBackupBeforeDial,
+            force: force
         )
         switch outcome {
         case .connected:
@@ -2602,19 +2642,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Starts one user-requested retry and exposes its loading state before any await.
     @discardableResult
     public func retryActiveMacReconnect(
-        stackUserID: String?
+        stackUserID: String?,
+        force: Bool = false
     ) async -> Bool {
-        guard !isReconnectingStoredMac else { return false }
+        guard !isReconnectingStoredMac else {
+            if force { pendingForcedStoredMacReconnect = true }
+            return false
+        }
         if let accountID = stackUserID ?? identityProvider?.currentUserID {
             clearTransientAutomaticReconnectBackoff(accountID: accountID)
         }
         isReconnectingStoredMac = true
-        return await reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        return await reconnectActiveMacIfAvailable(
+            stackUserID: stackUserID,
+            force: force
+        )
     }
 
     func reconnectActiveMacOutcome(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        force: Bool = false
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
@@ -2622,9 +2670,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // attach already established the foreground session. Treat the live
         // client as authoritative instead of replacing it with another client
         // for the same saved route.
-        guard !hasActiveMacConnection else {
-            isReconnectingStoredMac = false
-            didFinishStoredMacReconnectAttempt = true
+        guard force || !hasActiveMacConnection else {
+            finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
             return .connected
         }
         // Claim this attempt's generation. Only the current generation may resolve
@@ -2643,8 +2690,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self, !Task.isCancelled,
                   generation == self.storedMacReconnectGeneration,
                   self.connectionState != .connected else { return }
-            self.isReconnectingStoredMac = false
-            self.didFinishStoredMacReconnectAttempt = true
+            self.finishStoredMacReconnectAttempt(generation: generation, supersede: true)
         }
         defer { restoringDeadline.cancel() }
         // Run the awaited restore/dial phase under the same hard ceiling for
@@ -2957,8 +3003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .superseded
         }
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
+        finishStoredMacReconnectAttempt(generation: generation)
         if connectionState != .connected,
            !connectionRequiresReauth,
            let firstCandidateNeedingMacUpdate {
@@ -4044,6 +4089,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
     }
 
@@ -4623,6 +4669,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // known-Mac hint: hiding changes list visibility, not the app's shell mode.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
         if let representativeID = staleRepresentativeID {
             hasKnownPairedMac = true
@@ -4642,15 +4689,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// separates network failures, which share the pool retry budget, from
     /// authority/build/route incompatibilities, which wait for a new external
     /// edge instead of polling forever.
+    ///
+    /// Route selection honors the user's connection method exactly like the
+    /// foreground dial: with Tailscale selected, a Mac without a device-local
+    /// Tailscale grant fails closed here instead of opening a background Iroh
+    /// control session over public paths and managed relays.
     func makeSecondaryClient(
         for mac: MobilePairedMac
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
-        let pinnedRoutes = Self.storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        let pinnedRoutes = orderedReconnectRoutes(
+            for: mac,
+            supportedKinds: supportedKinds
         )
         guard let firstRoute = pinnedRoutes.first else {
             return .permanentFailure
@@ -4752,7 +4803,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-            transportConnectObserver: transportConnectDiagnosticObserver,
+            transportConnectObserver: transportConnectDiagnosticObserver(
+                peerID: mac.macDeviceID
+            ),
             sessionPurpose: .backgroundControl
         )
         var status: MobileHostStatusResponse
@@ -6636,6 +6689,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
+        state.workspaceGroupsAreAuthoritative = false
         workspacesByMac[ownerKey] = state
     }
 
@@ -6808,6 +6862,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     groups: snapshot.groups
                         ?? self.workspacesByMac[ownerKey]?.groups
                         ?? [],
+                    // A secondary list without group metadata keeps the last
+                    // rows for continuity, but cannot authorize a restored
+                    // destination until a fresh group snapshot arrives.
+                    workspaceGroupsAreAuthoritative: snapshot.groups != nil,
                     status: .connected,
                     actionCapabilities: subscription.actionCapabilities
                 )
@@ -7395,7 +7453,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             state.workspaces = stamped
         }
-        if let groups { state.groups = groups }
+        if let groups {
+            state.groups = groups
+            state.workspaceGroupsAreAuthoritative = true
+        } else if !merge {
+            // A complete response without group metadata is not safe to use to
+            // validate a restored group. Keep the rows, but require a future
+            // authoritative group snapshot before clearing a pending ID.
+            state.workspaceGroupsAreAuthoritative = false
+        }
         state.status = .connected
         state.actionCapabilities = Self.workspaceActionCapabilities(
             from: supportedHostCapabilities,
@@ -7448,6 +7514,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
+        pendingForcedStoredMacReconnect = false
     }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
@@ -9063,7 +9130,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-                transportConnectObserver: transportConnectDiagnosticObserver
+                transportConnectObserver: transportConnectDiagnosticObserver(
+                    peerID: ticket.macDeviceID
+                )
             )
             if let previousAttemptClient =
                 replaceConnectionAttemptClientOwnership(with: client) {
@@ -9237,6 +9306,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
+                        surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
                         a: DiagnosticTransportKind(route.kind).rawValue
                     ))
                     guard isConnectCurrent() else {
@@ -9397,6 +9467,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
+                        surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
+                        ms: connectionAttemptStartedAt.map {
+                            UInt32(clamping: max(0, Int(Date().timeIntervalSince($0) * 1_000)))
+                        },
                         a: DiagnosticTransportKind(route.kind).rawValue
                     ))
                     // Record this as the foreground entry in the per-Mac
@@ -9451,6 +9525,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         || failure == .authorizationFailed
                         || failure == .accountMismatch {
                         recordHostAuthenticationFailure(route: route, failure: failure)
+                    }
+                    // An unreachable-class iroh route failure is staleness
+                    // evidence: drop any reusable discovery snapshot for this
+                    // Mac so the NEXT attempt rebuilds its dial plan from a
+                    // fresh broker fetch instead of redialing a corpse route.
+                    // The transport pool reports most dial failures itself,
+                    // but this request deadline cancels an in-flight dial (the
+                    // pool then sees only a cancellation), so the owner that
+                    // classified the outcome reports it too.
+                    if route.kind == .iroh,
+                       !ticket.macDeviceID.isEmpty,
+                       Self.routeFailureIndicatesStaleDiscovery(failure) {
+                        await personalIrohDiscovery?.invalidateDiscovery(
+                            forMacDeviceID: ticket.macDeviceID
+                        )
                     }
                 }
             }
@@ -9729,6 +9818,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // it to `.unavailable` to match the global connection state.
         if var offline = workspacesByMac[offlineForegroundKey] {
             offline.status = .unavailable
+            offline.workspaceGroupsAreAuthoritative = false
             workspacesByMac[offlineForegroundKey] = offline
         }
         rawTerminalInputBuffer.clear()
@@ -10051,6 +10141,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         removeFocusedConnection(ifMatching: connection)
         if var offline = workspacesByMac[foregroundMacKey] {
             offline.status = .unavailable
+            offline.workspaceGroupsAreAuthoritative = false
             workspacesByMac[foregroundMacKey] = offline
         }
         connectionState = .disconnected
@@ -10148,6 +10239,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deactivateAllTerminalLanes()
         supportedHostCapabilities = []
         phonePushMacStatus = nil
+        caffeineStatus = nil
+        isCaffeineMutationInFlight = false
+        caffeineMutationID = nil
         clearMacUpdateHint()
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
@@ -10512,8 +10606,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requiresSubscriptionValidation =
             runtime?.supportsServerPushEvents == true
                 || terminalEventListenerID != nil
+        // Creating or refreshing the push subscription is a secondary
+        // readiness check. It must not demote an already-authenticated RPC
+        // session to `reconnecting` while the ACK is in flight. A transient
+        // subscription race otherwise blanks the workspace UI even though the
+        // live Iroh client can still serve requests.
         guard !requiresSubscriptionValidation
-                || subscriptionIsValidated else {
+                || subscriptionIsValidated
+                || macConnectionStatus == .connected else {
             macConnectionStatus = .reconnecting
             connectionRecoveryFailed = false
             return
@@ -10556,6 +10656,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .reconnecting
+        if var foregroundState = workspacesByMac[foregroundMacKey] {
+            foregroundState.workspaceGroupsAreAuthoritative = false
+            workspacesByMac[foregroundMacKey] = foregroundState
+        }
         isRecoveringConnection = true
         connectionRecoveryFailed = false
     }
@@ -10566,6 +10670,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .unavailable
+        if var foregroundState = workspacesByMac[foregroundMacKey] {
+            foregroundState.workspaceGroupsAreAuthoritative = false
+            workspacesByMac[foregroundMacKey] = foregroundState
+        }
         isRecoveringConnection = false
         connectionRecoveryFailed = true
     }
@@ -11758,6 +11866,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client,
                         generation: self.connectionGeneration
                     )
+                } else if event.topic == "caffeine.status.changed" {
+                    self.handleCaffeineStatusEvent(
+                        event,
+                        client: client,
+                        generation: listenerConnectionGeneration
+                    )
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
                 } else if event.topic == "browser.state" {
@@ -12617,18 +12731,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID); reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
-        // Drop the letterbox dimension cache too: piggybacks attach the
-        // current generation to whatever dimensions this cache holds, and
-        // after clearTerminalViewport bumps the generation for the clear, a
-        // remount's cold replay could otherwise carry these pre-detach
-        // dimensions through the Mac's fence and re-pin the cleared surface.
-        // The next dedicated report repopulates the cache with fresh geometry.
-        if let workspaceID = workspaceID(forTerminalID: surfaceID) {
-            reportedViewportSizesByTerminalKey.removeValue(forKey: viewportKey(
-                workspaceID: workspaceID,
-                terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
-            ))
-        }
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)

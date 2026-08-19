@@ -367,7 +367,8 @@
     {"variant": "BrowserReload", "key": "browser-reload", "classification": "direct", "route": "browser-reload"},
     {"variant": "BrowserEditUrl", "key": "browser-edit-url", "classification": "composite", "route": "frontend prompt + browser-navigate"},
     {"variant": "ShowShortcuts", "key": "show-shortcuts", "classification": "presentation-only", "route": "frontend shortcut overlay"},
-    {"variant": "Detach", "key": "detach", "classification": "presentation-only", "route": "close frontend transport"}
+    {"variant": "Detach", "key": "detach", "classification": "presentation-only", "route": "close frontend transport"},
+    {"variant": "UserCommand", "key": "user-command-{index}", "classification": "composite", "route": "frontend command config + run"}
   ],
   "menu_actions": [
     {"variant": "RenameClientMachine", "classification": "composite", "route": "frontend prompt + client-local machine catalog"},

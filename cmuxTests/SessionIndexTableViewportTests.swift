@@ -310,7 +310,11 @@ struct SessionIndexTableViewportTests {
         )
 
         let host = NSHostingView(
-            rootView: SessionIndexView(store: store, onResume: nil)
+            rootView: SessionIndexView(
+                store: store,
+                chromeBackgroundColor: .black,
+                onResume: nil
+            )
                 .frame(width: 320, height: 300)
         )
         let window = NSWindow(

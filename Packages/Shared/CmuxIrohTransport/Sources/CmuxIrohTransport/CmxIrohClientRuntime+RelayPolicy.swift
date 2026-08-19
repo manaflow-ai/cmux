@@ -90,6 +90,7 @@ extension CmxIrohClientRuntime {
         let expectation = try CmxIrohLocalBindingExpectation(
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: binding.clientNamespace,
             tag: binding.tag,
             platform: binding.platform,
             endpointID: binding.endpointID,
@@ -131,6 +132,7 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                diagnostics: diagnosticLog,
                 now: now
             )
             registryContextProvider = provider

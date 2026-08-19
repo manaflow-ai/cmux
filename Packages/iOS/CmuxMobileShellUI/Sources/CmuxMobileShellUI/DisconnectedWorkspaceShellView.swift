@@ -1,5 +1,6 @@
 import CmuxMobilePairedMac
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
@@ -28,11 +29,26 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
-    /// Whether the root setup-prompt coordinator currently presents its banner.
-    var showsTailscalePairingBanner = false
-    var dismissTailscalePairingBanner: () -> Void = {}
+    /// Whether Tailscale still needs its one-time Mac authorization. The
+    /// requirement is rendered in the empty state instead of a top banner.
+    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var setupHelpPresentation = MobileChildSheetPresentation()
+
+    #if os(iOS)
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
+    #endif
+
+    /// The connection-method check is kept behind a platform-neutral property
+    /// so the shared view body never reaches directly into the iOS environment.
+    private var usesTailscaleConnectionMethod: Bool {
+        #if os(iOS)
+        return connectionMethodStore?.method == .tailscale
+        #else
+        return false
+        #endif
+    }
 
     #if os(iOS)
     /// The computer a reconnect attempt is in flight for. Also the re-entry
@@ -46,14 +62,6 @@ struct DisconnectedWorkspaceShellView: View {
     var body: some View {
         NavigationStack {
             content
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    if showsTailscalePairingBanner, let showPairingScanner {
-                        MobileTailscalePairingRequiredBanner(
-                            scanPairingCode: showPairingScanner,
-                            dismiss: dismissTailscalePairingBanner
-                        )
-                    }
-                }
                 .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
                 .mobileInlineNavigationTitle()
                 .toolbar {
@@ -206,12 +214,20 @@ struct DisconnectedWorkspaceShellView: View {
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
-            Text(L10n.string(
-                "mobile.devices.emptyDescription",
-                defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
-            ))
+            Text(emptyDescription)
+                .accessibilityIdentifier("MobileDisconnectedEmptyDescription")
         } actions: {
-            if let showAddDevice {
+            if usesTailscaleConnectionMethod, let showPairingScanner {
+                Button(action: showPairingScanner) {
+                    Text(L10n.string(
+                        "mobile.tailscalePairingRequired.scan",
+                        defaultValue: "Scan Pairing Code"
+                    ))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .accessibilityIdentifier("MobileDisconnectedScanPairingCode")
+            } else if let showAddDevice {
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 }
@@ -229,6 +245,18 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
+    private var emptyDescription: String {
+        #if os(iOS)
+        if usesTailscaleConnectionMethod {
+            return MobilePairingScannerSheet.emptyStateGuidanceText
+        }
+        #endif
+        return L10n.string(
+            "mobile.devices.emptyDescription",
+            defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+        )
+    }
+
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
     /// connection or re-dials the Mac after refreshing its routes from the
     /// per-user backup; on failure the user gets an explicit alert instead of a
@@ -237,7 +265,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to computer: MacComputerSnapshot) {
-        if showsTailscalePairingBanner {
+        if tailscalePairingRequired {
             showPairingScanner?()
             return
         }
@@ -325,7 +353,7 @@ struct DisconnectedWorkspaceShellView: View {
                 savedMacs.isEmpty
                     ? L10n.string(
                         "mobile.devices.emptyDescription",
-                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                        defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
                     )
                     : savedMacDescription
             )

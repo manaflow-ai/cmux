@@ -145,7 +145,11 @@ actor PromptTurnNotificationHandler {
             soundContext: NotificationSoundOverrideContext(
                 agentID: definition.id,
                 alertType: .turnDone
-            )
+            ),
+            // Prompt-line detection verifies the pane's foreground agent
+            // process itself, so this is always a top-level session.
+            agentKind: definition.id,
+            isSubagent: false
         )
     }
 

@@ -22,6 +22,10 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `theme.notification_info` | color | `110` | Info notification attention dot and border |
 | `theme.notification_warning` | color | `179` | Warning notification attention dot and border |
 | `theme.notification_error` | color | `167` | Error notification attention dot and border |
+| `theme.border_style` | `"single"`, `"rounded"`, `"thick"`, `"double"`, or `"none"` | `"single"` | Pane border glyph set; `"none"` leaves the border cells blank so panes separate by empty space |
+| `theme.status_bg` | color | chrome default | Status bar background |
+| `theme.status_fg` | color | chrome default | Status bar foreground |
+| `theme.dim_inactive` | boolean | `false` | Renders unfocused terminal panes with the DIM attribute |
 
 ## Tabs
 
@@ -207,6 +211,45 @@ The cloud connector runs `cmux provider control` and `cmux provider stream` remo
 
 The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted when reading older config files but no longer select or launch a browser. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
 
+## Pane
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `pane.padding` | integer | `0` | Blank cells between the pane border and the terminal content, on every side, clamped to 0 through 4 |
+
+Padding shrinks the PTY size accordingly and never pads a pane below one content cell. Border geometry, the tab bar, and the scrollbar keep their positions, so `{"theme":{"border_style":"none"},"pane":{"padding":1}}` renders borderless panes separated by whitespace.
+
+## Status bar
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `status_bar.visible` | boolean | `true` | Shows the bottom screens bar |
+| `status_bar.show_screens` | boolean | `true` | Renders the clickable screens strip |
+| `status_bar.show_session` | boolean | `true` | Renders the right-aligned `[session]` label |
+| `status_bar.left` | array of segments | `[]` | Segments before the screens strip |
+| `status_bar.right` | array of segments | `[]` | Segments right-aligned before the session label |
+| `status_bar.left[].text` | string | one of text/run | Literal text with `{variable}` interpolation |
+| `status_bar.left[].run` | string array | one of text/run | Argv run on an interval; the last nonempty stdout line becomes the segment text, escape sequences stripped, capped at 200 characters |
+| `status_bar.left[].interval` | integer seconds | `5` | Refresh interval for `run` segments, clamped to 1 through 3600 |
+| `status_bar.left[].fg` / `bg` | color | bar colors | Segment colors |
+
+Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. At most 8 segments per side. Transient status messages keep priority over the session label.
+
+```json
+{
+  "theme": {"status_bg": "#1c1c1c", "status_fg": "#87d787"},
+  "status_bar": {
+    "left": [{"text": " {session} Â· {workspace} ", "fg": "#87d787"}],
+    "right": [
+      {"run": ["sh", "-lc", "git -C \"$HOME/src\" branch --show-current"], "interval": 30},
+      {"run": ["date", "+%H:%M"], "interval": 30, "fg": "#d7af5f"}
+    ]
+  }
+}
+```
+
+Hiding the bar gives its row back to the panes. Transient status messages still overlay the bottom row until dismissed, single-surface style. The screens strip, the session label, and the horizontal viewport track are not rendered while hidden; screens stay reachable through `prev-screen`, `next-screen`, `select-screen-N`, and the sidebar.
+
 ## Scrollbar
 
 | Key | Type | Default | Effect |
@@ -231,6 +274,29 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+
+## Commands
+
+`commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `commands[].id` | string | required | Stable unique identity; duplicates and empty ids are ignored |
+| `commands[].name` | string | the id | Display name in the shortcut modal |
+| `commands[].run` | string array | required | Argv executed directly, without a shell; the program must be nonempty, later arguments pass through verbatim (empty ones included) |
+| `commands[].keys` | chord string or array | unset | Chords that run the command; Alt- and Super-modified chords are modeless, other chords run after the prefix |
+| `commands[].cwd` | string | active pane cwd | Working directory for the child process |
+
+Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo run -p cmux-tui -- --session commands`. At most 32 commands are honored; extra entries are ignored with a warning. A command chord replaces whatever action previously held that chord, matching the last-write-wins behavior of the `keys` section, and the prefix chord stays reserved. Shell pipelines need an explicit shell argv, for example `["zsh", "-lc", "git diff | delta"]`.
+
+```json
+{
+  "commands": [
+    {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
+    {"id": "scratch", "keys": ["alt+s"], "run": ["sh", "-lc", "cd \"$HOME/notes\" && exec \"${EDITOR:-vi}\" scratch.md"]}
+  ]
+}
+```
 
 ## Keys
 

@@ -13,7 +13,7 @@ public struct WindowAppearanceResolver {
 
     /// Resolves window appearance from explicit user settings.
     public func current(settings: WindowAppearanceUserSettingsSnapshot) -> WindowAppearanceSnapshot {
-        WindowAppearanceSnapshot(
+        return WindowAppearanceSnapshot(
             terminalBackgroundColor: terminalAppearance.backgroundColor,
             terminalBackgroundOpacity: WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity),
             terminalBackgroundBlur: terminalAppearance.backgroundBlur,
@@ -31,6 +31,8 @@ public struct WindowAppearanceResolver {
                 tintOpacity: settings.sidebarTintOpacity,
                 cornerRadius: settings.sidebarCornerRadius,
                 blurOpacity: settings.sidebarBlurOpacity,
+                // The snapshot initializer replaces this compatibility value
+                // with the terminal authority below.
                 colorScheme: settings.colorScheme
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
@@ -42,19 +44,23 @@ public struct WindowAppearanceResolver {
                 terminalGlassTintColor: terminalAppearance.backgroundColor.withAlphaComponent(
                     WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity)
                 )
-            )
+            ),
+            resolvedColorScheme: terminalAppearance.resolvedColorScheme
         )
     }
 
     /// Resolves window appearance from a `UserDefaults` store.
     public func currentFromUserDefaults(
         defaults: UserDefaults,
-        colorScheme: ColorScheme
+        colorScheme: ColorScheme? = nil
     ) -> WindowAppearanceSnapshot {
         let tintDefaults = WindowChromeSidebarTintDefaults()
         return current(settings: WindowAppearanceUserSettingsSnapshot(
             unifySurfaceBackdrops: defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool ?? false,
-            colorScheme: colorScheme,
+            // `colorScheme` remains an API-compatible fallback for callers
+            // that build settings snapshots themselves. The snapshot
+            // normalizes it to the terminal-derived authority above.
+            colorScheme: colorScheme ?? .light,
             sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.sidebar.rawValue,
             sidebarBlendMode: defaults.string(forKey: "sidebarBlendMode") ?? WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
             sidebarState: defaults.string(forKey: "sidebarState") ?? WindowChromeSidebarStateOption.followWindow.rawValue,

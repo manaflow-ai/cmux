@@ -21,6 +21,9 @@ extension TerminalSurface {
     /// Applies a focus state to the runtime surface (deduplicated).
     @MainActor
     public func setFocus(_ focused: Bool, force: Bool = false) {
+        if !focused {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }

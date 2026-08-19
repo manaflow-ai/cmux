@@ -26,14 +26,45 @@ enum AgentHookNotifyCategory: String {
     /// Legacy delimiter-safe meta segment: `c=<category>;p=<0|1>`. The
     /// contextual overload below adds the agent and alert identity.
     func metaSegment(pending: Bool) -> String? {
+        metaSegment(pending: pending, agentKind: nil, isSubagent: nil)
+    }
+
+    /// Extended meta segment carrying optional agent-event context for the
+    /// app's notification-policy hooks:
+    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>]` (canonical field
+    /// order; `a=` is the stable lowercase agent slug, `n=` marks a nested
+    /// subagent session). An agent kind that fails slug validation is dropped
+    /// rather than risking the app-side parser folding the whole meta back
+    /// into the body.
+    func metaSegment(pending: Bool, agentKind: String?, isSubagent: Bool?) -> String? {
         guard self != .other else { return nil }
-        return "c=\(rawValue);p=\(pending ? 1 : 0)"
+        var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
+        if let agentKind, Self.isValidAgentKindTag(agentKind) {
+            segment += ";a=\(agentKind)"
+        }
+        if let isSubagent {
+            segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        return segment
+    }
+
+    /// Mirror of the app-side `AgentNotificationMeta` slug grammar: 1-64
+    /// characters of `[a-z0-9._-]`. Both sides must agree exactly or the app
+    /// folds the meta back into the notification body.
+    static func isValidAgentKindTag(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
+        }
     }
 
     func metaSegment(
         pending: Bool,
         agentID: String,
-        alertType: NotificationSoundAlertType? = nil
+        alertType: NotificationSoundAlertType? = nil,
+        isSubagent: Bool? = nil
     ) -> String? {
         let resolvedAlertType: NotificationSoundAlertType?
         switch self {
@@ -51,7 +82,12 @@ enum AgentHookNotifyCategory: String {
                 : soundAlertType == resolvedAlertType) else {
             return nil
         }
-        return "c=\(rawValue);p=\(pending ? 1 : 0);a=\(context.agentID);s=\(context.alertType.rawValue)"
+        var segment = "c=\(rawValue);p=\(pending ? 1 : 0);a=\(context.agentID)"
+        if let isSubagent {
+            segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        segment += ";s=\(context.alertType.rawValue)"
+        return segment
     }
 }
 

@@ -17,24 +17,6 @@ enum AgentNotifyCategory: String {
         case .other: return nil
         }
     }
-
-    func metaSegment(
-        pending: Bool,
-        agentID: String,
-        alertType: NotificationSoundAlertType? = nil
-    ) -> String? {
-        guard let resolvedAlertType = alertType ?? soundAlertType,
-              let context = NotificationSoundOverrideContext(
-                  agentID: agentID,
-                  alertType: resolvedAlertType
-              ),
-              (self == .other
-                ? resolvedAlertType == .errorStalled
-                : soundAlertType == resolvedAlertType) else {
-            return nil
-        }
-        return "c=\(rawValue);p=\(pending ? 1 : 0);a=\(context.agentID);s=\(context.alertType.rawValue)"
-    }
 }
 
 /// User policy for the "Claude finished a turn" notification.
@@ -44,43 +26,93 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed category/pending metadata, optionally carrying an agent id and alert
-/// type for sound selection. Malformed tails stay part of the legacy body.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>]` meta segment.
+/// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
+/// pending flag are present, so the reserved suffix grammar stays exactly the
+/// three known categories — any other `c=...` tail stays part of the legacy
+/// notification body. (`.other` never rides the wire: senders omit the meta
+/// entirely for ungated alerts.)
+///
+/// The optional trailing fields carry agent-event context for the user's
+/// notification-policy hooks: `a=` is the stable lowercase agent slug
+/// (`claude`, `codex`, `grok`, …) and `n=` marks a nested subagent session.
+/// Pre-extension senders emit only `c=;p=` and parse exactly as before.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
+    let agentKind: String?
+    let isSubagent: Bool?
     let soundContext: NotificationSoundOverrideContext?
 
     init?(meta: String) {
-        // Accept only the canonical serialization the CLI emits: the category
-        // and pending fields first, followed by the optional sound context.
-        // Reordered, duplicated, or trailing fields stay in the legacy body.
+        // Accept ONLY the canonical serialization the CLI emits (`c=` then
+        // `p=`, optionally followed by `a=` then `n=`, this order, no
+        // duplicates or extras). Anything else — reordered, duplicated, or
+        // unknown trailing fields — is not metadata and stays part of the
+        // legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard fields.count == 2 || fields.count == 4,
+        guard (2...5).contains(fields.count),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
-        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else { return nil }
+        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
+            return nil
+        }
         switch fields[1].dropFirst(2) {
         case "1": self.pending = true
         case "0": self.pending = false
         default: return nil
         }
+        var agentKind: String? = nil
+        var isSubagent: Bool? = nil
+        var soundContext: NotificationSoundOverrideContext? = nil
+        var index = 2
+        if index < fields.count, fields[index].hasPrefix("a=") {
+            let kind = String(fields[index].dropFirst(2))
+            guard Self.isValidAgentKindTag(kind) else { return nil }
+            agentKind = kind
+            index += 1
+        }
+        if index < fields.count, fields[index].hasPrefix("n=") {
+            switch fields[index].dropFirst(2) {
+            case "1": isSubagent = true
+            case "0": isSubagent = false
+            default: return nil
+            }
+            index += 1
+        }
+        if index < fields.count, fields[index].hasPrefix("s=") {
+            guard let agentKind,
+                  let alertType = NotificationSoundAlertType(
+                      rawValue: String(fields[index].dropFirst(2))
+                  ),
+                  let context = NotificationSoundOverrideContext(
+                      agentID: agentKind,
+                      alertType: alertType
+                  ),
+                  known.soundAlertType == alertType
+                    || (known == .other && alertType == .errorStalled)
+            else { return nil }
+            soundContext = context
+            index += 1
+        }
+        guard index == fields.count else { return nil }
+        guard known != .other || soundContext != nil else { return nil }
         self.category = known
-        if fields.count == 2 {
-            guard known != .other else { return nil }
-            self.soundContext = nil
-            return
+        self.agentKind = agentKind
+        self.isSubagent = isSubagent
+        self.soundContext = soundContext
+    }
+
+    /// Mirror of the CLI's `AgentHookNotifyCategory.isValidAgentKindTag` slug
+    /// grammar: 1-64 characters of `[a-z0-9._-]`. Both sides must agree
+    /// exactly or the meta folds back into the notification body.
+    static func isValidAgentKindTag(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
         }
-        guard fields[2].hasPrefix("a="), fields[3].hasPrefix("s="),
-              let alertType = NotificationSoundAlertType(rawValue: String(fields[3].dropFirst(2))),
-              let context = NotificationSoundOverrideContext(
-                  agentID: String(fields[2].dropFirst(2)),
-                  alertType: alertType
-              ),
-              known.soundAlertType == alertType || (known == .other && alertType == .errorStalled) else {
-            return nil
-        }
-        self.soundContext = context
     }
 }
 

@@ -4,7 +4,7 @@ import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
-    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
+    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5","efforts":[{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"gpt-5.5-mini","label":"GPT-5.5 Mini","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -437,6 +437,27 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
         XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+        let automaticDescription = app.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
+        ]
+        XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
+        for requiredFragment in [
+            "cmux 0.64.20 or later",
+            "same cmux account",
+            "keep cmux running on the Mac",
+            "both devices are online",
+            "will not appear automatically",
+        ] {
+            XCTAssertTrue(
+                automaticDescription.label.contains(requiredFragment),
+                "Auto-Connect empty-state copy is missing: \(requiredFragment)"
+            )
+        }
+        XCTAssertTrue(
+            automaticDescription.label.contains(
+                "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
+        )
 
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 4))
@@ -549,7 +570,8 @@ final class cmuxUITests: XCTestCase {
 
     /// A migrating BETA install sees the minimum Mac versions once. Choosing
     /// Tailscale cannot leave an unusable selection behind: without a local
-    /// pairing grant it opens the scanner and keeps a durable setup banner.
+    /// pairing grant it opens the scanner and keeps the setup guidance in the
+    /// empty state without a blocking banner.
     @MainActor
     func testAutoConnectMigrationIntroductionPersistsTailscaleAndAutoConnectAcrossRelaunches() throws {
         let fixtureID = UUID().uuidString
@@ -589,19 +611,29 @@ final class cmuxUITests: XCTestCase {
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         scannerCancel.tap()
+        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 4))
 
-        let pairingRequiredBanner = app.descendants(matching: .any)[
-            "MobileTailscalePairingRequiredBanner"
+        let tailscaleDescription = app.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
         ]
-        XCTAssertTrue(pairingRequiredBanner.waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["MobileTailscalePairingRequiredScan"].isHittable)
-        let dismissPairingRequiredBanner = app.buttons[
-            "MobileTailscalePairingRequiredDismiss"
-        ]
-        XCTAssertTrue(dismissPairingRequiredBanner.waitForExistence(timeout: 4))
-        XCTAssertTrue(dismissPairingRequiredBanner.isHittable)
-        dismissPairingRequiredBanner.tap()
-        XCTAssertTrue(pairingRequiredBanner.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleDescription.label.contains("Install Tailscale"))
+        XCTAssertTrue(
+            tailscaleDescription.label.contains(
+                "To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect."
+            )
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
+                .waitForNonExistence(timeout: 2)
+        )
+        let emptyStateScan = app.buttons["MobileDisconnectedScanPairingCode"]
+        XCTAssertTrue(waitForHittable(emptyStateScan, timeout: 4))
+        emptyStateScan.tap()
+        let emptyStateScanner = app.descendants(matching: .any)["MobilePairingScannerPreview"]
+        XCTAssertTrue(emptyStateScanner.waitForExistence(timeout: 4))
+        app.buttons["MobileScannerCancelButton"].tap()
+        XCTAssertTrue(emptyStateScanner.waitForNonExistence(timeout: 4))
         app.terminate()
 
         let relaunched = launchApp(mockData: true, environment: environment)
@@ -610,9 +642,31 @@ final class cmuxUITests: XCTestCase {
             relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
+        let relaunchedDescription = relaunched.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
+        ]
+        XCTAssertTrue(relaunchedDescription.waitForExistence(timeout: 8))
+        for requiredFragment in [
+            "cmux 0.64.20 or later",
+            "same cmux account",
+            "keep cmux running on the Mac",
+            "both devices are online",
+            "will not appear automatically",
+        ] {
+            XCTAssertTrue(
+                relaunchedDescription.label.contains(requiredFragment),
+                "Auto-Connect empty-state copy is missing after relaunch: \(requiredFragment)"
+            )
+        }
+        XCTAssertTrue(relaunchedDescription.label.contains("Install Tailscale"))
+        XCTAssertTrue(
+            relaunchedDescription.label.contains(
+                "To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect."
+            )
+        )
         XCTAssertTrue(
             relaunched.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
-                .waitForExistence(timeout: 8)
+                .waitForNonExistence(timeout: 2)
         )
         let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
@@ -1485,6 +1539,61 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
+    }
+
+    @MainActor
+    func testIOSCanToggleMacKeepAwakeFromSettings() async throws {
+        let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+
+        let toggle = app.switches["MobileSettingsKeepMacAwakeToggle"]
+        for _ in 0..<8 where !toggle.exists || !toggle.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(toggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(toggle.isHittable)
+        XCTAssertEqual(toggle.value as? String, "0")
+        let didRequestInitialStatus = await server.waitForRequest(method: "caffeine.status")
+        XCTAssertTrue(didRequestInitialStatus)
+
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"),
+            object: toggle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 4), .completed)
+        let didEnableCaffeine = await server.waitForRequest(method: "caffeine.set")
+        XCTAssertTrue(didEnableCaffeine)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "ios-keep-mac-awake-enabled"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let disabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "0"),
+            object: toggle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: 4), .completed)
+        let didDisableCaffeine = await server.waitForRequest(
+            method: "caffeine.set",
+            minimumCount: 2
+        )
+        XCTAssertTrue(didDisableCaffeine)
+        XCTAssertEqual(await server.caffeineSetValues(), [true, false])
     }
 
     @MainActor
@@ -3757,6 +3866,83 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsDoesNotExposeTaskComposerOrTerminalFilesBetaToggles() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let taskComposerToggle = app.switches["MobileSettingsTaskComposer"]
+        let terminalFilesToggle = app.switches["MobileSettingsTerminalFilesChip"]
+        let betaFeaturesHeader = app.staticTexts["Beta Features"]
+        var exposedTaskComposerToggle = taskComposerToggle.exists
+        var exposedTerminalFilesToggle = terminalFilesToggle.exists
+        var exposedBetaFeaturesHeader = betaFeaturesHeader.exists
+        let versionRow = app.descendants(matching: .any)["MobileSettingsVersionRow"]
+        for _ in 0..<12 where !versionRow.exists || !versionRow.isHittable {
+            app.swipeUp(velocity: .slow)
+            exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
+            exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
+            exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
+        }
+        XCTAssertTrue(versionRow.waitForExistence(timeout: 4))
+        exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
+        exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
+        exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
+        XCTAssertFalse(exposedTaskComposerToggle)
+        XCTAssertFalse(exposedTerminalFilesToggle)
+        XCTAssertFalse(exposedBetaFeaturesHeader)
+    }
+
+    @MainActor
+    func testDiagnosticsLogLabelsAndIconsPresentTheShareSheet() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let appLog = app.buttons["MobileSettingsShareAppLog"]
+        let networkLog = app.buttons["MobileSettingsShareNetworkLog"]
+        for _ in 0..<8 where !appLog.isHittable || !networkLog.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(appLog.waitForExistence(timeout: 4))
+        XCTAssertTrue(networkLog.waitForExistence(timeout: 4))
+        XCTAssertTrue(appLog.isHittable)
+        XCTAssertTrue(networkLog.isHittable)
+
+        func assertShareSheetAfterTap(
+            _ element: XCUIElement,
+            at offset: CGVector,
+            name: String
+        ) {
+            element.coordinate(withNormalizedOffset: offset).tap()
+            let copy = app.buttons["Copy"]
+            XCTAssertTrue(
+                copy.waitForExistence(timeout: 4),
+                "Tapping the diagnostics \(name) must present the share sheet."
+            )
+            app.buttons["Cancel"].tap()
+            XCTAssertTrue(element.waitForExistence(timeout: 2))
+        }
+
+        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.1, dy: 0.5), name: "app-log icon")
+        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.5, dy: 0.5), name: "app-log label")
+        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.1, dy: 0.5), name: "network-log icon")
+        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.5, dy: 0.5), name: "network-log label")
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
@@ -3947,6 +4133,7 @@ final class cmuxUITests: XCTestCase {
             )
             XCTAssertTrue(app.buttons["MobileTaskComposerMachineMenu"].exists)
             XCTAssertTrue(app.buttons["MobileTaskComposerDirectory"].exists)
+            XCTAssertTrue(app.buttons["MobileTaskComposerWorkspaceGroup"].exists)
             XCTAssertLessThanOrEqual(
                 app.buttons.matching(identifier: "MobileTaskComposerAgentPill").count,
                 1,
@@ -3978,7 +4165,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
             XCTAssertEqual(
                 submittedCommand.label,
-                "codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+                "codex -c model_reasoning_effort='medium' -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
             )
 
             app.terminate()
@@ -4021,6 +4208,62 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Effort choices belong to the selected model, stay visible beside the
+    /// model control, and must be replaced when the model changes.
+    @MainActor
+    func testTaskComposerEffortPickerUsesSelectedModelCatalog() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        selectTaskComposerAgent(named: "Codex", in: app)
+
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(model.waitForExistence(timeout: 4))
+        tap(model, in: app)
+        tapMenuItem(app.buttons["GPT-5.5"], in: app)
+
+        let effort = app.buttons["MobileTaskComposerEffortPill"]
+        XCTAssertTrue(effort.waitForExistence(timeout: 3))
+        XCTAssertEqual(effort.value as? String, "Medium")
+        XCTAssertLessThan(model.frame.midX, effort.frame.midX)
+        XCTAssertLessThan(
+            effort.frame.midX,
+            app.buttons["MobileTaskComposerSubmitButton"].frame.midX
+        )
+
+        tap(effort, in: app)
+        XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 2))
+        tapMenuItem(app.buttons["High"], in: app)
+        XCTAssertEqual(effort.value as? String, "High")
+
+        tap(model, in: app)
+        tapMenuItem(app.buttons["GPT-5.5 Mini"], in: app)
+        XCTAssertEqual(effort.value as? String, "Low")
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "Native task composer model and effort pickers"
+        proof.lifetime = .keepAlways
+        add(proof)
+        tap(effort, in: app)
+        XCTAssertTrue(app.buttons["Low"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["High"].exists)
+        tapMenuItem(app.buttons["Low"], in: app)
+
+        try typeText("Use the exact model effort", into: taskComposerPrompt(in: app), in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: submit)
+        waitForExpectations(timeout: 3)
+        tap(submit, in: app)
+        let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            submittedCommand.label,
+            "codex -c model_reasoning_effort='low' -m 'gpt-5.5-mini' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
     /// A UIKit menu retains the model snapshot it presented. If installed-agent
     /// discovery replaces the live backend catalog before the user taps, the
     /// visible snapshot choice must still become the submitted model.
@@ -4050,8 +4293,7 @@ final class cmuxUITests: XCTestCase {
             port: hostPort,
             environment: [
                 "CMUX_AGENT_MODELS_URL": "http://127.0.0.1:\(catalogPort)/api/agent-models",
-            ],
-            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
+            ]
         )
         defer { app.terminate() }
 
@@ -4123,11 +4365,7 @@ final class cmuxUITests: XCTestCase {
 
         // The injected attach ticket uses the production connection and
         // capability handshake while avoiding the independent Add Computer UI.
-        // Enable New Task explicitly because this focused test owns that entrypoint.
-        let hostApp = try launchConnectedApp(
-            port: port,
-            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
-        )
+        let hostApp = try launchConnectedApp(port: port)
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
@@ -4312,7 +4550,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The Composer pill scroller must clip between its neighboring controls;
-    /// it must not underlap them to render a blur or fade at either edge.
+    /// its pills retain readable intrinsic widths and scroll behind hard edges.
     @MainActor
     func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
         let app = launchApp(mockData: false, environment: [
@@ -4353,15 +4591,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
         XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
         XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            scroller.frame.maxX,
-            "A long selected model must compress inside the pill viewport"
+        XCTAssertGreaterThan(
+            modelPill.frame.width,
+            120,
+            "A long selected model must keep enough width to show its label"
         )
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            submit.frame.minX,
-            "The selected model must never extend beneath Submit"
+        let modelMidXBeforeScroll = modelPill.frame.midX
+        scroller.swipeLeft()
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelMidXBeforeScroll,
+            "Overflowing picker pills must move together inside the scroller"
         )
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -5216,6 +5456,35 @@ final class cmuxUITests: XCTestCase {
         let submittedMac = app.staticTexts["MobileTaskComposerSubmittedMacDeviceID"]
         XCTAssertTrue(submittedMac.waitForExistence(timeout: 4))
         XCTAssertEqual(submittedMac.label, "task-composer-backup-preview-mac")
+    }
+
+    /// Selecting a workspace group in Task Options must travel with the
+    /// immutable create spec, so the new workspace lands in that group.
+    @MainActor
+    func testTaskComposerSubmitsToSelectedWorkspaceGroup() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = taskComposerPrompt(in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
+
+        let groupMenu = app.buttons["MobileTaskComposerWorkspaceGroup"]
+        XCTAssertTrue(groupMenu.waitForExistence(timeout: 3))
+        XCTAssertEqual(groupMenu.value as? String, "None")
+        tap(groupMenu, in: app)
+        tapMenuItem(app.buttons["Focus work"], in: app)
+        XCTAssertEqual(groupMenu.value as? String, "Focus work")
+
+        tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
+        try typeText("Put this task in Focus work", into: prompt, in: app)
+        tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
+
+        let submittedGroup = app.staticTexts["MobileTaskComposerSubmittedWorkspaceGroupID"]
+        XCTAssertTrue(submittedGroup.waitForExistence(timeout: 4))
+        XCTAssertEqual(submittedGroup.label, "task-composer-preview-group")
     }
 
     /// The debug-only lab must expose every Shell treatment, apply the
@@ -7856,7 +8125,6 @@ final class cmuxUITests: XCTestCase {
             "root-pairing"
         let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
-            "-cmux.mobile.taskComposerEnabled", "YES",
         ])
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
@@ -10095,6 +10363,40 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    private func assertTerminalPresentationPinnedToDock(
+        _ dock: [String: String],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let currentGap = dock["terminalDockPresentationGap"].flatMap(Double.init),
+              let maximumGap = dock["terminalDockMaxPresentationGap"].flatMap(Double.init),
+              let screenScale = dock["screenScale"].flatMap(Double.init),
+              screenScale > 0 else {
+            XCTFail(
+                "Missing terminal presentation-to-dock geometry for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
+        let twoPhysicalPixels = 2 / screenScale
+        XCTAssertLessThanOrEqual(
+            currentGap,
+            twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            maximumGap,
+            twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+    }
+
     /// Verify the built app's two-part keyboard contract at steady state:
     /// the OS-selected geometry source resolves to the real software-keyboard edge,
     /// and the visible composer/toolbar stack resolves to that same target.
@@ -10574,6 +10876,10 @@ final class cmuxUITests: XCTestCase {
             keyboard: initialKeyboard,
             context: "rapid-reversal baseline"
         )
+        assertTerminalPresentationPinnedToDock(
+            surfaceDock(in: app),
+            context: "keyboard-visible baseline"
+        )
         let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
 
         let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
@@ -10617,6 +10923,84 @@ final class cmuxUITests: XCTestCase {
                 maximumGap,
                 1,
                 "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                dock,
+                context: "rapid reversal \(cycle)"
+            )
+        }
+
+        hideKeyboardButton.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
+            $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
+        }
+        assertTerminalPresentationPinnedToDock(
+            hiddenDock,
+            context: "keyboard-hidden settle"
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            hiddenDock,
+            context: "keyboard-hidden settle"
+        )
+    }
+
+    /// A second tap at the keyboard-control's original screen coordinate can land
+    /// while its first hide animation is still moving the dock. This is distinct from
+    /// a terminal tap reversal because it exercises the same control's hit target
+    /// through an A→B→A keyboard sequence. The host must rebase the clip, dock, and
+    /// terminal wrapper from one presentation edge before beginning the return leg.
+    @MainActor
+    func testTerminalDockStaysPinnedForInPlaceKeyboardControlReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "in-place reversal baseline"
+        )
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+        let controlFrame = hideKeyboardButton.frame
+        let controlPoint = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: controlFrame.midX, dy: controlFrame.midY)
+        )
+
+        for cycle in 1...10 {
+            controlPoint.tap()
+            controlPoint.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "in-place reversal \(cycle)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                dock,
+                context: "in-place reversal \(cycle)"
             )
         }
     }
@@ -10754,6 +11138,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
+    private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
     private let macInstanceTag: String
@@ -10778,6 +11163,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     // later requests pass through after the release point.
     private var heldTaskModelResponses: [() -> Void] = []
     private var taskModelResponsesWereReleased = false
+    private var caffeineEnabled = false
+    private var caffeineSetEnabledValues: [Bool] = []
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -10836,6 +11223,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
+        advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
@@ -10847,6 +11235,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
+        self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
@@ -10973,6 +11362,14 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 continuation.resume(
                     returning: self.requestCountsByMethod[method, default: 0]
                 )
+            }
+        }
+    }
+
+    func caffeineSetValues() async -> [Bool] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.caffeineSetEnabledValues)
             }
         }
     }
@@ -11332,6 +11729,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "caffeine.status":
+            result = ["enabled": caffeineEnabled]
+        case "caffeine.set":
+            guard advertisesCaffeineControl,
+                  let enabled = params["enabled"] as? Bool else {
+                throw serverError("Caffeine control request is invalid.")
+            }
+            caffeineEnabled = enabled
+            caffeineSetEnabledValues.append(enabled)
+            result = ["enabled": caffeineEnabled]
         case "mobile.task.models.list":
             let provider = params["provider"] as? String ?? ""
             let models = taskModelsByProvider[provider, default: []].map { model in
@@ -11380,6 +11787,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         if advertisesTaskAttachments {
             capabilities.append("task.attachments.v1")
+        }
+        if advertisesCaffeineControl {
+            capabilities.append("caffeine.control.v1")
         }
         if !taskModelsByProvider.isEmpty {
             capabilities.append("task.models.v1")

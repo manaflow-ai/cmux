@@ -14,6 +14,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let replyShape: TerminalNotificationReplyShape
+    let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
 }
 
@@ -76,6 +77,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         coalesces: Bool = true
     ) {
@@ -85,6 +87,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
+            agent: agent,
             soundContext: soundContext
         ), coalesces: coalesces)
     }
@@ -463,6 +466,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: notification.subtitle,
                     body: notification.body,
                     replyShape: notification.replyShape,
+                    agent: notification.agent,
                     notificationGeneration: entry.notificationGeneration ?? 0,
                     soundContext: notification.soundContext
                 )

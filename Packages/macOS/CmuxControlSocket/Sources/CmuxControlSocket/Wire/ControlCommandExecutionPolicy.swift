@@ -107,6 +107,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Panel artifact reads are mobile data-plane file IO for non-terminal
+        // surfaces. Keep them on the worker lane so markdown/file-preview panes
+        // reach TerminalController's mobile.panel.artifact.* dispatcher instead
+        // of the main-actor switch returning method_not_found.
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
         // `surface.read_text` reads a terminal's visible or full-scrollback

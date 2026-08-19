@@ -607,3 +607,142 @@ struct SidebarWorkspaceTableTests {
         }
     }
 }
+
+#if DEBUG
+@Suite
+struct SidebarWorkspaceTableResizeLifecycleTests {
+    @Test
+    @MainActor
+    func appliedRowsStayStableUntilInteractiveResizeEnds() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let third = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 1)
+
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        var resizeIsActive = true
+        defer {
+            if resizeIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+            }
+        }
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A live resize must keep the controller's previously applied row graph stable."
+        )
+
+        controller.apply(
+            rows: [first, second, third],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId, third.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A newer resize-time snapshot must not replace the applied row graph."
+        )
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+        resizeIsActive = false
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 3,
+            "Resize completion must reconcile the newest deferred row graph."
+        )
+    }
+
+    @MainActor
+    private func makeRowConfiguration() -> SidebarWorkspaceTableRowConfiguration {
+        let workspaceId = UUID()
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: environment,
+            equivalenceValue: TestRowContent()
+        ) { _, _ in
+            AnyView(TestRowContent())
+        }
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
+
+    @MainActor
+    private func makeTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _, _ in nil },
+            performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
+        )
+    }
+
+    private struct TestRowContent: View, Equatable {
+        var body: some View {
+            EmptyView()
+        }
+    }
+}
+#endif

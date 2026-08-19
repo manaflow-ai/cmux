@@ -12,6 +12,7 @@ struct MobileIrohSettingsView: View {
     @State private var showsPrivatePathEditor = false
     @State private var editedPrivatePathMacDeviceID: String?
     @State private var pendingPrivatePathRemovalMacDeviceID: String?
+    @State private var showsResetConfirmation = false
 
     init(
         controller: any CmxIrohSettingsControlling,
@@ -51,27 +52,11 @@ struct MobileIrohSettingsView: View {
                     }
                 }
             } header: {
-                Text(L10n.string("mobile.iroh.relays", defaultValue: "Iroh Relays"))
+                Text(L10n.string("mobile.iroh.relays", defaultValue: "Relays"))
             } footer: {
                 Text(L10n.string(
                     "mobile.iroh.relays.footer",
                     defaultValue: "Direct peer-to-peer stays enabled. cmux verifies a signed relay catalog, so fleet changes do not require an app update."
-                ))
-            }
-
-            Section {
-                Toggle(isOn: Binding(
-                    get: { model.snapshot.pathPreference == .relayOnly },
-                    set: { model.setPathPreference($0 ? .relayOnly : .automatic) }
-                )) {
-                    Text(L10n.string("mobile.iroh.relayOnly", defaultValue: "Relay Only"))
-                }
-                .disabled(model.isMutating)
-                .accessibilityIdentifier("MobileIrohRelayOnly")
-            } footer: {
-                Text(L10n.string(
-                    "mobile.iroh.relayOnly.footer",
-                    defaultValue: "Keeps this device's Iroh connections on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
                 ))
             }
 
@@ -141,6 +126,21 @@ struct MobileIrohSettingsView: View {
                 }
             )
 
+            Section {
+                Toggle(isOn: pathPreferenceBinding) {
+                    Text(L10n.string(
+                        "mobile.iroh.neverUseRelays",
+                        defaultValue: "Never Use Relays"
+                    ))
+                }
+                .accessibilityIdentifier("MobileIrohNeverUseRelays")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.iroh.pathPreference.footer",
+                    defaultValue: "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect."
+                ))
+            }
+
             #if DEBUG
             if let mode = model.snapshot.debugTransportVerificationMode {
                 MobileIrohDebugTransportSection(
@@ -149,6 +149,13 @@ struct MobileIrohSettingsView: View {
                 )
             }
             #endif
+
+            MobileIrohConnectionCheckSection(
+                report: model.connectionCheck,
+                relayURLs: model.connectionCheckRelayURLs,
+                isRunning: model.isRunningConnectionCheck,
+                run: model.runConnectionCheck
+            )
 
             MobileIrohDiagnosticsSection(
                 connectionStatus: runtimeStatusText,
@@ -172,8 +179,23 @@ struct MobileIrohSettingsView: View {
             )
         }
         .disabled(model.isMutating)
-        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
+        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Networking"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsResetConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .accessibilityLabel(L10n.string(
+                    "mobile.iroh.reset",
+                    defaultValue: "Reset to Defaults"
+                ))
+                .accessibilityIdentifier("MobileIrohResetDefaults")
+                .disabled(model.isMutating)
+            }
+        }
         .task { await model.observe() }
         .onDisappear { model.cancelOperations() }
         .sheet(isPresented: $showsCustomEditor) {
@@ -201,6 +223,26 @@ struct MobileIrohSettingsView: View {
             Text(L10n.string(
                 "mobile.iroh.saveFailed.message",
                 defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
+            ))
+        }
+        .alert(
+            L10n.string(
+                "mobile.iroh.reset.title",
+                defaultValue: "Reset Networking Settings?"
+            ),
+            isPresented: $showsResetConfirmation
+        ) {
+            Button(
+                L10n.string("mobile.iroh.reset.confirm", defaultValue: "Reset"),
+                role: .destructive
+            ) {
+                model.resetToDefaults()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.reset.message",
+                defaultValue: "Relay and path preferences will return to Automatic. Saved custom relays and private addresses will remain, but private addresses will be disabled."
             ))
         }
         .confirmationDialog(
@@ -281,6 +323,13 @@ struct MobileIrohSettingsView: View {
         )
     }
 
+    private var pathPreferenceBinding: Binding<Bool> {
+        Binding(
+            get: { model.snapshot.pathPreference == .neverUseRelays },
+            set: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
+        )
+    }
+
     private var editedCustomRelay: CmxIrohSettingsSnapshot.CustomRelay? {
         guard let editedCustomRelayID else { return nil }
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
@@ -297,7 +346,10 @@ struct MobileIrohSettingsView: View {
         if let editedPrivatePath {
             return [.init(
                 id: editedPrivatePath.macDeviceID,
-                displayName: editedPrivatePath.macDisplayName
+                displayName: editedPrivatePath.macDisplayName,
+                supportsPrivatePaths: model.snapshot.privateNetworkMacs.first {
+                    $0.id == editedPrivatePath.macDeviceID
+                }?.supportsPrivatePaths ?? false
             )]
         }
         let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))

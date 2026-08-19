@@ -8,7 +8,7 @@ extension MobileHostIrohRuntime {
         #if DEBUG
         Self.debugTransportVerificationMode(defaults: .standard)
         #else
-        CmxIrohPathPreference.stored(in: .standard).transportVerificationMode
+        .automatic
         #endif
     }
 
@@ -41,7 +41,7 @@ extension MobileHostIrohRuntime {
         if defaults.bool(forKey: debugRelayOnlyDefaultsKey) {
             return .relayOnly
         }
-        return CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+        return .automatic
     }
 
     static var isDebugRelayOnlyEnabled: Bool {
@@ -101,6 +101,13 @@ extension MobileHostIrohRuntime {
             guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
                 throw CmxIrohTrustBrokerClientError.invalidBaseURL
             }
+            guard let clientNamespace = CmxIrohMacBundleNamespace(
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            ) else {
+                throw CmxIrohHostRuntimeError.invalidLocalBinding
+            }
+            let requestClientNamespace = preparation.bindingAuthorization?
+                .clientNamespace ?? clientNamespace.rawValue
             let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
@@ -113,6 +120,8 @@ extension MobileHostIrohRuntime {
                         )
                     }
                 ),
+                clientNamespace: requestClientNamespace,
+                bindingAuthorization: preparation.bindingAuthorization,
                 backpressureMode: .callerOwned
             )
             let broker = CmxIrohBackpressuredHostBroker(
@@ -128,7 +137,8 @@ extension MobileHostIrohRuntime {
                 await wipePersistedAccountState(
                     after: CmxIrohHostSignOutPreparation(
                         pendingRevocation: preparation.pendingRevocation,
-                        wasPersisted: true
+                        wasPersisted: true,
+                        bindingAuthorization: preparation.bindingAuthorization
                     )
                 )
             }
@@ -428,12 +438,14 @@ extension MobileHostIrohRuntime {
     func synchronizeLANPublicationWithSettings() async {
         guard MobileHostService.isListeningEnabled else {
             await lanPublisher.stop()
+            await recordLANPublicationState(reason: 1)
             return
         }
         guard desiredActive,
               let runtime,
               let context = await runtime.lanAdvertisementContext() else {
             await lanPublisher.stop()
+            await recordLANPublicationState(reason: 2)
             return
         }
         await lanPublisher.activate(
@@ -441,6 +453,26 @@ extension MobileHostIrohRuntime {
             binding: context.binding,
             directAddresses: { await runtime.localDirectAddresses() }
         )
+        await recordLANPublicationState(reason: 0)
+    }
+
+    /// Records the publisher's resulting state so relay-free bootstrap
+    /// failures can distinguish a Mac that never advertised. `reason` is
+    /// 0 settings applied, 1 listener setting disabled, 2 runtime context
+    /// unavailable.
+    private func recordLANPublicationState(reason: Int) async {
+        let state: DiagnosticLANPublicationState =
+            switch await lanPublisher.snapshot() {
+            case .inactive: .inactive
+            case .active: .active
+            case .unavailable: .unavailable
+            case .policyDenied: .policyDenied
+            }
+        diagnosticLog.record(DiagnosticEvent(
+            .lanPublicationState,
+            a: state.rawValue,
+            b: reason
+        ))
     }
 
     /// Stops the endpoint and durably quarantines its binding before auth clears tokens.
@@ -484,7 +516,8 @@ extension MobileHostIrohRuntime {
         }
         return CmxIrohHostSignOutPreparation(
             pendingRevocation: pending,
-            wasPersisted: wasPersisted
+            wasPersisted: wasPersisted,
+            bindingAuthorization: preparedSignOut?.bindingAuthorization
         )
     }
 

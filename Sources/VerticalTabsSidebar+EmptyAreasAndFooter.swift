@@ -199,7 +199,7 @@ struct SidebarFooterCircularIcon: View {
             pointSize: style.pointSize,
             weight: style.weight
         )
-        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -468,7 +468,7 @@ struct SidebarMobileConnectButton: View {
             )
         } label: {
             CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .foregroundStyle(.secondary)
                 .frame(
                     width: SidebarFooterButtonMetrics.buttonSize,
                     height: SidebarFooterButtonMetrics.buttonSize

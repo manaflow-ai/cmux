@@ -124,6 +124,9 @@ jobs:
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
+      - name: Validate Blacksmith Testbox broker trust boundary
+        run: python3 tests/test_ci_testbox_broker_guard.py
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 

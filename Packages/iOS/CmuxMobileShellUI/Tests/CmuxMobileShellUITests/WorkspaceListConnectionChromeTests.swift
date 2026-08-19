@@ -87,12 +87,12 @@ import Testing
         ) == .recoveryBanner)
     }
 
-    @Test func missingTailscaleAuthorizationShowsSetupBeforeRestoreChrome() {
+    @Test func missingTailscaleAuthorizationShowsCompactStatusBeforeRestoreChrome() {
         #expect(chrome(
             connectionStatus: .reconnecting,
             tailscalePairingRequired: true,
             isInitialConnectionLoading: true
-        ) == .tailscalePairingRequired)
+        ) == .statusLine(.notConnected))
     }
 
     @Test func reauthOutranksMissingTailscaleAuthorization() {
@@ -191,7 +191,7 @@ import Testing
         #expect(chrome(
             connectionStatus: .connected,
             tailscalePairingRequired: true
-        ).statusLine == nil)
+        ).statusLine == .notConnected)
     }
 
     @Test func workspaceDetailReconnectIsUnavailableDuringReauthentication() {

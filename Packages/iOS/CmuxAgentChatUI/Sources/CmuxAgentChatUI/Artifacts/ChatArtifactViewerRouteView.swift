@@ -9,20 +9,32 @@ import AppKit
 
 /// Renders one immutable artifact page snapshot without contributing navigation chrome.
 struct ChatArtifactViewerRouteView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let retryGeneration: Int
+        let presentationGeneration: Int
+        let sourceIdentity: String?
+    }
+
     let snapshot: ChatArtifactViewerPageSnapshot
     let scope: ChatArtifactViewerScope
     let actions: ChatArtifactViewerPageActions
+    /// The host's live session state, so transport-failure copy can identify
+    /// whether the phone is disconnected or the Mac is unreachable.
+    var connectionHint: ChatArtifactConnectionHint = .connected
     let onDone: () -> Void
     let onImageMinimumZoomChanged: (Bool) -> Void
     let onImageAction: (@MainActor (ChatArtifactAction) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chatArtifactLoader) private var loader
     @State private var presentation = ChatArtifactViewerPresentationCoordinator()
 
     init(
         snapshot: ChatArtifactViewerPageSnapshot,
         scope: ChatArtifactViewerScope,
         actions: ChatArtifactViewerPageActions,
+        connectionHint: ChatArtifactConnectionHint = .connected,
         onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
         onImageAction: (@MainActor (ChatArtifactAction) -> Void)? = nil,
         onDone: @escaping () -> Void
@@ -30,6 +42,7 @@ struct ChatArtifactViewerRouteView: View {
         self.snapshot = snapshot
         self.scope = scope
         self.actions = actions
+        self.connectionHint = connectionHint
         self.onDone = onDone
         self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
         self.onImageAction = onImageAction
@@ -43,7 +56,12 @@ struct ChatArtifactViewerRouteView: View {
             .onDisappear {
                 presentation.dismiss()
             }
-            .task(id: "\(path)\u{0}\(snapshot.retryGeneration)\u{0}\(presentation.generation)") {
+            .task(id: LoadIdentity(
+                path: path,
+                retryGeneration: snapshot.retryGeneration,
+                presentationGeneration: presentation.generation,
+                sourceIdentity: loader.sourceIdentity
+            )) {
                 let didStart = await presentation.loadAfterPresentation {
                     await actions.load()
                 }
@@ -184,9 +202,12 @@ struct ChatArtifactViewerRouteView: View {
                 scope: scope,
                 actualSize: actualSize
             )
+            let copy = error == .macUnreachable
+                ? connectionHint.unreachableCopy
+                : (title: failure.title, message: failure.message)
             unavailableView(
-                title: failure.title,
-                message: failure.message,
+                title: copy.title,
+                message: copy.message,
                 retry: failure.allowsRetry
             )
         }
