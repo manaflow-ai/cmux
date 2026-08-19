@@ -2895,10 +2895,11 @@ import Testing
             MobileConnectionMethod.tailscale.rawValue,
             forKey: MobileConnectionMethodStore.methodKey
         )
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
-                now: { Date() },
+                now: { fixedNow },
                 supportedRouteKinds: [.iroh, .tailscale]
             ),
             isSignedIn: true,
@@ -2958,10 +2959,11 @@ import Testing
             MobileConnectionMethod.tailscale.rawValue,
             forKey: MobileConnectionMethodStore.methodKey
         )
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
-                now: { Date() },
+                now: { fixedNow },
                 supportedRouteKinds: [.iroh, .tailscale]
             ),
             isSignedIn: true,
