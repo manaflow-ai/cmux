@@ -437,9 +437,15 @@ extension GhosttySurfaceView {
     /// Called by Ghostty after one exact tokened command reaches the model
     /// renderer layer. A stale completion has a different token and cannot arm
     /// the pending fence.
-    func handleVerifiedReplayRenderPresented(token: UInt64) {
-        guard var pending = pendingVerifiedReplayPresentation else { return }
-        guard token == pending.fence.expectedToken else { return }
+    ///
+    /// - Returns: `true` when the caller should release the ordinary render
+    ///   gate directly. Verified replay callbacks return `false`; their gate
+    ///   is released by `completePendingVerifiedReplayPresentationIfPresented`
+    ///   only after readback and presentation are both verified.
+    @discardableResult
+    func handleVerifiedReplayRenderPresented(token: UInt64) -> Bool {
+        guard var pending = pendingVerifiedReplayPresentation else { return true }
+        guard token == pending.fence.expectedToken else { return false }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let modelGeometry = verifiedReplayPresentationGeometry(
@@ -456,7 +462,7 @@ extension GhosttySurfaceView {
             MobileDebugLog.anchormux(
                 "verified_replay.callback_rejected reason=\(failureReason)"
             )
-            return
+            return false
         }
         guard pending.fence.acknowledge(
             token: token,
@@ -464,10 +470,11 @@ extension GhosttySurfaceView {
             geometryRevision: verifiedReplayGeometryRevision,
             geometry: modelGeometry
         ) else {
-            return
+            return false
         }
         pendingVerifiedReplayPresentation = pending
         completePendingVerifiedReplayPresentationIfPresented()
+        return false
     }
 
     /// A tokened replay can be rejected by Ghostty after the GPU completes,
@@ -614,12 +621,20 @@ extension GhosttySurfaceView {
             verifiedReplayReadyFence = pending.fence
             verifiedReplayReadyTransactionID = transactionID
         }
-        completePendingVerifiedReplayPresentation(
-            id: pending.id,
-            returning: VerifiedReplayPresentedSubmission(
-                observedFrame: pending.observedFrame
-            )
+        let token = pending.id
+        let result = VerifiedReplayPresentedSubmission(
+            observedFrame: pending.observedFrame
         )
+        // The callback can arrive before the readback Task is scheduled. Keep
+        // the render gate occupied until this exact fence is satisfied, then
+        // release it once, after the continuation has been claimed.
+        guard completePendingVerifiedReplayPresentation(
+            id: token,
+            returning: result
+        ) else {
+            return
+        }
+        finishRenderSubmission(token: token)
     }
 
     func verifiedReplayPendingFenceFailureReason() -> String? {
