@@ -21784,9 +21784,8 @@ mod tests {
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, run_status_command,
-        should_claim_clear_history_shortcut, sidebar_layout_for,
-        sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
+        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
@@ -24224,7 +24223,7 @@ mod tests {
 
         assert!(rendered.contains("isolated attach error"), "{rendered}");
         assert!(!rendered.contains("screens"), "{rendered}");
-        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, ratatui::style::Color::Red);
+        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, Color::Red);
 
         mux.close_surface(surface.id).unwrap();
     }
