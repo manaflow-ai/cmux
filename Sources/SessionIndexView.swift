@@ -147,13 +147,13 @@ struct SessionIndexView: View {
 
             Spacer(minLength: 4)
 
-            // Icon toggle, not a labeled checkbox: the sidebar is routinely
-            // too narrow for "This folder only" and truncated chrome text
-            // reads as broken UI. The tooltip carries the full label.
-            ScopePillToggle(
-                isOn: $store.scopeToCurrentDirectory,
-                label: String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only")
-            )
+            Toggle(isOn: $store.scopeToCurrentDirectory) {
+                Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+            }
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
@@ -432,8 +432,6 @@ private struct GroupingButton: View {
     @State private var isHovered: Bool = false
 
     var body: some View {
-        // Short single-word labels ("Recent"/"Folder"/"Agent") so the pills
-        // keep their names without truncating in a narrow sidebar.
         Button(action: action) {
             HStack(spacing: 3) {
                 Image(systemName: mode.symbolName)
@@ -447,7 +445,6 @@ private struct GroupingButton: View {
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
-                    .fixedSize()
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
@@ -456,34 +453,6 @@ private struct GroupingButton: View {
         .onHover { isHovered = $0 }
         .help(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
-    }
-}
-
-/// Pill-styled icon toggle for the "This folder only" scope, visually paired
-/// with the grouping pills. Icon-only for narrow sidebars; the tooltip and
-/// accessibility label carry the full text.
-private struct ScopePillToggle: View {
-    @Binding var isOn: Bool
-    let label: String
-    @State private var isHovered: Bool = false
-
-    var body: some View {
-        Button {
-            isOn.toggle()
-        } label: {
-            Image(systemName: "scope")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFont(
-                    size: RightSidebarChromeControlStyle.secondaryIconSize,
-                    weight: RightSidebarChromeControlStyle.iconWeight
-                )
-                .rightSidebarChromePill(isSelected: isOn, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_scopePill")
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .help(label)
-        .accessibilityLabel(Text(label))
-        .accessibilityAddTraits(isOn ? [.isSelected] : [])
     }
 }
 

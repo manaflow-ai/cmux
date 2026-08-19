@@ -26,14 +26,16 @@ struct VaultAllSessionsBar: View {
                 filterMenu
             }
         }
-        .rightSidebarChromeBar()
+        // Same margins as the Vault popover's standardized search row.
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
     }
 
     private var searchField: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .cmuxFont(size: 10, weight: .medium)
+                .cmuxFont(size: 11, weight: .medium)
                 .foregroundColor(.secondary)
             TextField(
                 String(localized: "sessionIndex.allSessions.searchPlaceholder",
@@ -60,7 +62,7 @@ struct VaultAllSessionsBar: View {
                     searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .cmuxFont(size: 10)
+                        .cmuxFont(size: 11)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -68,13 +70,12 @@ struct VaultAllSessionsBar: View {
                                                 defaultValue: "Clear search")))
             }
         }
-        // Same control metrics as the grouping pills so the field's box
-        // aligns with row-one chrome instead of introducing its own padding.
-        .padding(.horizontal, RightSidebarChromeMetrics.controlHorizontalPadding)
-        .frame(height: RightSidebarChromeMetrics.controlHeight)
-        .frame(maxWidth: .infinity)
+        // The one standardized Vault search-field style, shared with
+        // SectionPopoverView's "Search Vault" row.
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background(
-            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
         )
         .titlebarInteractiveControl()
