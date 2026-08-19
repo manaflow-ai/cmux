@@ -695,25 +695,31 @@ final class TerminalPanel: Panel, ObservableObject {
     // MARK: - Terminal-specific methods
 
     @discardableResult
-    func sendText(_ text: String) -> Bool {
+    func sendText(_ text: String, isUserInitiated: Bool = false) -> Bool {
         resumeForExplicitInputIfNeeded()
-        return surface.sendText(text)
+        return surface.sendText(text, isUserInitiated: isUserInitiated)
     }
 
-    func sendInput(_ text: String) {
-        _ = sendInputResult(text)
-    }
-
-    @discardableResult
-    func sendInputResult(_ text: String) -> TerminalSurface.InputSendResult {
-        resumeForExplicitInputIfNeeded()
-        return surface.sendInputResult(text)
+    func sendInput(_ text: String, isUserInitiated: Bool = false) {
+        _ = sendInputResult(text, isUserInitiated: isUserInitiated)
     }
 
     @discardableResult
-    func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+    func sendInputResult(
+        _ text: String,
+        isUserInitiated: Bool = false
+    ) -> TerminalSurface.InputSendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendNamedKey(keyName)
+        return surface.sendInputResult(text, isUserInitiated: isUserInitiated)
+    }
+
+    @discardableResult
+    func sendNamedKeyResult(
+        _ keyName: String,
+        isUserInitiated: Bool = false
+    ) -> TerminalSurface.NamedKeySendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendNamedKey(keyName, isUserInitiated: isUserInitiated)
     }
 
     @discardableResult

@@ -36,6 +36,15 @@ extension TerminalSurface {
         onExplicitInput?()
     }
 
+    /// Publishes accepted user intent without duplicating the pane-host input
+    /// notification already sent by the shared write API.
+    @MainActor
+    func didAcceptUserInitiatedInput(_ isUserInitiated: Bool, accepted: Bool) {
+        if isUserInitiated, accepted {
+            onUserExplicitInput?()
+        }
+    }
+
     /// Sends cmux-authored recovery input only when it can reach the live PTY immediately.
     ///
     /// Recovery input never enters the cold-surface or clipboard deferral queues. Returning

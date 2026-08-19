@@ -109,6 +109,9 @@ struct SettingsSearchIndexTests {
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
+        ("context pressure", "setting:terminal:agent-context-management"),
+        ("compact clear", "setting:terminal:agent-context-management-action"),
+        ("handoff note", "setting:terminal:agent-context-management-preserve-state"),
     ])
     func searchesFindRealSettingsRows(query: String, expectedID: String) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())

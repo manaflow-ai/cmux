@@ -449,6 +449,10 @@ extension DockSplitStore {
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
+            AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: nil
+            )
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
@@ -547,6 +551,10 @@ extension DockSplitStore {
         guard let newPane else {
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
+            AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: nil
+            )
             panels.removeValue(forKey: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil

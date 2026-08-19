@@ -268,9 +268,8 @@ extension TerminalController {
             guard let terminalPanel = target.terminalPanel else {
                 return .surfaceNotTerminal(surfaceId)
             }
-            terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
             let queued: Bool
-            switch terminalPanel.sendInputResult(text) {
+            switch terminalPanel.sendInputResult(text, isUserInitiated: true) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
                 queued = false
@@ -316,9 +315,8 @@ extension TerminalController {
         ) {
             return remote
         }
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         let queued: Bool
-        switch terminalPanel.sendInputResult(text) {
+        switch terminalPanel.sendInputResult(text, isUserInitiated: true) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
@@ -364,8 +362,10 @@ extension TerminalController {
             guard let terminalPanel = target.terminalPanel else {
                 return .surfaceNotTerminal(surfaceId)
             }
-            terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-            let sendResult = terminalPanel.sendNamedKeyResult(key)
+            let sendResult = terminalPanel.sendNamedKeyResult(
+                key,
+                isUserInitiated: true
+            )
             switch sendResult {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.windowDock")
@@ -413,8 +413,10 @@ extension TerminalController {
         ) {
             return remote
         }
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        let sendResult = terminalPanel.sendNamedKeyResult(key)
+        let sendResult = terminalPanel.sendNamedKeyResult(
+            key,
+            isUserInitiated: true
+        )
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")

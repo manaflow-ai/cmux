@@ -112,6 +112,7 @@ extension AgentContextManagementCoordinator {
     }
 
     func resetForUnboundSession(panelId: UUID) {
+        cancelPreservationVerification(panelId: panelId)
         states.removeValue(forKey: panelId)
         userInputObservedBeforePressure.remove(panelId)
         if let owner = owner(for: panelId, preferredWorkspaceID: nil) {

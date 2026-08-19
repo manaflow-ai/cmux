@@ -34,19 +34,22 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     }
 
     @discardableResult
-    func sendKeyText(_ text: String) -> Bool {
+    func sendKeyText(_ text: String, isUserInitiated: Bool) -> Bool {
         sentText.append(text)
         return sendKeyTextResult
     }
 
     @discardableResult
-    func sendText(_ text: String) -> Bool {
+    func sendText(_ text: String, isUserInitiated: Bool) -> Bool {
         sentText.append(text)
         return sendTextResult
     }
 
     @discardableResult
-    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+    func sendNamedKey(
+        _ keyName: String,
+        isUserInitiated: Bool
+    ) -> TerminalSurface.NamedKeySendResult {
         sentKeys.append(keyName)
         return sendNamedKeyResult
     }

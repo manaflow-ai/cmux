@@ -1,10 +1,11 @@
-import Foundation
+public import Foundation
 
 /// Verifies that a requested context handoff was durably written before clear.
-actor AgentContextHandoffVerifier {
+public actor AgentContextHandoffVerifier {
     private static let maximumHandoffBytes = 1_048_576
+
     /// The outcome of checking one handoff-file request.
-    enum Result: String, Sendable {
+    public enum Result: String, Equatable, Sendable {
         /// A regular, non-empty file was modified after the request.
         case written
         /// No file exists at the requested path.
@@ -19,6 +20,9 @@ actor AgentContextHandoffVerifier {
         case unreadable
     }
 
+    /// Creates a handoff verifier.
+    public init() {}
+
     /// Checks one handoff path without polling or sleeping.
     ///
     /// The verifier runs on its own actor so synchronous filesystem metadata
@@ -30,11 +34,13 @@ actor AgentContextHandoffVerifier {
     ///   - path: Local handoff path requested from the managed agent.
     ///   - requestedAt: Main-actor timestamp captured immediately before input.
     /// - Returns: The evidence classification for the requested handoff.
-    func verify(path: URL, requestedAt: Date) -> Result {
+    public func verify(path: URL, requestedAt: Date) -> Result {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path.path) else { return .missing }
-        guard let attributes = try? fileManager.attributesOfItem(atPath: path.path),
-              let type = attributes[.type] as? FileAttributeType,
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path.path) else {
+            return .unreadable
+        }
+        guard let type = attributes[.type] as? FileAttributeType,
               type == .typeRegular else {
             return .notRegularFile
         }
@@ -47,7 +53,8 @@ actor AgentContextHandoffVerifier {
               size.intValue <= Self.maximumHandoffBytes else {
             return .unreadable
         }
-        guard let data = try? Data(contentsOf: path), !data.isEmpty,
+        guard let data = try? Data(contentsOf: path) else { return .unreadable }
+        guard !data.isEmpty,
               let text = String(data: data, encoding: .utf8),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .empty

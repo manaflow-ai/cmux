@@ -1,9 +1,14 @@
 /// Data-driven pressure patterns for one managed agent provider.
 struct AgentContextProviderDefinition: Sendable {
     let patterns: [AgentContextPressurePattern]
+    let maximumMarkerLength: Int
 
-    var maximumMarkerLength: Int {
-        patterns.flatMap(\.markers).map(\.count).max() ?? 0
+    init(patterns: [AgentContextPressurePattern]) {
+        self.patterns = patterns
+        self.maximumMarkerLength = patterns
+            .flatMap(\.markers)
+            .map(\.count)
+            .max() ?? 0
     }
 
     private static let longThreadWarning = AgentContextPressurePattern(

@@ -1566,6 +1566,7 @@ final class CmuxSettingsFileStore {
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
+            var agentContextManagementDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
@@ -1589,10 +1590,7 @@ final class CmuxSettingsFileStore {
                 if change.defaultsKey == TerminalCatalogSection().agentContextManagementEnabled.userDefaultsKey ||
                     change.defaultsKey == TerminalCatalogSection().agentContextManagementAction.userDefaultsKey ||
                     change.defaultsKey == TerminalCatalogSection().agentContextManagementPreserveState.userDefaultsKey {
-                    AgentContextManagementSettings(
-                        defaults: UserDefaults.standard,
-                        notificationCenter: notificationCenter
-                    ).notifyDidChange()
+                    agentContextManagementDidChange = true
                 }
                 if change.defaultsKey == AgentHibernationSettings.enabledKey ||
                     change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||
@@ -1618,6 +1616,12 @@ final class CmuxSettingsFileStore {
 
             if agentSessionAutoResumeDidChange {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if agentContextManagementDidChange {
+                AgentContextManagementSettings(
+                    defaults: UserDefaults.standard,
+                    notificationCenter: notificationCenter
+                ).notifyDidChange()
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)

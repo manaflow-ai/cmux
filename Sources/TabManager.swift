@@ -918,8 +918,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func sendCtrlFToFocusedTerminal() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
-        panel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        let result = panel.sendNamedKeyResult("ctrl-f")
+        let result = panel.sendNamedKeyResult("ctrl-f", isUserInitiated: true)
         if result == .sent {
             panel.surface.forceRefresh(reason: "tabManager.sendCtrlFToFocusedTerminal")
         }

@@ -77,10 +77,14 @@ extension TerminalSurface {
     /// - Returns: Whether the text was delivered or queued.
     @MainActor
     @discardableResult
-    public func sendText(_ text: String) -> Bool {
+    public func sendText(
+        _ text: String,
+        isUserInitiated: Bool = false
+    ) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         didReceiveExplicitInput()
         let accepted = sendTextAfterExplicitInput(data)
+        didAcceptUserInitiatedInput(isUserInitiated, accepted: accepted)
         if accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -123,10 +127,15 @@ extension TerminalSurface {
     /// - Returns: Whether the runtime handled the key.
     @MainActor
     @discardableResult
-    public func sendKeyText(_ text: String) -> Bool {
+    public func sendKeyText(
+        _ text: String,
+        isUserInitiated: Bool = false
+    ) -> Bool {
         guard !text.isEmpty else { return true }
         didReceiveExplicitInput()
-        return sendKeyTextAfterExplicitInput(text)
+        let accepted = sendKeyTextAfterExplicitInput(text)
+        didAcceptUserInitiatedInput(isUserInitiated, accepted: accepted)
+        return accepted
     }
 
     @MainActor
@@ -167,10 +176,14 @@ extension TerminalSurface {
     /// surface.
     @MainActor
     @discardableResult
-    public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+    public func sendNamedKey(
+        _ keyName: String,
+        isUserInitiated: Bool = false
+    ) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
         let result = sendNamedKeyAfterExplicitInput(event)
+        didAcceptUserInitiatedInput(isUserInitiated, accepted: result.accepted)
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -241,17 +254,24 @@ extension TerminalSurface {
     /// queue the same ordered events and flush them after runtime creation.
     @MainActor
     @discardableResult
-    public func sendInput(_ text: String) -> Bool {
-        return sendInputResult(text).accepted
+    public func sendInput(
+        _ text: String,
+        isUserInitiated: Bool = false
+    ) -> Bool {
+        return sendInputResult(text, isUserInitiated: isUserInitiated).accepted
     }
 
     /// ``sendInput(_:)`` with a structured result.
     @MainActor
     @discardableResult
-    public func sendInputResult(_ text: String) -> InputSendResult {
+    public func sendInputResult(
+        _ text: String,
+        isUserInitiated: Bool = false
+    ) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
         let result = sendInputAfterExplicitInput(text)
+        didAcceptUserInitiatedInput(isUserInitiated, accepted: result.accepted)
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,

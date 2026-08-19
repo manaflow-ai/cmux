@@ -11,6 +11,10 @@ final class AgentContextManagementCoordinator {
     private let notificationCenter: NotificationCenter
     let settings: AgentContextManagementSettings
     var states: [UUID: PanelState] = [:]
+    /// One cancellable verification task per panel; user input and teardown
+    /// cancel the task before its result can mutate a new session.
+    var preservationVerificationTasks: [UUID: Task<Void, Never>] = [:]
+    var preservationVerificationRequestedAtByPanel: [UUID: Date] = [:]
     /// Input can arrive on the main actor before an output event's delivery
     /// task runs. Retain that cancellation edge so a late pressure event cannot
     /// authorize automation after the user already took the keyboard.
@@ -55,6 +59,7 @@ final class AgentContextManagementCoordinator {
     }
 
     deinit {
+        preservationVerificationTasks.values.forEach { $0.cancel() }
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
         }
@@ -261,6 +266,7 @@ final class AgentContextManagementCoordinator {
     /// binding.
     func remove(panelId: UUID, workspace: Workspace?, preserveState: Bool = false) {
         if !preserveState {
+            cancelPreservationVerification(panelId: panelId)
             states.removeValue(forKey: panelId)
             userInputObservedBeforePressure.remove(panelId)
         }

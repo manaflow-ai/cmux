@@ -46,7 +46,6 @@
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
-		C0DE10000000000000000131 /* AgentContextHandoffVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000130 /* AgentContextHandoffVerifier.swift */; };
 		C0DE10000000000000000115 /* AgentContextManagementCoordinator+Evaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000107 /* AgentContextManagementCoordinator+Evaluation.swift */; };
 		C0DE1000000000000000012B /* AgentContextManagementCoordinator+Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1000000000000000012A /* AgentContextManagementCoordinator+Input.swift */; };
 		C0DE10000000000000000133 /* AgentContextManagementCoordinator+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000132 /* AgentContextManagementCoordinator+Lifecycle.swift */; };
@@ -2212,6 +2211,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
 		F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */; };
+		C0DE10000000000000000136 /* SurfaceResumeBindingOwning.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000135 /* SurfaceResumeBindingOwning.swift */; };
 		8993B0018993B0018993B001 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */; };
 		7989B0017989B0017989B001 /* SurfaceResumeBindingSnapshot+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */; };
 		F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */; };
@@ -2928,7 +2928,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
-		C0DE10000000000000000130 /* AgentContextHandoffVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentContextHandoffVerifier.swift; sourceTree = "<group>"; };
 		C0DE10000000000000000107 /* AgentContextManagementCoordinator+Evaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Evaluation.swift"; sourceTree = "<group>"; };
 		C0DE1000000000000000012A /* AgentContextManagementCoordinator+Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Input.swift"; sourceTree = "<group>"; };
 		C0DE10000000000000000132 /* AgentContextManagementCoordinator+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Lifecycle.swift"; sourceTree = "<group>"; };
@@ -4999,6 +4998,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretResolution.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingIndex.swift; sourceTree = "<group>"; };
+		C0DE10000000000000000135 /* SurfaceResumeBindingOwning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingOwning.swift; sourceTree = "<group>"; };
 		8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift"; sourceTree = "<group>"; };
 		7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeBindingSnapshot+Remote.swift"; sourceTree = "<group>"; };
 		F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift"; sourceTree = "<group>"; };
@@ -6153,7 +6153,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE10000000000000000119 /* AgentContextManagementCoordinator+Ownership.swift */,
 				C0DE1000000000000000012A /* AgentContextManagementCoordinator+Input.swift */,
 				C0DE10000000000000000103 /* AgentContextManagementSettings.swift */,
-				C0DE10000000000000000130 /* AgentContextHandoffVerifier.swift */,
 				C0DE10000000000000000132 /* AgentContextManagementCoordinator+Lifecycle.swift */,
 				C0DE10000000000000000107 /* AgentContextManagementCoordinator+Evaluation.swift */,
 				F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */,
@@ -6540,6 +6539,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
 				C0DE10000000000000000126 /* Workspace+SurfaceResumeBinding.swift */,
+				C0DE10000000000000000135 /* SurfaceResumeBindingOwning.swift */,
 				D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */,
 				9923B0019923B0019923B001 /* PendingTerminalStartupRestoreChatBinding.swift */,
 				9923B0029923B0029923B002 /* PendingTerminalStartupRestore.swift */,
@@ -9044,7 +9044,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
-				C0DE10000000000000000131 /* AgentContextHandoffVerifier.swift in Sources */,
 				C0DE10000000000000000115 /* AgentContextManagementCoordinator+Evaluation.swift in Sources */,
 				C0DE1000000000000000012B /* AgentContextManagementCoordinator+Input.swift in Sources */,
 				C0DE10000000000000000133 /* AgentContextManagementCoordinator+Lifecycle.swift in Sources */,
@@ -10360,6 +10359,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */,
 				883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */,
 				F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */,
+				C0DE10000000000000000136 /* SurfaceResumeBindingOwning.swift in Sources */,
 				8993B0018993B0018993B001 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift in Sources */,
 				7989B0017989B0017989B001 /* SurfaceResumeBindingSnapshot+Remote.swift in Sources */,
 				F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */,

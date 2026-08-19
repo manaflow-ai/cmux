@@ -406,11 +406,13 @@ extension DockSplitStore {
         detected: SurfaceResumeBindingSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
+        let previousManagedBinding = managedAgentResumeBindingsByPanelId[panelId]
         if let stored,
            stored.hasCompleteManagedSessionIdentity,
            managedAgentResumeBindingsByPanelId[panelId] == nil {
             managedAgentResumeBindingsByPanelId[panelId] = stored
         }
+        let managedBindingChanged = previousManagedBinding != managedAgentResumeBindingsByPanelId[panelId]
         let effective: SurfaceResumeBindingSnapshot?
         if let stored, let detected {
             effective = stored.shouldYieldToDetectedSurfaceResumeBinding(detected) ? detected : stored
@@ -422,9 +424,17 @@ extension DockSplitStore {
             effective = stored
         }
         if let effective {
-            updateSurfaceResumeBinding(panelId: panelId, to: effective, notifyWhenUnchanged: true)
+            updateSurfaceResumeBinding(
+                panelId: panelId,
+                to: effective,
+                notifyWhenUnchanged: managedBindingChanged
+            )
         } else {
-            updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
+            updateSurfaceResumeBinding(
+                panelId: panelId,
+                to: nil,
+                notifyWhenUnchanged: managedBindingChanged
+            )
         }
         return effective
     }

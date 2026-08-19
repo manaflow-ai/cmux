@@ -8651,11 +8651,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldBringToFront {
             workspace.focusPanel(terminalPanel.id)
         }
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
         sendTextWhenReady(
             text,
             to: workspace,
             preferredPanelId: terminalPanel.id,
+            isUserInitiated: true,
             onFailure: onSendFailure
         )
         return true
@@ -10004,9 +10004,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "focusedAfterRequest=\(Self.debugShortId(workspace.focusedPanelId))"
         )
 #endif
-        workspace.terminalPanel(for: returnPanelId)?.surface
-            .didReceiveExplicitInput(isUserInitiated: true)
-        sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
+        sendTextWhenReady(
+            content,
+            to: workspace,
+            preferredPanelId: returnPanelId,
+            isUserInitiated: true
+        )
     }
 
     nonisolated private static func debugShortId(_ id: UUID?) -> String {
@@ -10024,6 +10027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ text: String,
         to tab: Tab,
         preferredPanelId: UUID? = nil,
+        isUserInitiated: Bool = false,
         beforeSend: (() -> Void)? = nil,
         onFailure: (() -> Void)? = nil
     ) {
@@ -10051,7 +10055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
            terminalPanel.isAgentHibernated {
             beforeSend?()
-            if !terminalPanel.sendText(text) {
+            if !terminalPanel.sendText(text, isUserInitiated: isUserInitiated) {
                 onFailure?()
             }
             return
@@ -10072,7 +10076,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             beforeSend?()
-            let didSend = terminalPanel.sendText(text)
+            let didSend = terminalPanel.sendText(
+                text,
+                isUserInitiated: isUserInitiated
+            )
 #if DEBUG
             if isReactGrabPasteback, didSend {
                 cmuxDebugLog(
@@ -10131,7 +10138,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolved = true
             cleanupObservers()
             beforeSend?()
-            let didSend = terminalPanel.sendText(text)
+            let didSend = terminalPanel.sendText(
+                text,
+                isUserInitiated: isUserInitiated
+            )
 #if DEBUG
             if isReactGrabPasteback, didSend {
                 cmuxDebugLog(

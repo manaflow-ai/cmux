@@ -594,7 +594,7 @@
           "type": "object",
           "additionalProperties": false,
           "descriptionKey": "schemaDescriptions.terminal.agentContextManagement",
-          "description": "Opt-in terminal-side recovery for managed Claude Code and Codex context pressure. cmux detects provider output and only sends recovery input at an authoritative idle prompt.",
+          "description": "Opt-in terminal-side recovery for managed Claude Code and Codex context pressure. cmux detects provider output and only sends recovery input at a proven idle prompt.",
           "properties": {
             "enabled": {
               "type": "boolean",

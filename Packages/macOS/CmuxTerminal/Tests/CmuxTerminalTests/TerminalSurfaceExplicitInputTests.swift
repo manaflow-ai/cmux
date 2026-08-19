@@ -129,6 +129,12 @@ struct TerminalSurfaceExplicitInputTests {
 
         fixture.surface.didReceiveExplicitInput(isUserInitiated: true)
         #expect(userInputCount == 1)
+
+        _ = fixture.surface.sendNamedKey("", isUserInitiated: true)
+        #expect(userInputCount == 1)
+
+        _ = fixture.surface.sendText("accepted user input", isUserInitiated: true)
+        #expect(userInputCount == 2)
     }
 
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {

@@ -60,36 +60,12 @@ extension AgentContextManagementCoordinator {
             }
             return
         }
-        let existingState = states[panelId]
-        let stateGeneration: UInt64
-        if let existingState,
-           existingState.provider == provider,
-           sameSession(existingState.binding, binding) {
-            stateGeneration = existingState.detectorGeneration
-        } else if existingState == nil {
-            // Lifecycle evidence can be the first coordinator signal. Do not
-            // reset a live detector here or a pressure event already queued
-            // for this runtime would be rejected as stale.
-            stateGeneration = owner.contextPressureDetectorGeneration(panelId: panelId)
-        } else {
-            stateGeneration = owner.resetContextPressureDetector(panelId: panelId)
-        }
-        var state = existingState
-            .flatMap { existing in
-                existing.provider == provider && sameSession(existing.binding, binding)
-                    ? existing
-                    : nil
-            }
-            ?? makePanelState(
-                panelId: panelId,
-                provider: provider,
-                binding: binding,
-                owner: owner,
-                detectorGeneration: stateGeneration,
-                seedLifecycleEvidence: existingState == nil
-            )
-        state.userInputObserved = state.userInputObserved
-            || userInputObservedBeforePressure.contains(panelId)
+        var state = resolvedPanelState(
+            panelId: panelId,
+            provider: provider,
+            binding: binding,
+            owner: owner
+        )
         let previousLifecycle = state.lifecycle
         state.binding = binding
         state.lifecycleByKey[key] = lifecycle
@@ -182,33 +158,12 @@ extension AgentContextManagementCoordinator {
             resetForUnboundSession(panelId: panelId)
             return
         }
-        let existingState = states[panelId]
-        let stateGeneration: UInt64
-        if let existingState,
-           existingState.provider == provider,
-           sameSession(existingState.binding, binding) {
-            stateGeneration = existingState.detectorGeneration
-        } else if existingState == nil {
-            stateGeneration = owner.contextPressureDetectorGeneration(panelId: panelId)
-        } else {
-            stateGeneration = owner.resetContextPressureDetector(panelId: panelId)
-        }
-        var state = existingState
-            .flatMap { existing in
-                existing.provider == provider && sameSession(existing.binding, binding)
-                    ? existing
-                    : nil
-            }
-            ?? makePanelState(
-                panelId: panelId,
-                provider: provider,
-                binding: binding,
-                owner: owner,
-                detectorGeneration: stateGeneration,
-                seedLifecycleEvidence: existingState == nil
-            )
-        state.userInputObserved = state.userInputObserved
-            || userInputObservedBeforePressure.contains(panelId)
+        var state = resolvedPanelState(
+            panelId: panelId,
+            provider: provider,
+            binding: binding,
+            owner: owner
+        )
         state.binding = binding
         state.shellActivity = shellActivity
         states[panelId] = state
@@ -238,6 +193,7 @@ extension AgentContextManagementCoordinator {
         state.lifecycle = Self.effectiveLifecycle(from: state.lifecycleByKey.values)
         state.dialogOpen = state.lifecycle == .needsInput
         if state.lifecycle == .unknown {
+            cancelPreservationVerification(panelId: panelId)
             state.preservationAwaitingAcknowledgement = false
             state.preservationObservedRunning = false
             state.preservationCompleted = false
@@ -251,5 +207,47 @@ extension AgentContextManagementCoordinator {
         if let owner = owner(for: panelId, preferredWorkspaceID: nil) {
             evaluate(surfaceID: panelId, owner: owner)
         }
+    }
+
+    /// Reuses the generation and session-boundary rules shared by lifecycle
+    /// and shell callbacks, so neither event path can drift in its gating
+    /// evidence or detector reset behavior.
+    private func resolvedPanelState(
+        panelId: UUID,
+        provider: AgentContextProvider,
+        binding: SurfaceResumeBindingSnapshot,
+        owner: PanelOwner
+    ) -> PanelState {
+        let existingState = states[panelId]
+        let stateGeneration: UInt64
+        if let existingState,
+           existingState.provider == provider,
+           sameSession(existingState.binding, binding) {
+            stateGeneration = existingState.detectorGeneration
+        } else if existingState == nil {
+            // Lifecycle evidence can be the first coordinator signal. Do not
+            // reset a live detector here or a pressure event already queued
+            // for this runtime would be rejected as stale.
+            stateGeneration = owner.contextPressureDetectorGeneration(panelId: panelId)
+        } else {
+            stateGeneration = owner.resetContextPressureDetector(panelId: panelId)
+        }
+        var state = existingState
+            .flatMap { existing in
+                existing.provider == provider && sameSession(existing.binding, binding)
+                    ? existing
+                    : nil
+            }
+            ?? makePanelState(
+                panelId: panelId,
+                provider: provider,
+                binding: binding,
+                owner: owner,
+                detectorGeneration: stateGeneration,
+                seedLifecycleEvidence: existingState == nil
+            )
+        state.userInputObserved = state.userInputObserved
+            || userInputObservedBeforePressure.contains(panelId)
+        return state
     }
 }

@@ -13757,8 +13757,7 @@ class TerminalController {
         text: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        switch terminalPanel.sendInputResult(text) {
+        switch terminalPanel.sendInputResult(text, isUserInitiated: true) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: refreshReason)
             return .sent
@@ -13780,8 +13779,7 @@ class TerminalController {
         keyName: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        switch terminalPanel.sendNamedKeyResult(keyName) {
+        switch terminalPanel.sendNamedKeyResult(keyName, isUserInitiated: true) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: refreshReason)
             return .sent
@@ -15201,8 +15199,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        let sendResult = terminalPanel.surface.sendInputResult(text)
+        let sendResult = terminalPanel.surface.sendInputResult(
+            text,
+            isUserInitiated: true
+        )
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
@@ -15269,8 +15269,10 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        let sendResult = terminalPanel.surface.sendInputResult(
+            escapedPath,
+            isUserInitiated: true
+        )
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
@@ -15365,8 +15367,7 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-        guard terminalPanel.sendText(text) else {
+        guard terminalPanel.sendText(text, isUserInitiated: true) else {
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
@@ -15380,8 +15381,10 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            terminalPanel.surface.didReceiveExplicitInput(isUserInitiated: true)
-            let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
+            let keyResult = terminalPanel.sendNamedKeyResult(
+                submitKeyName,
+                isUserInitiated: true
+            )
             if keyResult.accepted {
                 submitted = true
             } else {

@@ -66,6 +66,9 @@ extension AgentContextManagementCoordinator {
         }
 
         if step == .preserveState {
+            // A new pressure episode gets a fresh opportunity to preserve
+            // state, even if an earlier unsafe-clear notification was sent.
+            state.unsafeClearNotificationSent = false
             guard let handoffPath = owner.contextHandoffFileURL(panelId: surfaceID) else {
                 state.unsafeClearNotificationSent = true
                 state.preservationAwaitingAcknowledgement = true
@@ -182,8 +185,11 @@ extension AgentContextManagementCoordinator {
         requestedAt: Date
     ) {
         let verifier = handoffVerifier
-        Task { @MainActor [weak self, verifier] in
+        preservationVerificationTasks[panelId]?.cancel()
+        preservationVerificationRequestedAtByPanel[panelId] = requestedAt
+        preservationVerificationTasks[panelId] = Task { @MainActor [weak self, verifier] in
             let result = await verifier.verify(path: path, requestedAt: requestedAt)
+            guard !Task.isCancelled else { return }
             self?.finishPreservationVerification(
                 panelId: panelId,
                 path: path,
@@ -199,48 +205,71 @@ extension AgentContextManagementCoordinator {
         requestedAt: Date,
         result: AgentContextHandoffVerifier.Result
     ) {
+        guard preservationVerificationRequestedAtByPanel[panelId] == requestedAt else {
+            return
+        }
+        preservationVerificationTasks.removeValue(forKey: panelId)
+        preservationVerificationRequestedAtByPanel.removeValue(forKey: panelId)
         guard var state = states[panelId],
               state.preservationAwaitingAcknowledgement,
               state.preservationHandoffPath == path,
-              state.preservationRequestedAt == requestedAt,
-              let owner = owner(for: panelId, preferredWorkspaceID: nil),
-              let binding = owner.binding(panelId: panelId),
-              sameSession(state.binding, binding) else {
+              state.preservationRequestedAt == requestedAt else {
             return
         }
         state.preservationVerificationInFlight = false
+        let expectedBinding = state.binding
+        let currentOwner = owner(for: panelId, preferredWorkspaceID: nil).flatMap { owner in
+            owner.binding(panelId: panelId).flatMap { binding in
+                sameSession(expectedBinding, binding) ? owner : nil
+            }
+        }
         switch result {
         case .written:
             state.preservationAwaitingAcknowledgement = false
             state.preservationObservedRunning = false
             state.preservationCompleted = true
             states[panelId] = state
-            structuredLog(
-                "preservation.acknowledged",
-                workspaceID: owner.workspaceID,
-                surfaceID: panelId,
-                detail: "handoff-file=written"
-            )
-            evaluate(surfaceID: panelId, owner: owner)
+            if let currentOwner {
+                structuredLog(
+                    "preservation.acknowledged",
+                    workspaceID: currentOwner.workspaceID,
+                    surfaceID: panelId,
+                    detail: "handoff-file=written"
+                )
+                evaluate(surfaceID: panelId, owner: currentOwner)
+            }
         case .missing, .notRegularFile, .empty, .stale, .unreadable:
             // Keep the preservation phase pending and fail closed. The user
             // notification explains that cmux will not type `/clear` without
             // durable evidence; a later explicit user input starts a fresh
             // pressure episode and clears this gate.
-            state.unsafeClearNotificationSent = true
+            state.unsafeClearNotificationSent = currentOwner.map { _ in true } ?? false
+            if case .none = currentOwner {
+                // A transfer may temporarily remove every owner. Allow the
+                // destination binding callback to request preservation again.
+                state.preservationAwaitingAcknowledgement = false
+            }
             states[panelId] = state
-            structuredLog(
-                "preservation.rejected",
-                workspaceID: owner.workspaceID,
-                surfaceID: panelId,
-                detail: "handoff-file=\(result.rawValue)"
-            )
-            notifyUnsafeClear(
-                owner: owner,
-                surfaceID: panelId,
-                reason: .preservationUnavailable
-            )
+            if let currentOwner {
+                structuredLog(
+                    "preservation.rejected",
+                    workspaceID: currentOwner.workspaceID,
+                    surfaceID: panelId,
+                    detail: "handoff-file=\(result.rawValue)"
+                )
+                notifyUnsafeClear(
+                    owner: currentOwner,
+                    surfaceID: panelId,
+                    reason: .preservationUnavailable
+                )
+            }
         }
+    }
+
+    /// Cancels a pending handoff verification without touching panel state.
+    func cancelPreservationVerification(panelId: UUID) {
+        preservationVerificationTasks.removeValue(forKey: panelId)?.cancel()
+        preservationVerificationRequestedAtByPanel.removeValue(forKey: panelId)
     }
 
     private func notifyInjection(
