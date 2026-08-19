@@ -35,6 +35,13 @@ public struct PeerBrokerRelayTokenResponse: Codable, Equatable, Sendable {
     /// URL-keyed relay credentials returned by the broker.
     public let credentials: [PeerBrokerRelayCredential]
 
+    /// The compact-JWS signed relay policy bundled with the same response,
+    /// when the broker included one. Never persisted (excluded from Codable);
+    /// consumers verify it against the pinned trust root and install it into
+    /// the fail-closed policy cache, which is what lets a FRESH install reach
+    /// a verified policy without a separate fetch endpoint.
+    public var signedPolicy: String?
+
     /// The complete ordered managed relay fleet covered by the response.
     public var relayFleet: [String] {
         credentials.map(\.relayURL)
@@ -132,6 +139,7 @@ struct PeerBrokerRelayAccessResponse: Decodable, Sendable {
     let relays: [String]?
     let endpointId: String?
     let relayCredentials: [Credential]?
+    let policy: String?
 
     /// Validates and normalizes the response into fleet credentials.
     ///
@@ -166,7 +174,9 @@ struct PeerBrokerRelayAccessResponse: Decodable, Sendable {
             guard Set(normalized.map(\.relayURL)).count == normalized.count else {
                 throw PeerBrokerError.protocolError
             }
-            return PeerBrokerRelayTokenResponse(credentials: normalized)
+            var response = PeerBrokerRelayTokenResponse(credentials: normalized)
+            response.signedPolicy = policy
+            return response
         }
 
         guard let token,
@@ -193,12 +203,14 @@ struct PeerBrokerRelayAccessResponse: Decodable, Sendable {
             throw PeerBrokerError.protocolError
         }
         let refreshLead = min(60, ttlSeconds / 2)
-        return PeerBrokerRelayTokenResponse(
+        var response = PeerBrokerRelayTokenResponse(
             token: token,
             expiresAt: PeerBrokerWire.iso8601(epochSeconds: expiresAtSeconds),
             refreshAfter: PeerBrokerWire.iso8601(epochSeconds: expiresAtSeconds - refreshLead),
             relayFleet: relayFleet
         )
+        response.signedPolicy = policy
+        return response
     }
 
     private static func isValidRelayJWT(

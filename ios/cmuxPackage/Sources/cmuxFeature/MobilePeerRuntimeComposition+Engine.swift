@@ -388,12 +388,24 @@ final class MobilePeerEndpointActivator: PeerSessionEstablishing, @unchecked Sen
 
         diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         let credential: PeerBrokerRelayTokenResponse?
+        var mintFailureReason: String?
         if case let .issued(embedded) = registration.relay {
             credential = embedded
         } else {
-            credential = try? await broker.relayToken(endpointID: identity.endpointID)
+            do {
+                credential = try await broker.relayToken(endpointID: identity.endpointID)
+            } catch {
+                credential = nil
+                mintFailureReason = String(describing: error)
+            }
         }
         guard let credential else {
+            #if DEBUG
+            Logger(subsystem: "dev.cmux.ios", category: "peer-transport")
+                .error(
+                    "relay credential mint failed: \(mintFailureReason ?? "?", privacy: .public)"
+                )
+            #endif
             diagnosticLog?.record(DiagnosticEvent(
                 .relayPolicyRefreshFailed,
                 b: DiagnosticFailureKind.endpointUnavailable.rawValue
@@ -404,6 +416,33 @@ final class MobilePeerEndpointActivator: PeerSessionEstablishing, @unchecked Sen
                 allowedRelayURLs: allowedRelayURLs,
                 credential: nil,
                 policyState: policyState
+            )
+        }
+        // A fresh install has no cached policy; the mint response bundles the
+        // current signed policy, which installs through the same verify +
+        // rollback-guarded cache path so the relay fleet becomes verified.
+        if allowedRelayURLs == nil,
+            let trustRoot,
+            let signedPolicy = credential.signedPolicy,
+            let installed = try? await relayPolicyCache.install(
+                signedPolicy: signedPolicy,
+                trustRoot: trustRoot,
+                now: now()
+            )
+        {
+            allowedRelayURLs = Set(installed.relays.map(\.url))
+            catalog = installed.relays.map {
+                MobilePeerManagedRelayInfo(
+                    id: $0.id,
+                    provider: $0.provider,
+                    region: $0.region,
+                    url: $0.url
+                )
+            }
+            policyState = MobilePeerRelayPolicyState(
+                source: .server,
+                sequence: installed.sequence,
+                expiresAt: Date(timeIntervalSince1970: TimeInterval(installed.expiresAt))
             )
         }
         diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))

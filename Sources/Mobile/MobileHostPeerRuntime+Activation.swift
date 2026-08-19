@@ -120,26 +120,40 @@ extension MobileHostPeerRuntime {
             if case let .verified(policy) = resolution {
                 relayPolicy = policy
                 relayPolicySource = .cached
-                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-                do {
-                    let minted = try await broker.relayToken(endpointID: endpointID)
-                    let plan = try PeerRelayCredentialPlan(
-                        policy: policy,
-                        minted: Self.relayTokenResponse(minted),
+            }
+            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+            do {
+                let minted = try await broker.relayToken(endpointID: endpointID)
+                // A fresh install has no cached policy; the mint response
+                // bundles the current signed policy, which installs through
+                // the same verify + rollback-guarded cache path.
+                if relayPolicy == nil, let signedPolicy = minted.signedPolicy {
+                    relayPolicy = try await relayPolicyCache.install(
+                        signedPolicy: signedPolicy,
+                        trustRoot: relayPolicyTrustRoot,
                         now: Date()
                     )
-                    relayConfigs = plan.configs
-                    relayPlan = plan
-                    diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-                } catch {
-                    // Credential mint failure keeps the endpoint direct-only;
-                    // the refresh loop below retries against the same policy.
-                    noteBrokerRateLimit(error, accountID: accountID)
-                    diagnosticLog.record(DiagnosticEvent(
-                        .relayPolicyRefreshFailed,
-                        b: Self.diagnosticFailureKind(for: error).rawValue
-                    ))
+                    relayPolicySource = .server
                 }
+                guard let policy = relayPolicy else {
+                    throw PeerRelayPolicyError.invalidToken
+                }
+                let plan = try PeerRelayCredentialPlan(
+                    policy: policy,
+                    minted: Self.relayTokenResponse(minted),
+                    now: Date()
+                )
+                relayConfigs = plan.configs
+                relayPlan = plan
+                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+            } catch {
+                // Credential mint failure keeps the endpoint direct-only;
+                // the refresh loop below retries against the same policy.
+                noteBrokerRateLimit(error, accountID: accountID)
+                diagnosticLog.record(DiagnosticEvent(
+                    .relayPolicyRefreshFailed,
+                    b: Self.diagnosticFailureKind(for: error).rawValue
+                ))
             }
         }
 
