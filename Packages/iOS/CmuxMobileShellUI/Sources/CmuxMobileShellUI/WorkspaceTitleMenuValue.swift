@@ -6,6 +6,8 @@ struct WorkspaceTitleMenuValue: Equatable {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
+    let measuredTrailingItemsWidth: CGFloat
+    let trailingItemCount: Int
     let isEnabled: Bool
     let workspaceName: String
     let hasUnread: Bool

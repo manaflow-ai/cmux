@@ -74,6 +74,11 @@ struct WorkspaceDetailView: View {
     @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
+    // Rendered content width per visible trailing toolbar item. The title's
+    // width cap subtracts these so the trailing items always fit and iOS never
+    // folds them into the overflow More menu (no per-item priority exists
+    // below iOS 27).
+    @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -191,6 +196,16 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            // Structural removal of a conditional trailing item releases its
+            // width reservation. Layout-driven disappearance (overflow into
+            // the More menu) must NOT release it, or the collapse turns
+            // sticky; see measureTrailingToolbarItem.
+            .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
+                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
+            }
+            .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
+                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
+            }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
                 refreshWorkspaceChangesHint()
@@ -263,6 +278,12 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var altScreenNoticeIsVisible: Bool {
+        guard let selectedTerminalID else { return false }
+        return store.isAlternateScreen(surfaceID: selectedTerminalID)
+            && displaySettings.showAltScreenNotice
+    }
+
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
         if backButtonConfiguration != nil {
@@ -276,13 +297,12 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        if let selectedTerminalID,
-           store.isAlternateScreen(surfaceID: selectedTerminalID),
-           displaySettings.showAltScreenNotice {
+        if altScreenNoticeIsVisible {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
                 AltScreenNoticeButton {
                     displaySettings.showAltScreenNotice = false
                 }
+                .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
             }
         }
         if workspaceChangesAreAvailable {
@@ -295,10 +315,12 @@ struct WorkspaceDetailView: View {
                 // The chrome sits on the terminal theme's background, not the
                 // system scheme; resolve the counts' green/red for that.
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
+                .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
         }
     }
 
@@ -308,6 +330,8 @@ struct WorkspaceDetailView: View {
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
+            measuredTrailingItemsWidth: trailingToolbarItemWidths.values.reduce(0, +),
+            trailingItemCount: trailingToolbarItemWidths.count,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
