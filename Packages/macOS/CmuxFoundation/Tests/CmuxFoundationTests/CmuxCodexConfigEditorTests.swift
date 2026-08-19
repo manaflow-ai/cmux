@@ -43,6 +43,7 @@ struct CmuxCodexConfigEditorTests {
         #expect(Self.occurrences(of: Self.trustEnd, in: reinstalled.content) == 1)
         #expect(reinstalled.content.contains(Self.trustBegin + "\r\n"))
         #expect(reinstalled.content.contains(Self.trustEnd + "\r\n"))
+        #expect(reinstalled.content == crlfConfig)
     }
 
     @Test("Uninstall removes the hooks feature setting and its markers")

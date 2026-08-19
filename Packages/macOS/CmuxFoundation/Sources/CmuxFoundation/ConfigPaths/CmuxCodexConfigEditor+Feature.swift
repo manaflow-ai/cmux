@@ -11,6 +11,7 @@ extension CmuxCodexConfigEditor {
         "# cmux hooks codex feature previous line: "
 
     func installingHooksFeature(in existingContent: String) -> String {
+        let lineEnding = CmuxConfigLines().lineEnding(of: existingContent)
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
@@ -61,7 +62,7 @@ extension CmuxCodexConfigEditor {
             lines.append(contentsOf: insertedLines)
         }
 
-        return tomlContent(from: lines)
+        return tomlContent(from: lines, lineEnding: lineEnding)
     }
 
     func codexHooksFeatureLines(settingLine: String, previousLine: String? = nil) -> [String] {

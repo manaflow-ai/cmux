@@ -36,24 +36,11 @@ extension CmuxCodexConfigEditor {
     }
 
     func tomlLines(from content: String) -> [String] {
-        guard !content.isEmpty else { return [] }
-        var lines = content.components(separatedBy: "\n")
-        if content.hasSuffix("\n"), lines.last == "" {
-            lines.removeLast()
-        }
-        return lines
+        CmuxConfigLines().split(content)
     }
 
-    func tomlContent(from lines: [String]) -> String {
-        guard !lines.isEmpty else { return "" }
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    // The first implementation intentionally retains the pre-extraction LF-only
-    // behavior. The follow-up commit routes this overload through CmuxConfigLines
-    // so the regression tests prove the fix rather than merely the extraction.
-    func tomlContent(from lines: [String], lineEnding _: CmuxConfigLines.LineEnding) -> String {
-        tomlContent(from: lines)
+    func tomlContent(from lines: [String], lineEnding: CmuxConfigLines.LineEnding) -> String {
+        CmuxConfigLines().joined(lines, lineEnding: lineEnding)
     }
 
     func tomlLineDefinesKey(_ key: String, line: String) -> Bool {
