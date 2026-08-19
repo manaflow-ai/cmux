@@ -50,6 +50,15 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
+func sidebarForegroundNSColor(
+    opacity: CGFloat,
+    colorScheme: ColorScheme
+) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    let baseColor: NSColor = colorScheme == .dark ? .white : .black
+    return baseColor.withAlphaComponent(clampedOpacity)
+}
+
 func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
     let app = GhosttyApp.shared
     let bestMatch = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])

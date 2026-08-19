@@ -16278,6 +16278,7 @@ private struct SidebarMetadataRows: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
     private let collapsedEntryLimit = 3
 
     var body: some View {
@@ -16301,7 +16302,14 @@ private struct SidebarMetadataRows: View {
                 }
                 .buttonStyle(.plain)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(
+                    isActive
+                        ? activeSecondaryForegroundColor
+                        : Color(nsColor: sidebarForegroundNSColor(
+                            opacity: 0.9,
+                            colorScheme: colorScheme
+                        ))
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -16430,6 +16438,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
     private let collapsedBlockLimit = 1
 
     var body: some View {
@@ -16453,7 +16462,14 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 }
                 .buttonStyle(.plain)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(
+                    isActive
+                        ? activeSecondaryForegroundColor
+                        : Color(nsColor: sidebarForegroundNSColor(
+                            opacity: 0.9,
+                            colorScheme: colorScheme
+                        ))
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
