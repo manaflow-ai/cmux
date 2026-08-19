@@ -31,6 +31,7 @@ struct CodexTeamsAppServerProcessTests {
         wait \"$child\"
         """
         let process = try CodexTeamsAppServerProcess(
+            supervisorExecutablePath: try bundledCLIPath(),
             executablePath: "/bin/sh",
             arguments: ["-c", script],
             environment: [
@@ -43,15 +44,14 @@ struct CodexTeamsAppServerProcessTests {
         )
         defer {
             process.terminate()
-            process.waitUntilExit()
-            if let childPID = Self.readPID(from: childPIDMarker) {
-                _ = Darwin.kill(childPID, SIGKILL)
+            if !process.waitUntilExit() {
+                process.forceTerminate()
             }
         }
 
-        _ = try await Self.waitForPIDMarker(parentMarker)
+        _ = try #require(await Self.waitForPIDMarker(parentMarker))
         let childPID = try #require(await Self.waitForPIDMarker(childPIDMarker))
-        _ = try await Self.waitForPIDMarker(childMarker)
+        _ = try #require(await Self.waitForPIDMarker(childMarker))
 
         process.closeParentLifetimeForTesting()
 
@@ -92,4 +92,30 @@ struct CodexTeamsAppServerProcessTests {
         }
         return errno == EPERM
     }
+
+    private func bundledCLIPath() throws -> String {
+        let appBundleURL = Bundle(for: BundleToken.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cliURL = appBundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            throw NSError(
+                domain: "CodexTeamsAppServerProcessTests",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Bundled cmux CLI not found at \(cliURL.path)"
+                ]
+            )
+        }
+        return cliURL.path
+    }
+
+    private final class BundleToken {}
 }

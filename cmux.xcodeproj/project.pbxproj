@@ -912,6 +912,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A10240010000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */; };
 		A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */; };
 		A10240040000000000000001 /* CodexTeamsAppServerProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240050000000000000001 /* CodexTeamsAppServerProcessTests.swift */; };
+		A10240060000000000000001 /* CodexTeamsAppServerSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240070000000000000001 /* CodexTeamsAppServerSupervisor.swift */; };
+		A10240080000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */; };
+		A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */; };
 		C0DEBACC0000000000000003 /* CodexTeamsResumedBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000006 /* CodexTeamsResumedBackfillTests.swift */; };
 		C0DEBACC0000000000000002 /* CodexTeamsSocketFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000005 /* CodexTeamsSocketFixture.swift */; };
 		C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */; };
@@ -3703,6 +3706,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerFixture.swift; sourceTree = "<group>"; };
 		A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerProcess.swift; sourceTree = "<group>"; };
 		A10240050000000000000001 /* CodexTeamsAppServerProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerProcessTests.swift; sourceTree = "<group>"; };
+		A10240070000000000000001 /* CodexTeamsAppServerSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerSupervisor.swift; sourceTree = "<group>"; };
+		A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsPOSIXSupport.swift; sourceTree = "<group>"; };
 		C0DEBACC0000000000000006 /* CodexTeamsResumedBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsResumedBackfillTests.swift; sourceTree = "<group>"; };
 		C0DEBACC0000000000000005 /* CodexTeamsSocketFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsSocketFixture.swift; sourceTree = "<group>"; };
 		C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTerminalErrorNotificationTests.swift; sourceTree = "<group>"; };
@@ -7765,6 +7770,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */,
 				B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */,
 				A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */,
+				A10240070000000000000001 /* CodexTeamsAppServerSupervisor.swift */,
+				A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */,
 					C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */,
 					C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */,
 					C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */,
@@ -9444,6 +9451,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,
 					C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */,
 				A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
+				A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
 				C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
@@ -10885,6 +10893,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 					A10240010000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
+					A10240060000000000000001 /* CodexTeamsAppServerSupervisor.swift in Sources */,
+					A10240080000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */,
 				918100000000000000000081 /* CodexTranscriptFailureReadResult.swift in Sources */,
 				918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */,
 				918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */,
