@@ -662,6 +662,9 @@ func TestResolveCallerTTYNamePrefersControllingTTYOverSSHTTY(t *testing.T) {
 func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-1111-1111-111111111111")
+	t.Setenv("CMUX_SURFACE_ID", "")
+	t.Setenv("CMUX_CLI_TTY_NAME", "")
+	t.Setenv("CMUX_TTY_NAME", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_PANE", "")
 	t.Setenv("TTY", "/dev/null")
@@ -674,7 +677,18 @@ func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 
 	select {
 	case req := <-requests:
+		if got := req["method"]; got != "notification.create" {
+			t.Fatalf("expected notification.create without a complete caller target, got %v", got)
+		}
 		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "11111111-1111-1111-1111-111111111111" {
+			t.Fatalf("expected original workspace_id to be preserved, got %v", got)
+		}
+		for _, key := range []string{"preferred_workspace_id", "preferred_surface_id", "caller_tty"} {
+			if got, ok := params[key]; ok {
+				t.Fatalf("expected %s to be omitted without a complete caller target, got %v", key, got)
+			}
+		}
 		if _, ok := params["prefer_tty"]; ok {
 			t.Fatalf("expected prefer_tty to be omitted outside tmux, got %v", params["prefer_tty"])
 		}
@@ -690,6 +704,26 @@ func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for notify request")
 	}
+}
+
+func assertPinnedNotifyRequest(t *testing.T, req map[string]any, targetKey, targetID string) map[string]any {
+	t.Helper()
+	if got := req["method"]; got != "notification.create" {
+		t.Fatalf("expected notification.create, got %v", got)
+	}
+	params, ok := req["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected notification params, got %T", req["params"])
+	}
+	if got := params[targetKey]; got != targetID {
+		t.Fatalf("expected %s %s, got %v", targetKey, targetID, got)
+	}
+	for _, key := range []string{"preferred_workspace_id", "preferred_surface_id", "caller_tty", "prefer_tty"} {
+		if got, ok := params[key]; ok {
+			t.Fatalf("expected %s to be omitted for an explicit target, got %v", key, got)
+		}
+	}
+	return params
 }
 
 func TestCLINotifyExplicitSurfaceUsesNotificationCreate(t *testing.T) {
@@ -717,15 +751,9 @@ func TestCLINotifyExplicitSurfaceUsesNotificationCreate(t *testing.T) {
 
 	select {
 	case req := <-requests:
-		if got := req["method"]; got != "notification.create" {
-			t.Fatalf("expected notification.create, got %v", got)
-		}
-		params, _ := req["params"].(map[string]any)
+		params := assertPinnedNotifyRequest(t, req, "surface_id", surfaceID)
 		if got := params["workspace_id"]; got != workspaceID {
 			t.Fatalf("expected workspace_id %s, got %v", workspaceID, got)
-		}
-		if got := params["surface_id"]; got != surfaceID {
-			t.Fatalf("expected surface_id %s, got %v", surfaceID, got)
 		}
 		if got := params["title"]; got != "Pinned" {
 			t.Fatalf("expected title Pinned, got %v", got)
@@ -736,10 +764,43 @@ func TestCLINotifyExplicitSurfaceUsesNotificationCreate(t *testing.T) {
 		if got := params["body"]; got != "done" {
 			t.Fatalf("expected body done, got %v", got)
 		}
-		for _, key := range []string{"preferred_workspace_id", "preferred_surface_id", "caller_tty", "prefer_tty"} {
-			if got, ok := params[key]; ok {
-				t.Fatalf("expected %s to be omitted for explicit surface, got %v", key, got)
-			}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notify request")
+	}
+}
+
+func TestCLINotifyExplicitWindowUsesNotificationCreate(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	windowID := "55555555-5555-5555-5555-555555555555"
+	t.Setenv("CMUX_WORKSPACE_ID", "33333333-3333-3333-3333-333333333333")
+	t.Setenv("CMUX_SURFACE_ID", "44444444-4444-4444-4444-444444444444")
+	t.Setenv("CMUX_CLI_TTY_NAME", "/dev/ttys777")
+	t.Setenv("TMUX", "/tmp/tmux-current,123,0")
+
+	code := runCLI([]string{
+		"--socket", sockPath,
+		"--json",
+		"notify",
+		"--window", windowID,
+		"--title", "Pinned",
+		"--subtitle", "Build",
+		"--body", "done",
+	})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		params := assertPinnedNotifyRequest(t, req, "window_id", windowID)
+		if got := params["title"]; got != "Pinned" {
+			t.Fatalf("expected title Pinned, got %v", got)
+		}
+		if got := params["subtitle"]; got != "Build" {
+			t.Fatalf("expected subtitle Build, got %v", got)
+		}
+		if got := params["body"]; got != "done" {
+			t.Fatalf("expected body done, got %v", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for notify request")
