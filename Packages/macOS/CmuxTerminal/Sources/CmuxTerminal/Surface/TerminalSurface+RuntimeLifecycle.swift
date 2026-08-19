@@ -165,6 +165,7 @@ extension TerminalSurface {
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
+            _ = retireRemoteOutputLane()
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -280,6 +281,7 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -320,6 +322,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: { completion in
+                    retiredRemoteOutputLane.scheduleDrain(completion)
+                },
                 freeSurface: freeSurface
             )
             return
@@ -333,7 +338,10 @@ extension TerminalSurface {
             surface: surfaceToFree,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            byteTeeLease: teeLease,
+            beforeFree: { completion in
+                retiredRemoteOutputLane.scheduleDrain(completion)
+            }
         )
     }
 
@@ -367,6 +375,7 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -417,6 +426,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: { completion in
+                    retiredRemoteOutputLane.scheduleDrain(completion)
+                },
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
@@ -433,6 +445,9 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            beforeFree: { completion in
+                retiredRemoteOutputLane.scheduleDrain(completion)
+            },
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
         )

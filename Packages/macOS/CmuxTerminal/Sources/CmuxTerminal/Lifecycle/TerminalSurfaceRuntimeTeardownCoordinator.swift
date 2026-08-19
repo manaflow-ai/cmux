@@ -94,6 +94,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     main-thread owner state.
     ///   - callbackContext: The retained callback context released on the
     ///     main actor after the free completes.
+    ///   - beforeFree: A one-shot asynchronous fence that invokes its completion
+    ///     before `freeSurface` is scheduled. Defaults to an already-complete
+    ///     fence.
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata releases.
@@ -104,6 +107,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         reason: String,
         surface: ghostty_surface_t,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        beforeFree: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { completion in
+            completion()
+        },
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
         }
@@ -116,6 +122,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: nil,
             byteTeeLease: nil,
+            beforeFree: beforeFree,
             freeSurface: freeSurface
         )
     }
@@ -143,6 +150,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     released on the main actor after the free completes.
     ///   - byteTeeLease: The retained PTY tee lease, released on the main
     ///     actor after the free completes.
+    ///   - beforeFree: A one-shot asynchronous fence that invokes its completion
+    ///     before `freeSurface` is scheduled. Defaults to an already-complete
+    ///     fence.
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata releases.
@@ -155,6 +165,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
+        beforeFree: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { completion in
+            completion()
+        },
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil,
@@ -172,6 +185,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: byteTeeLease,
+            beforeFree: beforeFree,
             freeSurface: freeSurface,
             completion: completion
         )
@@ -208,8 +222,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                 Task {
                     await self.observeTimeout(id: request.id)
                 }
-                isolatedHibernationQueues[executionSlot].async {
-                    self.freeNativeSurface(request)
+                let completion: @Sendable () -> Void = { [self] in
                     Task {
                         await self.isolatedHibernationAdmission.release(
                             isolatedHibernationReservation
@@ -218,6 +231,11 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                         await self.complete(id: request.id)
                     }
                 }
+                Self.scheduleNativeFree(
+                    request,
+                    on: isolatedHibernationQueues[executionSlot],
+                    completion: completion
+                )
                 return
             }
             if let isolatedHibernationReservation {
@@ -241,14 +259,33 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             Task {
                 await self.observeTimeout(id: request.id)
             }
-            closeTeardownQueues[executionSlot].async {
-                self.freeNativeSurface(request)
+            let completion: @Sendable () -> Void = { [self] in
                 Task {
                     await self.finishCloseTeardown(
                         request,
                         executionSlot: executionSlot
                     )
                 }
+            }
+            Self.scheduleNativeFree(
+                request,
+                on: closeTeardownQueues[executionSlot],
+                completion: completion
+            )
+        }
+    }
+
+    /// Runs the lane fence without occupying a native-free worker, then starts
+    /// the bounded native-free operation on that worker's queue.
+    private nonisolated static func scheduleNativeFree(
+        _ request: TerminalSurfaceRuntimeTeardownRequest,
+        on queue: DispatchQueue,
+        completion: @escaping @Sendable () -> Void
+    ) {
+        request.beforeFree {
+            queue.async {
+                Self.freeNativeSurface(request)
+                completion()
             }
         }
     }
@@ -276,7 +313,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         }
     }
 
-    private nonisolated func freeNativeSurface(
+    private nonisolated static func freeNativeSurface(
         _ request: TerminalSurfaceRuntimeTeardownRequest
     ) {
 #if DEBUG

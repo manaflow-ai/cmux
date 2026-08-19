@@ -24,6 +24,11 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
+    /// Schedules a one-shot fence that calls its completion after all work that
+    /// borrowed `surface` before teardown has finished. The completion then
+    /// schedules `freeSurface`; this request retains all userdata until that
+    /// later native free completes.
+    let beforeFree: @Sendable (@escaping @Sendable () -> Void) -> Void
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
     let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
@@ -39,6 +44,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
+        beforeFree: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
         completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
@@ -49,6 +55,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
+        self.beforeFree = beforeFree
         self.freeSurface = freeSurface
         self.completion = completion
 #if DEBUG

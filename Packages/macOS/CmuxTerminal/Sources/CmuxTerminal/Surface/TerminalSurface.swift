@@ -233,6 +233,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
+    /// FIFO native-output lane for the current runtime surface generation.
+    var remoteOutputLane: TerminalSurfaceRemoteOutputLane
+    var remoteOutputLaneGeneration: UInt64 = 0
 
     /// The explicit startup environment overrides replayed on respawn.
     public var respawnInitialEnvironmentOverrides: [String: String] {
@@ -518,6 +521,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
+        self.remoteOutputLane = TerminalSurfaceRemoteOutputLane(
+            surfaceID: id,
+            generation: 0
+        )
         self.terminalLifecycleId = UUID()
         self.tabId = tabId
         self.surfaceContext = context
@@ -718,6 +725,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // io_write_cb) until ghostty_surface_free joins those threads, so releasing
         // manualIOContext or teeLease here would leave a use-after-free window until
         // the coordinator's deferred free runs.
+        let retiredRemoteOutputLane = remoteOutputLane
+        retiredRemoteOutputLane.close()
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             runtimeTeardown.enqueueRuntimeTeardown(
@@ -728,6 +737,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: { completion in
+                    retiredRemoteOutputLane.scheduleDrain(completion)
+                },
                 freeSurface: freeSurface
             )
             return
@@ -740,7 +752,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             surface: surfaceToFree,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            byteTeeLease: teeLease,
+            beforeFree: { completion in
+                retiredRemoteOutputLane.scheduleDrain(completion)
+            }
         )
     }
 }
