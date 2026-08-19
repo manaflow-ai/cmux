@@ -37,6 +37,7 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let workspaceHasAbove = CommandPaletteContextKeys(rawValue: "workspace.hasAbove")
     /// Whether a workspace exists below the selection.
     public static let workspaceHasBelow = CommandPaletteContextKeys(rawValue: "workspace.hasBelow")
+    public static let workspaceCanMoveToBottom = CommandPaletteContextKeys(rawValue: "workspace.canMoveToBottom")
     /// Whether mark-read is available for the workspace.
     public static let workspaceCanMarkRead = CommandPaletteContextKeys(rawValue: "workspace.canMarkRead")
     /// Whether mark-unread is available for the workspace.

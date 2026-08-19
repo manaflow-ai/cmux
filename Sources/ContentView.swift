@@ -6837,6 +6837,11 @@ struct ContentView: View {
                 (workspaceIndex ?? tabManager.tabs.count - 1) < tabManager.tabs.count - 1
             )
             snapshot.setBool(
+                CommandPaletteContextKeys.workspaceCanMoveToBottom,
+                tabManager.tabs.dropFirst((workspaceIndex ?? tabManager.tabs.count - 1) + 1)
+                    .contains { $0.isPinned == workspace.isPinned }
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
                 sidebarUnread.canMarkWorkspaceRead(forWorkspaceIds: [workspace.id])
             )
@@ -7554,7 +7559,7 @@ struct ContentView: View {
                 subtitle: workspaceSubtitle,
                 keywords: ["workspace", "move", "bottom", "reorder"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMoveToBottom) }
             )
         )
         contributions.append(

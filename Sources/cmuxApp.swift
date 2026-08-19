@@ -1279,6 +1279,12 @@ struct cmuxApp: App {
         manager.selectWorkspace(workspace)
     }
 
+    private func selectedWorkspaceCanMoveToBottom(in manager: TabManager, workspace: Workspace?) -> Bool {
+        guard let workspace,
+              let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspace.id }) else { return false }
+        return manager.tabs.dropFirst(workspaceIndex + 1).contains { $0.isPinned == workspace.isPinned }
+    }
+
     private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
         guard let workspace = manager.selectedWorkspace else { return }
         _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
@@ -1385,7 +1391,7 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")) {
             moveSelectedWorkspaceToBottom(in: manager)
         }
-        .disabled(workspace == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(!selectedWorkspaceCanMoveToBottom(in: manager, workspace: workspace))
 
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
