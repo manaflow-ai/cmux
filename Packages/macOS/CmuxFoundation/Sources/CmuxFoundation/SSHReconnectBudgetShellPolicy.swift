@@ -36,15 +36,40 @@ public enum SSHReconnectBudgetShellPolicy {
     /// The environment variable holding the delay between attempts.
     public static let delaySecondsVariable = "CMUX_SSH_RECONNECT_DELAY_SECONDS"
 
-    /// Shell lines that resolve both variables before the loop runs.
+    /// Shell lines that resolve and normalize both variables before the loop runs.
     ///
-    /// The values are assigned back to their own variables, so a loop that
-    /// exports them hands the resolved values to the processes it starts.
+    /// Each value is rejected when it is not a number, capped when it is larger
+    /// than the loop can act on, and assigned back to its own variable, so a
+    /// loop that exports them hands the normalized values to the processes it
+    /// starts as well.
     public static var configurationLines: [String] {
         [
             "\(retryLimitVariable)=\"${\(retryLimitVariable):-\(defaultRetryLimit)}\"",
+            // Padding comes off before anything counts digits, because "0000002"
+            // is a budget of two retries, not of a seven-digit number of them.
+            paddingStrippingLine(variable: retryLimitVariable),
+            // A digit count is the only test for "too large" that a shell can run
+            // without first turning the value into a number it may not be able to
+            // represent, which is the failure being prevented.
+            "case \"$\(retryLimitVariable)\" in ''|*[!0-9]*) \(retryLimitVariable)=\(defaultRetryLimit) ;; \(digitPattern(minimumDigits: 7))) \(retryLimitVariable)=\(maximumConfigurableRetryLimit) ;; esac",
             "\(delaySecondsVariable)=\"${\(delaySecondsVariable):-\(defaultDelaySeconds)}\"",
+            paddingStrippingLine(variable: delaySecondsVariable),
+            "case \"$\(delaySecondsVariable)\" in ''|*[!0-9]*) \(delaySecondsVariable)=\(defaultDelaySeconds) ;; \(digitPattern(minimumDigits: 6))) \(delaySecondsVariable)=\(maximumConfigurableDelaySeconds) ;; esac",
+            // The ceiling is five digits, so the values the case above lets
+            // through still need comparing, and by now they are small enough to
+            // compare safely.
+            "if [ \"$\(delaySecondsVariable)\" -gt \(maximumConfigurableDelaySeconds) ]; then \(delaySecondsVariable)=\(maximumConfigurableDelaySeconds); fi",
         ]
+    }
+
+    /// A line that drops the leading zeros of `variable`, keeping a bare `0`.
+    private static func paddingStrippingLine(variable: String) -> String {
+        "while :; do case \"$\(variable)\" in 0?*) \(variable)=\"${\(variable)#0}\" ;; *) break ;; esac; done"
+    }
+
+    /// A `case` pattern matching values of at least `minimumDigits` characters.
+    private static func digitPattern(minimumDigits: Int) -> String {
+        String(repeating: "?", count: minimumDigits) + "*"
     }
 
     /// The shell command that ends a loop once its retry budget is spent.
