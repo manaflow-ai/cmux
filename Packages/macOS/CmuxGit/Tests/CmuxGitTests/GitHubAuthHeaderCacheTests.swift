@@ -102,6 +102,9 @@ struct GitHubAuthHeaderCacheTests {
         let resolver = HeaderResolutionCounter(values: ["Bearer recovered"])
 
         await cache.recordFailure(ifMatching: "Bearer unknown")
+        // A delayed success from the rejected request cannot clear the
+        // backoff while the authoritative credential is unknown.
+        await cache.recordSuccess(ifMatching: "Bearer unknown")
         #expect(await cache.header { await resolver.next() } == nil)
         #expect(await resolver.count == 0)
         clock.advance(by: 60)

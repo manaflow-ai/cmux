@@ -107,7 +107,10 @@ actor GitHubAuthHeaderCache {
 
     /// Clears an authentication-failure streak after a request succeeds.
     func recordSuccess(ifMatching expectedHeader: String) {
-        guard cachedHeader == nil || cachedHeader == expectedHeader else { return }
+        // An empty cache is an unknown/rejected state. A delayed response from
+        // an older request must not clear its backoff; only the credential that
+        // is currently authoritative may reconcile the success.
+        guard cachedHeader == expectedHeader else { return }
         consecutiveFailureCount = 0
         preservesFailureCountAcrossResolution = false
         retryAt = nil
