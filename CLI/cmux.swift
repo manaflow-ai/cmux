@@ -13464,6 +13464,14 @@ struct CMUXCLI {
         }
         var reconnectInputFilterStopRequested = false
         var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
+        // A persistent reattach's initial bytes are historical remote PTY
+        // output. Strip terminal queries before Ghostty parses them; otherwise
+        // its replies can arrive after the reconnect stdin filter hands off to
+        // live input and land in the remote shell.
+        let filtersReplayOutput = requireExisting && command == nil
+        var replayOutputFilter = SSHPTYReplayOutputFilter(
+            replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
+        )
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
             readinessDelivery?.cancel()
@@ -13484,12 +13492,23 @@ struct CMUXCLI {
             if count > 0 {
                 outputProgress.recordOutput(byteCount: count)
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
-                cliWriteStdout(Data(outputBuffer.prefix(count)))
+                let output = replayOutputFilter.filter(Data(outputBuffer.prefix(count)))
+                if !output.isEmpty {
+                    cliWriteStdout(output)
+                }
             } else if count == 0 {
+                let trailingReplay = replayOutputFilter.finish()
+                if !trailingReplay.isEmpty {
+                    cliWriteStdout(trailingReplay)
+                }
                 try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
+                    let trailingReplay = replayOutputFilter.finish()
+                    if !trailingReplay.isEmpty {
+                        cliWriteStdout(trailingReplay)
+                    }
                     try finishBridgeClosedNormally()
                     return
                 }
