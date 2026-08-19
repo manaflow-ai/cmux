@@ -46,6 +46,7 @@ use ghostty_vt::{
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::style::Color;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -213,6 +214,8 @@ enum AppEvent {
     BrowserResizeFailed(BrowserResizeFailure),
     GraphicsWriterReady,
     PtyFailuresReady,
+    /// A status bar command segment produced new output; redraw the bar.
+    StatusCommandsUpdated,
     PtyOperationFailed(PtyOperationFailure),
     ClearHistorySucceeded {
         surface: SurfaceId,
@@ -5022,13 +5025,24 @@ pub struct ShortcutHelp {
 
 impl ShortcutHelp {
     fn resolved_rows(config: &Config, surface_only: bool) -> Vec<(Action, String)> {
-        config
+        let mut rows: Vec<(Action, String)> = config
             .keys
             .resolved_shortcuts()
             .into_iter()
             .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
-            .collect()
+            .collect();
+        for index in 0..config.commands.len() {
+            let Some(action) = Action::user_command(index) else { break };
+            if !action_available_in_mode(action, surface_only) {
+                continue;
+            }
+            let shortcuts = config.keys.shortcut_labels(action);
+            if !shortcuts.is_empty() {
+                rows.push((action, shortcuts.join(", ")));
+            }
+        }
+        rows
     }
 
     fn from_config(config: &Config, surface_only: bool) -> Self {
@@ -6084,12 +6098,13 @@ type PaneParts<T> = (Option<T>, Option<T>, T, Option<T>);
 fn pane_parts_for_virtual_rect(
     rect: VirtualRect,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     has_browser_omnibar: bool,
 ) -> Option<PaneParts<VirtualRect>> {
     let local =
         Rect { x: 0, y: rect.y, width: u16::try_from(rect.width).ok()?, height: rect.height };
     let (bar, omnibar, content, track) =
-        pane_parts_for_rect(local, scrollbar_position, has_browser_omnibar);
+        pane_parts_for_rect(local, scrollbar_position, pane_padding, has_browser_omnibar);
     Some((
         bar.map(|part| virtualize_local_rect(rect.x, part)),
         omnibar.map(|part| virtualize_local_rect(rect.x, part)),
@@ -6116,6 +6131,7 @@ struct PaneAreaProjection<'a> {
     stacked_headers: &'a HashSet<PaneId>,
     area: Rect,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
     viewport_offset: Option<u64>,
 }
@@ -6148,6 +6164,7 @@ fn full_pane_parts_for_layout(
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
 ) -> Option<(SurfaceId, PaneParts<VirtualRect>)> {
     let surface_id = pane.active_surface()?;
@@ -6158,7 +6175,12 @@ fn full_pane_parts_for_layout(
     } else if stacked_headers.contains(&pane.id) {
         stacked_header_parts_for_virtual_rect(full_rect)?
     } else {
-        pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)?
+        pane_parts_for_virtual_rect(
+            full_rect,
+            scrollbar_position,
+            pane_padding,
+            has_browser_omnibar,
+        )?
     };
     Some((surface_id, parts))
 }
@@ -6169,6 +6191,7 @@ fn pane_area_source(
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
 ) -> Option<PaneAreaSource> {
     let (surface, (full_bar, full_omnibar, full_content, full_track)) = full_pane_parts_for_layout(
@@ -6176,6 +6199,7 @@ fn pane_area_source(
         full_rect,
         stacked_headers,
         scrollbar_position,
+        pane_padding,
         surface_only,
     )?;
     Some(PaneAreaSource {
@@ -6207,6 +6231,7 @@ impl ViewportPaneAreaProjection {
             layout,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
             ..
         } = projection;
@@ -6230,6 +6255,7 @@ impl ViewportPaneAreaProjection {
                     full_rect,
                     stacked_headers,
                     scrollbar_position,
+                    pane_padding,
                     surface_only,
                 )
             },
@@ -6274,6 +6300,7 @@ fn swept_viewport_size_leases(
         stacked_headers,
         area,
         scrollbar_position,
+        pane_padding,
         surface_only,
         viewport_offset,
     } = projection;
@@ -6292,6 +6319,7 @@ fn swept_viewport_size_leases(
             full_rect,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
         ) else {
             continue;
@@ -6396,6 +6424,7 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
         stacked_headers,
         area,
         scrollbar_position,
+        pane_padding,
         surface_only,
         viewport_offset,
     } = projection;
@@ -6413,6 +6442,7 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
             full_rect,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
         ) else {
             continue;
@@ -6753,6 +6783,25 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Latest output per status-bar command segment, keyed by the segment's
+    /// combined left-then-right index. Written by the status command worker.
+    status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
+    /// Stop signal for the running status segment workers, if any.
+    status_command_worker_stop: Option<Arc<StatusWorkerStop>>,
+    /// Coalesces status redraw pokes across workers: set when an event is
+    /// in flight, cleared when the event loop consumes it.
+    status_poke_pending: Arc<AtomicBool>,
+    /// One worker thread per configured status command segment.
+    status_command_workers: Vec<JoinHandle<()>>,
+    /// Stopped worker generations that have not finished yet; bounded, so
+    /// reload storms cannot stack live workers.
+    retiring_status_workers: Vec<JoinHandle<()>>,
+    /// Bumped by segment workers when any command output changes; part of
+    /// the resolved-segment cache fingerprint.
+    status_outputs_generation: Arc<AtomicU64>,
+    /// Resolved status segments, rebuilt only when the fingerprint of their
+    /// inputs changes, so drawing does not re-expand templates every frame.
+    status_segments_cache: Option<(u64, Arc<ResolvedStatusSegments>)>,
 }
 
 struct QueuedDurableNotice {
@@ -6854,6 +6903,641 @@ fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option
     (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
 }
 
+/// Resolved left and right status segments, in draw order.
+type ResolvedStatusSegments = (Vec<StatusSegmentView>, Vec<StatusSegmentView>);
+
+/// The values one status template expansion can interpolate.
+struct StatusTemplateValues<'a> {
+    session: &'a str,
+    workspace: &'a str,
+    screen: &'a str,
+    screens: &'a str,
+    title: &'a str,
+    user: &'a str,
+}
+
+/// Expand `{variable}` tokens in one left-to-right pass, so an inserted
+/// value is never rescanned: a workspace literally named `{screens}` stays
+/// `{screens}` in the output. Unknown tokens stay literal.
+fn expand_status_tokens(template: &str, values: &StatusTemplateValues<'_>) -> String {
+    let mut result = String::with_capacity(template.len() + 16);
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        result.push_str(&rest[..start]);
+        let candidate = &rest[start..];
+        let Some(end) = candidate.find('}') else {
+            result.push_str(candidate);
+            return result;
+        };
+        match &candidate[1..end] {
+            "session" => result.push_str(values.session),
+            "workspace" => result.push_str(values.workspace),
+            "screen" => result.push_str(values.screen),
+            "screens" => result.push_str(values.screens),
+            "title" => result.push_str(values.title),
+            "user" => result.push_str(values.user),
+            _ => result.push_str(&candidate[..=end]),
+        }
+        rest = &candidate[end + 1..];
+    }
+    result.push_str(rest);
+    result
+}
+
+/// One status segment resolved for drawing.
+#[derive(Clone)]
+pub(crate) struct StatusSegmentView {
+    pub(crate) text: String,
+    pub(crate) fg: Option<Color>,
+    pub(crate) bg: Option<Color>,
+}
+
+/// Shared stop signal for status workers. `raise` wakes idle waiters
+/// immediately, so retiring a worker never waits out a sleep interval, and
+/// an idle worker wakes once per interval instead of polling.
+struct StatusWorkerStop {
+    raised: AtomicBool,
+    lock: Mutex<()>,
+    condvar: Condvar,
+}
+
+impl StatusWorkerStop {
+    fn new() -> Self {
+        Self { raised: AtomicBool::new(false), lock: Mutex::new(()), condvar: Condvar::new() }
+    }
+
+    fn raise(&self) {
+        self.raised.store(true, Ordering::Release);
+        let _guard = self.lock.lock().unwrap();
+        self.condvar.notify_all();
+    }
+
+    fn is_raised(&self) -> bool {
+        self.raised.load(Ordering::Acquire)
+    }
+
+    /// Wait until raised or the duration elapses; returns whether raised.
+    fn wait_timeout(&self, duration: Duration) -> bool {
+        let deadline = Instant::now() + duration;
+        let mut guard = self.lock.lock().unwrap();
+        while !self.is_raised() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, _) = self.condvar.wait_timeout(guard, remaining).unwrap();
+            guard = next;
+        }
+        self.is_raised()
+    }
+}
+
+/// Per-segment status worker: runs one command on its own interval, so one
+/// slow command never delays another segment, and publishes on change.
+/// The capture path checks the stop flag every poll tick and the idle wait
+/// is condvar-based, so a stopped worker exits within milliseconds and an
+/// idle worker never busy-polls. The shared `poke` flag coalesces redraw
+/// events: when several segments change together, only one event is sent
+/// until the event loop consumes it.
+struct StatusSegmentWorker {
+    index: usize,
+    argv: Vec<String>,
+    interval: Duration,
+    outputs: Arc<Mutex<HashMap<usize, String>>>,
+    generation: Arc<AtomicU64>,
+    poke: Arc<AtomicBool>,
+    events: SyncSender<AppEvent>,
+    stop: Arc<StatusWorkerStop>,
+}
+
+fn run_status_segment_loop(worker: StatusSegmentWorker) {
+    const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    let StatusSegmentWorker { index, argv, interval, outputs, generation, poke, events, stop } =
+        worker;
+    let mut pending_notify = false;
+    let mut unreaped: Option<std::process::Child> = None;
+    while !stop.is_raised() {
+        // A previous command stuck in uninterruptible kernel I/O survives
+        // SIGKILL; never stack another process behind it, and reap it once
+        // the kernel releases it, so stuck processes stay bounded at one
+        // per segment with no lasting zombie.
+        // A reaped predecessor is dropped by the reassignment below.
+        if let Some(child) = unreaped.as_mut()
+            && matches!(child.try_wait(), Ok(None))
+        {
+            if stop.wait_timeout(interval) {
+                return;
+            }
+            continue;
+        }
+        let (output, stuck_child) = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
+        unreaped = stuck_child;
+        if stop.is_raised() {
+            return;
+        }
+        let changed = {
+            let mut map = outputs.lock().unwrap();
+            if map.get(&index) != Some(&output) {
+                map.insert(index, output);
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            generation.fetch_add(1, Ordering::Release);
+            pending_notify = true;
+        }
+        try_send_status_poke(&poke, &events, &mut pending_notify);
+        // Sleep out the interval, but wake on a short cadence while a poke
+        // is still pending so a transiently full event queue delays the
+        // update by moments, not by the configured interval. The command
+        // itself never re-runs before its interval elapses.
+        let deadline = Instant::now() + interval;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let wait =
+                if pending_notify { remaining.min(Duration::from_millis(500)) } else { remaining };
+            if stop.wait_timeout(wait) {
+                return;
+            }
+            try_send_status_poke(&poke, &events, &mut pending_notify);
+        }
+    }
+}
+
+/// Attempt to deliver one coalesced status redraw poke. Clears
+/// `pending_notify` when this worker's poke was delivered or another
+/// worker's poke is already in flight (that draw reads the same shared
+/// outputs); releases the poke on a full queue so the retry stays possible.
+fn try_send_status_poke(
+    poke: &AtomicBool,
+    events: &SyncSender<AppEvent>,
+    pending_notify: &mut bool,
+) {
+    if !*pending_notify {
+        return;
+    }
+    if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+            *pending_notify = false;
+        } else {
+            poke.store(false, Ordering::Release);
+        }
+    } else {
+        *pending_notify = false;
+    }
+}
+
+/// Run one status command with a bounded runtime and return its last
+/// nonempty stdout line, stripped of escape sequences and length-capped.
+/// The capture path uses no reader thread: on Unix the pipe is
+/// non-blocking and drained from this loop while the child runs in its own
+/// process group (a timeout or stop kills the whole tree), and on Windows
+/// stdout goes to a temporary file, which reads without blocking on
+/// writers. Setting `stop` makes the call return within one poll tick.
+/// The `USER` environment value, read once: template expansion runs on the
+/// draw path and the value cannot change within one process.
+fn cached_status_user() -> &'static str {
+    static USER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    USER.get_or_init(|| {
+        std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
+    })
+}
+
+/// Returns the segment text plus the child when it could not be reaped
+/// (stuck in uninterruptible kernel I/O); the segment loop keeps at most
+/// one such child and never starts another command behind it.
+fn run_status_command(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (String, Option<std::process::Child>) {
+    const MAX_STATUS_OUTPUT_CHARS: usize = 200;
+    let (captured, stuck_child) = capture_status_output(argv, timeout, stop);
+    let text = String::from_utf8_lossy(&captured);
+    let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+    (strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect(), stuck_child)
+}
+
+const MAX_STATUS_OUTPUT_BYTES: usize = 64 * 1024;
+const STATUS_POLL_TICK: Duration = Duration::from_millis(25);
+
+#[cfg(unix)]
+fn capture_status_output(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (Vec<u8>, Option<std::process::Child>) {
+    use std::io::Read;
+
+    let Some(program) = argv.first() else { return (Vec::new(), None) };
+    let mut command = std::process::Command::new(program);
+    command
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    // Final unlocked stop check directly before the spawn. Holding the
+    // raise lock across spawn would let a stalled filesystem block reload
+    // and shutdown on the UI thread, so the residual race is resolved the
+    // other way: a command that spawns against a concurrent raise is
+    // killed at the first poll tick below.
+    if stop.is_raised() {
+        return (Vec::new(), None);
+    }
+    let Ok(mut child) = command.spawn() else { return (Vec::new(), None) };
+    let mut child_reaped = false;
+    let mut stdout = child.stdout.take();
+    if let Some(pipe) = stdout.as_ref() {
+        use std::os::fd::AsRawFd;
+        // SAFETY: fcntl flag update on a pipe fd this function owns.
+        let nonblocking = unsafe {
+            let fd = pipe.as_raw_fd();
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == 0
+        };
+        if !nonblocking {
+            // Fail closed: a blocking pipe would defeat the deadline and
+            // stop checks, so never enter the capture loop with one.
+            let reaped = kill_status_command_group(&mut child);
+            return (Vec::new(), (!reaped).then_some(child));
+        }
+    }
+    let group = child.id() as i32;
+    let deadline = Instant::now() + timeout;
+    let mut captured: Vec<u8> = Vec::new();
+    let mut exited = false;
+    loop {
+        // Drain what is available, keeping only the bounded tail so the
+        // final line survives even when a command writes more than the cap.
+        // Each poll pass reads a bounded amount, so a command that writes
+        // continuously cannot keep this loop away from the stop, timeout,
+        // and exit checks below.
+        if let Some(pipe) = stdout.as_mut() {
+            // While the command runs, each pass reads a bounded amount so a
+            // continuous writer cannot keep the loop away from the stop and
+            // timeout checks. The final pass after exit drains what the pipe
+            // buffered (kernels allow enlarged pipes) so the documented last
+            // line is the real one; it stays finite so a lingering
+            // descendant cannot pin this loop either.
+            const EXIT_DRAIN_CAP: usize = 4 * 1024 * 1024;
+            let pass_cap = if exited { EXIT_DRAIN_CAP } else { MAX_STATUS_OUTPUT_BYTES };
+            let mut chunk = [0u8; 4096];
+            let mut drained = 0usize;
+            loop {
+                if drained >= pass_cap {
+                    break;
+                }
+                match pipe.read(&mut chunk) {
+                    Ok(0) => {
+                        stdout = None;
+                        break;
+                    }
+                    Ok(read) => {
+                        drained += read;
+                        captured.extend_from_slice(&chunk[..read]);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => {
+                        stdout = None;
+                        break;
+                    }
+                }
+            }
+            // Compact to the tail once per pass, not per chunk, so a
+            // continuously writing command costs one bounded copy here.
+            if captured.len() > MAX_STATUS_OUTPUT_BYTES {
+                let excess = captured.len() - MAX_STATUS_OUTPUT_BYTES;
+                captured.drain(..excess);
+            }
+        }
+        if exited {
+            break;
+        }
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            // One more drain pass picks up bytes written before exit.
+            child_reaped = true;
+            exited = true;
+            continue;
+        }
+        if stop.is_raised() || Instant::now() >= deadline {
+            child_reaped = kill_status_command_group(&mut child);
+            exited = true;
+            continue;
+        }
+        std::thread::sleep(STATUS_POLL_TICK);
+    }
+    // A status command must not outlive its collection: descendants that
+    // detached from the exited command (for example `cmd &`) would
+    // otherwise accumulate one per interval. Idempotent when the group is
+    // already gone.
+    // SAFETY: plain syscall on the spawned child's own process group id.
+    unsafe {
+        libc::kill(-group, libc::SIGKILL);
+    }
+    (captured, (!child_reaped).then_some(child))
+}
+
+#[cfg(windows)]
+fn capture_status_output(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (Vec<u8>, Option<std::process::Child>) {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::sync::atomic::AtomicU64;
+
+    static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let Some(program) = argv.first() else { return (Vec::new(), None) };
+    let path = std::env::temp_dir().join(format!(
+        "cmux-status-{}-{}.out",
+        std::process::id(),
+        CAPTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let Ok(file) = std::fs::File::create(&path) else { return (Vec::new(), None) };
+    let mut command = std::process::Command::new(program);
+    command
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(file))
+        .stderr(std::process::Stdio::null());
+    // Start suspended so the job assignment below covers the process
+    // before it can spawn any descendant; resume only after assignment.
+    {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+        command.creation_flags(CREATE_SUSPENDED);
+    }
+    // Final unlocked stop check; see the Unix path for the trade-off.
+    if stop.is_raised() {
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
+    }
+    let Ok(mut child) = command.spawn() else {
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
+    };
+    // The job's kill-on-close limit terminates the whole descendant tree
+    // when this function returns, mirroring the Unix process-group kill.
+    // Fail closed: without a job there is no tree-kill guarantee, so the
+    // suspended child is discarded before it ever runs.
+    let job = match StatusCommandJob::assign(&child) {
+        Ok(job) => job,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&path);
+            return (Vec::new(), None);
+        }
+    };
+    if resume_suspended_status_child(&child).is_err() {
+        job.terminate();
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
+    }
+    let mut child_reaped = false;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            child_reaped = true;
+            break;
+        }
+        // Bound the file while the command runs: a spewing command is
+        // killed once the file passes the cap, so it cannot fill the
+        // temporary volume for the rest of the timeout. The bound is
+        // enforced per poll tick, so up to one tick of disk throughput can
+        // land past the cap before the kill; the file is removed below
+        // either way.
+        let oversized = std::fs::metadata(&path)
+            .is_ok_and(|metadata| metadata.len() > MAX_STATUS_OUTPUT_BYTES as u64);
+        if oversized || stop.is_raised() || Instant::now() >= deadline {
+            job.terminate();
+            child_reaped = kill_status_command_group(&mut child);
+            break;
+        }
+        std::thread::sleep(STATUS_POLL_TICK);
+    }
+    drop(job);
+    // A file read never blocks on writers, so lingering descendants cannot
+    // pin this call open. Read the bounded tail so the final line survives
+    // a command that writes more than the cap.
+    let mut captured = Vec::new();
+    if let Ok(mut file) = std::fs::File::open(&path) {
+        if let Ok(metadata) = file.metadata() {
+            let length = metadata.len();
+            let cap = MAX_STATUS_OUTPUT_BYTES as u64;
+            if length > cap {
+                let _ = file.seek(SeekFrom::Start(length - cap));
+            }
+        }
+        let _ = file.take(MAX_STATUS_OUTPUT_BYTES as u64).read_to_end(&mut captured);
+    }
+    let _ = std::fs::remove_file(&path);
+    (captured, (!child_reaped).then_some(child))
+}
+
+/// Windows job object with the kill-on-close limit, so every process a
+/// status command started dies when the capture returns. Same pattern as
+/// the journal hook runner in cmux-tui-core.
+#[cfg(windows)]
+struct StatusCommandJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl StatusCommandJob {
+    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self { handle };
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size =
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
+        if process.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(process);
+        }
+        if let Some(error) = assign_error {
+            return Err(error);
+        }
+        Ok(job)
+    }
+
+    fn terminate(&self) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for StatusCommandJob {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        // Kill-on-close terminates any remaining descendants here.
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
+}
+
+/// Resume the suspended status command after its job assignment, same
+/// pattern as the journal hook runner in cmux-tui-core.
+#[cfg(windows)]
+fn resume_suspended_status_child(child: &std::process::Child) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut thread_entry = THREADENTRY32 {
+            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+                .expect("Windows thread entry size fits in u32"),
+            ..THREADENTRY32::default()
+        };
+        if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        loop {
+            if thread_entry.th32OwnerProcessID == child.id() {
+                let thread =
+                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
+                if thread.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let resume_result = unsafe { ResumeThread(thread) };
+                let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                unsafe {
+                    CloseHandle(thread);
+                }
+                return resume_error.map_or(Ok(()), Err);
+            }
+            if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "suspended status command has no thread to resume",
+                ));
+            }
+        }
+    })();
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    result
+}
+
+/// Kill a status command and, on Unix, its whole process group so every
+/// descendant exits with it. Reaping is bounded: a child stuck in
+/// uninterruptible kernel I/O survives SIGKILL until the kernel releases
+/// it, and blocking on it would transitively hang reload and shutdown.
+/// Returns whether the child was reaped; the caller keeps an unreaped
+/// child and refuses to start another command behind it.
+fn kill_status_command_group(child: &mut std::process::Child) -> bool {
+    #[cfg(unix)]
+    // SAFETY: plain syscall on the child's own process group id.
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    let _ = child.kill();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => return false,
+            _ => return true,
+        }
+    }
+}
+
+/// Drop ESC-introduced sequences (CSI/OSC and two-byte escapes) and other
+/// control characters so colored tool output degrades to its plain text.
+/// Tabs become single spaces.
+fn strip_escape_sequences(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            match chars.next() {
+                Some('[') => {
+                    for terminator in chars.by_ref() {
+                        if ('@'..='~').contains(&terminator) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(next) = chars.next() {
+                        if next == '\u{7}' {
+                            break;
+                        }
+                        if next == '\u{1b}' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if character == '\t' {
+            result.push(' ');
+        } else if !character.is_control() {
+            result.push(character);
+        }
+    }
+    result
+}
+
 fn sidebar_layout_for(
     config: &Config,
     visible: bool,
@@ -6892,7 +7576,9 @@ fn sidebar_layout_for_state(
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
     let (width, height) = size;
-    let content_height = height.saturating_sub(1);
+    // The bottom row belongs to the screens status bar unless the user
+    // hides it; a hidden bar gives the row back to the panes.
+    let content_height = if config.status_bar.visible { height.saturating_sub(1) } else { height };
     if !visible {
         return SidebarLayout {
             content: Rect { x: 0, y: 0, width, height: content_height },
@@ -7039,13 +7725,21 @@ fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u
     clamp_rail_width(desired, configured_max, available)
 }
 
-fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, false);
+fn content_size_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    padding: u16,
+) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, padding, false);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
-fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
+fn browser_content_size_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    padding: u16,
+) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, padding, true);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
@@ -7159,6 +7853,7 @@ fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requ
 fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
+    padding: u16,
     browser_omnibar: bool,
 ) -> PaneParts<Rect> {
     let (bar, mut content, track) = if rect.width > 2 && rect.height > 2 {
@@ -7190,6 +7885,16 @@ fn pane_parts_for_rect(
     } else {
         (None, rect, None)
     };
+    // Configured padding: blank cells between border and content, applied
+    // only while at least one content cell survives on that axis.
+    if content.width > 0 && content.height > 0 {
+        let pad_x = padding.min(content.width.saturating_sub(1) / 2);
+        let pad_y = padding.min(content.height.saturating_sub(1) / 2);
+        content.x = content.x.saturating_add(pad_x);
+        content.width = content.width.saturating_sub(pad_x.saturating_mul(2)).max(1);
+        content.y = content.y.saturating_add(pad_y);
+        content.height = content.height.saturating_sub(pad_y.saturating_mul(2)).max(1);
+    }
     let omnibar = if browser_omnibar && content.height >= 2 {
         let row = Rect { height: 1, ..content };
         content.y = content.y.saturating_add(1);
@@ -7848,7 +8553,8 @@ fn run_with_machine_updates_inner(
             SidebarWidthOverrides::default(),
         )
         .content;
-        content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
+        content_size_for_rect(pane, config.scrollbar.position, config.pane.padding)
+            .unwrap_or((1, 1))
     });
     ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
     let initial_workspace_error = recover_initial_workspace_failure(
@@ -8204,7 +8910,15 @@ fn run_with_machine_updates_inner(
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
+        status_command_worker_stop: None,
+        status_poke_pending: Arc::new(AtomicBool::new(false)),
+        status_command_workers: Vec::new(),
+        retiring_status_workers: Vec::new(),
+        status_outputs_generation: Arc::new(AtomicU64::new(0)),
+        status_segments_cache: None,
     };
+    app.ensure_status_command_worker();
     if app.session_available() {
         app.session.refresh_clients_background();
     }
@@ -9358,6 +10072,17 @@ impl App {
     }
 
     fn shutdown_background_workers(&mut self) {
+        if let Some(stop) = self.status_command_worker_stop.take() {
+            stop.raise();
+        }
+        // Join, so a status command's process group is reaped before exit.
+        // The capture loop observes the flag every poll tick, so each join
+        // is bounded by that tick.
+        for handle in
+            self.status_command_workers.drain(..).chain(self.retiring_status_workers.drain(..))
+        {
+            let _ = handle.join();
+        }
         self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
             updates.stop_and_join();
@@ -9407,7 +10132,11 @@ impl App {
             return RenderAction::None;
         };
         let preparation = MachineSessionPreparation {
-            initial_size: content_size_for_rect(self.content_area, self.config.scrollbar.position),
+            initial_size: content_size_for_rect(
+                self.content_area,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+            ),
             default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
@@ -12067,6 +12796,192 @@ impl App {
             help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
         }
         self.sidebar_followed_surface = None;
+        self.ensure_status_command_worker();
+    }
+
+    /// Stop any running status command worker and start a new one when the
+    /// visible status bar has command segments. Called at startup and after
+    /// every config reload.
+    fn ensure_status_command_worker(&mut self) {
+        if let Some(stop) = self.status_command_worker_stop.take() {
+            stop.raise();
+        }
+        // Stopped workers observe the flag at every capture poll tick, so
+        // they exit within milliseconds. Keep their handles and enforce a
+        // hard bound anyway, so even a reload storm cannot stack live
+        // worker generations; a join past the bound is bounded by that same
+        // poll tick.
+        const MAX_RETIRING_STATUS_WORKERS: usize = 32;
+        self.retiring_status_workers.append(&mut self.status_command_workers);
+        self.retiring_status_workers.retain(|handle| !handle.is_finished());
+        while self.retiring_status_workers.len() > MAX_RETIRING_STATUS_WORKERS {
+            let handle = self.retiring_status_workers.remove(0);
+            let _ = handle.join();
+        }
+        // A fresh map per generation: a stopped worker mid-command can only
+        // write into its own orphaned map, never under an index that now
+        // belongs to a different segment.
+        self.status_command_outputs = Arc::new(Mutex::new(HashMap::new()));
+        self.status_outputs_generation = Arc::new(AtomicU64::new(1));
+        self.status_poke_pending = Arc::new(AtomicBool::new(false));
+        self.status_segments_cache = None;
+        if !self.config.status_bar.visible || self.is_surface_only() {
+            return;
+        }
+        let commands = self.config.status_bar.command_segments();
+        if commands.is_empty() {
+            return;
+        }
+        let stop = Arc::new(StatusWorkerStop::new());
+        for (index, argv, interval) in commands {
+            let outputs = self.status_command_outputs.clone();
+            let generation = self.status_outputs_generation.clone();
+            let poke = self.status_poke_pending.clone();
+            let events = self.app_events.clone();
+            let worker_stop = stop.clone();
+            match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
+                move || {
+                    run_status_segment_loop(StatusSegmentWorker {
+                        index,
+                        argv,
+                        interval,
+                        outputs,
+                        generation,
+                        poke,
+                        events,
+                        stop: worker_stop,
+                    });
+                },
+            ) {
+                Ok(handle) => self.status_command_workers.push(handle),
+                Err(error) => {
+                    eprintln!("cmux-tui: could not start a status segment worker: {error}");
+                }
+            }
+        }
+        self.status_command_worker_stop = Some(stop);
+    }
+
+    /// Resolve the configured status segments to displayable text: literal
+    /// segments expand `{variable}`s, command segments read the worker's
+    /// latest output. The resolved result is cached against a fingerprint
+    /// of every expansion input, so an ordinary draw reuses the previous
+    /// strings instead of re-expanding templates.
+    pub(crate) fn resolved_status_segments(&mut self) -> Arc<ResolvedStatusSegments> {
+        static EMPTY: std::sync::OnceLock<Arc<ResolvedStatusSegments>> = std::sync::OnceLock::new();
+        if self.config.status_bar.left.is_empty() && self.config.status_bar.right.is_empty() {
+            return EMPTY.get_or_init(|| Arc::new((Vec::new(), Vec::new()))).clone();
+        }
+        let fingerprint = self.status_segments_fingerprint();
+        if self.status_segments_cache.as_ref().map(|(cached, _)| *cached) != Some(fingerprint) {
+            let resolved = Arc::new(self.resolve_status_segments_now());
+            self.status_segments_cache = Some((fingerprint, resolved));
+        }
+        self.status_segments_cache
+            .as_ref()
+            .map(|(_, resolved)| Arc::clone(resolved))
+            .unwrap_or_else(|| EMPTY.get_or_init(|| Arc::new((Vec::new(), Vec::new()))).clone())
+    }
+
+    /// Allocation-free hash of every input `resolve_status_segments_now`
+    /// reads: command outputs (via the workers' change counter) plus the
+    /// interpolated session, workspace, screen, and title values. The
+    /// frequently-changing tab title participates only when a configured
+    /// template actually uses `{title}`, so ordinary title churn does not
+    /// rebuild fixed segments.
+    fn status_segments_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.status_outputs_generation.load(Ordering::Acquire).hash(&mut hasher);
+        self.session_label.hash(&mut hasher);
+        if let Some(workspace) = self.tree.active_workspace() {
+            workspace.name.hash(&mut hasher);
+            workspace.screens.len().hash(&mut hasher);
+            workspace.active_screen.hash(&mut hasher);
+            if let Some(screen) = workspace.screens.get(workspace.active_screen) {
+                screen.name.hash(&mut hasher);
+            }
+        }
+        if self.status_templates_use("{title}")
+            && let Some(tab) = self
+                .tree
+                .active_screen()
+                .and_then(|screen| screen.pane(screen.active_pane))
+                .and_then(|pane| pane.tabs.get(pane.active_tab))
+        {
+            tab.name.hash(&mut hasher);
+            tab.title.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Whether any configured literal status segment contains `token`.
+    fn status_templates_use(&self, token: &str) -> bool {
+        self.config.status_bar.left.iter().chain(self.config.status_bar.right.iter()).any(
+            |segment| match &segment.content {
+                crate::config::StatusSegmentContent::Text(template) => template.contains(token),
+                crate::config::StatusSegmentContent::Command { .. } => false,
+            },
+        )
+    }
+
+    fn resolve_status_segments_now(&self) -> ResolvedStatusSegments {
+        let outputs = self.status_command_outputs.lock().unwrap();
+        let mut index = 0usize;
+        let mut resolve = |segments: &[crate::config::StatusSegment]| {
+            segments
+                .iter()
+                .map(|segment| {
+                    let text = match &segment.content {
+                        crate::config::StatusSegmentContent::Text(template) => {
+                            self.expand_status_template(template)
+                        }
+                        crate::config::StatusSegmentContent::Command { .. } => {
+                            outputs.get(&index).cloned().unwrap_or_default()
+                        }
+                    };
+                    index += 1;
+                    StatusSegmentView { text, fg: segment.fg, bg: segment.bg }
+                })
+                .collect::<Vec<_>>()
+        };
+        let left = resolve(&self.config.status_bar.left);
+        let right = resolve(&self.config.status_bar.right);
+        (left, right)
+    }
+
+    /// `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and
+    /// `{user}`. Unknown braces stay literal.
+    fn expand_status_template(&self, template: &str) -> String {
+        if !template.contains('{') {
+            return template.to_string();
+        }
+        let workspace = self.tree.active_workspace();
+        let workspace_name = workspace.map(|ws| ws.name.clone()).unwrap_or_default();
+        let screens = workspace.map(|ws| ws.screens.len()).unwrap_or(0).to_string();
+        let screen_name = workspace
+            .and_then(|ws| {
+                ws.screens.get(ws.active_screen).map(|screen| screen.display_name(ws.active_screen))
+            })
+            .unwrap_or_default();
+        let title = self
+            .tree
+            .active_screen()
+            .and_then(|screen| screen.pane(screen.active_pane))
+            .and_then(|pane| pane.tabs.get(pane.active_tab))
+            .map(|tab| tab.name.clone().unwrap_or_else(|| tab.title.clone()))
+            .unwrap_or_default();
+        expand_status_tokens(
+            template,
+            &StatusTemplateValues {
+                session: &self.session_label,
+                workspace: &workspace_name,
+                screen: &screen_name,
+                screens: &screens,
+                title: &title,
+                user: cached_status_user(),
+            },
+        )
     }
 
     fn focused_surface_cwd(&self) -> Option<PathBuf> {
@@ -12171,6 +13086,7 @@ impl App {
                 stacked_headers: &self.viewport_stacked_headers,
                 area: self.content_area,
                 scrollbar_position: self.config.scrollbar.position,
+                pane_padding: self.config.pane.padding,
                 surface_only: self.surface_only,
                 viewport_offset: Some(self.viewport_offset),
             });
@@ -12355,6 +13271,7 @@ impl App {
             stacked_headers: &layout.stacked_headers,
             area,
             scrollbar_position: self.config.scrollbar.position,
+            pane_padding: self.config.pane.padding,
             surface_only: self.surface_only,
             viewport_offset: viewport_enabled.then_some(self.viewport_offset),
         };
@@ -12387,6 +13304,7 @@ impl App {
                     stacked_headers: &layout.stacked_headers,
                     area,
                     scrollbar_position: self.config.scrollbar.position,
+                    pane_padding: self.config.pane.padding,
                     surface_only: self.surface_only,
                     viewport_offset: Some(self.viewport_offset),
                 },
@@ -12975,6 +13893,14 @@ impl App {
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
+            }
+            AppEvent::StatusCommandsUpdated => {
+                self.status_poke_pending.store(false, Ordering::Release);
+                Ok(if self.config.status_bar.visible && !self.is_surface_only() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                })
             }
             AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
@@ -14739,7 +15665,7 @@ impl App {
 
     /// Content size for a pane filling `rect`.
     fn size_of_rect(&self, rect: Rect) -> Option<(u16, u16)> {
-        content_size_for_rect(rect, self.config.scrollbar.position)
+        content_size_for_rect(rect, self.config.scrollbar.position, self.config.pane.padding)
     }
 
     /// Size hint for splitting `pane`: the second side of its rect.
@@ -14802,6 +15728,28 @@ impl App {
             self.terminal_tab_size_hint(pane),
             selector_candidates,
             semantic_intent,
+        )
+    }
+
+    /// Run one configured user command as a new PTY tab in the target pane.
+    /// The server defaults the working directory to the pane's current
+    /// directory when the command has no configured `cwd`.
+    fn run_user_command(&mut self, index: usize, pane: Option<PaneId>) -> anyhow::Result<()> {
+        // `action_available` already rejects user commands for single-surface
+        // clients; keep the invariant local so no future route can create a
+        // tab this mode cannot reach.
+        if self.is_surface_only() {
+            return Ok(());
+        }
+        let Some(command) = self.config.commands.get(index) else {
+            return Ok(());
+        };
+        let pane = pane.or_else(|| self.active_pane());
+        self.session.run_command(
+            command.run.clone(),
+            pane,
+            command.cwd.clone(),
+            self.terminal_tab_size_hint(pane),
         )
     }
 
@@ -16956,6 +17904,11 @@ impl App {
                 self.quit = true;
                 return Ok(RenderAction::None);
             }
+            Action::UserCommand(_) => {
+                if let Some(index) = action.user_command_index() {
+                    self.run_user_command(index, pane)?;
+                }
+            }
         }
         if !self.status_message_hovered() {
             self.status_message = None;
@@ -17050,13 +18003,21 @@ impl App {
     fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
         match pane {
             Some(pane) => self.pane_areas.iter().find(|area| area.pane == pane).and_then(|area| {
-                browser_content_size_for_rect(area.logical_rect(), self.config.scrollbar.position)
+                browser_content_size_for_rect(
+                    area.logical_rect(),
+                    self.config.scrollbar.position,
+                    self.config.pane.padding,
+                )
             }),
             None => self
                 .active_pane()
                 .and_then(|pane| self.browser_tab_size_hint(Some(pane)))
                 .or_else(|| {
-                    browser_content_size_for_rect(self.content_area, self.config.scrollbar.position)
+                    browser_content_size_for_rect(
+                        self.content_area,
+                        self.config.scrollbar.position,
+                        self.config.pane.padding,
+                    )
                 }),
         }
     }
@@ -17109,8 +18070,12 @@ impl App {
         let has_omnibar = if area.surface == surface {
             area.omnibar.is_some()
         } else {
-            let (_, omnibar, _, _) =
-                pane_parts_for_rect(area.rect, self.config.scrollbar.position, true);
+            let (_, omnibar, _, _) = pane_parts_for_rect(
+                area.rect,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+                true,
+            );
             omnibar.is_some()
         };
         if !has_omnibar {
@@ -20395,6 +21360,17 @@ impl App {
         action_available_in_mode(action, self.surface_only.is_some())
     }
 
+    /// The display label for an action: the localized catalog label, or the
+    /// user's configured command name for `Action::UserCommand`.
+    pub(crate) fn action_display_label(&self, action: Action) -> &str {
+        if let Some(index) = action.user_command_index()
+            && let Some(command) = self.config.commands.get(index)
+        {
+            return command.name.as_str();
+        }
+        localization::catalog().action_label(action)
+    }
+
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
         vec![
             MenuAction::ToggleSidebar { visible: self.sidebar_visible },
@@ -21455,22 +22431,23 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
         SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
-        enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
         keyboard_protocol_accepts, layout_undo_error_completion,
         negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
         pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
         prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
         record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
-        sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
+        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
@@ -21499,7 +22476,7 @@ mod tests {
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use ratatui::style::Modifier;
+    use ratatui::style::{Color, Modifier};
     use unicode_width::UnicodeWidthStr;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
@@ -22734,6 +23711,175 @@ mod tests {
         mux.close_surface(hidden.id).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn status_command_runner_returns_last_clean_line() {
+        let run = StatusWorkerStop::new();
+        let (output, _) = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "printf 'one\\ntwo\\n\\n'".to_string()],
+            Duration::from_secs(5),
+            &run,
+        );
+        assert_eq!(output, "two", "the last nonempty line wins");
+        let (colored, _) = run_status_command(
+            &[
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                "printf '\\033[31mred\\033[0m done'".to_string(),
+            ],
+            Duration::from_secs(5),
+            &run,
+        );
+        assert_eq!(colored, "red done", "escape sequences are stripped");
+        assert_eq!(
+            run_status_command(
+                &["/nonexistent-status-cmd".to_string()],
+                Duration::from_secs(1),
+                &run,
+            )
+            .0,
+            "",
+            "spawn failures resolve to an empty segment"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_command_timeout_kills_the_process_tree_and_keeps_partial_output() {
+        let started = Instant::now();
+        let run = StatusWorkerStop::new();
+        let (output, stuck) = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
+            Duration::from_secs(1),
+            &run,
+        );
+        assert_eq!(output, "early", "output before the timeout survives the group kill");
+        assert!(stuck.is_none(), "a killable command is reaped within the bound");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the runtime bound is real: {:?}",
+            started.elapsed()
+        );
+
+        // A raised stop flag makes the capture return within one poll tick
+        // instead of running out the timeout, so config reloads and app
+        // shutdown never wait on a slow command.
+        let stopped = StatusWorkerStop::new();
+        stopped.raise();
+        let started = Instant::now();
+        let (output, _) = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "sleep 60".to_string()],
+            Duration::from_secs(60),
+            &stopped,
+        );
+        assert_eq!(output, "");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "stop preempts the timeout: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn status_token_expansion_never_rescans_inserted_values() {
+        let values = StatusTemplateValues {
+            session: "s",
+            workspace: "{screens}",
+            screen: "main",
+            screens: "3",
+            title: "{user}",
+            user: "lawrence",
+        };
+        assert_eq!(
+            expand_status_tokens("{workspace} of {screens} · {title}", &values),
+            "{screens} of 3 · {user}",
+            "inserted values stay literal"
+        );
+        assert_eq!(
+            expand_status_tokens("{unknown} {session", &values),
+            "{unknown} {session",
+            "unknown tokens and unterminated braces stay literal"
+        );
+        assert_eq!(expand_status_tokens("plain", &values), "plain");
+    }
+
+    #[test]
+    fn status_segments_expand_variables_and_read_command_outputs() {
+        let (mux, _surface) = test_mux("status-segments-test", None);
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.status_bar.left = vec![crate::config::StatusSegment {
+            content: crate::config::StatusSegmentContent::Text(
+                " {session} {workspace} {screens} ".to_string(),
+            ),
+            fg: None,
+            bg: None,
+        }];
+        app.config.status_bar.right = vec![crate::config::StatusSegment {
+            content: crate::config::StatusSegmentContent::Command {
+                argv: vec!["true".to_string()],
+                interval: Duration::from_secs(5),
+            },
+            fg: Some(Color::Indexed(114)),
+            bg: None,
+        }];
+        app.status_command_outputs.lock().unwrap().insert(1, "widget".to_string());
+
+        let segments = app.resolved_status_segments();
+        let (left, right) = (&segments.0, &segments.1);
+        assert_eq!(left.len(), 1);
+        assert!(
+            left[0].text.contains(" work 1 "),
+            "workspace and screen count expand: {:?}",
+            left[0].text
+        );
+        assert!(!left[0].text.contains('{'), "no unexpanded braces: {:?}", left[0].text);
+        assert_eq!(right[0].text, "widget", "command segments read the worker output");
+        assert_eq!(right[0].fg, Some(Color::Indexed(114)));
+
+        for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn user_command_action_runs_configured_argv_in_a_new_tab() {
+        let (mux, _surface) = test_mux("user-command-run-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.commands = vec![crate::config::UserCommandConfig {
+            id: "sleeper".to_string(),
+            name: "Sleeper".to_string(),
+            run: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
+            cwd: None,
+        }];
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let initial_surfaces = mux.with_state(|state| state.surfaces.len());
+
+        app.run_action_for_pane(Action::user_command(0).unwrap(), Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), initial_surfaces + 1);
+
+        // An index without a configured command is a no-op.
+        app.run_action_for_pane(Action::user_command(1).unwrap(), Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), initial_surfaces + 1);
+
+        // The shortcut modal shows the configured display name.
+        assert_eq!(app.action_display_label(Action::user_command(0).unwrap()), "Sleeper");
+
+        for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
     #[test]
     fn single_surface_client_rejects_hidden_browser_creation() {
         let (mux, surface) = test_mux("single-surface-browser-creation-test", None);
@@ -23810,7 +24956,7 @@ mod tests {
 
         assert!(rendered.contains("isolated attach error"), "{rendered}");
         assert!(!rendered.contains("screens"), "{rendered}");
-        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, ratatui::style::Color::Red);
+        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, Color::Red);
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -24573,6 +25719,7 @@ mod tests {
                 stacked_headers: &HashSet::new(),
                 area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
+                pane_padding: 0,
                 surface_only: None,
                 viewport_offset: Some(0),
             },
@@ -24631,6 +25778,7 @@ mod tests {
                 stacked_headers: &HashSet::new(),
                 area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
+                pane_padding: 0,
                 surface_only: None,
                 viewport_offset: Some(0),
             },
@@ -24770,6 +25918,7 @@ mod tests {
             stacked_headers: &stacked_headers,
             area,
             scrollbar_position: ScrollbarPosition::Column,
+            pane_padding: 0,
             surface_only: None,
             viewport_offset: Some(0),
         });
@@ -24812,6 +25961,7 @@ mod tests {
                     stacked_headers: &stacked_headers,
                     area,
                     scrollbar_position: ScrollbarPosition::Column,
+                    pane_padding: 0,
                     surface_only: None,
                     viewport_offset: Some(offset),
                 },
@@ -26319,10 +27469,41 @@ mod tests {
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
         let (_bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Column, true);
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, 0, true);
         assert_eq!(omnibar, Some(Rect { x: 11, y: 5, width: 77, height: 1 }));
         assert_eq!(content, Rect { x: 11, y: 6, width: 77, height: 21 });
         assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
+    }
+
+    #[test]
+    fn pane_padding_insets_content_and_keeps_at_least_one_cell() {
+        let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
+        let (bar, _, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, 2, false);
+        // Bar and track keep the border geometry; only content is inset.
+        assert_eq!(bar, Some(Rect { x: 10, y: 4, width: 80, height: 1 }));
+        assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
+        assert_eq!(content, Rect { x: 13, y: 7, width: 73, height: 18 });
+
+        // A tiny pane never pads itself out of existence.
+        let tiny = Rect { x: 0, y: 0, width: 5, height: 4 };
+        let (_, _, content, _) = pane_parts_for_rect(tiny, ScrollbarPosition::Border, 4, false);
+        assert!(content.width >= 1 && content.height >= 1, "content survived: {content:?}");
+
+        // Padded content sizes drive PTY sizing through the same helper.
+        assert_eq!(content_size_for_rect(rect, ScrollbarPosition::Column, 0), Some((77, 22)));
+        assert_eq!(content_size_for_rect(rect, ScrollbarPosition::Column, 2), Some((73, 18)));
+    }
+
+    #[test]
+    fn hidden_status_bar_gives_the_bottom_row_to_panes() {
+        let mut config = Config::default();
+        let overrides = SidebarWidthOverrides::default();
+        let visible = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
+        assert_eq!(visible.content.height, 29);
+        config.status_bar.visible = false;
+        let hidden = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
+        assert_eq!(hidden.content.height, 30);
     }
 
     #[test]
@@ -26461,7 +27642,7 @@ mod tests {
     fn browser_omnibar_degrades_gracefully_with_one_content_row() {
         let rect = Rect { x: 0, y: 0, width: 20, height: 3 };
         let (_bar, omnibar, content, _track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, true);
         assert_eq!(omnibar, None);
         assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
     }
@@ -26471,7 +27652,7 @@ mod tests {
         for height in [1, 2] {
             let rect = Rect { x: 4, y: 5, width: 20, height };
             let (bar, omnibar, content, track) =
-                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, false);
 
             assert_eq!(bar, Some(Rect { height: 1, ..rect }));
             assert_eq!(omnibar, None);
@@ -26484,7 +27665,7 @@ mod tests {
     fn narrow_tall_pane_keeps_unboxed_terminal_content() {
         let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
         let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, false);
 
         assert_eq!(bar, None);
         assert_eq!(omnibar, None);
@@ -26495,7 +27676,10 @@ mod tests {
     #[test]
     fn browser_tab_size_hint_uses_omnibar_reduced_content() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
-        assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column), Some((77, 21)));
+        assert_eq!(
+            browser_content_size_for_rect(rect, ScrollbarPosition::Column, 0),
+            Some((77, 21))
+        );
     }
 
     #[test]
@@ -29336,8 +30520,12 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
-        let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        let (bar, omnibar, content, track) = pane_parts_for_rect(
+            rect,
+            app.config.scrollbar.position,
+            app.config.pane.padding,
+            false,
+        );
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
@@ -29404,8 +30592,12 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
-        let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        let (bar, omnibar, content, track) = pane_parts_for_rect(
+            rect,
+            app.config.scrollbar.position,
+            app.config.pane.padding,
+            false,
+        );
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
@@ -39652,6 +40844,13 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
+            status_command_worker_stop: None,
+            status_poke_pending: Arc::new(AtomicBool::new(false)),
+            status_command_workers: Vec::new(),
+            retiring_status_workers: Vec::new(),
+            status_outputs_generation: Arc::new(AtomicU64::new(0)),
+            status_segments_cache: None,
         };
         (app, receiver)
     }
