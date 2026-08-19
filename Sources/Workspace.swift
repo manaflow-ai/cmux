@@ -1848,14 +1848,25 @@ extension Workspace {
         // custom title), so push the restored title to the tab now, mirroring
         // `updatePanelTitle`, instead of waiting for the next OSC title update.
         if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
-            let presentation = codexTabTitlePresentation(
-                panelId: panelId,
-                fallback: panelTitles[panelId] ?? panel.displayTitle
-            )
+            let presentation: CodexTabTitlePresentation
+            if panel is TerminalPanel {
+                presentation = codexTabTitlePresentation(
+                    panelId: panelId,
+                    fallback: panelTitles[panelId] ?? panel.displayTitle
+                )
+            } else {
+                presentation = CodexTabTitlePresentation(
+                    title: resolvedPanelTitle(
+                        panelId: panelId,
+                        fallback: panelTitles[panelId] ?? panel.displayTitle
+                    ),
+                    isAnimating: false
+                )
+            }
             bonsplitController.updateTab(
                 tabId,
                 title: presentation.title,
-                isLoading: presentation.isAnimating,
+                isLoading: panel is TerminalPanel ? presentation.isAnimating : nil,
                 hasCustomTitle: panelCustomTitles[panelId] != nil
             )
         }
@@ -4644,11 +4655,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        let presentation = codexTabTitlePresentation(panelId: panelId, fallback: baseTitle)
+        let presentation: CodexTabTitlePresentation
+        if panel is TerminalPanel {
+            presentation = codexTabTitlePresentation(panelId: panelId, fallback: baseTitle)
+        } else {
+            presentation = CodexTabTitlePresentation(
+                title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
+                isAnimating: false
+            )
+        }
         bonsplitController.updateTab(
             tabId,
             title: presentation.title,
-            isLoading: presentation.isAnimating,
+            isLoading: panel is TerminalPanel ? presentation.isAnimating : nil,
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
