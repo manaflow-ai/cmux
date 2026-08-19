@@ -145,6 +145,16 @@ EOF
 # (a launcher that spawns instead of exec'ing); a file named after this pid
 # carries it when a launcher rebuilds the environment but stays in the same
 # process, which is exactly how the bounce happens. Whichever is higher wins.
+#
+# What the file checks below defend, and what they deliberately do not: a hostile
+# path planted before cmux gets there -- another user's symlink or leftover in a
+# shared /tmp -- is refused, which is why every path proves the directory and the
+# file before touching either. A process running as THIS user is inside the trust
+# boundary and is not defended against: bash cannot validate and use one
+# descriptor, so any check here is racy, and winning that race yields cmux's own
+# counter (1..16, whose only effect is stopping a launch with the message below)
+# or removes a path that process could remove directly. The tag is a cooperation
+# marker for that user's own tools, not authentication.
 cmux_claude_wrapper_hook_reentry_state_dir() {
     local dir="${TMPDIR:-/tmp}"
     # Scoped per user: with TMPDIR unset this lands in a shared /tmp, where an
