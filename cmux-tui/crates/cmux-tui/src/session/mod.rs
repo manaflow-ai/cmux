@@ -362,9 +362,11 @@ pub(crate) enum SurfaceAttach {
     Missing,
 }
 
-/// A client's focused pane and tab. Reported to the mux so the server's
-/// persisted focus follows the user: a later attach (same machine or another
-/// client) adopts it, and future follow-along clients can subscribe to it.
+/// A client's focused pane and tab. Reported to the mux as memory only: a
+/// later attach adopts it (the same client through its own record, any other
+/// client through the session's last reported focus), and future follow-along
+/// clients can subscribe to it. Reports never move the live shared focus, so
+/// clients that are already attached stay where they are.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct ClientFocus {
     pub(crate) pane: PaneId,
@@ -373,11 +375,14 @@ pub(crate) struct ClientFocus {
 
 impl Session {
     /// Best-effort focus report: the client already navigated optimistically,
-    /// so failures are ignored and remote sends are never awaited. The mux's
-    /// `pane.focus` adopts the pane's workspace and screen and persists all
-    /// three; `select-tab` persists the tab within the pane. With a client id
-    /// and a `client-focus-v1` server, one `report-focus` command additionally
-    /// remembers the focus per client for that client's own reconnection.
+    /// so failures are ignored and remote sends are never awaited. On the
+    /// local path and on a `client-focus-v1` server the report only writes
+    /// memory: the session's last reported focus (the adoption default for a
+    /// later attach) and, with a client id, this client's own record for its
+    /// reconnection. It never moves the live shared focus, so other attached
+    /// clients keep their own view. Only a remote server without the
+    /// capability degrades to `focus-pane` plus `select-tab`, which does move
+    /// the shared focus.
     pub(crate) fn report_focus(
         &self,
         previous: Option<ClientFocus>,
@@ -391,12 +396,7 @@ impl Session {
         }
         match self {
             Session::Local(mux) => {
-                if pane_changed {
-                    let _ = mux.focus_pane(focus.pane);
-                }
-                if tab_changed {
-                    mux.select_tab(Some(focus.pane), Some(focus.tab), None);
-                }
+                mux.record_session_focus(focus.pane, Some(focus.tab));
                 if let Some(client_id) = client_id {
                     mux.remember_client_focus(client_id.to_string(), focus.pane, Some(focus.tab));
                 }
@@ -425,12 +425,15 @@ impl Session {
         }
     }
 
-    /// This client's remembered focus on this session, if the server has one
-    /// and its pane is still alive.
+    /// This client's remembered focus on this session, falling back to the
+    /// session's last reported focus from any client, if the server has
+    /// either and its pane is still alive. The remote server applies the
+    /// same fallback inside the `client-focus` command.
     pub(crate) fn client_focus(&self, client_id: &str) -> Option<ClientFocus> {
         match self {
             Session::Local(mux) => mux
                 .client_focus(client_id)
+                .or_else(|| mux.session_focus())
                 .map(|(pane, tab)| ClientFocus { pane, tab: tab.unwrap_or(0) }),
             Session::Remote(remote) => {
                 if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {

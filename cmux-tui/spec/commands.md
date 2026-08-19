@@ -2769,7 +2769,7 @@ Example:
 | status | implemented |
 | since | protocol 12, capability `client-focus-v1` |
 
-Reports one client's focus. Applies it as the session focus (like `focus-pane` plus `select-tab`) and remembers it per `client_id` so that client's own later `client-focus` query restores it. The memory is in-process and bounded; a server restart degrades to the session focus.
+Reports one client's focus. Records it as the session's last reported focus (the adoption default a later `client-focus` query falls back to) and remembers it per `client_id` so that client's own later `client-focus` query restores it. A report only writes this memory; it never moves the live session focus, so clients that are already attached stay where they are. The memory is in-process and bounded; a server restart degrades to the tree's own focus.
 
 Params:
 
@@ -2800,7 +2800,7 @@ Errors:
 | status | implemented |
 | since | protocol 12, capability `client-focus-v1` |
 
-The focus last reported by `client_id` via `report-focus`, or nulls when the server has none or its pane no longer exists.
+The focus last reported by `client_id` via `report-focus`, falling back to the session's last reported focus from any client, or nulls when neither exists or the pane no longer does.
 
 Params:
 

@@ -12245,18 +12245,19 @@ fn handle_command_with_cancellation(
         }
         Command::ReportFocus { client_id, pane, tab } => {
             validate_client_focus_id(&client_id)?;
-            if !mux.focus_pane(pane) {
+            if !mux.with_state(|state| state.panes.contains_key(&pane)) {
                 anyhow::bail!("unknown pane {pane}");
             }
-            if let Some(tab) = tab {
-                mux.select_tab(Some(pane), Some(tab), None);
-            }
+            // A report only writes memory (the session's last reported focus
+            // and this client's own record). It never moves the live shared
+            // focus, so other attached clients stay where they are.
+            mux.record_session_focus(pane, tab);
             mux.remember_client_focus(client_id, pane, tab);
             Ok(json!({}))
         }
         Command::ClientFocus { client_id } => {
             validate_client_focus_id(&client_id)?;
-            Ok(match mux.client_focus(&client_id) {
+            Ok(match mux.client_focus(&client_id).or_else(|| mux.session_focus()) {
                 Some((pane, tab)) => json!({"pane": pane, "tab": tab}),
                 None => json!({"pane": null, "tab": null}),
             })
