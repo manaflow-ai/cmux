@@ -11,6 +11,7 @@ The terminal domain's core leaf: pure and Sendable terminal logic with no view d
 - `SurfaceCallbacks/` — `GhosttySurfaceCallbackContext`, the retained userdata for libghostty callbacks, behind the `TerminalSurfaceControlling`/`TerminalSurfaceHosting` seams.
 - `SurfaceValues/` — the Sendable surface value DTOs (`PendingKeyEvent`, `PendingSocketInput`, `ParsedSocketInput`, `NamedKeySendResult`, `InputSendResult`, `PortalLifecycleState`, `PortalHostLease`).
 - `TitleChurn/` — `TerminalTitleChurnFilter`, the value normalizer that collapses known standalone Braille spinner tokens before ingress deduplication.
+- `TitlePresentation/` — `CodexTabTitleComposer`, the injected value policy that maps Codex lifecycle state to a transient tab marker without changing the stable title.
 - `Scrollbar/` — `GhosttyScrollbar`, the runtime scrollback geometry snapshot.
 - `DebugSupport/` — DEBUG-only UI-test scaffolding (`TerminalChildExitProbe`, scalar-hex journaling).
 
@@ -25,4 +26,11 @@ All logic is pure or probe-injectable, so tests run headlessly with `swift test`
 ```swift
 let filter = TerminalTitleChurnFilter()
 #expect(filter.stableTitle(for: "⠋ Building") == "Building")
+
+let composer = CodexTabTitleComposer(runningMarker: "◐ ", idleMarker: "✳ ")
+#expect(composer.presentation(
+    baseTitle: "Build",
+    lifecycle: .running,
+    hasUserOwnedTitle: false
+).title == "◐ Build")
 ```
