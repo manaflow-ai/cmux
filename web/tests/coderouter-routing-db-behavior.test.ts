@@ -188,6 +188,29 @@ describe("coderouter routing db behavior", () => {
     expect(bound).toBeNull();
   });
 
+  dbTest("routes without stickiness while the session table is missing", async () => {
+    if (!sql) throw new Error("no sql client");
+    await insertAccounts(2);
+    await sql`alter table coderouter_session_accounts rename to coderouter_session_accounts_gone`;
+    try {
+      const placed = await selectAccountForSession({
+        teamId: TEAM,
+        provider: "codex",
+        sessionKey: "pre-migration-session",
+      });
+      expect(placed).not.toBeNull();
+      expect(placed?.sticky).toBe(false);
+      const again = await selectAccountForSession({
+        teamId: TEAM,
+        provider: "codex",
+        sessionKey: "pre-migration-session",
+      });
+      expect(again).not.toBeNull();
+    } finally {
+      await sql`alter table coderouter_session_accounts_gone rename to coderouter_session_accounts`;
+    }
+  });
+
   dbTest("bind is last-write-wins for a session key", async () => {
     const accounts = await insertAccounts(2);
     await bindSessionAccount(TEAM, "codex", "raced-session", accounts[0] ?? "");

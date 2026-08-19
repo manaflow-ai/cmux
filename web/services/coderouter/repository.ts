@@ -452,7 +452,36 @@ export async function findSessionAccount(
   sessionKey: string,
   excludedAccountIds: readonly string[] = [],
 ): Promise<RoutedAccount | null> {
-  const result = await cloudDb().execute(sql`
+  let result: unknown;
+  try {
+    result = await findSessionAccountStatement(
+      teamId,
+      provider,
+      sessionKey,
+      excludedAccountIds,
+    );
+  } catch (error) {
+    // The session table's migration has not been applied yet. Route without
+    // stickiness rather than failing the request.
+    if (isMissingSessionTableError(error)) return null;
+    throw error;
+  }
+  const [row] = databaseRows(result);
+  if (!row) return null;
+  await cloudDb()
+    .update(coderouterAccounts)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(coderouterAccounts.id, String(row.id)));
+  return routedAccountRow(row);
+}
+
+async function findSessionAccountStatement(
+  teamId: string,
+  provider: CodeRouterProvider,
+  sessionKey: string,
+  excludedAccountIds: readonly string[],
+): Promise<unknown> {
+  return await cloudDb().execute(sql`
     update "coderouter_session_accounts" as binding
     set "last_seen_at" = now()
     from "coderouter_accounts" as account
@@ -468,13 +497,6 @@ export async function findSessionAccount(
       account."vault_revision" as "vaultRevision",
       account."credential_expires_at" as "credentialExpiresAt"
   `);
-  const [row] = databaseRows(result);
-  if (!row) return null;
-  await cloudDb()
-    .update(coderouterAccounts)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(coderouterAccounts.id, String(row.id)));
-  return routedAccountRow(row);
 }
 
 /**
@@ -490,14 +512,42 @@ export async function claimAccountForPlacement(
   provider: CodeRouterProvider,
   excludedAccountIds: readonly string[] = [],
 ): Promise<RoutedAccount | null> {
+  try {
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, true);
+  } catch (error) {
+    // The session table's migration has not been applied yet. Claim without
+    // the session-load ordering term rather than failing the request.
+    if (!isMissingSessionTableError(error)) throw error;
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, false);
+  }
+}
+
+async function claimWithOrdering(
+  teamId: string,
+  provider: CodeRouterProvider,
+  excludedAccountIds: readonly string[],
+  withSessionLoad: boolean,
+): Promise<RoutedAccount | null> {
   // First pass skips rows other placements hold locked, so overlapping claims
   // fan out across different accounts instead of herding onto one.
-  const spread = await claimStatement(teamId, provider, excludedAccountIds, true);
+  const spread = await claimStatement(
+    teamId,
+    provider,
+    excludedAccountIds,
+    true,
+    withSessionLoad,
+  );
   if (spread) return spread;
   // Every usable account was locked by a concurrent claim (or none exists).
   // Fall back to a blocking claim: colliding with another placement is far
   // better than telling the caller no account is available.
-  return await claimStatement(teamId, provider, excludedAccountIds, false);
+  return await claimStatement(
+    teamId,
+    provider,
+    excludedAccountIds,
+    false,
+    withSessionLoad,
+  );
 }
 
 async function claimStatement(
@@ -505,6 +555,7 @@ async function claimStatement(
   provider: CodeRouterProvider,
   excludedAccountIds: readonly string[],
   skipLocked: boolean,
+  withSessionLoad: boolean,
 ): Promise<RoutedAccount | null> {
   const result = await cloudDb().execute(sql`
     with candidate as (
@@ -516,12 +567,14 @@ async function claimStatement(
         and (account."cooldown_until" is null or account."cooldown_until" <= now())
         ${accountExclusion(sql`account."id"`, excludedAccountIds)}
       order by
-        (
-          select count(*)
-          from "coderouter_session_accounts" as binding
-          where binding."account_id" = account."id"
-            and binding."last_seen_at" > now() - interval '${sql.raw(SESSION_BINDING_LOAD_WINDOW)}'
-        ) asc,
+        ${withSessionLoad
+          ? sql`(
+              select count(*)
+              from "coderouter_session_accounts" as binding
+              where binding."account_id" = account."id"
+                and binding."last_seen_at" > now() - interval '${sql.raw(SESSION_BINDING_LOAD_WINDOW)}'
+            ) asc,`
+          : sql``}
         account."last_used_at" asc nulls first,
         account."created_at" asc
       limit 1
@@ -548,22 +601,48 @@ export async function bindSessionAccount(
   accountId: string,
 ): Promise<void> {
   const db = cloudDb();
-  await db
-    .insert(coderouterSessionAccounts)
-    .values({ teamId, provider, sessionKey, accountId })
-    .onConflictDoUpdate({
-      target: [
-        coderouterSessionAccounts.teamId,
-        coderouterSessionAccounts.provider,
-        coderouterSessionAccounts.sessionKey,
-      ],
-      set: { accountId, lastSeenAt: new Date() },
-    });
-  await db.execute(sql`
-    delete from "coderouter_session_accounts"
-    where "team_id" = ${teamId}
-      and "last_seen_at" < now() - interval '${sql.raw(SESSION_BINDING_RETENTION)}'
-  `);
+  try {
+    await db
+      .insert(coderouterSessionAccounts)
+      .values({ teamId, provider, sessionKey, accountId })
+      .onConflictDoUpdate({
+        target: [
+          coderouterSessionAccounts.teamId,
+          coderouterSessionAccounts.provider,
+          coderouterSessionAccounts.sessionKey,
+        ],
+        set: { accountId, lastSeenAt: new Date() },
+      });
+    await db.execute(sql`
+      delete from "coderouter_session_accounts"
+      where "team_id" = ${teamId}
+        and "last_seen_at" < now() - interval '${sql.raw(SESSION_BINDING_RETENTION)}'
+    `);
+  } catch (error) {
+    // The session table's migration has not been applied yet. Skip the pin
+    // rather than failing the request; routing degrades to the legacy
+    // per-request behavior until the migration lands.
+    if (isMissingSessionTableError(error)) return;
+    throw error;
+  }
+}
+
+/** Postgres undefined_table (42P01), possibly wrapped by the ORM. */
+function isMissingSessionTableError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    if (
+      typeof current === "object" &&
+      "code" in current &&
+      (current as { code?: unknown }).code === "42P01"
+    ) {
+      return true;
+    }
+    current = typeof current === "object" && current !== null && "cause" in current
+      ? (current as { cause?: unknown }).cause
+      : undefined;
+  }
+  return false;
 }
 
 export type SessionAccountSelectorDependencies = {
