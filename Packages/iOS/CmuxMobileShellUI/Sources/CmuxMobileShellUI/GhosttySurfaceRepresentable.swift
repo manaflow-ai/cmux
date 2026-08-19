@@ -700,6 +700,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     outputConsumerRestartBlocked = true
                     outputStartContinuation?.finish()
                     outputStartContinuation = nil
+                    // The output task is currently waiting in this method, so
+                    // its sibling font and viewport consumers would otherwise
+                    // survive the permanent recovery latch until detach.
+                    stopMountedTasks()
                     if let surfaceView {
                         ghosttySurfaceViewDidExhaustOutputConsumerRecovery(surfaceView)
                     }

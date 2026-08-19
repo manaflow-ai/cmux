@@ -3713,6 +3713,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               surface == submission.surface,
               surfaceGeneration == submission.generation,
               !isDismantled else { return false }
+        // A verified replay's callback is only meaningful after its exact
+        // readback/presentation fence has been registered on MainActor. Keep
+        // this admission edge next to the output-queue dispatch so a replay
+        // can never submit a token that has no fence waiting for it.
+        if submission.kind == .verifiedReplay,
+           pendingVerifiedReplayPresentation?.id != submission.token {
+            MobileDebugLog.anchormux(
+                "verified_replay.admission_rejected reason=fence_missing"
+            )
+            return false
+        }
         renderSubmission = submission
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
