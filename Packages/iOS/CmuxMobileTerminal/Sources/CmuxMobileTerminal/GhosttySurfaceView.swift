@@ -139,6 +139,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let outputRevision: UInt64
         let presentationRetryCount: UInt8 = 0
 
+        init(
+            token: UInt64,
+            generation: UInt64,
+            kind: RenderSubmissionKind,
+            surface: ghostty_surface_t,
+            verifiedReplayRead: VerifiedReplaySurfaceRead?,
+            outputRevision: UInt64,
+            presentationRetryCount: UInt8 = 0
+        ) {
+            self.token = token
+            self.generation = generation
+            self.kind = kind
+            self.surface = surface
+            self.verifiedReplayRead = verifiedReplayRead
+            self.outputRevision = outputRevision
+            self.presentationRetryCount = presentationRetryCount
+        }
+
         var ticket: TerminalRenderSubmission {
             TerminalRenderSubmission(
                 token: token,
@@ -3823,7 +3841,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Releases a submission that failed before Ghostty could present it.
-    private func cancelRenderSubmission(token: UInt64) {
+    func cancelRenderSubmission(token: UInt64) {
         releaseRenderSubmission(token: token, presented: false)
     }
 
