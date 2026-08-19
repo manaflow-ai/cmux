@@ -173,15 +173,26 @@ The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `bi
 
 ### Dynamic machine provider
 
-Dynamic provider startup is disabled by default. Persistent configuration currently covers the built-in cloud SSH transport:
+Dynamic provider startup is disabled by default. Persistent configuration covers a local provider command and the built-in cloud SSH transport:
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `machine_provider.command` | array of strings | `[]` | Persistent `--machine-provider-command` argv, without the terminating `--`. The TUI appends `control` or `stream`. |
 | `machine_provider.cloud.enabled` | boolean | `false` | Starts the dynamic provider through SSH |
 | `machine_provider.cloud.host` | string | `"cmux.cloud"` | SSH host |
 | `machine_provider.cloud.user` | string or null | `null` | Optional SSH user |
 | `machine_provider.cloud.port` | integer or null | `null` | Optional nonzero SSH port |
 | `machine_provider.cloud.identity_file` | string or null | `null` | Optional local SSH identity path |
+
+```json
+{
+  "machine_provider": {
+    "command": ["/opt/tui-cloud/provider.mjs"]
+  }
+}
+```
+
+Explicit `--machine-provider` or `--machine-provider-command` flags override `machine_provider.command`; cloud CLI flags also take precedence. When both `machine_provider.command` and `machine_provider.cloud.enabled` are configured, the command wins. A configured command provider is provider-only and rejects a nonempty `machines` array, like its CLI form.
 
 ```json
 {

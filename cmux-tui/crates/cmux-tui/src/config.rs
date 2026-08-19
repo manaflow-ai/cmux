@@ -259,6 +259,7 @@ struct RawUserCommand {
 struct RawMachineProvider {
     #[serde(default)]
     cloud: RawCloudProvider,
+    command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1031,6 +1032,10 @@ pub struct MachineCreationSourceConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MachineProviderConfig {
     pub cloud: CloudProviderConfig,
+    /// Persistent `--machine-provider-command` argv (without the terminating
+    /// `--`). Empty means no configured command provider. Explicit
+    /// `--machine-provider*` flags still win over this value.
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3248,6 +3253,15 @@ pub fn load() -> Config {
         .map(|path| path.trim().to_string())
         .filter(|path| !path.is_empty())
         .map(PathBuf::from);
+    if let Some(command) = raw.machine_provider.command {
+        match command.as_slice() {
+            [] => eprintln!("cmux-tui: ignoring empty machine_provider.command"),
+            [program, ..] if program.trim().is_empty() => {
+                eprintln!("cmux-tui: ignoring machine_provider.command with an empty program");
+            }
+            _ => config.machine_provider.command = command,
+        }
+    }
     let mut machine_ids = HashSet::new();
     for machine in raw.machines {
         let id = machine.id.trim().to_string();
@@ -6810,6 +6824,52 @@ mod tests {
         assert_eq!(config.machine_provider.cloud.user, None);
         assert_eq!(config.machine_provider.cloud.port, None);
         assert_eq!(config.machine_provider.cloud.identity_file, None);
+        assert!(config.machine_provider.command.is_empty());
+    }
+
+    #[test]
+    fn parses_machine_provider_command_config() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-machine-provider-command-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r#"{"machine_provider":{"command":["/opt/tui-cloud/provider.mjs","--fast"]}}"#,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            config.machine_provider.command,
+            vec!["/opt/tui-cloud/provider.mjs".to_string(), "--fast".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejects_machine_provider_command_without_program() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-machine-provider-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r#"{"machine_provider":{"command":[]}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(config.machine_provider.command.is_empty());
     }
 
     #[test]
