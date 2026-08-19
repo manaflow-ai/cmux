@@ -906,7 +906,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
-		A10217000000000000000003 /* CodexTabTitleComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10217000000000000000004 /* CodexTabTitleComposer.swift */; };
 		A10217000000000000000001 /* CodexTabTitlePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10217000000000000000002 /* CodexTabTitlePresentationTests.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
@@ -3699,7 +3698,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeBindingVerificationRegressionTests.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
-		A10217000000000000000004 /* CodexTabTitleComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTabTitleComposer.swift; sourceTree = "<group>"; };
 		A10217000000000000000002 /* CodexTabTitlePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTabTitlePresentationTests.swift; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerFixture.swift; sourceTree = "<group>"; };
@@ -6499,7 +6497,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
-				A10217000000000000000004 /* CodexTabTitleComposer.swift */,
 				A10217000000000000000006 /* Workspace+CodexTabTitle.swift */,
 				D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */,
 				9923B0019923B0019923B001 /* PendingTerminalStartupRestoreChatBinding.swift */,
@@ -9445,7 +9442,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,
 					C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */,
-				A10217000000000000000003 /* CodexTabTitleComposer.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
 				C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,

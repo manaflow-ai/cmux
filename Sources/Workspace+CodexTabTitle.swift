@@ -1,48 +1,91 @@
 import Foundation
+import CmuxTerminalCore
 
 extension Workspace {
-    /// Returns the display-only title presentation for one terminal panel.
-    func codexTabTitlePresentation(
-        panelId: UUID,
-        fallback: String? = nil
-    ) -> CodexTabTitlePresentation {
-        let panel = panels[panelId]
-        let baseTitle = fallback
-            ?? panelTitles[panelId]
-            ?? panel?.displayTitle
-            ?? ""
-        return CodexTabTitleComposer.presentation(
-            baseTitle: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            lifecycle: agentLifecycleStatesByPanelId[panelId]?[CodexTabTitleComposer.statusKey],
-            hasCustomTitle: panelCustomTitles[panelId] != nil
+    /// Builds the pure composer with the host-localized marker strings.
+    private func codexTabTitleComposer() -> CodexTabTitleComposer {
+        CodexTabTitleComposer(
+            runningMarker: String(
+                localized: "tab.codex.runningMarker",
+                defaultValue: "◐ "
+            ),
+            idleMarker: String(
+                localized: "tab.codex.idleMarker",
+                defaultValue: "✳ "
+            )
         )
     }
 
-    /// Reconciles the Bonsplit tab's transient Codex title presentation.
-    func refreshCodexTabTitle(panelId: UUID) {
-        guard !isRemoteTmuxMirror,
-              panels[panelId] is TerminalPanel,
+    private func codexTabLifecycle(panelId: UUID) -> CodexTabTitleLifecycle? {
+        guard let raw = agentLifecycleStatesByPanelId[panelId]?[
+            "codex"
+        ] else {
+            return nil
+        }
+        switch raw {
+        case .running: return .running
+        case .idle: return .idle
+        case .needsInput: return .needsInput
+        case .unknown: return .unknown
+        }
+    }
+
+    private func panelTitleIsUserOwned(_ panelId: UUID) -> Bool {
+        guard panelCustomTitles[panelId] != nil else { return false }
+        return (panelCustomTitleSources[panelId] ?? .user) == .user
+    }
+
+    /// Reconciles one Bonsplit tab's title and loading presentation.
+    ///
+    /// This is the single tab-projection owner for terminal title, lifecycle,
+    /// restore, binding, and transfer callers. Stable panel/workspace state is
+    /// never written with the transient marker.
+    @discardableResult
+    func reconcileTabTitlePresentation(
+        panelId: UUID,
+        fallback: String? = nil
+    ) -> Bool {
+        guard let panel = panels[panelId],
               let tabId = surfaceIdFromPanelId(panelId),
               let existing = bonsplitController.tab(tabId) else {
-            return
+            return false
         }
-        let presentation = codexTabTitlePresentation(panelId: panelId)
+
+        let baseTitle = fallback
+            ?? panelTitles[panelId]
+            ?? panel.displayTitle
+        let resolvedBaseTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+        let isTerminal = panel is TerminalPanel
+        let presentation: CodexTabTitlePresentation
+        if isTerminal, !isRemoteTmuxMirror {
+            presentation = codexTabTitleComposer().presentation(
+                baseTitle: resolvedBaseTitle,
+                lifecycle: codexTabLifecycle(panelId: panelId),
+                hasUserOwnedTitle: panelTitleIsUserOwned(panelId)
+            )
+        } else {
+            presentation = CodexTabTitlePresentation(
+                title: resolvedBaseTitle,
+                isAnimating: false
+            )
+        }
+
         let titleUpdate: String? = existing.title == presentation.title ? nil : presentation.title
-        let animationUpdate: Bool? = existing.isLoading == presentation.isAnimating
-            ? nil
-            : presentation.isAnimating
-        guard titleUpdate != nil || animationUpdate != nil else { return }
+        let animationUpdate: Bool? = isTerminal && !isRemoteTmuxMirror
+            ? (existing.isLoading == presentation.isAnimating ? nil : presentation.isAnimating)
+            : nil
+        let customTitle = panelCustomTitles[panelId] != nil
+        let customTitleUpdate: Bool? = existing.hasCustomTitle == customTitle ? nil : customTitle
+        guard titleUpdate != nil || animationUpdate != nil || customTitleUpdate != nil else {
+            return false
+        }
         bonsplitController.updateTab(
             tabId,
             title: titleUpdate,
-            isLoading: animationUpdate
+            isLoading: animationUpdate,
+            hasCustomTitle: customTitleUpdate
         )
+        return true
     }
 
-    /// Reconciles every terminal tab after a restored runtime snapshot lands.
-    func refreshCodexTabTitles() {
-        for panelId in panels.keys {
-            refreshCodexTabTitle(panelId: panelId)
-        }
-    }
 }

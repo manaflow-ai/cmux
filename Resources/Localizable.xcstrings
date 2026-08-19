@@ -239882,6 +239882,256 @@
         }
       }
     },
+    "tab.codex.runningMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "◐ "
+          }
+        }
+      }
+    },
+    "tab.codex.idleMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✳ "
+          }
+        }
+      }
+    },
     "tab.untitled": {
       "extractionState": "manual",
       "localizations": {
