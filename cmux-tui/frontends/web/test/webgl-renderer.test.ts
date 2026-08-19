@@ -34,3 +34,42 @@ describe("xterm WebGL renderer", () => {
     expect(terminal.loadAddon).not.toHaveBeenCalled();
   });
 });
+
+describe("retagWebglDisplayP3", () => {
+  const hostWith = (canvas: HTMLCanvasElement | null) => document.createElement("div");
+
+  const fakeCanvas = (gl: object | null) =>
+    ({ getContext: vi.fn(() => gl) }) as unknown as HTMLCanvasElement;
+
+  it("returns null when the addon rendered no canvas (DOM fallback)", async () => {
+    const { retagWebglDisplayP3 } = await import("../src/lib/webglRenderer");
+    expect(retagWebglDisplayP3(hostWith(null), () => null)).toBeNull();
+  });
+
+  it("returns null when the browser has no drawingBufferColorSpace", async () => {
+    const { retagWebglDisplayP3 } = await import("../src/lib/webglRenderer");
+    const canvas = fakeCanvas({});
+    expect(retagWebglDisplayP3(hostWith(canvas), () => canvas)).toBeNull();
+  });
+
+  it("retags the existing context and reports the ACTUAL buffer color space", async () => {
+    const { retagWebglDisplayP3 } = await import("../src/lib/webglRenderer");
+    const gl = { drawingBufferColorSpace: "srgb" };
+    const canvas = fakeCanvas(gl);
+    expect(retagWebglDisplayP3(hostWith(canvas), () => canvas)).toBe("display-p3");
+    expect(gl.drawingBufferColorSpace).toBe("display-p3");
+  });
+
+  it("reports srgb when the assignment is silently ignored (unsupported space)", async () => {
+    const { retagWebglDisplayP3 } = await import("../src/lib/webglRenderer");
+    // Per spec, assigning an unsupported color space leaves the value unchanged.
+    const gl = {
+      get drawingBufferColorSpace() {
+        return "srgb";
+      },
+      set drawingBufferColorSpace(_v: string) {},
+    };
+    const canvas = fakeCanvas(gl);
+    expect(retagWebglDisplayP3(hostWith(canvas), () => canvas)).toBe("srgb");
+  });
+});
