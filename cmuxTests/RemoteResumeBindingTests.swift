@@ -288,6 +288,44 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func remoteRelayRewriterStampsAndReplacesGenericRequestAuthorization() throws {
+        let ownerWorkspaceID = UUID()
+        let rewriter = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: ownerWorkspaceID,
+            remoteRelayTokenHex: String(repeating: "ab", count: 32)
+        )
+        let forgedWorkspaceID = UUID()
+        let request: [String: Any] = [
+            "id": "relay-security",
+            "method": "surface.send_text",
+            "params": [
+                "surface_id": UUID().uuidString,
+                "text": "do not forward",
+                "_cmux_remote_workspace_id": forgedWorkspaceID.uuidString,
+                "_cmux_remote_relay_request_authentication_code": "forged",
+                "_cmux_remote_relay_authentication_code": "forged",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request) + Data([0x0A])
+
+        let rewritten = rewriter.rewriteRemoteRelayCommandLine(
+            data,
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let object = try #require(JSONSerialization.jsonObject(with: rewritten) as? [String: Any])
+        let params = try #require(object["params"] as? [String: Any])
+
+        #expect(params["_cmux_remote_workspace_id"] as? String == ownerWorkspaceID.uuidString)
+        let genericCode = try #require(
+            params["_cmux_remote_relay_request_authentication_code"] as? String
+        )
+        #expect(genericCode != "forged")
+        #expect(genericCode.count == 64)
+        #expect(params["_cmux_remote_relay_authentication_code"] == nil)
+    }
+
+    @Test
     func remoteContextRejectsWrongOwnersAndBlankPersistentSessions() {
         let workspaceID = UUID()
         let surfaceID = UUID()
