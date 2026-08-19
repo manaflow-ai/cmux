@@ -93,13 +93,15 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
     /// If Ghostty is wedged inside an already-running operation, only the lane
     /// worker remains blocked until that native call returns.
     func drain() async {
-        // `close()` and every queue submission use the same gate. Once close
-        // returns, all accepted operations have already been submitted, so
-        // this FIFO fence necessarily follows them.
-        close()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async {
-                continuation.resume()
+            // Keep close and fence submission in one critical section. Every
+            // operation admitted before the state flip is already queued ahead
+            // of this fence, and no operation can be admitted in between.
+            isOpen.withLock { isOpen in
+                isOpen = false
+                queue.async {
+                    continuation.resume()
+                }
             }
         }
     }
