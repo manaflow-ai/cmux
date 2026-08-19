@@ -9816,10 +9816,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // per-Mac dots) derives from these per-Mac states, so without this the
         // just-disconnected Mac would keep showing a green connected dot. Downgrade
         // it to `.unavailable` to match the global connection state.
-        if var offline = workspacesByMac[offlineForegroundKey] {
+        let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
+        let offlineTag = offlineForegroundKey.normalizedInstanceTag
+        for key in Array(workspacesByMac.keys) where
+            key == offlineForegroundKey
+            || (offlineForegroundKey != .anonymousForeground
+                && key.canonicalMacDeviceID == offlineDeviceID
+                && macInstanceTagAuthority.sameStoredAuthority(key.normalizedInstanceTag, offlineTag)) {
+            guard var offline = workspacesByMac[key] else { continue }
             offline.status = .unavailable
             offline.workspaceGroupsAreAuthoritative = false
-            workspacesByMac[offlineForegroundKey] = offline
+            workspacesByMac[key] = offline
         }
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
