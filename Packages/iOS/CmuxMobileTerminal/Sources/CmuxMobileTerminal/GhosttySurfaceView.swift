@@ -137,7 +137,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let surface: ghostty_surface_t
         let verifiedReplayRead: VerifiedReplaySurfaceRead?
         let outputRevision: UInt64
-        let presentationRetryCount: UInt8 = 0
+        let presentationRetryCount: UInt8
 
         init(
             token: UInt64,
