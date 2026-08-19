@@ -11,6 +11,8 @@ struct NotificationSoundGlobalRow: View {
 
     @State private var isValidatingCustomFile = false
     @State private var validationMessage: String?
+    @State private var validationTask: Task<Void, Never>?
+    @State private var validationRequestID: UUID?
 
     private let soundCatalog = NotificationSoundOptionCatalog()
     private let allowedContentTypes = NotificationSoundAllowedContentTypes()
@@ -86,6 +88,11 @@ struct NotificationSoundGlobalRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .onDisappear {
+            validationTask?.cancel()
+            validationTask = nil
+            validationRequestID = nil
+        }
     }
 
     private var customFileControls: some View {
@@ -108,6 +115,9 @@ struct NotificationSoundGlobalRow: View {
                 localized: "settings.notifications.sound.custom.clear.button",
                 defaultValue: "Clear"
             )) {
+                validationTask?.cancel()
+                validationTask = nil
+                validationRequestID = nil
                 customFileModel.reset()
                 validationMessage = nil
             }
@@ -154,17 +164,28 @@ struct NotificationSoundGlobalRow: View {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        validationTask?.cancel()
+        let requestID = UUID()
+        validationRequestID = requestID
         isValidatingCustomFile = true
         validationMessage = nil
-        Task { @MainActor in
+        validationTask = Task { @MainActor in
+            let hasSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
             let isValid = await hostActions.validateNotificationSoundFile(
                 path: url.path
             )
+            guard !Task.isCancelled, validationRequestID == requestID else { return }
             isValidatingCustomFile = false
+            validationTask = nil
             guard isValid else {
                 validationMessage = String(
                     localized: "settings.notifications.sound.custom.invalid.message",
-                    defaultValue: "The file is missing or cannot be decoded as an audio sound."
+                    defaultValue: "The file is missing or cannot be decoded as audio."
                 )
                 return
             }

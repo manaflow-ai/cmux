@@ -12,10 +12,11 @@ import Foundation
 /// (`feed.push`, `feed.permission.reply`, `feed.question.reply`,
 /// `feed.exit_plan.reply`) stay on the app-side socket-worker path.
 extension TerminalController: ControlFeedContext {
-    func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool {
+    nonisolated func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool {
         FeedCoordinator.shared.resolvePossibleSurface(for: workstreamID)
     }
 
+    @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] {
         FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly).map { item in
             // `FeedSocketEncoding.itemDict` only ever produces valid JSON

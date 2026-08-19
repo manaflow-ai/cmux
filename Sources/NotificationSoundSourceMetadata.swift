@@ -1,7 +1,7 @@
 import Foundation
 
 /// Source identity persisted beside a staged custom notification sound.
-struct NotificationSoundSourceMetadata: Codable, Equatable {
+nonisolated struct NotificationSoundSourceMetadata: Codable, Equatable, Sendable {
     let sourcePath: String
     let sourceSize: UInt64
     let sourceModificationTime: Double

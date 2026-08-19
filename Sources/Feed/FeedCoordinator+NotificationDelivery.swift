@@ -11,7 +11,7 @@ extension FeedCoordinator {
     func feedNotificationDeliveryDecision(
         for event: WorkstreamEvent,
         effects: TerminalNotificationPolicyEffects
-    ) -> TerminalNotificationDeliveryDecision {
+    ) async -> TerminalNotificationDeliveryDecision {
         let appFocused: Bool
 #if DEBUG
         appFocused = FeedCoordinatorTestHooks.isAppActiveOverride?()
@@ -20,7 +20,7 @@ extension FeedCoordinator {
         appFocused = AppFocusState.isAppFocused()
 #endif
 
-        let resolved = Self.resolveAttentionTarget(event: event)
+        let resolved = await resolveAttentionTarget(event: event)
         let ownerID = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         } ?? resolved?.ownerId

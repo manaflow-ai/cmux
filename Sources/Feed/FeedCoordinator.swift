@@ -57,6 +57,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Every accepted Feed path crosses this lane before insertion and `received` publication.
     private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
 
+    /// Serializes hook-session reads made by UI-originated Feed actions.
+    /// Socket-worker ingress uses ``FeedJumpResolver.resolve`` directly so
+    /// that its synchronous reply does not require an actor hop.
+    private let sessionStoreLookup = FeedSessionStoreLookup()
+
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
     /// keyed by ``FeedAttentionTarget``. Panel keys stay stable while their live
     /// owner changes; each state retains only a fallback owner for cleanup when
@@ -251,7 +256,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // Resolve before entering the global delivery lane so hook-session disk
         // I/O for one agent cannot stall otherwise unrelated Feed ingress.
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
-            ? Self.resolveAttentionTarget(event: event)
+            ? Self.resolveAttentionTargetSynchronously(event: event)
             : nil
         let semaphore = DispatchSemaphore(value: 0)
         let waiter = PendingWaiter(semaphore: semaphore)
@@ -846,34 +851,89 @@ extension FeedCoordinator {
         return fallback
     }
 
-    /// Resolves the `(owner, surface)` an attention overlay should target. The
-    /// wire `workspace_id` is the owning workspace UUID for workspace surfaces
-    /// and the owning window UUID for window-Dock surfaces. Prefer that live
-    /// value so a stale hook-session map cannot redirect attention; fall back
-    /// to the session store only when the event omits a parseable owner. A
-    /// stored surface is trusted only when its stored owner also matches.
-    static func resolveAttentionTarget(
+    /// Resolves an attention target on the socket worker. This path is used by
+    /// blocking `feed.push` ingress, whose response must remain synchronous.
+    /// The caller is required to be off the main actor because the legacy
+    /// compatibility lookup can read a hook-session file.
+    nonisolated static func resolveAttentionTargetSynchronously(
         event: WorkstreamEvent
     ) -> (ownerId: UUID, surfaceId: UUID?)? {
-        let sessionMatch: (ownerId: UUID, surfaceId: UUID?)? = {
-            guard let parsed = FeedJumpResolver.parse(event.sessionId),
-                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
-                  let workspaceId = UUID(uuidString: resolved.workspaceId)
-            else { return nil }
-            return (workspaceId, UUID(uuidString: resolved.surfaceId))
-        }()
+        // A wire owner is authoritative.  Besides avoiding a redundant
+        // session-store read, this keeps the synchronous socket path free of
+        // filesystem I/O when the producer already supplied ownership.
+        if let explicitTarget = explicitAttentionTarget(for: event) {
+            return explicitTarget
+        }
+        // This compatibility fallback reads a hook-session file.  It is only
+        // safe on the socket worker; fail closed if a future caller invokes
+        // the synchronous helper from the main actor.
+        guard !Thread.isMainThread else { return nil }
+        let sessionMatch = sessionTarget(
+            FeedJumpResolver.resolve(event.sessionId)
+        )
+        return mergeAttentionTarget(event: event, sessionMatch: sessionMatch)
+    }
 
+    /// Merges the explicit wire owner with a hook-session target. Explicit
+    /// event ownership wins so a stale session file cannot redirect attention;
+    /// the stored surface is trusted only when its owner also matches.
+    nonisolated static func mergeAttentionTarget(
+        event: WorkstreamEvent,
+        sessionMatch: (ownerId: UUID, surfaceId: UUID?)?
+    ) -> (ownerId: UUID, surfaceId: UUID?)? {
         let eventOwnerId = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-
         guard let ownerId = eventOwnerId ?? sessionMatch?.ownerId else {
             return nil
         }
-        // Only trust the session store's surface if it belongs to the owner
-        // we're actually targeting.
         let surfaceId = (sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil
         return (ownerId, surfaceId)
+    }
+
+    /// Resolves an attention target for a main-actor notification decision.
+    /// Hook-session I/O is isolated in ``FeedSessionStoreLookup`` and therefore
+    /// never runs synchronously on the main actor.
+    @MainActor
+    func resolveAttentionTarget(
+        event: WorkstreamEvent
+    ) async -> (ownerId: UUID, surfaceId: UUID?)? {
+        // Do not touch the hook-session store when the event already carries a
+        // valid owner.  This is the common path for current producers and
+        // keeps main-actor notification admission entirely in memory.
+        if let explicitTarget = Self.explicitAttentionTarget(for: event) {
+            return explicitTarget
+        }
+        let sessionMatch = Self.sessionTarget(
+            await sessionStoreLookup.resolve(event.sessionId)
+        )
+        return Self.mergeAttentionTarget(event: event, sessionMatch: sessionMatch)
+    }
+
+    /// Parses ownership supplied directly by a Feed event.  A surface is
+    /// optional because some producers only know their workspace; malformed
+    /// optional surface values are ignored rather than redirecting delivery.
+    nonisolated static func explicitAttentionTarget(
+        for event: WorkstreamEvent
+    ) -> (ownerId: UUID, surfaceId: UUID?)? {
+        guard let ownerId = event.workspaceId.flatMap({
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }) else {
+            return nil
+        }
+        let surfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return (ownerId, surfaceId)
+    }
+
+    private nonisolated static func sessionTarget(
+        _ target: FeedJumpResolver.Target?
+    ) -> (ownerId: UUID, surfaceId: UUID?)? {
+        guard let target,
+              let ownerId = UUID(uuidString: target.workspaceId)
+        else { return nil }
+        return (ownerId, UUID(uuidString: target.surfaceId))
     }
 
 }
@@ -943,19 +1003,10 @@ extension FeedCoordinator {
         return slot.value
     }
 
-    /// Parses `workstreamId` in the form `<agent>-<sessionId>` and
-    /// looks up the matching hook-session entry in
-    /// `~/.cmuxterm/<agent>-hook-sessions.json` (written by
-    /// `cmux <agent>-hook session-start`). Returns `true` if a match
-    /// was found so the UI can gate the jump gesture.
-    ///
-    /// Actual focus (workspace.select + surface.focus) is scheduled via
-    /// `FeedJumpResolver.focusIfPossible` on the main actor.
-    func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId) else {
-            return false
-        }
-        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
+    /// Resolves a workstream id on the socket-worker lane so `feed.jump` does
+    /// not perform hook-session file I/O on the main actor.
+    nonisolated func resolvePossibleSurface(for workstreamId: String) -> Bool {
+        FeedJumpResolver.resolve(workstreamId) != nil
     }
 
     /// Fires a best-effort focus for the given `workstreamId`. Returns
@@ -963,11 +1014,8 @@ extension FeedCoordinator {
     /// dispatched. Runs on the main actor because the focus commands
     /// touch AppKit state.
     @MainActor
-    func focusIfPossible(workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
+    func focusIfPossible(workstreamId: String) async -> Bool {
+        guard let target = await sessionStoreLookup.resolve(workstreamId)
         else { return false }
         FeedJumpResolver.focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
         return true
@@ -979,11 +1027,8 @@ extension FeedCoordinator {
     /// the Feed without switching focus to the terminal.
     @MainActor
     @discardableResult
-    func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
+    func sendTextToWorkstream(workstreamId: String, text: String) async -> Bool {
+        guard let target = await sessionStoreLookup.resolve(workstreamId)
         else { return false }
         FeedJumpResolver.sendText(
             workspaceId: target.workspaceId,
@@ -1058,8 +1103,8 @@ private extension FeedCoordinator {
                 title: title,
                 body: body
             )
-            let deliverDefault = { [weak self] in
-                self?.deliverFeedNotificationIfStillAwaiting(
+            let deliverDefault: @MainActor () async -> Void = { [weak self] in
+                await self?.deliverFeedNotificationIfStillAwaiting(
                     requestId: requestId,
                     event: event,
                     categoryId: categoryId,
@@ -1072,7 +1117,7 @@ private extension FeedCoordinator {
             }
 
             guard !policyContext.hooks.isEmpty else {
-                deliverDefault()
+                await deliverDefault()
                 return
             }
 
@@ -1082,7 +1127,7 @@ private extension FeedCoordinator {
             )
             guard self.isAwaitingDecision(requestId: requestId) else { return }
             guard !authorizedHooks.isEmpty else {
-                deliverDefault()
+                await deliverDefault()
                 return
             }
 
@@ -1094,7 +1139,7 @@ private extension FeedCoordinator {
             switch result {
             case .success(let envelope):
                 let payload = envelope.notification
-                self.deliverFeedNotificationIfStillAwaiting(
+                await self.deliverFeedNotificationIfStillAwaiting(
                     requestId: requestId,
                     event: event,
                     categoryId: categoryId,
@@ -1105,7 +1150,7 @@ private extension FeedCoordinator {
                     soundContext: envelope.context.soundContext
                 )
             case .failure(let failure):
-                deliverDefault()
+                await deliverDefault()
                 TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
             }
         }
@@ -1153,7 +1198,7 @@ private extension FeedCoordinator {
         body: String,
         effects: TerminalNotificationPolicyEffects,
         soundContext: NotificationSoundOverrideContext?
-    ) {
+    ) async {
         guard isAwaitingDecision(requestId: requestId) else { return }
 
         // Feed's actionable banner is a second delivery lane beside
@@ -1161,7 +1206,7 @@ private extension FeedCoordinator {
         // workspace-mute policy here so a permission card cannot bypass a
         // user's mute or ring while the regular terminal notification path is
         // correctly gated.
-        let deliveryDecision = feedNotificationDeliveryDecision(
+        let deliveryDecision = await feedNotificationDeliveryDecision(
             for: event,
             effects: effects
         )
@@ -1179,7 +1224,7 @@ private extension FeedCoordinator {
 #endif
 
         if !effectiveEffects.desktop {
-            runFallbackEffectsIfStillAwaiting(
+            await runFallbackEffectsIfStillAwaiting(
                 requestId: requestId,
                 title: title,
                 subtitle: subtitle,
@@ -1219,7 +1264,7 @@ private extension FeedCoordinator {
             case .failure:
                 // The notification daemon is unresponsive; treat authorization
                 // as unknown and stay audible (fail-open) via local fallback.
-                self.runFallbackEffectsIfStillAwaiting(
+                await self.runFallbackEffectsIfStillAwaiting(
                     requestId: requestId,
                     title: title,
                     subtitle: subtitle,
@@ -1250,7 +1295,7 @@ private extension FeedCoordinator {
                     } else {
                         requestFailed = false
                     }
-                    self.runFallbackEffectsIfStillAwaiting(
+                    await self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
                         title: title,
                         subtitle: subtitle,
@@ -1265,7 +1310,7 @@ private extension FeedCoordinator {
                     return
                 }
             case .denied, .ephemeral, .unknown:
-                self.runFallbackEffectsIfStillAwaiting(
+                await self.runFallbackEffectsIfStillAwaiting(
                     requestId: requestId,
                     title: title,
                     subtitle: subtitle,
@@ -1418,7 +1463,7 @@ private extension FeedCoordinator {
                 return
             }
             if case .failure = result {
-                self.runFallbackEffectsIfStillAwaiting(
+                await self.runFallbackEffectsIfStillAwaiting(
                     requestId: requestId,
                     title: title,
                     subtitle: subtitle,
@@ -1448,9 +1493,9 @@ private extension FeedCoordinator {
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool,
         soundContext: NotificationSoundOverrideContext? = nil
-    ) {
+    ) async {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        NativeNotificationDeliveryHooks.runLocalFeedback(
+        await NativeNotificationDeliveryHooks.runLocalFeedback(
             title: title,
             subtitle: subtitle,
             body: body,
@@ -1514,7 +1559,10 @@ private func makeFeedNotificationPolicyContext(
     effects.record = false
     effects.markUnread = false
     effects.reorderWorkspace = false
-    effects.sound = false
+    // Feed actionable notifications are part of the same sound-delivery
+    // lane as terminal notifications.  The delivery decision below still
+    // suppresses this effect for DND, muted workspaces, and focused surfaces.
+    effects.sound = true
     effects.command = false
     effects.paneFlash = false
     let soundContext = NotificationSoundOverrideContext(

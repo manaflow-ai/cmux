@@ -1,7 +1,7 @@
 import Foundation
 
 /// The stable identity carried from an agent notification source to sound delivery.
-public struct NotificationSoundOverrideContext: Codable, Equatable, Hashable, Sendable {
+nonisolated public struct NotificationSoundOverrideContext: Codable, Equatable, Hashable, Sendable {
     /// The stable registry identifier for the agent that produced the alert.
     public let agentID: String
     /// The semantic alert class used to select the matrix cell.
@@ -48,7 +48,7 @@ public struct NotificationSoundOverrideContext: Codable, Equatable, Hashable, Se
 
     /// Returns whether a string is safe to use as a dynamic settings key.
     public static func isValidAgentID(_ value: String) -> Bool {
-        !value.isEmpty && value.range(
+        value != "." && value != ".." && !value.isEmpty && value.range(
             of: #"^[A-Za-z0-9._-]+$"#,
             options: .regularExpression
         ) != nil

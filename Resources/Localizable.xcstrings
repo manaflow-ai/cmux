@@ -79470,29 +79470,97 @@
     "contextMenu.muteWorkspaceNotifications": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "كتم إشعارات مساحة العمل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Isključi obavijesti radnog prostora" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå notifikationer fra for arbejdsområdet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungen für Arbeitsbereich stummschalten" } },
         "en": { "stringUnit": { "state": "translated", "value": "Mute Workspace Notifications" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Silenciar notificaciones del espacio de trabajo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Couper les notifications de l’espace de travail" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Disattiva le notifiche dell’area di lavoro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "작업 공간 알림 끄기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Slå av varsler for arbeidsområdet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wycisz powiadomienia obszaru roboczego" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Silenciar notificações do espaço de trabalho" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Отключить уведомления рабочего пространства" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปิดเสียงการแจ้งเตือนของพื้นที่ทำงาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Çalışma alanı bildirimlerini sessize al" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вимкнути сповіщення робочого простору" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将工作区通知静音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將工作區通知靜音" } }
       }
     },
     "contextMenu.muteWorkspacesNotifications": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Mute Workspaces Notifications" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "كتم إشعارات مساحات العمل المحددة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Isključi obavijesti za odabrane radne prostore" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå notifikationer fra for valgte arbejdsområder" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungen für ausgewählte Arbeitsbereiche stummschalten" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Mute Notifications for Selected Workspaces" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Silenciar notificaciones de los espacios de trabajo seleccionados" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Couper les notifications des espaces de travail sélectionnés" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Disattiva le notifiche per le aree di lavoro selezionate" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "선택한 작업 공간의 알림 끄기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Slå av varsler for valgte arbeidsområder" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wycisz powiadomienia wybranych obszarów roboczych" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Silenciar notificações dos espaços de trabalho selecionados" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Отключить уведомления выбранных рабочих пространств" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปิดเสียงการแจ้งเตือนของพื้นที่ทำงานที่เลือก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Seçili çalışma alanlarının bildirimlerini sessize al" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вимкнути сповіщення вибраних робочих просторів" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将所选工作区的通知静音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將所選工作區的通知靜音" } }
       }
     },
     "contextMenu.unmuteWorkspaceNotifications": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إلغاء كتم إشعارات مساحة العمل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uključi obavijesti radnog prostora" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå notifikationer til for arbejdsområdet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Stummschaltung der Benachrichtigungen für Arbeitsbereich aufheben" } },
         "en": { "stringUnit": { "state": "translated", "value": "Unmute Workspace Notifications" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Reactivar notificaciones del espacio de trabajo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Réactiver les notifications de l’espace de travail" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Riattiva le notifiche dell’area di lavoro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "작업 공간 알림 켜기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Slå på varsler for arbeidsområdet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz powiadomienia obszaru roboczego" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Reativar notificações do espaço de trabalho" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включить уведомления рабочего пространства" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดเสียงการแจ้งเตือนของพื้นที่ทำงาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Çalışma alanı bildirimlerinin sesini aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкнути сповіщення робочого простору" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "取消工作区通知静音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取消工作區通知靜音" } }
       }
     },
     "contextMenu.unmuteWorkspacesNotifications": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Unmute Workspaces Notifications" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "إلغاء كتم إشعارات مساحات العمل المحددة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uključi obavijesti za odabrane radne prostore" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå notifikationer til for valgte arbejdsområder" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Stummschaltung der Benachrichtigungen für ausgewählte Arbeitsbereiche aufheben" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Unmute Notifications for Selected Workspaces" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Reactivar notificaciones de los espacios de trabajo seleccionados" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Réactiver les notifications des espaces de travail sélectionnés" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Riattiva le notifiche per le aree di lavoro selezionate" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "선택한 작업 공간의 알림 켜기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Slå på varsler for valgte arbeidsområder" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz powiadomienia wybranych obszarów roboczych" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Reativar notificações dos espaços de trabalho selecionados" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включить уведомления выбранных рабочих пространств" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดเสียงการแจ้งเตือนของพื้นที่ทำงานที่เลือก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Seçili çalışma alanlarının bildirimlerinin sesini aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкнути сповіщення вибраних робочих просторів" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "取消所选工作区的通知静音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取消所選工作區的通知靜音" } }
       }
     },
     "contextMenu.markWorkspaceRead": {
@@ -181676,7 +181744,7 @@
     "settings.notifications.soundOverrides.invalidFile": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That file is missing or cannot be decoded as an audio sound." } },
+        "en": { "stringUnit": { "state": "translated", "value": "That file is missing or cannot be decoded as audio." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ファイルが存在しないか、音声としてデコードできません。" } }
       }
     },
@@ -181963,7 +182031,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The file is missing or cannot be decoded as an audio sound."
+            "value": "The file is missing or cannot be decoded as audio."
           }
         },
         "ja": {
@@ -222529,18 +222597,35 @@
     "sidebar.mutedWorkspace.tooltip": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تم كتم إشعارات مساحة العمل هذه" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Obavijesti su isključene za ovaj radni prostor" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Notifikationer er slået fra for dette arbejdsområde" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungen für diesen Arbeitsbereich sind stummgeschaltet" } },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Notifications muted for this workspace"
           }
         },
+        "es": { "stringUnit": { "state": "translated", "value": "Las notificaciones están silenciadas para este espacio de trabajo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les notifications sont coupées pour cet espace de travail" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Le notifiche sono disattivate per quest’area di lavoro" } },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "このワークスペースの通知はミュートされています"
           }
-        }
+        },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 작업 공간의 알림이 꺼져 있음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Varsler er slått av for dette arbeidsområdet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Powiadomienia dla tego obszaru roboczego są wyciszone" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "As notificações estão silenciadas para este espaço de trabalho" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Уведомления этого рабочего пространства отключены" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปิดเสียงการแจ้งเตือนสำหรับพื้นที่ทำงานนี้แล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu çalışma alanının bildirimleri sessize alındı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Сповіщення цього робочого простору вимкнено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此工作区的通知已静音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此工作區的通知已靜音" } }
       }
     },
     "sidebar.pinnedWorkspaceProtected.tooltip": {

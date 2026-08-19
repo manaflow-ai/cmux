@@ -6,18 +6,32 @@ import SwiftUI
 /// discovery, file validation, and persistence remain host/catalog concerns.
 @MainActor
 struct NotificationSoundOverridesView: View {
-    let model: DefaultsValueModel<String>
+    /// Immutable JSON snapshot for this render.  The parent owns the live
+    /// DefaultsValueModel above the grid boundary and supplies this view's
+    /// single mutation closure.
+    let currentJSON: String
+    /// Applies one cell mutation against the parent's live settings snapshot.
+    /// Keeping this closure at the parent boundary prevents an async file
+    /// validation result from overwriting a newer edit in another cell.
+    let onChange: @MainActor (
+        NotificationSoundOverride?,
+        String,
+        NotificationSoundAlertType
+    ) -> Void
     let hostActions: SettingsHostActions
     let agents: [NotificationSoundAgentOption]
 
     @State private var validationMessage: String?
     @State private var isValidatingCustomFile = false
+    @State private var validationTask: Task<Void, Never>?
+    @State private var validationRequestID: UUID?
 
     private let alertTypes = NotificationSoundAlertType.allCases
     private let soundCatalog = NotificationSoundOptionCatalog()
     private let allowedContentTypes = NotificationSoundAllowedContentTypes()
 
     var body: some View {
+        let overrides = NotificationSoundOverrides(jsonString: currentJSON) ?? .empty
         VStack(alignment: .leading, spacing: 8) {
             Text(String(
                 localized: "settings.notifications.soundOverrides.help",
@@ -49,7 +63,11 @@ struct NotificationSoundOverridesView: View {
                                 .lineLimit(1)
                                 .frame(minWidth: 120, alignment: .leading)
                             ForEach(alertTypes, id: \.self) { alertType in
-                                cell(for: agent, alertType: alertType)
+                                cell(
+                                    for: agent,
+                                    alertType: alertType,
+                                    overrides: overrides
+                                )
                             }
                         }
                     }
@@ -72,14 +90,20 @@ struct NotificationSoundOverridesView: View {
             }
         }
         .accessibilityIdentifier("NotificationSoundOverridesMatrix")
+        .onDisappear {
+            validationTask?.cancel()
+            validationTask = nil
+            validationRequestID = nil
+        }
     }
 
     @ViewBuilder
     private func cell(
         for agent: NotificationSoundAgentOption,
-        alertType: NotificationSoundAlertType
+        alertType: NotificationSoundAlertType,
+        overrides: NotificationSoundOverrides
     ) -> some View {
-        let current = currentValue(agentID: agent.id, alertType: alertType)
+        let current = overrides.override(forAgentID: agent.id, alertType: alertType)
         Menu {
             Button(String(localized: "settings.notifications.soundOverrides.useGlobal", defaultValue: "Use Global Sound")) {
                 update(nil, agentID: agent.id, alertType: alertType)
@@ -106,22 +130,12 @@ struct NotificationSoundOverridesView: View {
         .disabled(isValidatingCustomFile)
     }
 
-    private func currentValue(
-        agentID: String,
-        alertType: NotificationSoundAlertType
-    ) -> NotificationSoundOverride? {
-        guard let overrides = NotificationSoundOverrides(jsonString: model.current) else { return nil }
-        return overrides.override(forAgentID: agentID, alertType: alertType)
-    }
-
     private func update(
         _ value: NotificationSoundOverride?,
         agentID: String,
         alertType: NotificationSoundAlertType
     ) {
-        var overrides = NotificationSoundOverrides(jsonString: model.current) ?? .empty
-        overrides.set(value, forAgentID: agentID, alertType: alertType)
-        model.set(overrides.jsonString)
+        onChange(value, agentID, alertType)
         validationMessage = nil
     }
 
@@ -138,15 +152,26 @@ struct NotificationSoundOverridesView: View {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let path = url.path
+        validationTask?.cancel()
+        let requestID = UUID()
+        validationRequestID = requestID
         isValidatingCustomFile = true
         validationMessage = nil
-        Task { @MainActor in
+        validationTask = Task { @MainActor in
+            let hasSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
             let isValid = await hostActions.validateNotificationSoundFile(path: path)
+            guard !Task.isCancelled, validationRequestID == requestID else { return }
             isValidatingCustomFile = false
+            validationTask = nil
             guard isValid else {
                 validationMessage = String(
                     localized: "settings.notifications.soundOverrides.invalidFile",
-                    defaultValue: "That file is missing or cannot be decoded as an audio sound."
+                    defaultValue: "That file is missing or cannot be decoded as audio."
                 )
                 return
             }

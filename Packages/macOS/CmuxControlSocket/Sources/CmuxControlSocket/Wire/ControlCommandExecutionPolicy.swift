@@ -83,6 +83,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.begin_sign_in",
         "auth.sign_out",
         "feedback.submit",
+        // `feed.jump` resolves a hook-session file and only returns a match
+        // bit; keep that synchronous disk read off the main actor.
+        "feed.jump",
         "feed.push",
         "feed.permission.reply",
         "feed.question.reply",

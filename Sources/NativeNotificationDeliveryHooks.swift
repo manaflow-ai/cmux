@@ -4,16 +4,21 @@ import Foundation
 import UserNotifications
 
 struct NativeNotificationDeliveryHooks: Sendable {
-    typealias AuthorizationCompletion = @Sendable (Bool, NotificationAuthorizationState) -> Void
+    typealias AuthorizationCompletion = @MainActor @Sendable (
+        Bool,
+        NotificationAuthorizationState
+    ) -> Void
     typealias AuthorizationHandler = @Sendable (@escaping AuthorizationCompletion) -> Void
     typealias Scheduler = @Sendable (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void
     typealias CommandRunner = @Sendable (String, String, String) -> Void
 
-    typealias UnavailableFeedbackPlayer = @Sendable (TerminalNotificationPolicyEffects) -> Void
+    typealias UnavailableFeedbackPlayer = @Sendable (
+        TerminalNotificationPolicyEffects
+    ) async -> Void
     typealias ContextualUnavailableFeedbackPlayer = @Sendable (
         TerminalNotificationPolicyEffects,
         NotificationSoundOverrideContext?
-    ) -> Void
+    ) async -> Void
 
     static let defaultCommandRunner: CommandRunner = {
         title,
@@ -26,7 +31,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
     let userNotificationCenter: UserNotificationCenterService
     var scheduler: Scheduler?
     static let defaultUnavailableFeedbackPlayer: UnavailableFeedbackPlayer = { effects in
-        NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
+        await NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
     }
 
     var commandRunner: CommandRunner = defaultCommandRunner
@@ -73,13 +78,16 @@ struct NativeNotificationDeliveryHooks: Sendable {
     func playUnavailableFeedback(
         effects: TerminalNotificationPolicyEffects,
         soundContext: NotificationSoundOverrideContext? = nil
-    ) {
+    ) async {
         if let contextualUnavailableFeedbackPlayer {
-            contextualUnavailableFeedbackPlayer(effects, soundContext)
+            await contextualUnavailableFeedbackPlayer(effects, soundContext)
         } else if soundContext != nil {
-            Self.playNativeUnavailableFeedback(effects: effects, soundContext: soundContext)
+            await Self.playNativeUnavailableFeedback(
+                effects: effects,
+                soundContext: soundContext
+            )
         } else {
-            unavailableFeedbackPlayer(effects)
+            await unavailableFeedbackPlayer(effects)
         }
     }
 
@@ -90,8 +98,8 @@ struct NativeNotificationDeliveryHooks: Sendable {
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool = true,
         soundContext: NotificationSoundOverrideContext? = nil
-    ) {
-        Self.runLocalFeedback(
+    ) async {
+        await Self.runLocalFeedback(
             title: title,
             subtitle: subtitle,
             body: body,
@@ -105,9 +113,9 @@ struct NativeNotificationDeliveryHooks: Sendable {
     static func playNativeUnavailableFeedback(
         effects: TerminalNotificationPolicyEffects,
         soundContext: NotificationSoundOverrideContext? = nil
-    ) {
+    ) async {
         if effects.sound {
-            NotificationSoundSettings.playSelectedSound(context: soundContext)
+            _ = await NotificationSoundSettings.playSelectedSound(context: soundContext)
         }
     }
 
@@ -124,11 +132,19 @@ struct NativeNotificationDeliveryHooks: Sendable {
             body in
             NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
         }
-    ) {
+    ) async {
         if effects.sound {
-            NotificationSoundSettings.playSelectedSound(context: soundContext)
-        }
-        if effects.command, runCommand {
+            // Keep command hooks responsive while the sound is staged, but
+            // retain the playback in this structured child task so callers
+            // can await completion and tests never race a detached task.
+            async let didPlay = NotificationSoundSettings.playSelectedSound(
+                context: soundContext
+            )
+            if effects.command, runCommand {
+                commandRunner(title, subtitle, body)
+            }
+            _ = await didPlay
+        } else if effects.command, runCommand {
             commandRunner(title, subtitle, body)
         }
     }

@@ -1846,7 +1846,11 @@
           "required": ["sound", "customSoundFilePath"],
           "properties": {
             "sound": { "const": "custom_file" },
-            "customSoundFilePath": { "type": "string", "minLength": 1 }
+            "customSoundFilePath": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\S.*"
+            }
           }
         }
       ],

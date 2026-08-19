@@ -142,7 +142,9 @@ public struct AppSection: View {
         }
         .task {
             startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
-            soundAgents = hostActions.notificationSoundAgentOptions()
+            if soundAgents.isEmpty {
+                soundAgents = await hostActions.notificationSoundAgentOptions()
+            }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -667,7 +669,18 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.notifications.soundOverrides.subtitle", defaultValue: "Override the sound for a specific agent and alert type.")
             ) {
                 NotificationSoundOverridesView(
-                    model: soundOverrides,
+                    currentJSON: soundOverrides.current,
+                    onChange: { value, agentID, alertType in
+                        guard var overrides = NotificationSoundOverrides(
+                            jsonString: soundOverrides.current
+                        ) else {
+                            // Never replace a malformed persisted matrix with
+                            // an empty one while editing a different cell.
+                            return
+                        }
+                        overrides.set(value, forAgentID: agentID, alertType: alertType)
+                        soundOverrides.set(overrides.jsonString)
+                    },
                     hostActions: hostActions,
                     agents: soundAgents
                 )

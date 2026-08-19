@@ -430,6 +430,11 @@ final class TerminalNotificationStore: ObservableObject {
         store.scheduleUserNotification(notification, effects: effects)
     }
     private var nativeNotificationDeliveryHooks: NativeNotificationDeliveryHooks
+    /// Owns admitted local sound/feedback operations until they finish.  The
+    /// notification mutation path is synchronous, so this registry provides a
+    /// cancellable lifecycle for the async sound preparation boundary instead
+    /// of leaving untracked Tasks behind.
+    private var notificationFeedbackTasks: [UUID: Task<Void, Never>] = [:]
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -477,6 +482,21 @@ final class TerminalNotificationStore: ObservableObject {
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
+        notificationFeedbackTasks.values.forEach { $0.cancel() }
+    }
+
+    /// Starts one admitted feedback operation and retains its task until the
+    /// operation completes or the store is torn down.
+    private func enqueueNotificationFeedback(
+        _ operation: @escaping @MainActor @Sendable () async -> Void
+    ) {
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
+            await operation()
+            guard let self else { return }
+            self.notificationFeedbackTasks.removeValue(forKey: taskID)
+        }
+        notificationFeedbackTasks[taskID] = task
     }
 
     private func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
@@ -737,7 +757,9 @@ final class TerminalNotificationStore: ObservableObject {
                         "Failed to schedule test notification error=\(String(describing: error), privacy: .private)"
                     )
                     logAuthorization("settings test schedule failed error=\(String(describing: error))")
-                    NotificationSoundSettings.playSelectedSound()
+                    enqueueNotificationFeedback {
+                        _ = await NotificationSoundSettings.playSelectedSound()
+                    }
                 case .success:
                     logAuthorization("settings test schedule succeeded")
                     NotificationSoundSettings.runCustomCommand(
@@ -1323,15 +1345,11 @@ final class TerminalNotificationStore: ObservableObject {
         soundContext: NotificationSoundOverrideContext? = nil
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
-        let context = appDelegate?.contextContainingTabId(tabId)
-        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
-        let cmuxConfigStore = context?.cmuxConfigStore
-        let workspace = tabManager?.workspacesById[tabId]
-        let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
-        let isActiveTab = tabManager?.selectedTabId == tabId
-        let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
-        let isFocusedPanel = isActiveTab && isFocusedSurface
-        let isAppFocused = AppFocusState.isAppFocused()
+        let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
+        let cmuxConfigStore = focusState.cmuxConfigStore
+        let workspace = focusState.workspace
+        let isFocusedPanel = focusState.isActiveTab && focusState.isFocusedSurface
+        let isAppFocused = focusState.isAppFocused
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
@@ -1555,19 +1573,24 @@ final class TerminalNotificationStore: ObservableObject {
         let isAppFocused: Bool
         let isActiveTab: Bool
         let isFocusedSurface: Bool
+        let workspace: Workspace?
+        let cmuxConfigStore: CmuxConfigStore?
     }
 
     private func notificationFocusState(tabId: UUID, surfaceId: UUID?) -> NotificationFocusState {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let workspace = tabManager?.workspacesById[tabId]
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         return NotificationFocusState(
             isAppFocused: AppFocusState.isAppFocused(),
             isActiveTab: isActiveTab,
-            isFocusedSurface: isFocusedSurface
+            isFocusedSurface: isFocusedSurface,
+            workspace: workspace,
+            cmuxConfigStore: context?.cmuxConfigStore
         )
     }
 
@@ -1661,7 +1684,9 @@ final class TerminalNotificationStore: ObservableObject {
                     terminalNotificationLogger.error(
                         "Failed to schedule notification hook failure alert error=\(String(describing: error), privacy: .private)"
                     )
-                    NotificationSoundSettings.playSelectedSound()
+                    enqueueNotificationFeedback {
+                        _ = await NotificationSoundSettings.playSelectedSound()
+                    }
                 }
             }
         }
@@ -2243,12 +2268,17 @@ final class TerminalNotificationStore: ObservableObject {
         let categoryIdentifier = notification.replyShape == .text
             ? Self.textReplyCategoryIdentifier
             : Self.categoryIdentifier
-        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
+        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { [weak self] authorized, effectiveAuthorizationState in
             guard authorized else {
-                nativeDeliveryHooks.playUnavailableFeedback(
-                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState),
-                    soundContext: notificationSoundContext
-                )
+                self?.enqueueNotificationFeedback {
+                    await nativeDeliveryHooks.playUnavailableFeedback(
+                        effects: Self.fallbackEffects(
+                            effects,
+                            authorizationState: effectiveAuthorizationState
+                        ),
+                        soundContext: notificationSoundContext
+                    )
+                }
                 return
             }
             Task { @MainActor in
@@ -2287,10 +2317,17 @@ final class TerminalNotificationStore: ObservableObject {
                         terminalNotificationLogger.error(
                             "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
                         )
-                        nativeDeliveryHooks.playUnavailableFeedback(
-                            effects: effects,
-                            soundContext: notificationSoundContext
-                        )
+                        // The scheduler is a legacy callback boundary and may
+                        // invoke completion off-main; hop once into the store's
+                        // owned feedback-task registry.
+                        Task { @MainActor [weak self] in
+                            self?.enqueueNotificationFeedback {
+                                await nativeDeliveryHooks.playUnavailableFeedback(
+                                    effects: effects,
+                                    soundContext: notificationSoundContext
+                                )
+                            }
+                        }
                     } else if effects.command {
                         nativeDeliveryHooks.runCommand(
                             title: commandTitle,
@@ -2328,13 +2365,19 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         soundContext: NotificationSoundOverrideContext? = nil
     ) {
-        nativeNotificationDeliveryHooks.runLocalFeedback(
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            effects: effects,
-            soundContext: soundContext
-        )
+        let hooks = nativeNotificationDeliveryHooks
+        // This synchronous delivery hook is the notification event boundary;
+        // the structured sound operation runs in an owned task so its caller
+        // remains nonblocking while the admitted event is retained.
+        enqueueNotificationFeedback {
+            await hooks.runLocalFeedback(
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: effects,
+                soundContext: soundContext
+            )
+        }
     }
 
     /// `completion` receives the decision plus the effective authorization
@@ -2345,7 +2388,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// just denied.
     private func ensureAuthorization(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
+        _ completion: @escaping @MainActor @Sendable (
+            Bool,
+            NotificationAuthorizationState
+        ) -> Void
     ) {
         if origin == .notificationDelivery,
            let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
@@ -2407,7 +2453,10 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func requestAuthorizationIfNeeded(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
+        _ completion: @escaping @MainActor @Sendable (
+            Bool,
+            NotificationAuthorizationState
+        ) -> Void
     ) {
         let isAutomaticRequest = origin == .notificationDelivery
         guard Self.shouldRequestAuthorization(

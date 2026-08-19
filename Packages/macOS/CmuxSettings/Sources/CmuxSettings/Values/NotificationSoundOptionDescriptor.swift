@@ -1,7 +1,7 @@
 import Foundation
 
 /// Declarative metadata for one notification sound picker value.
-public struct NotificationSoundOptionDescriptor: Sendable {
+nonisolated public struct NotificationSoundOptionDescriptor: Sendable {
     /// The persisted value consumed by runtime sound resolution.
     public let value: String
     /// The localization key for the user-facing option label.

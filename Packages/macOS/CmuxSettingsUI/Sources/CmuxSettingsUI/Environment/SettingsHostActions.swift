@@ -19,7 +19,7 @@ public protocol SettingsHostActions: AnyObject {
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
     /// without a second list in the settings package.
-    func notificationSoundAgentOptions() -> [NotificationSoundAgentOption]
+    func notificationSoundAgentOptions() async -> [NotificationSoundAgentOption]
 
     /// Validates and prepares a custom notification sound before a matrix cell
     /// is persisted. Returning `false` keeps the previous cell untouched.

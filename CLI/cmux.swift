@@ -3076,6 +3076,40 @@ struct CMUXCLI {
     private static let persistentCloudVMWorkspaceName = "sshd"
     private static let claudeCodeStatusKey = "claude_code"
 
+    private static func agentNotificationMeta(
+        category: AgentHookNotifyCategory,
+        isError: Bool,
+        pending: Bool,
+        agentID: String
+    ) -> String {
+        let metadataCategory: AgentHookNotifyCategory = isError ? .other : category
+        let alertType: NotificationSoundAlertType? = isError ? .errorStalled : {
+            switch metadataCategory {
+            case .turnComplete:
+                return .turnDone
+            case .needsPermission, .idleReminder:
+                return .needsInput
+            case .other:
+                return nil
+            }
+        }()
+        return metadataCategory.metaSegment(
+            pending: pending,
+            agentID: agentID,
+            alertType: alertType
+        )
+    }
+
+    private static func feedWorkstreamID(
+        source: String,
+        sessionID: String
+    ) -> String? {
+        FeedWorkstreamIdentifier(
+            agentID: source,
+            sessionID: sessionID
+        )?.rawValue
+    }
+
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
         var keys = Set(agentDefs.map(\.statusKey))
         keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
@@ -25288,26 +25322,15 @@ struct CMUXCLI {
             // few older Claude clients attach a stale permission/idle type to
             // an error payload; serializing that category would reject the
             // `errorStalled` context and silently lose the sound override.
-            let isErrorNotification = classifiedSubtitle == "Error"
-            let metadataCategory: AgentHookNotifyCategory = isErrorNotification
-                ? .other
-                : notifyCategory
-            let notificationAlertType: NotificationSoundAlertType? = {
-                if isErrorNotification { return .errorStalled }
-                return switch metadataCategory {
-                case .turnComplete: .turnDone
-                case .needsPermission, .idleReminder: .needsInput
-                case .other: nil
-                }
-            }()
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: metadataCategory.metaSegment(
+                meta: Self.agentNotificationMeta(
+                    category: notifyCategory,
+                    isError: classifiedSubtitle == "Error",
                     pending: notifyPending,
                     agentID: "claude",
-                    alertType: notificationAlertType
                 )
             )
 
@@ -32313,16 +32336,12 @@ export default CMUXSessionRestore;
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag successful turn-end pings; error alerts always deliver.
-                let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(
-                        pending: antigravityHasActiveBackgroundWork,
-                        agentID: def.name
-                    )
-                    : AgentHookNotifyCategory.other.metaSegment(
-                        pending: false,
-                        agentID: def.name,
-                        alertType: .errorStalled
-                    )
+                let stopMeta = Self.agentNotificationMeta(
+                    category: stopNotificationStatus == .idle ? .turnComplete : .other,
+                    isError: stopNotificationStatus == .error,
+                    pending: stopNotificationStatus == .idle && antigravityHasActiveBackgroundWork,
+                    agentID: def.name
+                )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
                     subtitle: subtitle,
@@ -32727,22 +32746,12 @@ export default CMUXSessionRestore;
                 // Error status wins over a classifier category so every
                 // error carries the contextual error sound tag, even if an
                 // integration supplied an inconsistent category.
-                let metadataCategory: AgentHookNotifyCategory = summary.status == .error
-                    ? .other
-                    : summary.notifyCategory
-                let alertType: NotificationSoundAlertType? = {
-                    if summary.status == .error { return .errorStalled }
-                    return switch metadataCategory {
-                    case .turnComplete: .turnDone
-                    case .needsPermission, .idleReminder: .needsInput
-                    case .other: nil
-                    }
-                }()
-                let notificationMeta = metadataCategory.metaSegment(
-                    pending: (metadataCategory == .turnComplete || metadataCategory == .idleReminder)
+                let notificationMeta = Self.agentNotificationMeta(
+                    category: summary.notifyCategory,
+                    isError: summary.status == .error,
+                    pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork(),
-                    agentID: def.name,
-                    alertType: alertType
+                    agentID: def.name
                 )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
@@ -32967,8 +32976,12 @@ export default CMUXSessionRestore;
             rawObject: fallbackObject,
             agentPid: agentPid
         )
+        guard let workstreamID = Self.feedWorkstreamID(
+            source: source,
+            sessionID: sessionId
+        ) else { return }
         var event: [String: Any] = [
-            "session_id": "\(source)-\(sessionId)",
+            "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
             "_ppid": agentPid,
@@ -35171,9 +35184,16 @@ export default CMUXSessionRestore;
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        guard let workstreamID = Self.feedWorkstreamID(
+            source: source,
+            sessionID: sessionId
+        ) else {
+            print("{}")
+            return
+        }
 
         var eventDict: [String: Any] = [
-            "session_id": "\(source)-\(sessionId)",
+            "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
             "_ppid": agentPid,

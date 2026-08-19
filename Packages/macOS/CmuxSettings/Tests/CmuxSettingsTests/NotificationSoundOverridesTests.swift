@@ -50,6 +50,7 @@ struct NotificationSoundOverridesTests {
     func invalidAgentIDsFailClosed() throws {
         #expect(NotificationSoundOverrideContext(agentID: "", alertType: .turnDone) == nil)
         #expect(NotificationSoundOverrideContext(agentID: "claude;evil", alertType: .turnDone) == nil)
+        #expect(NotificationSoundOverrideContext(agentID: "..", alertType: .turnDone) == nil)
 
         var overrides = NotificationSoundOverrides()
         let ping = try #require(NotificationSoundOverride(sound: "Ping"))

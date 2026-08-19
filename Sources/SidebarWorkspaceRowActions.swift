@@ -39,7 +39,7 @@ struct SidebarWorkspaceRowActions {
     let markRead: ([UUID]) -> Void
     let markUnread: ([UUID]) -> Void
     let clearLatestNotifications: ([UUID]) -> Void
-    let setNotificationsMuted: ([UUID], Bool) -> Void = { _, _ in }
+    let setNotificationsMuted: ([UUID], Bool) -> Void
     let openNotification: (TerminalNotification) -> Void
     let copyWorkspaceLinks: ([UUID]) -> Void
     let openPullRequest: (URL) -> Void

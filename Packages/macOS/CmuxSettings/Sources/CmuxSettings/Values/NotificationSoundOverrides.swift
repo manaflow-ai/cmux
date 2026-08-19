@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The JSON representation is an object keyed by stable agent ids, with alert
 /// types beneath each agent. Missing cells resolve to the global sound.
-public struct NotificationSoundOverrides: Codable, Equatable, Sendable {
+nonisolated public struct NotificationSoundOverrides: Codable, Equatable, Sendable {
     private var storage: [String: [NotificationSoundAlertType: NotificationSoundOverride]]
 
     /// Creates a sparse matrix, dropping invalid agent keys and empty rows.

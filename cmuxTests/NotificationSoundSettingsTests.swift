@@ -9,7 +9,7 @@ import CmuxSettings
 #endif
 
 @Suite struct NotificationSoundSettingsTests {
-    @Test func namedSystemSoundStagesDistinctSoundFile() throws {
+    @Test func namedSystemSoundStagesDistinctSoundFile() async throws {
         let fileManager = FileManager.default
         let stagedName = NotificationSoundSettings.stagedSystemSoundFileName(for: "Bottle")
         let stagingDirectory = fileManager.temporaryDirectory
@@ -19,7 +19,7 @@ import CmuxSettings
             try? fileManager.removeItem(at: stagingDirectory)
         }
 
-        #expect(try #require(NotificationSoundSettings.stagedSystemSoundName(
+        #expect(try #require(await NotificationSoundSettings.stagedSystemSoundName(
             for: "Bottle",
             stagingDirectory: stagingDirectory
         )) == stagedName)
@@ -31,7 +31,7 @@ import CmuxSettings
         #expect(stagedData == sourceData)
     }
 
-    @Test func readyOnlySystemSoundStagesAnUnstagedBuiltInOverride() throws {
+    @Test func readyOnlySystemSoundStagesAnUnstagedBuiltInOverride() async throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-notification-ready-system-\(UUID().uuidString)", isDirectory: true)
@@ -44,7 +44,7 @@ import CmuxSettings
         // it for the first time. Custom codec readiness remains separate.
         let sourceURL = sourceDirectory.appendingPathComponent("Ping.aiff")
         try Data("synthetic-aiff".utf8).write(to: sourceURL)
-        let stagedName = try #require(NotificationSoundSettings.stagedSystemSoundName(
+        let stagedName = try #require(await NotificationSoundSettings.stagedSystemSoundName(
             for: "Ping",
             sourceDirectory: sourceDirectory,
             stagingDirectory: stagingDirectory,
@@ -54,10 +54,10 @@ import CmuxSettings
         #expect(fileManager.fileExists(atPath: stagingDirectory.appendingPathComponent(stagedName).path))
     }
 
-    @Test func nonSoundSentinelsDoNotStageSystemSoundFiles() {
-        #expect(NotificationSoundSettings.stagedSystemSoundName(for: "default") == nil)
-        #expect(NotificationSoundSettings.stagedSystemSoundName(for: "none") == nil)
-        #expect(NotificationSoundSettings.stagedSystemSoundName(for: NotificationSoundSettings.customFileValue) == nil)
+    @Test func nonSoundSentinelsDoNotStageSystemSoundFiles() async {
+        #expect(await NotificationSoundSettings.stagedSystemSoundName(for: "default") == nil)
+        #expect(await NotificationSoundSettings.stagedSystemSoundName(for: "none") == nil)
+        #expect(await NotificationSoundSettings.stagedSystemSoundName(for: NotificationSoundSettings.customFileValue) == nil)
     }
 
     @Test(arguments: ["m4r", "M4R"])
@@ -113,8 +113,15 @@ import CmuxSettings
         #expect(await fixture.playOutcome() == false)
     }
 
-    @Test func firstPlayAfterFocusEndsIsAudible() async throws {
+    @Test func silentSelectionReportsNoPlaybackWhenFocusIsInactive() async throws {
         let fixture = try ActiveFocusFixture()
+        defer { fixture.cleanUp() }
+
+        #expect(await fixture.playOutcome() == false)
+    }
+
+    @Test func firstPlayAfterFocusEndsIsAudible() async throws {
+        let fixture = try ActiveFocusFixture(selectedSound: NotificationSoundOverride.defaultValue)
         defer { fixture.cleanUp() }
 
         try fixture.writeAssertions(#"{"data":[{"storeAssertionRecords":[{"a":1}]}]}"#)
@@ -126,7 +133,10 @@ import CmuxSettings
     }
 
     @Test func playbackFailsOpenWhenAssertionStoreIsMissing() async throws {
-        let fixture = try ActiveFocusFixture(createAssertionsFile: false)
+        let fixture = try ActiveFocusFixture(
+            createAssertionsFile: false,
+            selectedSound: NotificationSoundOverride.defaultValue
+        )
         defer { fixture.cleanUp() }
 
         #expect(await fixture.playOutcome() == true)
@@ -383,7 +393,7 @@ import CmuxSettings
         #expect(prepared == .silent)
     }
 
-    @Test func multipleCustomCellsKeepIndependentStagedArtifacts() throws {
+    @Test func multipleCustomCellsKeepIndependentStagedArtifacts() async throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-sound-multiple-\(UUID().uuidString)", isDirectory: true)
@@ -395,11 +405,11 @@ import CmuxSettings
         try Self.writeSilentWAV(to: second)
         let staging = directory.appendingPathComponent("staged", isDirectory: true)
 
-        let firstName = try #require(NotificationSoundSettings.prepareCustomFileForNotifications(
+        let firstName = try #require(await NotificationSoundSettings.prepareCustomFileForNotifications(
             path: first.path,
             stagingDirectory: staging
         ).successValueForTests)
-        let secondName = try #require(NotificationSoundSettings.prepareCustomFileForNotifications(
+        let secondName = try #require(await NotificationSoundSettings.prepareCustomFileForNotifications(
             path: second.path,
             stagingDirectory: staging
         ).successValueForTests)
@@ -451,7 +461,10 @@ private struct ActiveFocusFixture {
     let defaults: UserDefaults
     private let suiteName: String
 
-    init(createAssertionsFile: Bool = true) throws {
+    init(
+        createAssertionsFile: Bool = true,
+        selectedSound: String = NotificationSoundOverride.noneValue
+    ) throws {
         let fileManager = FileManager.default
         directory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-dnd-play-\(UUID().uuidString)", isDirectory: true)
@@ -462,7 +475,7 @@ private struct ActiveFocusFixture {
         }
         suiteName = "cmux-tests-notification-sound-\(UUID().uuidString)"
         defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.set("none", forKey: NotificationSoundSettings.key)
+        defaults.set(selectedSound, forKey: NotificationSoundSettings.key)
     }
 
     func writeAssertions(_ json: String) throws {
@@ -470,14 +483,10 @@ private struct ActiveFocusFixture {
     }
 
     func playOutcome() async -> Bool {
-        await withCheckedContinuation { continuation in
-            NotificationSoundSettings.playSelectedSound(
-                defaults: defaults,
-                assertionsFileURL: assertionsFileURL
-            ) { didPlay in
-                continuation.resume(returning: didPlay)
-            }
-        }
+        await NotificationSoundSettings.playSelectedSound(
+            defaults: defaults,
+            assertionsFileURL: assertionsFileURL
+        )
     }
 
     func cleanUp() {

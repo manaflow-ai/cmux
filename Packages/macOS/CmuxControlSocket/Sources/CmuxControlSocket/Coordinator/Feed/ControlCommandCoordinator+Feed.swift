@@ -1,7 +1,7 @@
 internal import Foundation
 
-/// The main-actor feed domain (`feed.jump`, `feed.list`), lifted byte-faithfully
-/// from the former `TerminalController.v2Feed*` bodies. Each payload is built
+/// The Feed domain (`feed.jump`, `feed.list`), lifted byte-faithfully from the
+/// former `TerminalController.v2Feed*` bodies. Each payload is built
 /// directly as a ``JSONValue`` (the typed twin of the legacy `[String: Any]`
 /// dictionaries); the resulting Foundation object is identical, so the encoded
 /// wire bytes match.
@@ -18,8 +18,6 @@ extension ControlCommandCoordinator {
     /// - Returns: The command result, or `nil` if not a feed method.
     func handleFeed(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
-        case "feed.jump":
-            return feedJump(request.params)
         case "feed.list":
             return feedList(request.params)
         default:
@@ -27,8 +25,23 @@ extension ControlCommandCoordinator {
         }
     }
 
+    /// Dispatches the nonisolated Feed worker methods. The explicit context
+    /// parameter keeps the socket-worker path from touching the coordinator's
+    /// main-actor state while allowing the app seam to perform its own
+    /// off-main lookup.
+    nonisolated func handleSocketWorkerFeed(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult? {
+        guard request.method == "feed.jump" else { return nil }
+        return feedJump(request.params, context: context)
+    }
+
     /// `feed.jump` — resolve whether a workstream id maps to a known surface.
-    func feedJump(_ params: [String: JSONValue]) -> ControlCallResult {
+    nonisolated func feedJump(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
         guard let workstreamID = rawString(params, "workstream_id") else {
             return .err(
                 code: "invalid_params",

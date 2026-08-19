@@ -1,7 +1,7 @@
 import Foundation
 
 /// Settings under the dotted-id prefix `notifications.*`.
-public struct NotificationsCatalogSection: SettingCatalogSection {
+nonisolated public struct NotificationsCatalogSection: SettingCatalogSection {
     public let dockBadge = DefaultsKey<Bool>(
         id: "notifications.dockBadge",
         defaultValue: true,

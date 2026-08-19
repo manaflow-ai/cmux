@@ -17,7 +17,7 @@ enum NotificationMuteMenuOption {
         case .muteWorkspaces:
             String(
                 localized: "contextMenu.muteWorkspacesNotifications",
-                defaultValue: "Mute Workspaces Notifications"
+                defaultValue: "Mute Notifications for Selected Workspaces"
             )
         case .unmuteWorkspace:
             String(
@@ -27,7 +27,7 @@ enum NotificationMuteMenuOption {
         case .unmuteWorkspaces:
             String(
                 localized: "contextMenu.unmuteWorkspacesNotifications",
-                defaultValue: "Unmute Workspaces Notifications"
+                defaultValue: "Unmute Notifications for Selected Workspaces"
             )
         }
     }

@@ -11,13 +11,14 @@ struct NotificationDebugTarget: Sendable {
     /// existing debug commands source-compatible.
     let agentID: String
 
-    init(workspaceId: UUID, surfaceId: UUID?, agentID: String = "claude") {
+    init?(workspaceId: UUID, surfaceId: UUID?, agentID: String = "claude") {
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
         let normalized = agentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.agentID = NotificationSoundOverrideContext.isValidAgentID(normalized)
-            ? normalized
-            : "claude"
+        guard NotificationSoundOverrideContext.isValidAgentID(normalized) else {
+            return nil
+        }
+        self.agentID = normalized
     }
 }
 
@@ -35,10 +36,16 @@ extension TerminalController {
             callerTTY: notificationDebugStringParam(params, "caller_tty"),
             preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false
         ) else { return nil }
+        let agentID: String
+        if params.keys.contains("agent_id") {
+            agentID = (params["agent_id"] as? String) ?? ""
+        } else {
+            agentID = "claude"
+        }
         return NotificationDebugTarget(
             workspaceId: target.workspaceId,
             surfaceId: target.surfaceId,
-            agentID: notificationDebugStringParam(params, "agent_id") ?? "claude"
+            agentID: agentID
         )
     }
 

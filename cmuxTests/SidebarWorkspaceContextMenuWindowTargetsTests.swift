@@ -104,6 +104,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 canMarkRead: false,
                 canMarkUnread: false,
                 hasLatestNotification: false,
+                allNotificationsMuted: false,
                 notifications: []
             )
         )
@@ -143,6 +144,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             markRead: { _ in },
             markUnread: { _ in },
             clearLatestNotifications: { _ in },
+            setNotificationsMuted: { _, _ in },
             openNotification: { _ in },
             copyWorkspaceLinks: { _ in },
             openPullRequest: { _ in },

@@ -1,7 +1,7 @@
 import Foundation
 
 /// One configured cell in the per-agent notification sound matrix.
-public struct NotificationSoundOverride: Codable, Equatable, Sendable {
+nonisolated public struct NotificationSoundOverride: Codable, Equatable, Sendable {
     /// The persisted built-in, custom-file, or silent sound value.
     public let sound: String
     /// The source path when `sound` is `custom_file`; otherwise `nil`.

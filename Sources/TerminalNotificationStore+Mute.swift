@@ -8,13 +8,21 @@ import Foundation
 /// accidentally muting only one delivery path.
 @MainActor
 extension TerminalNotificationStore {
+    private func workspace(for tabId: UUID) -> Workspace? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        if let workspace = appDelegate.workspaceFor(tabId: tabId) {
+            return workspace
+        }
+        // `workspaceFor` already consults the registered tab-manager index;
+        // retain only the legacy active-manager fallback for early startup.
+        return appDelegate.tabManager?.tabs.first(where: { $0.id == tabId })
+    }
+
     /// Returns whether the workspace currently suppresses notification
     /// delivery. Missing workspaces are treated as unmuted so a stale menu
     /// action cannot hide notifications for a newly-created workspace.
     func isWorkspaceNotificationsMuted(forTabId tabId: UUID) -> Bool {
-        let workspace = AppDelegate.shared?.workspaceFor(tabId: tabId)
-            ?? AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId })
-        return workspace?.isMuted == true
+        workspace(for: tabId)?.isMuted == true
     }
 
     /// Returns whether every workspace in a selection is muted. An empty
@@ -31,8 +39,7 @@ extension TerminalNotificationStore {
         guard !uniqueIds.isEmpty else { return false }
         var changed = false
         for tabId in uniqueIds {
-            let workspace = AppDelegate.shared?.workspaceFor(tabId: tabId)
-                ?? AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId })
+            let workspace = workspace(for: tabId)
             guard let workspace, workspace.isMuted != muted else { continue }
             workspace.isMuted = muted
             changed = true
@@ -50,12 +57,4 @@ extension TerminalNotificationStore {
         setWorkspaceNotificationsMuted(false, forTabIds: tabIds)
     }
 
-#if DEBUG
-    /// Clears workspace mutes for isolated behavior tests.
-    func clearNotificationMutesForTesting() {
-        for workspace in AppDelegate.shared?.tabManager?.tabs ?? [] {
-            workspace.isMuted = false
-        }
-    }
-#endif
 }

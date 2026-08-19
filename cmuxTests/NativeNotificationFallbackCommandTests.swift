@@ -162,13 +162,13 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
-    func sharedNativeUnavailableFeedbackSuppressesCommandRunner() {
+    func sharedNativeUnavailableFeedbackSuppressesCommandRunner() async {
         var effects = TerminalNotificationPolicyEffects()
         effects.sound = false
         effects.command = true
         let commands = CommandInvocationRecorder()
 
-        NativeNotificationDeliveryHooks.runLocalFeedback(
+        await NativeNotificationDeliveryHooks.runLocalFeedback(
             title: "Real title",
             subtitle: "",
             body: "Real message",
@@ -182,14 +182,14 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
-    func sharedDesktopDisabledFeedbackAllowsCommandRunner() {
+    func sharedDesktopDisabledFeedbackAllowsCommandRunner() async {
         var effects = TerminalNotificationPolicyEffects()
         effects.desktop = false
         effects.sound = false
         effects.command = true
         let commands = CommandInvocationRecorder()
 
-        NativeNotificationDeliveryHooks.runLocalFeedback(
+        await NativeNotificationDeliveryHooks.runLocalFeedback(
             title: "Real title",
             subtitle: "",
             body: "Real message",

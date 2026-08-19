@@ -4,10 +4,6 @@ enum TerminalNotificationArrivalDisposition: Equatable, Sendable {
     case focusedInline
     case muted
 
-    var suppressesExternalDelivery: Bool {
-        self != .externalDelivery
-    }
-
     var suppressesPhoneForward: Bool {
         self != .externalDelivery
     }

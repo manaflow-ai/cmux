@@ -2,6 +2,7 @@ import AppKit
 import CmuxFoundation
 import CmuxSettings
 import Foundation
+import os
 import UserNotifications
 
 // Notification sound selection, Focus/DND suppression, fallback playback,
@@ -9,7 +10,12 @@ import UserNotifications
 // conversion live in NotificationSoundSettings+CustomSoundStaging so this
 // facade remains a small, stable seam for the rest of the app and tests.
 
-enum NotificationSoundSettings {
+nonisolated private let notificationSoundLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "notification-sound"
+)
+
+nonisolated enum NotificationSoundSettings {
     private static let catalog = NotificationsCatalogSection()
 
     static let key = catalog.sound.userDefaultsKey
@@ -49,7 +55,7 @@ enum NotificationSoundSettings {
         defaults: UserDefaults = .standard,
         systemSoundStagingDirectory: URL? = nil,
         preparationPolicy: NotificationSoundPreparationPolicy = .prepareIfNeeded
-    ) -> UNNotificationSound? {
+    ) async -> UNNotificationSound? {
         let value = defaults.string(forKey: key) ?? defaultValue
         switch value {
         case defaultValue:
@@ -57,7 +63,7 @@ enum NotificationSoundSettings {
         case "none":
             return nil
         case customFileValue:
-            guard let customSoundName = stagedCustomSoundName(
+            guard let customSoundName = await stagedCustomSoundName(
                 defaults: defaults,
                 stagingDirectory: systemSoundStagingDirectory,
                 preparationPolicy: preparationPolicy
@@ -66,12 +72,14 @@ enum NotificationSoundSettings {
             }
             return UNNotificationSound(named: UNNotificationSoundName(rawValue: customSoundName))
         default:
-            guard let stagedSystemSoundName = stagedSystemSoundName(
+            guard let stagedSystemSoundName = await stagedSystemSoundName(
                 for: value,
                 stagingDirectory: systemSoundStagingDirectory,
                 preparationPolicy: preparationPolicy
             ) else {
-                NSLog("Notification system sound unavailable, falling back to default: \(value)")
+                notificationSoundLogger.error(
+                    "Notification system sound unavailable; falling back to default value=\(value, privacy: .private)"
+                )
                 return .default
             }
             return UNNotificationSound(named: UNNotificationSoundName(rawValue: stagedSystemSoundName))
@@ -102,9 +110,9 @@ enum NotificationSoundSettings {
         defaults: UserDefaults = .standard,
         stagingDirectory: URL? = nil,
         preparationPolicy: NotificationSoundPreparationPolicy = .prepareIfNeeded
-    ) -> String? {
+    ) async -> String? {
         let rawPath = defaults.string(forKey: customFilePathKey) ?? defaultCustomFilePath
-        return stagedCustomSoundName(
+        return await stagedCustomSoundName(
             path: rawPath,
             stagingDirectory: stagingDirectory,
             preparationPolicy: preparationPolicy
@@ -117,14 +125,14 @@ enum NotificationSoundSettings {
         path rawPath: String,
         stagingDirectory: URL? = nil,
         preparationPolicy: NotificationSoundPreparationPolicy = .prepareIfNeeded
-    ) -> String? {
+    ) async -> String? {
         if preparationPolicy == .readyOnly {
-            return stagedNameIfReady(
+            return await stagedNameIfReady(
                 path: rawPath,
                 stagingDirectory: stagingDirectory
             )
         }
-        stagedName(
+        return await stagedName(
             path: rawPath,
             stagingDirectory: stagingDirectory
         )
@@ -133,8 +141,8 @@ enum NotificationSoundSettings {
     static func prepareCustomFileForNotifications(
         path: String,
         stagingDirectory: URL? = nil
-    ) -> Result<String, CustomSoundPreparationIssue> {
-        prepare(
+    ) async -> Result<String, CustomSoundPreparationIssue> {
+        await prepare(
             path: path,
             stagingDirectory: stagingDirectory
         )
@@ -184,36 +192,27 @@ enum NotificationSoundSettings {
     static func playSelectedSound(
         defaults: UserDefaults = .standard,
         assertionsFileURL: URL = defaultAssertionsFileURL,
-        context: NotificationSoundOverrideContext? = nil,
-        completion: (@MainActor @Sendable (_ didPlay: Bool) -> Void)? = nil
-    ) {
+        context: NotificationSoundOverrideContext? = nil
+    ) async -> Bool {
         let snapshot = resolutionSnapshot(context: context, defaults: defaults)
-        Task {
-            let suppressedAtAdmission = await activeFocusSuppression(
-                assertionsFileURL: assertionsFileURL
-            )
-            let prepared = suppressedAtAdmission
-                ? nil
-                : await prepareNotificationSound(snapshot: snapshot)
-            // Custom transcoding can take long enough for Focus to change.
-            // Re-read the live assertion immediately before direct playback
-            // so preparation cannot punch a stale decision through DND.
-            let suppressedAtPlayback = suppressedAtAdmission
-                ? true
-                : await activeFocusSuppression(
-                    assertionsFileURL: assertionsFileURL
-                )
-            await MainActor.run {
-                if !suppressedAtPlayback, let prepared {
-                    playPreparedSound(prepared)
-                }
-                completion?(!suppressedAtPlayback)
-            }
+        let suppressedAtAdmission = await activeFocusSuppression(
+            assertionsFileURL: assertionsFileURL
+        )
+        guard !suppressedAtAdmission else { return false }
+
+        let prepared = await prepareNotificationSound(snapshot: snapshot)
+        // Custom transcoding can take long enough for Focus to change.
+        // Re-read the live assertion immediately before direct playback so
+        // preparation cannot punch a stale decision through DND.
+        guard !(await activeFocusSuppression(assertionsFileURL: assertionsFileURL)) else {
+            return false
         }
+        return await MainActor.run { playPreparedSound(prepared) }
     }
 
-    static func previewSound(value: String, defaults: UserDefaults = .standard) {
-        previewSound(
+    @discardableResult
+    static func previewSound(value: String, defaults: UserDefaults = .standard) async -> Bool {
+        await previewSound(
             selection: ResolvedNotificationSoundPlaybackSelection(
                 value: value,
                 customFilePath: defaults.string(forKey: customFilePathKey)
@@ -221,12 +220,13 @@ enum NotificationSoundSettings {
         )
     }
 
+    @discardableResult
     static func previewSound(
         value: String,
         customFilePath: String,
         defaults: UserDefaults = .standard
-    ) {
-        previewSound(
+    ) async -> Bool {
+        await previewSound(
             selection: ResolvedNotificationSoundPlaybackSelection(
                 value: value,
                 customFilePath: customFilePath
@@ -236,17 +236,13 @@ enum NotificationSoundSettings {
 
     private static func previewSound(
         selection: ResolvedNotificationSoundPlaybackSelection
-    ) {
+    ) async -> Bool {
         let snapshot = NotificationSoundResolutionSnapshot(
             globalSelection: selection,
             overrideSelection: nil
         )
-        Task {
-            let prepared = await prepareNotificationSound(snapshot: snapshot)
-            await MainActor.run {
-                playPreparedSound(prepared)
-            }
-        }
+        let prepared = await prepareNotificationSound(snapshot: snapshot)
+        return await MainActor.run { playPreparedSound(prepared) }
     }
 
     private static func activeFocusSuppression(
@@ -274,20 +270,17 @@ enum NotificationSoundSettings {
 
     static func stagedSystemSoundName(
         for value: String,
-        fileManager: FileManager = .default,
         sourceDirectory: URL = systemSoundDirectoryURL,
         stagingDirectory: URL? = nil,
         preparationPolicy _: NotificationSoundPreparationPolicy = .prepareIfNeeded
-    ) -> String? {
+    ) async -> String? {
         // System sounds are already decoded by macOS and only need a small
         // file copy into the notification daemon's Sounds directory. Allow
         // that cheap preparation even on the ready-only notification-content
         // path; the policy exists to keep codec conversion (not ordinary
         // system-sound staging) off the main actor.
-        stagedSystemSoundName(
-            for: value,
-            allowedValues: systemSounds,
-            fileManager: fileManager,
+        await stageSystemSound(
+            value: value,
             sourceDirectory: sourceDirectory,
             stagingDirectory: stagingDirectory
         )
@@ -318,28 +311,33 @@ enum NotificationSoundSettings {
     }
 
     @MainActor
-    private static func playPreparedSound(_ prepared: PreparedNotificationSound) {
+    private static func playPreparedSound(_ prepared: PreparedNotificationSound) -> Bool {
         switch prepared {
         case .systemDefault:
             NSSound.beep()
+            return true
         case .silent:
-            return
+            return false
         case .named(let fileName):
-            playSoundFile(at: stagedURL(named: fileName))
+            return playSoundFile(at: stagedURL(named: fileName))
         }
     }
 
     @MainActor
-    private static func playSoundFile(at url: URL) {
+    private static func playSoundFile(at url: URL) -> Bool {
         guard let sound = NSSound(contentsOf: url, byReference: false) else {
-            NSLog("Notification sound failed to load from path: \(url.path)")
-            return
+            notificationSoundLogger.error(
+                "Notification sound failed to load from path: \(url.path, privacy: .private)"
+            )
+            return false
         }
         retainActivePlaybackSound(sound)
         sound.delegate = activePlaybackSoundDelegate
-        if !sound.play() {
+        let didPlay = sound.play()
+        if !didPlay {
             releaseActivePlaybackSound(sound)
         }
+        return didPlay
     }
 
     private static func retainActivePlaybackSound(_ sound: NSSound) {
@@ -377,7 +375,9 @@ enum NotificationSoundSettings {
             do {
                 try process.run()
             } catch {
-                NSLog("Notification command failed to launch: \(error)")
+                notificationSoundLogger.error(
+                    "Notification command failed to launch: \(String(describing: error), privacy: .private)"
+                )
             }
         }
     }

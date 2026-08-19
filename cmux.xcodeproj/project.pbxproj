@@ -1058,6 +1058,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */; };
 		8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */; };
 		B7F1000A0000000000000001 /* FeedJumpResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F1000A0000000000000002 /* FeedJumpResolver.swift */; };
+		FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
@@ -1511,6 +1512,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C79010000000000000000003 /* NotificationScrollRestoreRowSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79010000000000000000004 /* NotificationScrollRestoreRowSpaceTests.swift */; };
 		D78970000000000000000001 /* NotificationScrollRestoreState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78970000000000000000002 /* NotificationScrollRestoreState.swift */; };
 		C79010000000000000000005 /* NotificationScrollRestoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */; };
+		B7F101010000000000000001 /* NotificationSoundAgentRegistryLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */; };
 		B7F100020000000000000001 /* NotificationSoundPreparationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */; };
 		B7F100030000000000000001 /* NotificationSoundResolutionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */; };
 		B7F0000C /* NotificationSoundSettings+CustomSoundStaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */; };
@@ -1519,6 +1521,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
 		4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */; };
 		B7F100050000000000000001 /* NotificationSoundSourceMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */; };
+		B7F101000000000000000001 /* NotificationSoundStager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101000000000000000002 /* NotificationSoundStager.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		733B576F46794C01A2195B9A /* NotificationsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB29060C585943CD96C77929 /* NotificationsPanel.swift */; };
 		D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000010 /* NotificationsPopoverMetrics.swift */; };
@@ -3844,6 +3847,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryMetadata.swift; sourceTree = "<group>"; };
 		8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressSynchronousResult.swift; sourceTree = "<group>"; };
 		B7F1000A0000000000000002 /* FeedJumpResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolver.swift; sourceTree = "<group>"; };
+		FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolverTests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPermissionActionPolicy.swift; sourceTree = "<group>"; };
@@ -4294,6 +4298,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C79010000000000000000004 /* NotificationScrollRestoreRowSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreRowSpaceTests.swift; sourceTree = "<group>"; };
 		D78970000000000000000002 /* NotificationScrollRestoreState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreState.swift; sourceTree = "<group>"; };
 		C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreTestSupport.swift; sourceTree = "<group>"; };
+		B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundAgentRegistryLoader.swift; sourceTree = "<group>"; };
 		B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundPreparationPolicy.swift; sourceTree = "<group>"; };
 		B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundResolutionSnapshot.swift; sourceTree = "<group>"; };
 		B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundSettings+CustomSoundStaging.swift"; sourceTree = "<group>"; };
@@ -4302,6 +4307,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
 		B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSourceMetadata.swift; sourceTree = "<group>"; };
+		B7F101000000000000000002 /* NotificationSoundStager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundStager.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		CB29060C585943CD96C77929 /* NotificationsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NotificationsPanel.swift; sourceTree = "<group>"; };
 		D77690000000000000000010 /* NotificationsPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverMetrics.swift; sourceTree = "<group>"; };
@@ -6970,6 +6976,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */,
 				B7F100040000000000000002 /* NotificationSoundSettings+SourceMetadata.swift */,
 				B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */,
+				B7F101000000000000000002 /* NotificationSoundStager.swift */,
 				B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */,
 				B7F100060000000000000002 /* PreparedNotificationSound.swift */,
 				B7F100070000000000000002 /* ResolvedNotificationSoundPlaybackSelection.swift */,
@@ -7315,6 +7322,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001222 /* WindowAccessor.swift */,
 				B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
+				B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */,
 				8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */,
@@ -8310,6 +8318,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */,
 				14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */,
 				FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */,
+				FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */,
 				8672D0068672D0068672D006 /* PiFeedDockOwnershipTests.swift */,
 				8672F0028672F0028672F002 /* PiFeedOwnershipTests.swift */,
 				8672F0078672F0078672F007 /* PiFeedEventRecorder.swift */,
@@ -9848,6 +9857,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D78970000000000000000009 /* NotificationScrollRequestPhase.swift in Sources */,
 				D78970000000000000000003 /* NotificationScrollRestoreGeometry.swift in Sources */,
 				D78970000000000000000001 /* NotificationScrollRestoreState.swift in Sources */,
+				B7F101010000000000000001 /* NotificationSoundAgentRegistryLoader.swift in Sources */,
 				B7F100020000000000000001 /* NotificationSoundPreparationPolicy.swift in Sources */,
 				B7F100030000000000000001 /* NotificationSoundResolutionSnapshot.swift in Sources */,
 				B7F0000C /* NotificationSoundSettings+CustomSoundStaging.swift in Sources */,
@@ -9855,6 +9865,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7F100040000000000000001 /* NotificationSoundSettings+SourceMetadata.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
 				B7F100050000000000000001 /* NotificationSoundSourceMetadata.swift in Sources */,
+				B7F101000000000000000001 /* NotificationSoundStager.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
 				733B576F46794C01A2195B9A /* NotificationsPanel.swift in Sources */,
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
@@ -11237,6 +11248,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
+				FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,

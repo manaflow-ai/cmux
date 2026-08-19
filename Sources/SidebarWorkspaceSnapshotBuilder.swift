@@ -37,7 +37,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         /// Whether any workspace-scoped notification mute is active.
-        let isMuted: Bool = false
+        let isMuted: Bool
         let customColorHex: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
