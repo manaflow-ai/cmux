@@ -77,6 +77,30 @@ struct CmuxGhosttyConfigSettingEditorTests {
         #expect(updated == "font-family = \"SF Mono\"\r\nsurface-tab-bar-font-size = 12\r\n")
     }
 
+    @Test("Rewrites a classic-Mac CR-only config as LF, without losing its lines")
+    func rewritesCROnlyConfigAsLF() {
+        // A lone "\r" is read as a line break so the settings are still found and
+        // replaced in place, but it is not written back: TOML — the other consumer
+        // of this helper — defines a newline as LF or CRLF only, so a CR-only
+        // rewrite would emit a file its own parser rejects.
+        let replaced = editor.updatedContents(
+            "font-family = \"SF Mono\"\rsidebar-font-size = 12\r",
+            setting: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+            value: "13"
+        )
+
+        #expect(replaced == "font-family = \"SF Mono\"\nsidebar-font-size = 13\n")
+        #expect(editor.parsedSidebarFontSize(in: replaced) == 13)
+
+        let appended = editor.updatedContents(
+            "font-family = \"SF Mono\"\r",
+            setting: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
+            value: "12"
+        )
+
+        #expect(appended == "font-family = \"SF Mono\"\nsurface-tab-bar-font-size = 12\n")
+    }
+
     @Test("Reads back the value it wrote into a CRLF config")
     func parsesValueWrittenIntoCRLFConfig() {
         let updated = editor.updatedContents(
