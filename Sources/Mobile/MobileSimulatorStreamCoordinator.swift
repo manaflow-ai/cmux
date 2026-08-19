@@ -9,12 +9,7 @@ final class MobileSimulatorStreamCoordinator {
         case unavailable
     }
 
-    private struct SessionKey: Hashable {
-        let connectionID: UUID
-        let panelID: UUID
-    }
-
-    private var sessions: [SessionKey: MobileSimulatorStreamSession] = [:]
+    private var sessions: [MobileStreamSessionKey: MobileSimulatorStreamSession] = [:]
     private var ownersByPanelID: [UUID: UUID] = [:]
     private var workspaceIDsByPanelID: [UUID: UUID] = [:]
     private var lastFramesByPanelID: [UUID: MobileSimulatorFrameEvent] = [:]
@@ -40,7 +35,7 @@ final class MobileSimulatorStreamCoordinator {
             return .locked(descriptor)
         }
 
-        let key = SessionKey(connectionID: connectionID, panelID: panel.id)
+        let key = MobileStreamSessionKey(connectionID: connectionID, panelID: panel.id)
         if let previous = sessions.removeValue(forKey: key) {
             await previous.stop(sendClosed: false)
         }
@@ -101,7 +96,7 @@ final class MobileSimulatorStreamCoordinator {
 
     @discardableResult
     func stop(connectionID: UUID, panelID: UUID) async -> Bool {
-        let key = SessionKey(connectionID: connectionID, panelID: panelID)
+        let key = MobileStreamSessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions.removeValue(forKey: key) else { return false }
         recordStream(
             panelID,
@@ -130,14 +125,14 @@ final class MobileSimulatorStreamCoordinator {
     func requestFrameReplay(connectionID: UUID, panelIDStrings: Set<String>) {
         for panelIDString in panelIDStrings {
             guard let panelID = UUID(uuidString: panelIDString),
-                  let session = sessions[SessionKey(connectionID: connectionID, panelID: panelID)] else {
+                  let session = sessions[MobileStreamSessionKey(connectionID: connectionID, panelID: panelID)] else {
                 continue
             }
             session.requestFrameReplay()
         }
     }
 
-    private func sessionEnded(key: SessionKey, sessionID: UUID) {
+    private func sessionEnded(key: MobileStreamSessionKey, sessionID: UUID) {
         guard sessions[key]?.id == sessionID else { return }
         sessions[key] = nil
         releaseOwnership(key, recording: .closed)
@@ -146,7 +141,7 @@ final class MobileSimulatorStreamCoordinator {
 
     /// Releases `key`'s panel ownership when its connection still holds it,
     /// then records the stream lifecycle transition for the removed session.
-    private func releaseOwnership(_ key: SessionKey, recording state: DiagnosticSimulatorStreamLifecycle) {
+    private func releaseOwnership(_ key: MobileStreamSessionKey, recording state: DiagnosticSimulatorStreamLifecycle) {
         if ownersByPanelID[key.panelID] == key.connectionID {
             ownersByPanelID[key.panelID] = nil
             MobileSimulatorDiagnostics.recordOwnership(

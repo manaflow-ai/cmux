@@ -218,7 +218,7 @@ final class MobileBrowserStreamSession {
                 scheduleDeadline(after: pacing.ackStallTimeout)
                 return
             case .idle:
-                scheduleIdleReconciliation()
+                scheduleDeadline(after: Self.idleReconcileInterval, reconcile: true)
                 return
             }
         }
@@ -346,28 +346,21 @@ final class MobileBrowserStreamSession {
         }
     }
 
-    private func scheduleDeadline(after interval: TimeInterval) {
+    /// Arms the drive deadline. With `reconcile`, expiry also requests one
+    /// lossless settle frame: an idle stream's dirty signals are silently
+    /// lost when WebKit suspends `requestAnimationFrame` for the occluded
+    /// offscreen host, so this bounds how long the phone can display a stale
+    /// (or blank first) frame to `idleReconcileInterval`. Any real dirty
+    /// signal cancels the deadline via `requestDrive`, and `drive()` arms a
+    /// fresh one when the stream idles again.
+    private func scheduleDeadline(after interval: TimeInterval, reconcile: Bool = false) {
         guard !isStopped else { return }
         deadlineTask?.cancel()
         deadlineTask = scheduleAfter(interval) { [weak self] in
-            self?.requestDrive()
-        }
-    }
-
-    /// Schedules one lossless reconciliation frame after a quiet interval.
-    ///
-    /// An idle stream's correctness otherwise hangs entirely on page-driven
-    /// dirty signals, which are silently lost when WebKit suspends
-    /// `requestAnimationFrame` for the occluded offscreen host. This bounds
-    /// how long the phone can display a stale (or blank first) frame to
-    /// `idleReconcileInterval`. Any real dirty signal cancels it via
-    /// `requestDrive`, and a fresh one is armed when the stream idles again.
-    private func scheduleIdleReconciliation() {
-        guard !isStopped else { return }
-        deadlineTask?.cancel()
-        deadlineTask = scheduleAfter(Self.idleReconcileInterval) { [weak self] in
             guard let self, !self.isStopped else { return }
-            self.pacing.requestSettleReconciliation()
+            if reconcile {
+                self.pacing.requestSettleReconciliation()
+            }
             self.requestDrive()
         }
     }
