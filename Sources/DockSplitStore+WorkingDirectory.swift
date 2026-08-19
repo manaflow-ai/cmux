@@ -31,7 +31,7 @@ extension DockSplitStore {
         let legacyInheritanceEnabled = settings.value(
             for: settingsCatalog.app.workspaceInheritWorkingDirectory
         )
-        let declarative = DeclarativeTerminalConfiguration().snapshot(
+        let declarative = DeclarativeTerminalConfiguration().cachedSnapshot(
             fileURL: declarativeTerminalConfigurationFileURL
         )
         let policy = declarative.effectiveWorkingDirectoryPolicy(

@@ -51,7 +51,7 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
-        let declarativeTerminalSettings = DeclarativeTerminalConfiguration().snapshot()
+        let declarativeTerminalSettings = DeclarativeTerminalConfiguration().cachedSnapshot()
         let shellStartupMode: TerminalShellStartupMode = declarativeTerminalSettings.shellStartupMode == .nonLogin
             ? .nonLogin
             : .login

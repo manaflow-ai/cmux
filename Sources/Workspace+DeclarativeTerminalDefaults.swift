@@ -22,7 +22,7 @@ extension Workspace {
             let legacyInheritanceEnabled = settings.value(
                 for: SettingCatalog().app.workspaceInheritWorkingDirectory
             )
-            let declarative = DeclarativeTerminalConfiguration().snapshot(
+            let declarative = DeclarativeTerminalConfiguration().cachedSnapshot(
                 fileURL: declarativeTerminalConfigurationFileURL
             )
             policy = declarative.effectiveWorkingDirectoryPolicy(

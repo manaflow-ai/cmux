@@ -99,4 +99,28 @@ struct DeclarativeTerminalConfigurationTests {
         #expect(snapshot.shellStartupMode == .nonLogin)
         #expect(snapshot.shellStartupCommand == "mise activate zsh")
     }
+
+    @Test("memoized snapshots refresh after an atomic config edit")
+    @MainActor
+    func memoizedSnapshotRefreshesAfterEdit() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-declarative-cache-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        try Data(
+            #"{"terminal":{"shellStartup":{"mode":"login","command":""}}}"#.utf8
+        ).write(to: file, options: [.atomic])
+
+        let configuration = DeclarativeTerminalConfiguration()
+        #expect(configuration.cachedSnapshot(fileURL: file).shellStartupMode == .login)
+
+        try Data(
+            #"{"terminal":{"shellStartup":{"mode":"nonLogin","command":"echo startup"}}}"#.utf8
+        ).write(to: file, options: [.atomic])
+
+        let refreshed = configuration.cachedSnapshot(fileURL: file)
+        #expect(refreshed.shellStartupMode == .nonLogin)
+        #expect(refreshed.shellStartupCommand == "echo startup")
+    }
 }

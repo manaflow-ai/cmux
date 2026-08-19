@@ -1222,7 +1222,7 @@ class TabManager: ObservableObject {
                     hasExternallyManagedWorkingDirectory: initialTerminalStartupRestoreAgent != nil
                 )
             let legacyInheritanceEnabled = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-            let declarativeTerminalSettings = DeclarativeTerminalConfiguration().snapshot(
+            let declarativeTerminalSettings = DeclarativeTerminalConfiguration().cachedSnapshot(
                 fileURL: declarativeTerminalConfigurationFileURL
             )
             let configuredWorkingDirectoryPolicy = declarativeTerminalSettings.effectiveWorkingDirectoryPolicy(
@@ -1762,7 +1762,7 @@ class TabManager: ObservableObject {
 
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
         let legacyInheritanceEnabled = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-        let declarative = DeclarativeTerminalConfiguration().snapshot(
+        let declarative = DeclarativeTerminalConfiguration().cachedSnapshot(
             fileURL: declarativeTerminalConfigurationFileURL
         )
         let policy = declarative.effectiveWorkingDirectoryPolicy(
