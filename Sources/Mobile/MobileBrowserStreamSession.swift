@@ -328,17 +328,29 @@ final class MobileBrowserStreamSession {
         }
     }
 
+    /// Runs `body` after a bounded, cancellable sleep. Every deadline in this
+    /// session (cadence/settle, idle reconciliation, state coalescing) goes
+    /// through this one task shape; storing the returned task and cancelling
+    /// it on a fresh signal is the caller's job.
+    private func scheduleAfter(
+        _ interval: TimeInterval,
+        _ body: @escaping @MainActor () async -> Void
+    ) -> Task<Void, Never> {
+        let clock = clock
+        return Task { @MainActor [clock] in
+            do {
+                try await clock.sleep(for: max(0, interval))
+                guard !Task.isCancelled else { return }
+                await body()
+            } catch {}
+        }
+    }
+
     private func scheduleDeadline(after interval: TimeInterval) {
         guard !isStopped else { return }
         deadlineTask?.cancel()
-        let clock = clock
-        deadlineTask = Task { @MainActor [weak self, clock] in
-            do {
-                // Bounded, cancellable cadence/settle deadline; new signals cancel it.
-                try await clock.sleep(for: max(0, interval))
-                guard !Task.isCancelled else { return }
-                self?.requestDrive()
-            } catch {}
+        deadlineTask = scheduleAfter(interval) { [weak self] in
+            self?.requestDrive()
         }
     }
 
@@ -353,28 +365,19 @@ final class MobileBrowserStreamSession {
     private func scheduleIdleReconciliation() {
         guard !isStopped else { return }
         deadlineTask?.cancel()
-        let clock = clock
-        deadlineTask = Task { @MainActor [weak self, clock] in
-            do {
-                try await clock.sleep(for: Self.idleReconcileInterval)
-                guard !Task.isCancelled, let self, !self.isStopped else { return }
-                self.pacing.requestSettleReconciliation()
-                self.requestDrive()
-            } catch {}
+        deadlineTask = scheduleAfter(Self.idleReconcileInterval) { [weak self] in
+            guard let self, !self.isStopped else { return }
+            self.pacing.requestSettleReconciliation()
+            self.requestDrive()
         }
     }
 
     private func scheduleStateEmission() {
         guard !isStopped else { return }
         stateTask?.cancel()
-        let clock = clock
-        stateTask = Task { @MainActor [weak self, clock] in
-            do {
-                // Bounded, cancellable coalescing delay for bursty WebKit state KVO.
-                try await clock.sleep(for: 0.016)
-                guard !Task.isCancelled else { return }
-                await self?.emitStateIfChanged()
-            } catch {}
+        // Coalesces bursty WebKit state KVO behind one bounded delay.
+        stateTask = scheduleAfter(0.016) { [weak self] in
+            await self?.emitStateIfChanged()
         }
     }
 

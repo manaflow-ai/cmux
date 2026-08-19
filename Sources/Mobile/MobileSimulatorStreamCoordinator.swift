@@ -21,41 +21,22 @@ final class MobileSimulatorStreamCoordinator {
     private let wireEncoder = MobileSimulatorWireEncoder()
 
     func start(connectionID: UUID, panel: SimulatorPanel, workspaceID: UUID) async -> StartResult {
-        MobileSimulatorDiagnostics.recordStream(
-            panelID: panel.id,
-            state: .startRequested,
-            ownership: MobileSimulatorDiagnostics.ownershipState(
-                ownerConnectionID: ownersByPanelID[panel.id],
-                currentConnectionID: connectionID
-            ),
-            activeSessions: sessions.count
+        recordStream(
+            panel.id,
+            .startRequested,
+            ownership: currentOwnership(panelID: panel.id, connectionID: connectionID)
         )
         guard let connection = MobileHostConnectionRegistry.shared.connection(id: connectionID) else {
-            MobileSimulatorDiagnostics.recordStream(
-                panelID: panel.id,
-                state: .startFailed,
-                ownership: .unknown,
-                activeSessions: sessions.count
-            )
+            recordStream(panel.id, .startFailed, ownership: .unknown)
             return .unavailable
         }
         workspaceIDsByPanelID[panel.id] = workspaceID
         if let owner = ownersByPanelID[panel.id], owner != connectionID {
             guard let descriptor = descriptor(panel: panel, currentConnectionID: connectionID) else {
-                MobileSimulatorDiagnostics.recordStream(
-                    panelID: panel.id,
-                    state: .startFailed,
-                    ownership: .otherConnection,
-                    activeSessions: sessions.count
-                )
+                recordStream(panel.id, .startFailed, ownership: .otherConnection)
                 return .unavailable
             }
-            MobileSimulatorDiagnostics.recordStream(
-                panelID: panel.id,
-                state: .locked,
-                ownership: .otherConnection,
-                activeSessions: sessions.count
-            )
+            recordStream(panel.id, .locked, ownership: .otherConnection)
             return .locked(descriptor)
         }
 
@@ -64,10 +45,7 @@ final class MobileSimulatorStreamCoordinator {
             await previous.stop(sendClosed: false)
         }
 
-        let previousOwnership = MobileSimulatorDiagnostics.ownershipState(
-            ownerConnectionID: ownersByPanelID[panel.id],
-            currentConnectionID: connectionID
-        )
+        let previousOwnership = currentOwnership(panelID: panel.id, connectionID: connectionID)
         ownersByPanelID[panel.id] = connectionID
         MobileSimulatorDiagnostics.recordOwnership(
             panelID: panel.id,
@@ -94,20 +72,10 @@ final class MobileSimulatorStreamCoordinator {
         session.start()
         pruneCachesForClosedPanels()
         guard let descriptor = descriptor(panel: panel, currentConnectionID: connectionID) else {
-            MobileSimulatorDiagnostics.recordStream(
-                panelID: panel.id,
-                state: .startFailed,
-                ownership: .currentConnection,
-                activeSessions: sessions.count
-            )
+            recordStream(panel.id, .startFailed, ownership: .currentConnection)
             return .unavailable
         }
-        MobileSimulatorDiagnostics.recordStream(
-            panelID: panel.id,
-            state: .started,
-            ownership: .currentConnection,
-            activeSessions: sessions.count
-        )
+        recordStream(panel.id, .started, ownership: .currentConnection)
         return .started(descriptor)
     }
 
@@ -135,31 +103,15 @@ final class MobileSimulatorStreamCoordinator {
     func stop(connectionID: UUID, panelID: UUID) async -> Bool {
         let key = SessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions.removeValue(forKey: key) else { return false }
-        MobileSimulatorDiagnostics.recordStream(
-            panelID: panelID,
-            state: .stopRequested,
-            ownership: MobileSimulatorDiagnostics.ownershipState(
-                ownerConnectionID: ownersByPanelID[panelID],
-                currentConnectionID: connectionID
-            ),
+        recordStream(
+            panelID,
+            .stopRequested,
+            ownership: currentOwnership(panelID: panelID, connectionID: connectionID),
             activeSessions: sessions.count + 1
         )
         await session.stop(sendClosed: false)
-        if ownersByPanelID[panelID] == connectionID {
-            ownersByPanelID[panelID] = nil
-            MobileSimulatorDiagnostics.recordOwnership(
-                panelID: panelID,
-                ownership: .unowned,
-                previousOwnership: .currentConnection
-            )
-        }
+        releaseOwnership(key, recording: .stopped)
         pruneCachesForClosedPanels()
-        MobileSimulatorDiagnostics.recordStream(
-            panelID: panelID,
-            state: .stopped,
-            ownership: .unowned,
-            activeSessions: sessions.count
-        )
         return true
     }
 
@@ -168,20 +120,7 @@ final class MobileSimulatorStreamCoordinator {
         for (key, session) in matching {
             sessions[key] = nil
             await session.stop(sendClosed: false)
-            if ownersByPanelID[key.panelID] == connectionID {
-                ownersByPanelID[key.panelID] = nil
-                MobileSimulatorDiagnostics.recordOwnership(
-                    panelID: key.panelID,
-                    ownership: .unowned,
-                    previousOwnership: .currentConnection
-                )
-            }
-            MobileSimulatorDiagnostics.recordStream(
-                panelID: key.panelID,
-                state: .closed,
-                ownership: .unowned,
-                activeSessions: sessions.count
-            )
+            releaseOwnership(key, recording: .closed)
         }
         pruneCachesForClosedPanels()
     }
@@ -201,6 +140,13 @@ final class MobileSimulatorStreamCoordinator {
     private func sessionEnded(key: SessionKey, sessionID: UUID) {
         guard sessions[key]?.id == sessionID else { return }
         sessions[key] = nil
+        releaseOwnership(key, recording: .closed)
+        pruneCachesForClosedPanels()
+    }
+
+    /// Releases `key`'s panel ownership when its connection still holds it,
+    /// then records the stream lifecycle transition for the removed session.
+    private func releaseOwnership(_ key: SessionKey, recording state: DiagnosticSimulatorStreamLifecycle) {
         if ownersByPanelID[key.panelID] == key.connectionID {
             ownersByPanelID[key.panelID] = nil
             MobileSimulatorDiagnostics.recordOwnership(
@@ -209,12 +155,27 @@ final class MobileSimulatorStreamCoordinator {
                 previousOwnership: .currentConnection
             )
         }
-        pruneCachesForClosedPanels()
+        recordStream(key.panelID, state, ownership: .unowned)
+    }
+
+    private func recordStream(
+        _ panelID: UUID,
+        _ state: DiagnosticSimulatorStreamLifecycle,
+        ownership: DiagnosticSimulatorOwnershipState,
+        activeSessions: Int? = nil
+    ) {
         MobileSimulatorDiagnostics.recordStream(
-            panelID: key.panelID,
-            state: .closed,
-            ownership: .unowned,
-            activeSessions: sessions.count
+            panelID: panelID,
+            state: state,
+            ownership: ownership,
+            activeSessions: activeSessions ?? sessions.count
+        )
+    }
+
+    private func currentOwnership(panelID: UUID, connectionID: UUID) -> DiagnosticSimulatorOwnershipState {
+        MobileSimulatorDiagnostics.ownershipState(
+            ownerConnectionID: ownersByPanelID[panelID],
+            currentConnectionID: connectionID
         )
     }
 

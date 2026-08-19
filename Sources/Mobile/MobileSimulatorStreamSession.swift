@@ -101,11 +101,7 @@ final class MobileSimulatorStreamSession {
                     && !changedTopics.contains("simulator.state") {
                     return
                 }
-                MobileSimulatorDiagnostics.recordFrame(
-                    panelID: self.panelID,
-                    state: .subscriptionReasserted,
-                    sequence: self.lastSentSequence
-                )
+                self.recordFrame(.subscriptionReasserted, sequence: self.lastSentSequence)
                 self.emitState()
                 self.requestFrameSend()
             }
@@ -173,11 +169,11 @@ final class MobileSimulatorStreamSession {
         _ = refresh.detachedReader?.setFramePublicationHandler(nil)
         guard let reader = refresh.attachedReader else {
             if refresh.isMissing {
-                MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerMissing)
+                recordFrame(.readerMissing)
             }
             return
         }
-        MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerAttached)
+        recordFrame(.readerAttached)
         _ = reader.setFramePublicationHandler { [weak self] in
             Task { @MainActor [weak self] in
                 self?.requestFrameSend()
@@ -218,12 +214,7 @@ final class MobileSimulatorStreamSession {
             guard let event = await nextFrameEvent(allowCachedReplay: shouldReplay) else { return }
             let payloadBytes = event.dataBase64.utf8.count
             guard let payload = wireEncoder.object(event) else {
-                MobileSimulatorDiagnostics.recordFrame(
-                    panelID: panelID,
-                    state: .encodeFailed,
-                    sequence: event.sequence,
-                    payloadBytes: payloadBytes
-                )
+                recordFrame(.encodeFailed, sequence: event.sequence, payloadBytes: payloadBytes)
                 continue
             }
             let delivered = await connection.sendEvent(topic: "simulator.frame", payload: payload)
@@ -233,20 +224,10 @@ final class MobileSimulatorStreamSession {
                 // healthy. Keep the control session alive; a later frame
                 // publication or subscription reassertion will retry the
                 // current latest frame because `lastSentSequence` is unchanged.
-                MobileSimulatorDiagnostics.recordFrame(
-                    panelID: panelID,
-                    state: .refused,
-                    sequence: event.sequence,
-                    payloadBytes: payloadBytes
-                )
+                recordFrame(.refused, sequence: event.sequence, payloadBytes: payloadBytes)
                 return
             }
-            MobileSimulatorDiagnostics.recordFrame(
-                panelID: panelID,
-                state: .sent,
-                sequence: event.sequence,
-                payloadBytes: payloadBytes
-            )
+            recordFrame(.sent, sequence: event.sequence, payloadBytes: payloadBytes)
             lastSentSequence = event.sequence
             cachedFrame = event
             onFrame(panelID, event)
@@ -256,7 +237,7 @@ final class MobileSimulatorStreamSession {
     private func nextFrameEvent(allowCachedReplay: Bool = false) async -> MobileSimulatorFrameEvent? {
         guard let reader = readerAttachment.reader else {
             if allowCachedReplay { return cachedFrame }
-            MobileSimulatorDiagnostics.recordFrame(panelID: panelID, state: .readerMissing)
+            recordFrame(.readerMissing)
             return nil
         }
         guard reader.hasPublishedFrame(after: lastSentSequence) else {
@@ -265,12 +246,7 @@ final class MobileSimulatorStreamSession {
         guard let frame = await reader.copyLatestFrame(after: lastSentSequence) else {
             return allowCachedReplay ? cachedFrame : nil
         }
-        MobileSimulatorDiagnostics.recordFrame(
-            panelID: panelID,
-            state: .copied,
-            sequence: frame.sequence,
-            payloadBytes: frame.data.count
-        )
+        recordFrame(.copied, sequence: frame.sequence, payloadBytes: frame.data.count)
         let format: MobileSimulatorFrameFormat
         switch frame.format {
         case .jpeg:
@@ -295,13 +271,25 @@ final class MobileSimulatorStreamSession {
             guard let self, !self.isStopped else { return }
             guard let payload = self.wireEncoder.object(cachedFrame) else { return }
             let delivered = await self.connection.sendEvent(topic: "simulator.frame", payload: payload)
-            MobileSimulatorDiagnostics.recordFrame(
-                panelID: self.panelID,
-                state: delivered ? .cachedSent : .refused,
+            self.recordFrame(
+                delivered ? .cachedSent : .refused,
                 sequence: cachedFrame.sequence,
                 payloadBytes: cachedFrame.dataBase64.utf8.count
             )
         }
+    }
+
+    private func recordFrame(
+        _ state: DiagnosticSimulatorFrameLifecycle,
+        sequence: UInt64? = nil,
+        payloadBytes: Int? = nil
+    ) {
+        MobileSimulatorDiagnostics.recordFrame(
+            panelID: panelID,
+            state: state,
+            sequence: sequence,
+            payloadBytes: payloadBytes
+        )
     }
 
     private func emitState() {
