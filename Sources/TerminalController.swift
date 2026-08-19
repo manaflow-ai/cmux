@@ -1171,6 +1171,31 @@ class TerminalController {
                     }
                 }
             }
+            if request.method == "feed.jump" {
+                return v2AsyncResultCall(id: request.id, timeoutSeconds: 5) {
+                    guard let result = await self.controlCommandCoordinator
+                        .handleSocketWorkerFeedAsync(
+                            parsedRequest,
+                            context: self
+                        ) else {
+                        return .err(
+                            code: "method_not_found",
+                            message: "Unknown method",
+                            data: nil
+                        )
+                    }
+                    switch result {
+                    case .ok(let payload):
+                        return .ok(payload.foundationObject)
+                    case let .err(code, message, data):
+                        return .err(
+                            code: code,
+                            message: message,
+                            data: data?.foundationObject
+                        )
+                    }
+                }
+            }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
             // — pure parse plus JSON payload build — with ONE

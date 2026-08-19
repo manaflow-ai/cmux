@@ -38,6 +38,9 @@ nonisolated enum NotificationSoundSettings {
         qos: .utility
     )
 
+    /// NSSound may invoke its delegate after playback on a non-main thread.
+    /// The delegate therefore only calls the lock-protected release helper;
+    /// playback ownership is intentionally not MainActor-isolated.
     private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
         func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
             NotificationSoundSettings.releaseActivePlaybackSound(sound)

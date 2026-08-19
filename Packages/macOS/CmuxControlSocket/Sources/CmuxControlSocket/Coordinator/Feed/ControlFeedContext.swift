@@ -23,6 +23,12 @@ public protocol ControlFeedContext: AnyObject {
     /// - Returns: Whether the id matched a possible surface.
     nonisolated func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool
 
+    /// Asynchronously resolves a workstream id without performing hook-session
+    /// filesystem I/O on the socket worker or the main actor.
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool
+
     /// Snapshots the workstream feed items for `feed.list`, already shaped as the
     /// per-item JSON the legacy `FeedSocketEncoding.itemDict` produced and bridged
     /// to ``JSONValue`` so the encoded wire bytes match.

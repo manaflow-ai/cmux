@@ -11,17 +11,9 @@ struct TerminalNotificationDeliveryDecision: Equatable, Sendable {
         effects: TerminalNotificationPolicyEffects
     ) -> Self {
         if isMuted {
-            var mutedEffects = effects
             // A workspace mute drops every effect before history, badges,
             // phone forwarding, commands, or UI delivery can observe it.
-            mutedEffects.record = false
-            mutedEffects.markUnread = false
-            mutedEffects.desktop = false
-            mutedEffects.sound = false
-            mutedEffects.command = false
-            mutedEffects.paneFlash = false
-            mutedEffects.reorderWorkspace = false
-            return Self(disposition: .muted, effects: mutedEffects)
+            return Self(disposition: .muted, effects: .allSuppressed)
         }
 
         guard isAppFocused, isActiveTab, isFocusedSurface else {

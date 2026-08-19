@@ -14634,9 +14634,15 @@ struct VerticalTabsSidebar: View, Equatable {
                     notificationStore.clearLatestNotification(forTabId: workspaceId)
                 }
             },
-            setNotificationsMuted: { workspaceIds, muted in
+            setNotificationsMuted: { workspaceIds, _ in
+                // Re-read the live state when the deferred context-menu
+                // action executes. The menu snapshot may have been captured
+                // before another surface muted or unmuted one of these
+                // workspaces.
+                let currentlyMuted = notificationStore
+                    .allWorkspaceNotificationsMuted(forTabIds: workspaceIds)
                 _ = notificationStore.setWorkspaceNotificationsMuted(
-                    muted,
+                    !currentlyMuted,
                     forTabIds: workspaceIds
                 )
             },

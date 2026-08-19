@@ -37,6 +37,30 @@ extension ControlCommandCoordinator {
         return feedJump(request.params, context: context)
     }
 
+    /// Dispatches the asynchronous `feed.jump` lookup. The socket worker
+    /// waits for this result without making the filesystem read on its own
+    /// thread; the app seam owns the background lookup boundary.
+    public nonisolated func handleSocketWorkerFeedAsync(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) async -> ControlCallResult? {
+        guard request.method == "feed.jump" else { return nil }
+        guard let workstreamID = rawString(request.params, "workstream_id") else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.jump requires workstream_id",
+                data: nil
+            )
+        }
+        let matched = await context?.controlFeedResolvePossibleSurfaceAsync(
+            workstreamID: workstreamID
+        ) ?? false
+        return .ok(.object([
+            "workstream_id": .string(workstreamID),
+            "matched": .bool(matched),
+        ]))
+    }
+
     /// `feed.jump` — resolve whether a workstream id maps to a known surface.
     nonisolated func feedJump(
         _ params: [String: JSONValue],

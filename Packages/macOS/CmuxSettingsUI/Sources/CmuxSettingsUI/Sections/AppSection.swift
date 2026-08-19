@@ -670,6 +670,9 @@ public struct AppSection: View {
             ) {
                 NotificationSoundOverridesView(
                     currentJSON: soundOverrides.current,
+                    isPersistedValueMalformed: NotificationSoundOverrides(
+                        jsonString: soundOverrides.current
+                    ) == nil,
                     onChange: { value, agentID, alertType in
                         guard var overrides = NotificationSoundOverrides(
                             jsonString: soundOverrides.current

@@ -948,6 +948,12 @@
           "default": {},
           "descriptionKey": "schemaDescriptions.notifications.soundOverrides",
           "description": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
+          "propertyNames": {
+            "allOf": [
+              { "pattern": "^[A-Za-z0-9._-]+$" },
+              { "not": { "enum": [".", ".."] } }
+            ]
+          },
           "patternProperties": {
             "^[A-Za-z0-9._-]+$": {
               "type": "object",
@@ -1863,7 +1869,7 @@
         }
       ],
       "descriptionKey": "schemaDescriptions.notifications.soundOverride",
-      "description": "One built-in or custom notification sound override."
+      "description": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
     },
     "shortcutBinding": {
       "oneOf": [

@@ -13,9 +13,6 @@ struct NativeNotificationDeliveryHooks: Sendable {
     typealias CommandRunner = @Sendable (String, String, String) -> Void
 
     typealias UnavailableFeedbackPlayer = @Sendable (
-        TerminalNotificationPolicyEffects
-    ) async -> Void
-    typealias ContextualUnavailableFeedbackPlayer = @Sendable (
         TerminalNotificationPolicyEffects,
         NotificationSoundOverrideContext?
     ) async -> Void
@@ -30,13 +27,15 @@ struct NativeNotificationDeliveryHooks: Sendable {
     var authorizationHandlerForTesting: AuthorizationHandler?
     let userNotificationCenter: UserNotificationCenterService
     var scheduler: Scheduler?
-    static let defaultUnavailableFeedbackPlayer: UnavailableFeedbackPlayer = { effects in
-        await NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
+    static let defaultUnavailableFeedbackPlayer: UnavailableFeedbackPlayer = { effects, soundContext in
+        await NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
+            effects: effects,
+            soundContext: soundContext
+        )
     }
 
     var commandRunner: CommandRunner = defaultCommandRunner
     var unavailableFeedbackPlayer: UnavailableFeedbackPlayer = defaultUnavailableFeedbackPlayer
-    var contextualUnavailableFeedbackPlayer: ContextualUnavailableFeedbackPlayer? = nil
 
     init(userNotificationCenter: UserNotificationCenterService) {
         self.userNotificationCenter = userNotificationCenter
@@ -79,16 +78,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
         effects: TerminalNotificationPolicyEffects,
         soundContext: NotificationSoundOverrideContext? = nil
     ) async {
-        if let contextualUnavailableFeedbackPlayer {
-            await contextualUnavailableFeedbackPlayer(effects, soundContext)
-        } else if soundContext != nil {
-            await Self.playNativeUnavailableFeedback(
-                effects: effects,
-                soundContext: soundContext
-            )
-        } else {
-            await unavailableFeedbackPlayer(effects)
-        }
+        await unavailableFeedbackPlayer(effects, soundContext)
     }
 
     func runLocalFeedback(

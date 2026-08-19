@@ -57,6 +57,20 @@ struct NativeNotificationFallbackCommandTests {
         }
     }
 
+    private final class SoundContextRecorder: Sendable {
+        private let valueLock = OSAllocatedUnfairLock(
+            initialState: NotificationSoundOverrideContext?
+        )
+
+        var value: NotificationSoundOverrideContext? {
+            valueLock.withLock { $0 }
+        }
+
+        func record(_ value: NotificationSoundOverrideContext?) {
+            valueLock.withLock { $0 = value }
+        }
+    }
+
     @Test
     func deniedNativeNotificationAuthorizationDoesNotRunCustomCommandFallback() {
         let store = TerminalNotificationStore.shared
@@ -115,7 +129,7 @@ struct NativeNotificationFallbackCommandTests {
         // the command fallback; resuming from that seam proves the branch ran
         // to completion before the absence assertion below.
         await withCheckedContinuation { continuation in
-            store.configureUnavailableFeedbackPlayerForTesting { _ in
+            store.configureUnavailableFeedbackPlayerForTesting { _, _ in
                 continuation.resume()
             }
             store.addNotification(
@@ -207,6 +221,30 @@ struct NativeNotificationFallbackCommandTests {
         #expect(commands.invocations == [
             CommandInvocation(title: "Real title", subtitle: "", body: "Real message"),
         ])
+    }
+
+    @Test
+    func unavailableFeedbackPlayerReceivesSoundContext() async {
+        var hooks = NativeNotificationDeliveryHooks(
+            userNotificationCenter: UserNotificationCenterService(
+                center: .current()
+            )
+        )
+        let recorder = SoundContextRecorder()
+        let context = NotificationSoundOverrideContext(
+            agentID: "codex",
+            alertType: .errorStalled
+        )
+        hooks.unavailableFeedbackPlayer = { _, soundContext in
+            recorder.record(soundContext)
+        }
+
+        await hooks.playUnavailableFeedback(
+            effects: TerminalNotificationPolicyEffects(),
+            soundContext: context
+        )
+
+        #expect(recorder.value == context)
     }
 
     private func resetState(originalAppFocusOverride: Bool?) {

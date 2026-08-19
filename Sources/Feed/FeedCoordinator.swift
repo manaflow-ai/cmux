@@ -1008,6 +1008,13 @@ extension FeedCoordinator {
         FeedJumpResolver.resolve(workstreamId) != nil
     }
 
+    /// Asynchronously resolves a workstream id through the actor-owned
+    /// hook-session reader. This is the socket-worker path; it never performs
+    /// `Data(contentsOf:)` or JSON parsing on the caller's thread.
+    nonisolated func resolvePossibleSurfaceAsync(for workstreamId: String) async -> Bool {
+        await sessionStoreLookup.resolve(workstreamId) != nil
+    }
+
     /// Fires a best-effort focus for the given `workstreamId`. Returns
     /// `true` if a target was found and the focus commands were
     /// dispatched. Runs on the main actor because the focus commands

@@ -9,18 +9,24 @@ nonisolated private let notificationSoundStagerLogger = Logger(
     category: "notification-sound"
 )
 
+/// Gives a cancellation handler a Sendable way to terminate an `afconvert`
+/// process without capturing the Foundation process directly in a concurrent
+/// closure.
 /// Sole owner of notification-sound staging artifacts.
 ///
 /// Actor isolation serializes every managed-file write, including metadata
-/// sidecars and `.m4r` transcoding. Methods intentionally contain no suspension
-/// points, so one staging transaction cannot interleave with another.
+/// sidecars and `.m4r` transcoding. Conversion suspends while `afconvert`
+/// reports termination, so the actor remains available to other callers while
+/// each transaction still commits its artifact serially.
 actor NotificationSoundStager {
     typealias PreparationIssue = NotificationSoundSettings.CustomSoundPreparationIssue
+    private let processRunner = NotificationSoundProcessRunner()
+    private var inFlightConversions: [URL: Task<NotificationSoundProcessRunner.Result, Error>] = [:]
 
     func stagedName(
         path rawPath: String,
         stagingDirectory: URL?
-    ) -> String? {
+    ) async -> String? {
         guard let normalized = NotificationSoundSettings.normalizedPath(rawPath) else {
             log(.emptyPath)
             return nil
@@ -62,7 +68,7 @@ actor NotificationSoundStager {
             return stagedFileName
         }
 
-        switch prepareCustomSound(path: normalized, stagingDirectory: stagingDirectory) {
+        switch await prepareCustomSound(path: normalized, stagingDirectory: stagingDirectory) {
         case .success(let preparedName):
             return preparedName
         case .failure(let issue):
@@ -106,12 +112,12 @@ actor NotificationSoundStager {
     func prepareCustomSound(
         path rawPath: String,
         stagingDirectory: URL?
-    ) -> Result<String, PreparationIssue> {
+    ) async -> Result<String, PreparationIssue> {
         guard let normalized = NotificationSoundSettings.normalizedPath(rawPath),
               let sourceURL = NotificationSoundSettings.expandedURL(for: normalized) else {
             return .failure(.emptyPath)
         }
-        return prepareCustomSound(
+        return await prepareCustomSound(
             from: sourceURL,
             destinationDirectory: NotificationSoundSettings.soundDirectoryURL(stagingDirectory)
         )
@@ -121,8 +127,8 @@ actor NotificationSoundStager {
         path: String,
         stagingDirectory: URL?,
         decoder: (@Sendable (URL) -> Bool)?
-    ) -> Bool {
-        let result = prepareCustomSound(
+    ) async -> Bool {
+        let result = await prepareCustomSound(
             path: path,
             stagingDirectory: stagingDirectory
         )
@@ -141,15 +147,15 @@ actor NotificationSoundStager {
     func prepareNotificationSound(
         snapshot: NotificationSoundResolutionSnapshot,
         stagingDirectory: URL?
-    ) -> PreparedNotificationSound {
+    ) async -> PreparedNotificationSound {
         if let overrideSelection = snapshot.overrideSelection,
-           let preparedOverride = prepareSelection(
+           let preparedOverride = await prepareSelection(
                overrideSelection,
                stagingDirectory: stagingDirectory
            ) {
             return preparedOverride
         }
-        if let preparedGlobal = prepareSelection(
+        if let preparedGlobal = await prepareSelection(
             snapshot.globalSelection,
             stagingDirectory: stagingDirectory
         ) {
@@ -211,7 +217,7 @@ actor NotificationSoundStager {
     private func prepareSelection(
         _ selection: ResolvedNotificationSoundPlaybackSelection,
         stagingDirectory: URL?
-    ) -> PreparedNotificationSound? {
+    ) async -> PreparedNotificationSound? {
         switch selection.value {
         case NotificationSoundOverride.defaultValue:
             return .systemDefault
@@ -221,7 +227,7 @@ actor NotificationSoundStager {
             guard let path = selection.customFilePath,
                   let sourceURL = NotificationSoundSettings.expandedURL(for: path),
                   FileManager.default.fileExists(atPath: sourceURL.path),
-                  case .success(let stagedName) = prepareCustomSound(
+                  case .success(let stagedName) = await prepareCustomSound(
                       path: path,
                       stagingDirectory: stagingDirectory
                   ) else {
@@ -253,7 +259,7 @@ actor NotificationSoundStager {
     private func prepareCustomSound(
         from sourceURL: URL,
         destinationDirectory: URL
-    ) -> Result<String, PreparationIssue> {
+    ) async -> Result<String, PreparationIssue> {
         let sourcePath = sourceURL.path
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: sourcePath) else {
@@ -297,7 +303,7 @@ actor NotificationSoundStager {
                     fileManager: fileManager
                 )
             } else {
-                try transcodeIfNeeded(
+                try await transcodeIfNeeded(
                     from: sourceURL,
                     to: destinationURL,
                     fileManager: fileManager
@@ -373,10 +379,23 @@ actor NotificationSoundStager {
         from sourceURL: URL,
         to destinationURL: URL,
         fileManager: FileManager
-    ) throws {
+    ) async throws {
         let source = sourceURL.standardizedFileURL
         let destination = destinationURL.standardizedFileURL
         guard source != destination else { return }
+
+        // A conversion may create its destination before it terminates. Join
+        // an existing transaction before inspecting that file so another
+        // caller never decodes a partially written artifact.
+        if let existing = inFlightConversions[destination] {
+            let result = try await existing.value
+            try validateConversionResult(
+                result,
+                destination: destination,
+                fileManager: fileManager
+            )
+            return
+        }
 
         if fileManager.fileExists(atPath: destination.path) {
             let sourceAttributes = try fileManager.attributesOfItem(atPath: source.path)
@@ -387,32 +406,35 @@ actor NotificationSoundStager {
             try fileManager.removeItem(at: destination)
         }
 
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-        process.arguments = [
-            "-f", "caff",
-            "-d", "LEI16",
-            source.path,
-            destination.path,
-        ]
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            let errorOutput = String(data: errorData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        let processRunner = self.processRunner
+        let conversionTask = Task.detached {
+            try await processRunner.run(from: source, to: destination)
+        }
+        inFlightConversions[destination] = conversionTask
+        defer { inFlightConversions.removeValue(forKey: destination) }
+
+        let result = try await conversionTask.value
+        try validateConversionResult(
+            result,
+            destination: destination,
+            fileManager: fileManager
+        )
+    }
+
+    private func validateConversionResult(
+        _ result: NotificationSoundProcessRunner.Result,
+        destination: URL,
+        fileManager: FileManager
+    ) throws {
+        guard result.terminationStatus == 0 else {
             if fileManager.fileExists(atPath: destination.path) {
                 try? fileManager.removeItem(at: destination)
             }
-            let description = errorOutput.flatMap { $0.isEmpty ? nil : $0 }
-                ?? "afconvert failed with exit code \(process.terminationStatus)"
+            let description = result.errorOutput
+                ?? "afconvert failed with exit code \(result.terminationStatus)"
             throw NSError(
                 domain: "NotificationSoundSettings",
-                code: Int(process.terminationStatus),
+                code: Int(result.terminationStatus),
                 userInfo: [NSLocalizedDescriptionKey: description]
             )
         }

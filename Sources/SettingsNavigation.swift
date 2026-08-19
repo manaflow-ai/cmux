@@ -364,7 +364,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
             String(
                 localized: "settings.search.alias.setting.app.notification-sound-overrides",
-                defaultValue: "notifications.soundOverrides agent turn done needs input permission error stalled custom"
+                defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
             )
         ),
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),

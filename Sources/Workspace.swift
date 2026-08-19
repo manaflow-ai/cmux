@@ -2138,9 +2138,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     @Published var isPinned: Bool = false
-    /// Suppresses notification sound, desktop banners, pane flashes, phone
-    /// forwarding, and reorder effects for this workspace. Persisted in the
-    /// session manifest so an intentional mute survives relaunch.
+    /// Suppresses notification history/recording, unread badges, sound,
+    /// desktop banners, pane flashes, phone forwarding, command hooks, and
+    /// reorder effects for this workspace. Persisted in the session manifest
+    /// so an intentional mute survives relaunch.
     @Published var isMuted: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.

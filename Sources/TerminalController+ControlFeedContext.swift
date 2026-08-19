@@ -16,6 +16,12 @@ extension TerminalController: ControlFeedContext {
         FeedCoordinator.shared.resolvePossibleSurface(for: workstreamID)
     }
 
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool {
+        await FeedCoordinator.shared.resolvePossibleSurfaceAsync(for: workstreamID)
+    }
+
     @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] {
         FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly).map { item in

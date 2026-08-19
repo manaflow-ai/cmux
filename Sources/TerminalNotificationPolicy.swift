@@ -72,6 +72,21 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
 
     init() {}
 
+    /// Every delivery effect disabled. Workspace mute is an admission gate;
+    /// keeping this constructor exhaustive prevents a newly added effect from
+    /// accidentally leaking through a muted workspace.
+    static var allSuppressed: Self {
+        var effects = Self()
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.desktop = false
+        effects.sound = false
+        effects.command = false
+        effects.paneFlash = false
+        return effects
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         record = try container.decodeIfPresent(Bool.self, forKey: .record) ?? true

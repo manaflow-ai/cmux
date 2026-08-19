@@ -3977,6 +3977,23 @@
         }
       }
     },
+    "cli.codexMonitor.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
     "agent.codex.input.body.needsInput": {
       "extractionState": "manual",
       "localizations": {
@@ -182378,6 +182395,23 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "That file is missing or cannot be decoded as audio." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ファイルが存在しないか、音声としてデコードできません。" } }
+      }
+    },
+    "settings.notifications.soundOverrides.invalidConfiguration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved per-agent sound settings are invalid. Fix notifications.soundOverrides in cmux.json before editing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたエージェント別サウンド設定が無効です。編集する前に cmux.json の notifications.soundOverrides を修正してください。"
+          }
+        }
       }
     },
     "settings.notifications.soundOverrides.needsInput": {

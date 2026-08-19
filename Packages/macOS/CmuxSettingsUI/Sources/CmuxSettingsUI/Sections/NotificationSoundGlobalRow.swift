@@ -10,15 +10,22 @@ struct NotificationSoundGlobalRow: View {
     let customFileModel: DefaultsValueModel<String>
     let hostActions: SettingsHostActions
 
-    @State private var isValidatingCustomFile = false
-    @State private var validationMessage: String?
-    @State private var tasks = MainActorTaskStore<String>()
-    @State private var validationRequestID: UUID?
-
-    private static let validationTaskKey = "customSoundValidation"
+    @State private var filePicker: NotificationSoundFilePickerModel
 
     private let soundCatalog = NotificationSoundOptionCatalog()
-    private let allowedContentTypes = NotificationSoundAllowedContentTypes()
+
+    init(
+        soundModel: DefaultsValueModel<String>,
+        customFileModel: DefaultsValueModel<String>,
+        hostActions: SettingsHostActions
+    ) {
+        self.soundModel = soundModel
+        self.customFileModel = customFileModel
+        self.hostActions = hostActions
+        _filePicker = State(
+            initialValue: NotificationSoundFilePickerModel(hostActions: hostActions)
+        )
+    }
 
     var body: some View {
         SettingsCardRow(
@@ -51,7 +58,7 @@ struct NotificationSoundGlobalRow: View {
                         }
                     }
                     .labelsHidden()
-                    .disabled(isValidatingCustomFile)
+                    .disabled(filePicker.isValidating)
 
                     Button {
                         hostActions.previewNotificationSound(
@@ -65,7 +72,7 @@ struct NotificationSoundGlobalRow: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled(
-                        isValidatingCustomFile
+                        filePicker.isValidating
                             || !canPreviewSound
                     )
                 }
@@ -74,7 +81,7 @@ struct NotificationSoundGlobalRow: View {
                     customFileControls
                 }
 
-                if isValidatingCustomFile {
+                if filePicker.isValidating {
                     ProgressView()
                         .controlSize(.small)
                         .accessibilityLabel(String(
@@ -83,7 +90,7 @@ struct NotificationSoundGlobalRow: View {
                         ))
                 }
 
-                if let validationMessage {
+                if let validationMessage = filePicker.validationMessage {
                     Text(validationMessage)
                         .font(.caption)
                         .foregroundStyle(.red)
@@ -92,8 +99,7 @@ struct NotificationSoundGlobalRow: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .onDisappear {
-            tasks.cancel(Self.validationTaskKey)
-            validationRequestID = nil
+            filePicker.cancel()
         }
     }
 
@@ -112,18 +118,17 @@ struct NotificationSoundGlobalRow: View {
                 chooseCustomSound()
             }
             .controlSize(.small)
-            .disabled(isValidatingCustomFile)
+            .disabled(filePicker.isValidating)
             Button(String(
                 localized: "settings.notifications.sound.custom.clear.button",
                 defaultValue: "Clear"
             )) {
-                tasks.cancel(Self.validationTaskKey)
-                validationRequestID = nil
+                filePicker.cancel()
                 customFileModel.reset()
-                validationMessage = nil
+                filePicker.clearMessage()
             }
             .controlSize(.small)
-            .disabled(isValidatingCustomFile || customFileModel.current.isEmpty)
+            .disabled(filePicker.isValidating || customFileModel.current.isEmpty)
         }
     }
 
@@ -154,42 +159,19 @@ struct NotificationSoundGlobalRow: View {
     }
 
     private func chooseCustomSound() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = allowedContentTypes.all
-        panel.title = String(
-            localized: "settings.notifications.sound.custom.panelTitle",
-            defaultValue: "Choose Notification Sound"
+        let customFileModel = self.customFileModel
+        filePicker.choose(
+            title: String(
+                localized: "settings.notifications.sound.custom.panelTitle",
+                defaultValue: "Choose Notification Sound"
+            ),
+            invalidMessage: String(
+                localized: "settings.notifications.sound.custom.invalid.message",
+                defaultValue: "The file is missing or cannot be decoded as audio."
+            ),
+            onValid: { path in
+                customFileModel.set(path)
+            }
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        tasks.cancel(Self.validationTaskKey)
-        let requestID = UUID()
-        validationRequestID = requestID
-        isValidatingCustomFile = true
-        validationMessage = nil
-        tasks.replaceOnMainActor(Self.validationTaskKey) { @MainActor in
-            let hasSecurityScope = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasSecurityScope {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-            let isValid = await hostActions.validateNotificationSoundFile(
-                path: url.path
-            )
-            guard !Task.isCancelled, validationRequestID == requestID else { return }
-            isValidatingCustomFile = false
-            guard isValid else {
-                validationMessage = String(
-                    localized: "settings.notifications.sound.custom.invalid.message",
-                    defaultValue: "The file is missing or cannot be decoded as audio."
-                )
-                return
-            }
-            customFileModel.set(url.path)
-        }
     }
 }

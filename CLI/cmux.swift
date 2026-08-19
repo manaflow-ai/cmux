@@ -28032,7 +28032,10 @@ struct CMUXCLI {
         )
         if let surfaceId, !surfaceId.isEmpty {
             let payload = notificationPayload(
-                title: "Codex",
+                title: String(
+                    localized: "cli.codexMonitor.notification.title",
+                    defaultValue: "Codex"
+                ),
                 subtitle: subtitle,
                 body: body,
                 meta: AgentHookNotifyCategory.needsPermission.metaSegment(
@@ -28058,7 +28061,10 @@ struct CMUXCLI {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
             let payload = notificationPayload(
-                title: "Codex",
+                title: String(
+                    localized: "cli.codexMonitor.notification.title",
+                    defaultValue: "Codex"
+                ),
                 subtitle: summary.subtitle,
                 body: summary.body,
                 meta: AgentHookNotifyCategory.other.metaSegment(

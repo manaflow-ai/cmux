@@ -103,7 +103,7 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
                 synonyms: String(
                     localized: "settings.search.alias.setting.app.notification-sound-overrides",
-                    defaultValue: "notifications.soundOverrides agent notification sound turn done needs input permission error stalled custom file"
+                    defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
                 )
             ),
             .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),

@@ -38,6 +38,9 @@ extension ControlAppFocusContext {
 
 extension ControlFeedContext {
     nonisolated func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool { false }
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool { false }
     @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
 }

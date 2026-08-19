@@ -1,5 +1,82 @@
 import Foundation
 
+/// Gives a cancellation handler a Sendable way to terminate an `afconvert`
+/// process without capturing the Foundation process directly in a concurrent
+/// closure.
+private final class NotificationSoundProcessCancellation: @unchecked Sendable {
+    private let process: Process
+
+    init(process: Process) {
+        self.process = process
+    }
+
+    func cancel() {
+        guard process.isRunning else { return }
+        process.terminate()
+    }
+}
+
+/// Runs `afconvert` without blocking the caller's executor.
+struct NotificationSoundProcessRunner: Sendable {
+    struct Result: Sendable {
+        let terminationStatus: Int32
+        let errorOutput: String?
+    }
+
+    func run(
+        from sourceURL: URL,
+        to destinationURL: URL
+    ) async throws -> Result {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+        process.arguments = [
+            "-f", "caff",
+            "-d", "LEI16",
+            sourceURL.standardizedFileURL.path,
+            destinationURL.standardizedFileURL.path,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+
+        let cancellation = NotificationSoundProcessCancellation(process: process)
+        let terminationStatus: Int32
+        do {
+            terminationStatus = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    // Install the handler before launching. A fast conversion
+                    // can otherwise exit before Foundation has a callback.
+                    process.terminationHandler = { terminatedProcess in
+                        continuation.resume(returning: terminatedProcess.terminationStatus)
+                    }
+                    do {
+                        try process.run()
+                        if Task.isCancelled {
+                            cancellation.cancel()
+                        }
+                    } catch {
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: error)
+                    }
+                }
+            } onCancel: {
+                cancellation.cancel()
+            }
+        } catch {
+            cancellation.cancel()
+            throw error
+        }
+
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+        let errorOutput = String(data: errorData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return Result(
+            terminationStatus: terminationStatus,
+            errorOutput: errorOutput.flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+}
+
 /// Shared notification-sound staging facade.
 ///
 /// Every operation that can create, replace, transcode, or inspect a managed

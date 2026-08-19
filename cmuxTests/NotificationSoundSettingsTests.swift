@@ -260,6 +260,41 @@ import CmuxSettings
         #expect(stagedFiles.count == 1)
     }
 
+    @Test func concurrentM4RSelectionsShareOneCompleteArtifact() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-concurrent-\(UUID().uuidString)", isDirectory: true)
+        let stagingDirectory = directory.appendingPathComponent("staged", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let wavURL = directory.appendingPathComponent("source.wav", isDirectory: false)
+        try Self.writeSilentWAV(to: wavURL)
+        let m4rURL = directory.appendingPathComponent("source.m4r", isDirectory: false)
+        let convert = Process()
+        convert.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+        convert.arguments = ["-f", "m4af", "-d", "aac", wavURL.path, m4rURL.path]
+        try convert.run()
+        convert.waitUntilExit()
+        #expect(convert.terminationStatus == 0)
+
+        async let first = NotificationSoundSettings.validateCustomSoundFileForSelection(
+            path: m4rURL.path,
+            stagingDirectory: stagingDirectory
+        )
+        async let second = NotificationSoundSettings.validateCustomSoundFileForSelection(
+            path: m4rURL.path,
+            stagingDirectory: stagingDirectory
+        )
+        let (firstResult, secondResult) = await (first, second)
+
+        #expect(firstResult)
+        #expect(secondResult)
+        let stagedFiles = try fileManager.contentsOfDirectory(atPath: stagingDirectory.path)
+            .filter { $0.hasSuffix(".caf") }
+        #expect(stagedFiles.count == 1)
+    }
+
     @Test func missingOrUndecodableCustomSelectionIsRejected() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sound-invalid-\(UUID().uuidString)", isDirectory: true)

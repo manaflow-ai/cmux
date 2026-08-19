@@ -21,21 +21,47 @@ struct NotificationSoundOverridesView: View {
     ) -> Void
     let hostActions: SettingsHostActions
     let agents: [NotificationSoundAgentOption]
+    /// True when the persisted JSON could not be decoded. Editing is disabled
+    /// so a recovery attempt cannot silently replace unrelated valid cells.
+    var isPersistedValueMalformed: Bool = false
 
-    @State private var validationMessage: String?
-    @State private var isValidatingCustomFile = false
-    @State private var tasks = MainActorTaskStore<String>()
-    @State private var validationRequestID: UUID?
-
-    private static let validationTaskKey = "customSoundValidation"
+    @State private var filePicker: NotificationSoundFilePickerModel
 
     private let alertTypes = NotificationSoundAlertType.allCases
     private let soundCatalog = NotificationSoundOptionCatalog()
-    private let allowedContentTypes = NotificationSoundAllowedContentTypes()
+    init(
+        currentJSON: String,
+        isPersistedValueMalformed: Bool = false,
+        onChange: @escaping @MainActor (
+            NotificationSoundOverride?,
+            String,
+            NotificationSoundAlertType
+        ) -> Void,
+        hostActions: SettingsHostActions,
+        agents: [NotificationSoundAgentOption]
+    ) {
+        self.currentJSON = currentJSON
+        self.isPersistedValueMalformed = isPersistedValueMalformed
+        self.onChange = onChange
+        self.hostActions = hostActions
+        self.agents = agents
+        _filePicker = State(
+            initialValue: NotificationSoundFilePickerModel(hostActions: hostActions)
+        )
+    }
 
     var body: some View {
         let overrides = NotificationSoundOverrides(jsonString: currentJSON) ?? .empty
         VStack(alignment: .leading, spacing: 8) {
+            if isPersistedValueMalformed {
+                Text(String(
+                    localized: "settings.notifications.soundOverrides.invalidConfiguration",
+                    defaultValue: "The saved per-agent sound settings are invalid. Fix notifications.soundOverrides in cmux.json before editing."
+                ))
+                .font(.caption)
+                .foregroundStyle(.red)
+            }
+
             Text(String(
                 localized: "settings.notifications.soundOverrides.help",
                 defaultValue: "Choose a sound for each agent and alert type. Empty cells use the global notification sound."
@@ -75,15 +101,16 @@ struct NotificationSoundOverridesView: View {
                         }
                     }
                 }
+                .disabled(isPersistedValueMalformed)
             }
 
-            if let validationMessage {
+            if let validationMessage = filePicker.validationMessage {
                 Text(validationMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
             }
 
-            if isValidatingCustomFile {
+            if filePicker.isValidating {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel(String(
@@ -94,8 +121,7 @@ struct NotificationSoundOverridesView: View {
         }
         .accessibilityIdentifier("NotificationSoundOverridesMatrix")
         .onDisappear {
-            tasks.cancel(Self.validationTaskKey)
-            validationRequestID = nil
+            filePicker.cancel()
         }
     }
 
@@ -129,7 +155,7 @@ struct NotificationSoundOverridesView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(isValidatingCustomFile)
+        .disabled(filePicker.isValidating)
     }
 
     private func update(
@@ -138,50 +164,28 @@ struct NotificationSoundOverridesView: View {
         alertType: NotificationSoundAlertType
     ) {
         onChange(value, agentID, alertType)
-        validationMessage = nil
+        filePicker.clearMessage()
     }
 
     private func chooseCustomFile(agentID: String, alertType: NotificationSoundAlertType) {
-        guard !isValidatingCustomFile else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = allowedContentTypes.all
-        panel.title = String(
-            localized: "settings.notifications.soundOverrides.chooseCustom.title",
-            defaultValue: "Choose Notification Sound"
+        let onChange = self.onChange
+        filePicker.choose(
+            title: String(
+                localized: "settings.notifications.soundOverrides.chooseCustom.title",
+                defaultValue: "Choose Notification Sound"
+            ),
+            invalidMessage: String(
+                localized: "settings.notifications.soundOverrides.invalidFile",
+                defaultValue: "That file is missing or cannot be decoded as audio."
+            ),
+            onValid: { path in
+                guard let value = NotificationSoundOverride(
+                    sound: NotificationSoundOverride.customFileValue,
+                    customSoundFilePath: path
+                ) else { return }
+                onChange(value, agentID, alertType)
+            }
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let path = url.path
-        tasks.cancel(Self.validationTaskKey)
-        let requestID = UUID()
-        validationRequestID = requestID
-        isValidatingCustomFile = true
-        validationMessage = nil
-        tasks.replaceOnMainActor(Self.validationTaskKey) { @MainActor in
-            let hasSecurityScope = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasSecurityScope {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-            let isValid = await hostActions.validateNotificationSoundFile(path: path)
-            guard !Task.isCancelled, validationRequestID == requestID else { return }
-            isValidatingCustomFile = false
-            guard isValid else {
-                validationMessage = String(
-                    localized: "settings.notifications.soundOverrides.invalidFile",
-                    defaultValue: "That file is missing or cannot be decoded as audio."
-                )
-                return
-            }
-            guard let value = NotificationSoundOverride(
-                sound: NotificationSoundOverride.customFileValue,
-                customSoundFilePath: path
-            ) else { return }
-            update(value, agentID: agentID, alertType: alertType)
-        }
     }
 
     private func label(for alertType: NotificationSoundAlertType) -> String {
