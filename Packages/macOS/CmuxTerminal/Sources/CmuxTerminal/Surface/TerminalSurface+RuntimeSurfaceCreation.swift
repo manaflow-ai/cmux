@@ -16,9 +16,35 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        agentCommandShims: AgentCommandShimSet?
+        agentCommandShims: AgentCommandShimSet?,
+        source: RuntimeSurfaceCreationSource
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         let baseConfig = runtimeCreationConfigTemplate()
+        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        // Capture startup work before assembling the managed shell
+        // environment.  Shell integration can itself return a replacement
+        // command (notably for fish), so it must not let a declarative
+        // non-login preference leak into explicit, restored, remote, or
+        // manual surfaces.
+        let runtimeInitialInput = nextRuntimeInitialInput
+        let hasExplicitSurfaceCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasExplicitSurfaceInput = runtimeInitialInput?.isEmpty == false
+            || initialInput?.isEmpty == false
+            || baseConfig.initialInput?.isEmpty == false
+        let isRestoreSurface = source == .scheduledRestore
+            || !allowsDeclarativeStartupDefaults
+            || requiresRestoreSpawnPacing
+            || startupRestoreAdmissionPhase != .unrestricted
+        let allowsDeclarativeShellStartup = !hasExplicitSurfaceCommand
+            && !hasExplicitSurfaceInput
+            && !engine.hasUserGhosttyCommand
+            && !isRestoreSurface
+            && !ioMode.usesManualIO
+        let effectiveShellStartupMode = allowsDeclarativeShellStartup
+            ? spawnPolicy.shellStartupMode
+            : .login
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
         surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
@@ -127,7 +153,6 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
         }
 
-        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
             where !key.isEmpty && !value.isEmpty {
             setManagedEnvironmentValue(key, value)
@@ -216,6 +241,7 @@ extension TerminalSurface {
                     shell: shell,
                     integrationDir: integrationDir,
                     userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
+                    shellStartupMode: effectiveShellStartupMode,
                     to: &env,
                     protectedKeys: &protectedStartupEnvironmentKeys
                 )
@@ -249,14 +275,27 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
+        let startupConfiguration = TerminalShellStartupConfiguration(
+            mode: effectiveShellStartupMode,
+            command: allowsDeclarativeShellStartup ? spawnPolicy.shellStartupCommand : nil
+        )
+        let shellModeOverride = TerminalShellStartupPolicy().commandOverride(
+            shell: engine.resolvedUserShell,
+            configuration: startupConfiguration,
+            hasExplicitCommand: hasExplicitSurfaceCommand,
+            hasExplicitInput: hasExplicitSurfaceInput,
+            hasGhosttyCommand: engine.hasUserGhosttyCommand,
+            isRestoreSurface: isRestoreSurface,
+            isManualSurface: ioMode.usesManualIO,
+            hasManagedShellIntegration: managedShellCommand != nil
+        )
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
             initialCommand: initialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
-            managedShellCommand: managedShellCommand,
+            managedShellCommand: shellModeOverride ?? managedShellCommand,
             resolvedShell: engine.resolvedUserShell
         )
-        let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
                 return runtimeInitialInput
@@ -264,7 +303,17 @@ extension TerminalSurface {
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
             }
-            return baseConfig.initialInput
+            if let configuredInput = baseConfig.initialInput, !configuredInput.isEmpty {
+                return configuredInput
+            }
+            return TerminalShellStartupPolicy().startupInput(
+                configuration: startupConfiguration,
+                hasExplicitCommand: hasExplicitSurfaceCommand,
+                hasExplicitInput: hasExplicitSurfaceInput,
+                hasGhosttyCommand: engine.hasUserGhosttyCommand,
+                isRestoreSurface: isRestoreSurface,
+                isManualSurface: ioMode.usesManualIO
+            )
         }()
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand

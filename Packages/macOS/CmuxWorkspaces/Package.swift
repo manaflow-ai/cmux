@@ -43,6 +43,7 @@ let package = Package(
             name: "CmuxWorkspacesTests",
             dependencies: [
                 "CmuxWorkspaces",
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
             ],

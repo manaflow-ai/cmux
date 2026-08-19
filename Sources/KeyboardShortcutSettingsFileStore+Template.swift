@@ -96,6 +96,14 @@ extension CmuxSettingsFileStore {
                     "sessionContentAlignment": SessionContentAlignment.center.rawValue,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "newSurfaceWorkingDirectory": [
+                        "policy": NewSurfaceWorkingDirectoryPolicy.inheritActivePane.rawValue,
+                        "path": "",
+                    ],
+                    "shellStartup": [
+                        "mode": ShellStartupMode.login.rawValue,
+                        "command": "",
+                    ],
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
                     "textBoxDefaultSubmitAction": TerminalTextBoxInputSettings.defaultSubmitActionID,

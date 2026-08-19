@@ -30,32 +30,30 @@ import XCTest
 /// failing to render at all.
 final class SettingsAccountJSONResetBehaviorUITests: SettingsUITestCase {
 
-    /// `userDefaultsKey` for the App-section "Inherit Workspace Working
-    /// Directory" toggle (catalog id `app.workspaceInheritWorkingDirectory`,
-    /// default `true`). Used as the Reset probe: it is benign (only affects
-    /// the working directory new workspaces inherit, never the test surface)
-    /// and surfaces as `SettingsWorkspaceInheritWorkingDirectoryToggle`.
-    private let inheritDirKey = "workspaceInheritWorkingDirectory"
-    private let inheritDirToggleID = "SettingsWorkspaceInheritWorkingDirectoryToggle"
+    /// `userDefaultsKey` for the App-section Minimal Mode toggle. Used as the
+    /// Reset probe because it is visible, deterministic, and does not mutate
+    /// the declarative cmux.json surface being tested elsewhere.
+    private let minimalModeKey = "workspacePresentationMode"
+    private let minimalModeToggleID = "SettingsMinimalModeToggle"
 
     override func setUp() {
         super.setUp()
         // Start every test from the catalog default for the probe key so the
-        // initial toggle state is deterministic (default `true` => ON).
-        resetDefaults([inheritDirKey])
+        // initial toggle state is deterministic (standard mode => OFF).
+        resetDefaults([minimalModeKey])
     }
 
     override func tearDown() {
-        resetDefaults([inheritDirKey])
+        resetDefaults([minimalModeKey])
         super.tearDown()
     }
 
     // MARK: - TIER 1: Reset All Settings
 
     /// Reset All Settings must clear a previously-changed defaults-backed
-    /// setting back to its catalog default. We flip the "Inherit Workspace
-    /// Working Directory" toggle OFF (default is ON), click Reset, and
-    /// assert the same toggle reads ON again. This verifies the *effect* of
+    /// setting back to its catalog default. We flip the Minimal Mode toggle
+    /// ON (default is OFF), click Reset, and assert the same toggle reads OFF
+    /// again. This verifies the *effect* of
     /// the reset (the persisted value was cleared and the control reflects
     /// the default), not merely that the Reset button is clickable.
     func testResetAllSettingsRevertsChangedToggleToDefault() {
@@ -65,17 +63,17 @@ final class SettingsAccountJSONResetBehaviorUITests: SettingsUITestCase {
 
         // Navigate to the App section where the probe toggle lives.
         navigate(window, to: "App")
-        let probeToggle = toggle(window, id: inheritDirToggleID)
+        let probeToggle = toggle(window, id: minimalModeToggleID)
 
-        // Default is ON. Confirm the starting state, then flip OFF.
+        // Default is OFF. Confirm the starting state, then flip ON.
         XCTAssertTrue(
-            poll(timeout: 4.0) { isToggleOn(probeToggle) },
-            "Inherit Working Directory should start ON (catalog default true)"
+            poll(timeout: 4.0) { !isToggleOn(probeToggle) },
+            "Minimal Mode should start OFF (catalog default standard)"
         )
         probeToggle.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { !isToggleOn(probeToggle) },
-            "Toggle should read OFF after the user clicks it"
+            poll(timeout: 4.0) { isToggleOn(probeToggle) },
+            "Toggle should read ON after the user clicks it"
         )
 
         // Trigger the reset from the Reset section.
@@ -91,13 +89,13 @@ final class SettingsAccountJSONResetBehaviorUITests: SettingsUITestCase {
         resetButton.click()
 
         // The reset clears the key; the toggle must snap back to its default
-        // (ON). Re-resolve the toggle after navigating back so we read the
+        // (OFF). Re-resolve the toggle after navigating back so we read the
         // live control rather than a stale snapshot.
         navigate(window, to: "App")
-        let toggleAfter = toggle(window, id: inheritDirToggleID)
+        let toggleAfter = toggle(window, id: minimalModeToggleID)
         XCTAssertTrue(
-            poll(timeout: 6.0) { isToggleOn(toggleAfter) },
-            "Reset All Settings should restore Inherit Working Directory to its default (ON)"
+            poll(timeout: 6.0) { !isToggleOn(toggleAfter) },
+            "Reset All Settings should restore Minimal Mode to its default (OFF)"
         )
     }
 

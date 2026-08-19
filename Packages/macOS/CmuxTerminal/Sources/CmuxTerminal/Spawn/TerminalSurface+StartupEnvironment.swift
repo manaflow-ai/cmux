@@ -221,10 +221,22 @@ extension TerminalSurface {
 
     /// Applies the shell-specific startup redirection (zsh/bash/fish) and
     /// returns a replacement launch command when one is required (fish).
+    ///
+    /// - Parameters:
+    ///   - shell: Resolved shell executable path.
+    ///   - integrationDir: Bundled cmux shell-integration directory.
+    ///   - userGhosttyShellIntegrationMode: User's Ghostty integration mode.
+    ///   - shellStartupMode: Login behavior for an ordinary local shell.
+    ///   - environment: Environment updated with managed integration values.
+    ///   - protectedKeys: Keys that later environment overlays cannot replace.
+    ///   - readFile: Injectable text-file reader for the bash bootstrap.
+    /// - Returns: A managed shell command when integration must own launch, or
+    ///   `nil` when Ghostty can resolve the command normally.
     public static func applyManagedShellSpecificStartupEnvironment(
         shell: String,
         integrationDir: String,
         userGhosttyShellIntegrationMode: String,
+        shellStartupMode: TerminalShellStartupMode = .login,
         to environment: inout [String: String],
         protectedKeys: inout Set<String>,
         readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
@@ -265,6 +277,16 @@ extension TerminalSurface {
                 if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
             }
             setManagedEnvironmentValue("ZDOTDIR", integrationDir)
+            // Ghostty's Darwin command wrapper always adds a login flag to
+            // the command's argv0. Route through `env` so the requested zsh
+            // receives its ordinary argv0 and remains non-login while the
+            // cmux ZDOTDIR integration stays active.
+            if shellStartupMode == .nonLogin {
+                return TerminalShellStartupPolicy.nonLoginShellCommand(
+                    shell: shell,
+                    arguments: "-i"
+                )
+            }
         case "bash":
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
             let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
@@ -281,20 +303,42 @@ extension TerminalSurface {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
             }
+            if shellStartupMode == .nonLogin {
+                return TerminalShellStartupPolicy.nonLoginShellCommand(
+                    shell: shell,
+                    arguments: "-i"
+                )
+            }
         case "fish":
             guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
-            return managedFishShellCommand(shell: shell)
+            return managedFishShellCommand(shell: shell, mode: shellStartupMode)
         default:
             break
         }
         return nil
     }
 
-    /// The managed fish launch command sourcing the cmux integration file.
-    public static func managedFishShellCommand(shell: String) -> String {
+    /// Returns the managed fish launch command that sources cmux integration.
+    ///
+    /// - Parameters:
+    ///   - shell: Resolved fish executable path.
+    ///   - mode: Login behavior for the shell invocation.
+    /// - Returns: A safely quoted interactive fish command.
+    public static func managedFishShellCommand(
+        shell: String,
+        mode: TerminalShellStartupMode = .login
+    ) -> String {
         let initCommand = #"source "$CMUX_FISH_INTEGRATION_FILE""#
-        return "\(shellSingleQuoted(shell)) -il --init-command \(shellSingleQuoted(initCommand))"
+        let flags = mode == .login ? "-il" : "-i"
+        let arguments = "\(flags) --init-command \(shellSingleQuoted(initCommand))"
+        if mode == .nonLogin {
+            return TerminalShellStartupPolicy.nonLoginShellCommand(
+                shell: shell,
+                arguments: arguments
+            )
+        }
+        return "\(shellSingleQuoted(shell)) \(arguments)"
     }
 
     /// Single-quotes a value for POSIX shells.

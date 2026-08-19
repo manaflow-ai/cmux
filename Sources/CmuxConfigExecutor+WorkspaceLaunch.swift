@@ -148,12 +148,21 @@ extension CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
+        // The initial terminal is a topology placeholder when a declarative
+        // layout or workspace-level setup will replace/use it. Keep the
+        // ordinary new-surface defaults out of that bootstrap shell; the
+        // layout/setup transaction supplies its own startup work below.
+        let hasConfiguredStartupWork = wsDef.layout != nil
+            || wsDef.setup?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let newWorkspace = tabManager.addWorkspace(
             title: workspaceName,
             titleSource: .auto,
             workingDirectory: resolvedCwd,
             workspaceEnvironment: wsDef.env ?? [:],
-            applyCreationTitleAsCustomTitle: false
+            applyCreationTitleAsCustomTitle: false,
+            initialRuntimeSpawnPolicy: hasConfiguredStartupWork
+                ? .immediate.withoutDeclarativeDefaults()
+                : .immediate
         )
         tabManager.setCustomTitle(tabId: newWorkspace.id, title: workspaceName, source: .auto)
         if let color = wsDef.color {

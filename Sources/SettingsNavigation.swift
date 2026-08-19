@@ -336,7 +336,6 @@ enum SettingsSearchIndex {
         setting(.app, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
         setting(.app, "workspace-group-new-workspace-placement", String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"), "workspace group command n plus insert position after current top end"),
         setting(.app, "fork-conversation-default", String(localized: "settings.app.forkConversationDefaultDestination", defaultValue: "Fork Conversation Default"), "fork conversation default right left top bottom split tab workspace"),
-        setting(.app, "workspace-inherit-working-directory", String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), "workspace cwd directory current ghostty working-directory"),
         setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
         setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
         setting(.app, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
@@ -476,7 +475,7 @@ enum SettingsSearchIndex {
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
-    ] + terminalScrollSpeedSettingEntries
+    ] + declarativeTerminalSettingEntries + terminalScrollSpeedSettingEntries
 
     private static let allEntries = sectionEntries + settingEntries
     private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
@@ -492,7 +491,7 @@ enum SettingsSearchIndex {
         "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
         "workspaceGroups.newWorkspacePlacement": settingID(for: .app, idSuffix: "workspace-group-new-workspace-placement"),
         "app.forkConversationDefaultDestination": settingID(for: .app, idSuffix: "fork-conversation-default"),
-        "app.workspaceInheritWorkingDirectory": settingID(for: .app, idSuffix: "workspace-inherit-working-directory"),
+        "app.workspaceInheritWorkingDirectory": settingID(for: .terminal, idSuffix: "new-surface-working-directory-policy"),
         "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
         "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
         "app.focusPaneOnFirstClick": settingID(for: .app, idSuffix: "focus-pane-first-click"),
@@ -604,7 +603,8 @@ enum SettingsSearchIndex {
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
-    ].merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
+    ].merging(declarativeTerminalSettingsPathAnchorIDs) { current, _ in current }
+        .merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {
         let tokens = normalizedQueryTokens(for: query)

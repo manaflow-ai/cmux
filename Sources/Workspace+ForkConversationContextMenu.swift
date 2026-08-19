@@ -215,7 +215,8 @@ extension Workspace {
             initialTerminalInput: startupInput,
             initialTerminalEnvironment: remoteConfiguration.sshTerminalStartupEnvironment ?? [:],
             inheritWorkingDirectory: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         )
         forkWorkspace.configureRemoteConnection(
             remoteConfiguration,
@@ -258,7 +259,10 @@ extension Workspace {
             initialTerminalInput: launch.initialTerminalInput,
             initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            initialRuntimeSpawnPolicy: launch.remoteConfiguration == nil
+                ? .immediate
+                : .immediate.withoutDeclarativeDefaults()
         )
         if let remoteConfiguration = launch.remoteConfiguration {
             forkWorkspace.configureRemoteConnection(

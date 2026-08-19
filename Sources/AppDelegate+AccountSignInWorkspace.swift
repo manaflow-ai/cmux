@@ -36,7 +36,8 @@ extension AppDelegate {
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         )
         guard let initialPanelID = workspace.focusedPanelId,
               let paneID = workspace.paneId(forPanelId: initialPanelID),

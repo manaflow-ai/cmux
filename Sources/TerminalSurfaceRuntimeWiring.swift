@@ -51,8 +51,14 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        let declarativeTerminalSettings = DeclarativeTerminalConfiguration().snapshot()
+        let shellStartupMode: TerminalShellStartupMode = declarativeTerminalSettings.shellStartupMode == .nonLogin
+            ? .nonLogin
+            : .login
         return TerminalSurfaceSpawnPolicy(
             socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
+            shellStartupMode: shellStartupMode,
+            shellStartupCommand: declarativeTerminalSettings.shellStartupCommand,
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
             codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,

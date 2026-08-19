@@ -151,20 +151,6 @@ enum CommandPaletteSettingsToggleCommands {
 
         return [
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "workspaceInheritWorkingDirectory",
-                settingsKey: "app.workspaceInheritWorkingDirectory",
-                title: {
-                    String(
-                        localized: "settings.app.workspaceInheritWorkingDirectory",
-                        defaultValue: "Inherit Workspace Working Directory"
-                    )
-                },
-                sectionTitle: app,
-                keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
-                defaultValue: SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
-                defaultsKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",
                 settingsKey: "app.keepWorkspaceOpenWhenClosingLastSurface",
                 title: {

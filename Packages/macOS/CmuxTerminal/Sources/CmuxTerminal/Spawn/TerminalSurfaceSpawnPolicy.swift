@@ -6,6 +6,12 @@
 /// read the individual settings stores, so each spawn observes the same live
 /// values in the same order.
 public struct TerminalSurfaceSpawnPolicy: Sendable {
+    /// Invocation mode for ordinary local shells.
+    public var shellStartupMode: TerminalShellStartupMode
+
+    /// Optional command sent after an ordinary local shell starts.
+    public var shellStartupCommand: String?
+
     /// Protected authentication values exported into the spawned terminal.
     public var socketAuthenticationEnvironment: [String: String]
 
@@ -57,6 +63,8 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Creates a spawn policy snapshot.
     public init(
         socketAuthenticationEnvironment: [String: String] = [:],
+        shellStartupMode: TerminalShellStartupMode = .login,
+        shellStartupCommand: String? = nil,
         claudeHooksEnabled: Bool,
         codexHooksEnabled: Bool = true,
         customClaudePath: String?,
@@ -72,6 +80,8 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         showPullRequestsEnabled: Bool
     ) {
         self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
+        self.shellStartupMode = shellStartupMode
+        self.shellStartupCommand = shellStartupCommand
         self.claudeHooksEnabled = claudeHooksEnabled
         self.codexHooksEnabled = codexHooksEnabled
         self.customClaudePath = customClaudePath

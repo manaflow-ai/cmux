@@ -7745,7 +7745,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         )
         guard let initialPanelID = workspace.focusedPanelId,
               let paneID = workspace.paneId(forPanelId: initialPanelID),
@@ -9125,6 +9126,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
+            initialRuntimeSpawnPolicy: sessionWindowSnapshot != nil
+                ? .immediate.withoutDeclarativeDefaults()
+                : initialTerminalInput != nil
+                    ? .immediate.withoutDeclarativeStartupDefaults()
+                    : .immediate,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             tabDragTransferRegistry: tabDragTransferRegistry,
             pullRequestProbeService: pullRequestProbeService,

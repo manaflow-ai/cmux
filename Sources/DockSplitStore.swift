@@ -134,8 +134,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
     @ObservationIgnored let terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver
-    private let settings: any SettingsReading
-    private let settingsCatalog = SettingCatalog()
+    let settings: any SettingsReading
+    let settingsCatalog = SettingCatalog()
+    let declarativeTerminalConfigurationFileURL: URL
     let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Weak registry of every live Dock store. Lets control-surface routing
@@ -294,6 +295,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
+        declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
@@ -308,6 +310,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.terminalTitleUpdateCoalescer =
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
+        self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,
@@ -574,7 +577,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             workingDirectory: resolvedTerminalStartupWorkingDirectory(
                 kind: kind,
                 requestedWorkingDirectory: workingDirectory,
-                sourcePanelId: source
+                sourcePanelId: source,
+                allowsDeclarativeDefaults: startupRestoreAgent == nil
+                    && tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             ),
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -656,7 +661,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             workingDirectory: resolvedTerminalStartupWorkingDirectory(
                 kind: kind,
                 requestedWorkingDirectory: workingDirectory,
-                sourcePanelId: source
+                sourcePanelId: source,
+                allowsDeclarativeDefaults: startupRestoreAgent == nil
+                    && tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
             ),
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -983,7 +990,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 environment: def.env,
                 configTemplate: inheritedTerminalFontSizeConfig(sourcePanelId: nil),
                 controlId: def.id,
-                controlTitle: def.title
+                controlTitle: def.title,
+                allowsDeclarativeDefaults: false
             )
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
@@ -1004,7 +1012,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         controlId: String?,
-        controlTitle: String?
+        controlTitle: String?,
+        allowsDeclarativeDefaults: Bool = true
     ) -> TerminalPanel {
         var resolvedEnvironment = environment
         if let controlId { resolvedEnvironment["CMUX_DOCK_CONTROL_ID"] = controlId }
@@ -1019,6 +1028,24 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             initialCommand = nil
         }
 
+        let requestedRuntimeSpawnPolicy = terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+            requestedPolicy: .immediate,
+            willRunStartupCommand: false,
+            willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+        )
+        let hasTmuxStartup = tmuxStartCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let effectiveRuntimeSpawnPolicy = requestedRuntimeSpawnPolicy
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: startupRestoreAgent != nil,
+                hasExplicitStartupWork: initialCommand != nil
+                    || hasTmuxStartup
+                    || initialInput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                hasExternallyManagedWorkingDirectory: startupRestoreAgent != nil
+                    || hasTmuxStartup
+                    || !allowsDeclarativeDefaults
+            )
+
         return TerminalPanel(
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -1029,11 +1056,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             initialInput: initialInput,
             initialEnvironmentOverrides: resolvedEnvironment,
             focusPlacement: .rightSidebarDock,
-            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                requestedPolicy: .immediate,
-                willRunStartupCommand: false,
-                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
-            )
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
         )
     }
 
@@ -1281,31 +1304,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
     }
 
-    private static func normalizedBaseDirectory(_ directory: String?) -> String? {
-        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func currentBaseDirectory() -> String {
+    func currentBaseDirectory() -> String {
         if let directory = rootDirectoryOverride ?? Self.normalizedBaseDirectory(baseDirectoryProvider()) {
             return directory
         }
         return resolvedBaseDirectory
-    }
-
-    private func resolvedTerminalStartupWorkingDirectory(
-        kind: DockSurfaceKind,
-        requestedWorkingDirectory: String?,
-        sourcePanelId: UUID?
-    ) -> String {
-        guard kind == .terminal else { return currentBaseDirectory() }
-        let baseDirectory = currentBaseDirectory()
-        let inheritedDirectory = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-            ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
-            : nil
-        if let requestedDirectory = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) { return requestedDirectory }
-        if let inheritedDirectory, !inheritedDirectory.isEmpty { return inheritedDirectory }
-        return baseDirectory
     }
 
     // MARK: - Config loading

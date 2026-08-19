@@ -108,7 +108,10 @@ extension TerminalController {
                 workspaceEnvironment: execution.workspaceEnvironment,
                 select: execution.shouldFocus,
                 eagerLoadTerminal: execution.shouldEagerLoadTerminal,
-                autoRefreshMetadata: execution.shouldAutoRefreshMetadata
+                autoRefreshMetadata: execution.shouldAutoRefreshMetadata,
+                initialRuntimeSpawnPolicy: execution.layoutNode == nil
+                    ? .immediate
+                    : .immediate.withoutDeclarativeDefaults()
             )
             ws.taskCreateOperationID = operationID
             ws.setCustomDescription(execution.description)

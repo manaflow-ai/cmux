@@ -169,6 +169,7 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             currentDirectory: currentDirectory,
+            workspaceRootDirectory: workspaceRootDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
             layoutMode: layoutMode.rawValue,
@@ -241,6 +242,14 @@ extension Workspace {
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
+        }
+        if let snapshotRoot = snapshot.workspaceRootDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !snapshotRoot.isEmpty {
+            workspaceRootDirectory = snapshotRoot
+        } else if !normalizedCurrentDirectory.isEmpty {
+            // Pre-root snapshots used currentDirectory as their cwd identity.
+            workspaceRootDirectory = normalizedCurrentDirectory
         }
 
         // Restore the per-workspace environment before any surface is rebuilt so
@@ -936,7 +945,8 @@ extension Workspace {
             from: anchorPanelId,
             orientation: placement.orientation,
             insertFirst: placement.insertFirst,
-            focus: false
+            focus: false,
+            runtimeSpawnPolicy: .immediate.forRestoredSurface()
         ) else {
             return nil
         }
@@ -1216,7 +1226,11 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    runtimeSpawnPolicy: .immediate.forRestoredSurface()
+                )?.id
             }
 
             guard let anchorPanelId,
@@ -1224,7 +1238,8 @@ extension Workspace {
                     from: anchorPanelId,
                     orientation: split.orientation.splitOrientation,
                     insertFirst: false,
-                    focus: false
+                    focus: false,
+                    runtimeSpawnPolicy: .immediate.forRestoredSurface()
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
                 leaves.append(
@@ -2068,7 +2083,6 @@ extension Workspace {
 
 }
 
-
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
@@ -2171,13 +2185,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         }
     }
+    /// Immutable root for the `workspaceRoot` cwd policy; restored from the
+    /// session manifest and unaffected by later shell `cd` reports.
+    private(set) var workspaceRootDirectory: String
     @Published private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
-    private let settings: any SettingsReading
+    let settings: any SettingsReading
+    let declarativeTerminalConfigurationFileURL: URL
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2212,6 +2230,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             },
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
@@ -3238,8 +3257,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
+        initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
+        declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3256,6 +3277,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -3280,6 +3302,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
         self.currentDirectory = initialDirectory
+        self.workspaceRootDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
         // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
@@ -3385,6 +3408,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         } else {
             // Create initial terminal panel
+            let admittedInitialRuntimeSpawnPolicy = terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                requestedPolicy: initialRuntimeSpawnPolicy,
+                willRunStartupCommand: false,
+                willRunStartupInput:
+                    initialTerminalStartupRestoreAgent != nil && initialTerminalInput != nil
+            )
+            let hasInitialStartupWork = initialTerminalCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                || initialTerminalInput?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            let effectiveInitialRuntimeSpawnPolicy = admittedInitialRuntimeSpawnPolicy
+                .resolvingDeclarativeDefaults(
+                    isRestoredSurface: initialTerminalStartupRestoreAgent != nil,
+                    hasExplicitStartupWork: hasInitialStartupWork,
+                    hasExternallyManagedWorkingDirectory: initialTerminalStartupRestoreAgent != nil
+                )
             let terminalPanel = TerminalPanel(
                 workspaceId: self.id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
@@ -3397,12 +3436,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
                 ),
-                runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                    requestedPolicy: .immediate,
-                    willRunStartupCommand: false,
-                    willRunStartupInput:
-                        initialTerminalStartupRestoreAgent != nil && initialTerminalInput != nil
-                )
+                runtimeSpawnPolicy: effectiveInitialRuntimeSpawnPolicy
             )
             configureNewTerminalPanel(
                 terminalPanel,
@@ -7193,24 +7227,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    private func resolvedTerminalStartupWorkingDirectory(
-        requestedWorkingDirectory: String?,
-        sourcePanelId: UUID?
-    ) -> String? {
-        if let requested = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
-            return requested
-        }
-        if let sourcePanelId,
-           let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
-            return rescued
-        }
-        return TerminalWorkingDirectoryResolver.firstAvailable([
-            sourcePanelId.flatMap { panelDirectories[$0] },
-            sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
-        ])
-    }
-
     /// The foreground-process cwd read consulted by
     /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``. Nil selects the
     /// libproc-backed default, which requires a live foreground process on the
@@ -7231,7 +7247,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// restores its own cwd on resume), then the recorded session directory.
     /// Local panes only: a remote pane's tracked cwd is a remote path that no
     /// local process inspection or existence check can validate.
-    private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
+    func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
         guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
         // No recorded session directory means the resume launcher targets no
@@ -7637,7 +7653,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) -> TerminalPanel? {
         return newTerminalSplitOutcome(
             from: panelId,
@@ -7651,7 +7668,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         ).panel
     }
 
@@ -7671,7 +7689,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror workspace a split means "split the mirrored
         // tmux pane": route it to the remote and let the resulting
@@ -7703,7 +7722,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         ) else { return .failed }
         return .created(panel)
     }
@@ -7720,7 +7740,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -7782,9 +7803,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         // Resolve cwd as explicit request, source reported cwd, source requested
         // startup cwd, then workspace currentDirectory.
+        let splitHasExplicitStartupWork = startupCommand != nil
+            || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let splitHasManagedWorkingDirectory = remoteTerminalStartupCommand != nil
+            || effectiveRemotePTYSessionID != nil
+            || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        // Explicit commands own shell startup, not a local command's cwd.
+        let effectiveRuntimeSpawnPolicy = runtimeSpawnPolicy
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: false,
+                hasExplicitStartupWork: splitHasExplicitStartupWork,
+                hasExternallyManagedWorkingDirectory: splitHasManagedWorkingDirectory
+            )
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
+            sourcePanelId: panelId,
+            allowsDeclarativeDefaults: effectiveRuntimeSpawnPolicy.allowsDeclarativeWorkingDirectoryDefaults
         )
 #if DEBUG
         cmuxDebugLog(
@@ -7802,7 +7836,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: effectiveStartupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment,
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
         )
         configureNewTerminalPanel(
             newPanel,
@@ -8081,12 +8116,46 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
-        let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
-            ? resolvedTerminalStartupWorkingDirectory(
+        let hasExplicitStartupInput = initialInput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let isRestoredSurface = startupRestoreAgent != nil || restoredSurfaceId != nil
+        let admittedRuntimeSpawnPolicy = terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+            requestedPolicy: runtimeSpawnPolicy,
+            willRunStartupCommand: false,
+            willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+        )
+        let hasExplicitStartupWork = startupCommand != nil
+            || hasExplicitStartupInput
+            || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasManagedWorkingDirectory = isRestoredSurface
+            || remoteTerminalStartupCommand != nil
+            || effectiveRemotePTYSessionID != nil
+            || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        // Explicit startup work owns shell invocation, not a local cwd.
+        let effectiveRuntimeSpawnPolicy = admittedRuntimeSpawnPolicy
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: isRestoredSurface,
+                hasExplicitStartupWork: hasExplicitStartupWork,
+                hasExternallyManagedWorkingDirectory: hasManagedWorkingDirectory
+            )
+        // Explicit cwd wins. Ordinary surfaces always consult the declarative
+        // policy; restore/remote/tmux transactions keep the exact legacy
+        // fallback contract instead of accidentally treating a remote path as
+        // a local working directory.
+        let requestedWorkingDirectory: String?
+        if effectiveRuntimeSpawnPolicy.allowsDeclarativeWorkingDirectoryDefaults {
+            requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: fallbackSourcePanelId
             )
-            : workingDirectory
+        } else if inheritWorkingDirectoryFallback && startupCommand == nil {
+            requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: workingDirectory,
+                sourcePanelId: fallbackSourcePanelId,
+                allowsDeclarativeDefaults: false
+            )
+        } else {
+            requestedWorkingDirectory = workingDirectory
+        }
 
         // Create new terminal panel. A restored panel reuses its persisted
         // surface id (the panel/surface id IS the ghostty surface id, a
@@ -8103,11 +8172,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                requestedPolicy: runtimeSpawnPolicy,
-                willRunStartupCommand: false,
-                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
-            )
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
         )
         configureNewTerminalPanel(
             newPanel,
@@ -8205,7 +8270,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
             manualInputHandler: onInput,
-            manualInputKeyNameResolver: keyNameResolver
+            manualInputKeyNameResolver: keyNameResolver,
+            runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         )
         let panel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(panel)
@@ -8244,7 +8310,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 configTemplate: inheritedTerminalFontSizeConfig(),
                 ioMode: .manualMirror,
                 manualInputHandler: onInput,
-                manualInputKeyNameResolver: keyNameResolver
+                manualInputKeyNameResolver: keyNameResolver,
+                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
             )
             if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
             let newPanel = TerminalPanel(workspaceId: id, surface: surface)
@@ -8372,7 +8439,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: trimmedCommand,
             tmuxStartCommand: trimmedCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
+            runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         )
         // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
         replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
@@ -8441,7 +8509,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         inheritedConfig = respawnConfig
         let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
+            sourcePanelId: panelId,
+            allowsDeclarativeDefaults: false
         )
         let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
         let paneWasFocused = bonsplitController.focusedPaneId == paneId
@@ -8505,7 +8574,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: replacementTmuxStartCommand,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: .immediate.forRestoredSurface()
         )
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
         // Respawn replaces the panel object but keeps the logical tab identity.
@@ -10495,13 +10565,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             config.waitAfterCommand = true
             replacementConfig = config
         }
+        let isRemoteDisconnectPlaceholder = pendingRemoteDisconnect != nil
+        let runtimeSpawnPolicy = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: false,
+                hasExplicitStartupWork: replacementInitialCommand != nil,
+                hasExternallyManagedWorkingDirectory: isRemoteDisconnectPlaceholder
+            )
+        let replacementWorkingDirectory = isRemoteDisconnectPlaceholder
+            ? nil
+            : resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: nil,
+                sourcePanelId: focusedPanelId,
+                allowsDeclarativeDefaults: runtimeSpawnPolicy.allowsDeclarativeWorkingDirectoryDefaults
+            )
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: replacementConfig,
+            workingDirectory: replacementWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -11617,21 +11703,40 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let requestedRuntimeSpawnPolicy = terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+            requestedPolicy: .immediate,
+            willRunStartupCommand: false,
+            willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+        )
+        let effectiveRuntimeSpawnPolicy = requestedRuntimeSpawnPolicy
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: startupRestoreAgent != nil,
+                hasExplicitStartupWork: startupCommand != nil
+                    || initialInput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                hasExternallyManagedWorkingDirectory: startupCommand != nil
+                    || startupRestoreAgent != nil
+            )
+        let sourcePanelId = bonsplitController
+            .selectedTab(inPane: paneId)
+            .map(\.id)
+            .flatMap(panelIdFromSurfaceId)
+        let resolvedWorkingDirectory = effectiveRuntimeSpawnPolicy.allowsDeclarativeWorkingDirectoryDefaults
+            ? resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: workingDirectory,
+                sourcePanelId: sourcePanelId
+            )
+            : workingDirectory
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: resolvedWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                requestedPolicy: .immediate,
-                willRunStartupCommand: false,
-                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
-            )
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -13127,11 +13232,16 @@ extension Workspace: BonsplitDelegate {
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
                     let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    let workingDirectory = resolvedTerminalStartupWorkingDirectory(
+                        requestedWorkingDirectory: nil,
+                        sourcePanelId: nil
+                    )
 
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
+                        workingDirectory: workingDirectory,
                         portOrdinal: portOrdinal,
                         additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
                     )
@@ -13165,7 +13275,12 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    // This is a user-visible terminal, not restore scaffolding.
+                    _ = newTerminalSurface(
+                        inPane: originalPane,
+                        focus: false,
+                        runtimeSpawnPolicy: .immediate
+                    )
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)
@@ -13203,11 +13318,16 @@ extension Workspace: BonsplitDelegate {
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
+        let workingDirectory = resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: nil,
+            sourcePanelId: sourcePanelId
+        )
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
+            workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )

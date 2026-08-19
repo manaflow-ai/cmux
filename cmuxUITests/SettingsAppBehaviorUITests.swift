@@ -14,9 +14,10 @@ import XCTest
 /// changed setting: several App rows recompute their subtitle text from
 /// the stored value, and the "Menu Bar Only" row disables the "Show in
 /// Menu Bar" row. Those rows expose stable accessibility identifiers
-/// (`SettingsMinimalModeToggle`,
-/// `SettingsWorkspaceInheritWorkingDirectoryToggle`,
-/// `SettingsMenuBarOnlyToggle`, `CommandPaletteSearchAllSurfacesToggle`).
+/// (`SettingsMinimalModeToggle`, `SettingsMenuBarOnlyToggle`,
+/// `CommandPaletteSearchAllSurfacesToggle`). The declarative terminal
+/// defaults are covered in the Terminal section by the dedicated policy
+/// picker and path field.
 /// Each test below flips one of those, then asserts the *effect* — the
 /// new subtitle string appears / the old one disappears, or the gated
 /// control's enabled state flips — not merely that the toggle changed
@@ -98,7 +99,6 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     // local state.
     private static let touchedKeys = [
         "workspacePresentationMode",          // Minimal Mode (default .standard)
-        "workspaceInheritWorkingDirectory",   // Inherit CWD (default true)
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
         "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)
@@ -123,9 +123,6 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         static let minimalOn = "Hide the workspace title bar and move workspace controls into the sidebar."
         static let minimalOff = "Use the standard workspace title bar and controls."
 
-        static let inheritOn = "New workspaces start in the focused workspace's working directory."
-        static let inheritOff = "New workspaces use Ghostty's working-directory setting instead."
-
         static let paletteOn = "Cmd+P also matches panel surfaces across workspaces."
         static let paletteOff = "Cmd+P matches workspace rows only."
     }
@@ -143,9 +140,36 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         return window
     }
 
+    /// Opens Settings, lands on the Terminal section, and returns the window.
+    private func openTerminalSection(_ app: XCUIApplication) -> XCUIElement {
+        let window = openSettings(app)
+        navigate(window, to: "Terminal")
+        return window
+    }
+
     /// A static-text whose visible string equals `text`.
     private func subtitleText(_ window: XCUIElement, _ text: String) -> XCUIElement {
         window.staticTexts[text]
+    }
+
+    /// Launches the app with an isolated config root so JSON-backed Settings
+    /// controls cannot read or mutate the developer's real cmux.json file.
+    private func makeLaunchedApp(isolatedHome: URL) -> XCUIApplication {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += settingsLaunchArguments
+        app.launchEnvironment["HOME"] = isolatedHome.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = isolatedHome
+            .appendingPathComponent(".config", isDirectory: true)
+            .path
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "main window did not appear")
+        return app
+    }
+
+    private func pickerDisplay(_ picker: XCUIElement) -> String {
+        "\(picker.label) \(picker.value as? String ?? "")"
     }
 
     func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
@@ -238,33 +262,71 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         closeSettings(app, window)
     }
 
-    // MARK: - TIER 1: Inherit Working Directory subtitle swap
+    // MARK: - TIER 1: Declarative terminal working-directory picker
 
-    /// Toggling Inherit Working Directory flips the row subtitle between
-    /// the inherit-on and inherit-off wording. Default is `true`, so the
-    /// "on" subtitle is present first.
-    func testInheritWorkingDirectoryToggleSwapsSubtitle() {
-        let app = makeLaunchedApp()
-        let window = openAppSection(app)
+    /// The new working-directory policy is a JSON-backed picker in Terminal,
+    /// not a duplicate App-section UserDefaults toggle. Selecting another
+    /// policy and then restoring the original value verifies the live control
+    /// round-trip against an isolated cmux.json file.
+    func testNewSurfaceWorkingDirectoryPickerRoundTrips() {
+        let fileManager = FileManager.default
+        let isolatedHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ui-test-declarative-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        XCTAssertNoThrow(try fileManager.createDirectory(at: isolatedHome, withIntermediateDirectories: true))
 
+        let app = makeLaunchedApp(isolatedHome: isolatedHome)
+        defer {
+            app.terminate()
+            try? fileManager.removeItem(at: isolatedHome)
+        }
+        let window = openTerminalSection(app)
+        defer { closeSettings(app, window) }
+
+        let picker = requireElement(
+            candidates: [
+                window.popUpButtons["SettingsNewSurfaceWorkingDirectoryPolicyPicker"],
+                window.menuButtons["SettingsNewSurfaceWorkingDirectoryPolicyPicker"],
+                window.descendants(matching: .any)["SettingsNewSurfaceWorkingDirectoryPolicyPicker"],
+            ],
+            timeout: 5.0,
+            description: "new-surface working-directory policy picker"
+        )
+        let initialDisplay = pickerDisplay(picker)
+        let original: String
+        if initialDisplay.contains("Workspace Root") || initialDisplay.contains("workspaceRoot") {
+            original = "Workspace Root"
+        } else if initialDisplay.contains("Fixed Path") || initialDisplay.contains("fixedPath") {
+            original = "Fixed Path"
+        } else {
+            original = "Inherit Active Pane"
+        }
+        let alternate = original == "Workspace Root" ? "Fixed Path" : "Workspace Root"
+
+        picker.click()
+        let alternateItem = requireElement(
+            candidates: [app.menuItems[alternate], window.menuItems[alternate], picker.menuItems[alternate]],
+            timeout: 4.0,
+            description: "working-directory policy (alternate) menu item"
+        )
+        alternateItem.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.inheritOn).exists },
-            "Expected inherit-on subtitle at default (true)"
+            poll(timeout: 5.0) { self.pickerDisplay(picker).contains(alternate) },
+            "Selecting (alternate) should update the policy picker"
         )
 
-        let inherit = toggle(window, id: "SettingsWorkspaceInheritWorkingDirectoryToggle")
-        inherit.click()
-
-        XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.inheritOff).exists },
-            "Disabling inherit should show the Ghostty working-directory subtitle"
+        picker.click()
+        let originalItem = requireElement(
+            candidates: [app.menuItems[original], window.menuItems[original], picker.menuItems[original]],
+            timeout: 4.0,
+            description: "original working-directory policy menu item"
         )
+        originalItem.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { !subtitleText(window, Subtitle.inheritOn).exists },
-            "Inherit-on subtitle should disappear once inherit is off"
+            poll(timeout: 5.0) { self.pickerDisplay(picker).contains(original) },
+            "Restoring (original) should round-trip the policy picker"
         )
-
-        closeSettings(app, window)
     }
 
     // MARK: - TIER 1: Command Palette Searches All Surfaces subtitle swap

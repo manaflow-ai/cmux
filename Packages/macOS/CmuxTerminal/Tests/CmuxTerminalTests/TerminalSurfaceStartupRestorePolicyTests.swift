@@ -8,6 +8,67 @@ import Testing
 @MainActor
 @Suite
 struct TerminalSurfaceStartupRestorePolicyTests {
+    @Test("Explicit startup work suppresses shell defaults without suppressing cwd defaults")
+    func explicitStartupWorkKeepsWorkingDirectoryDefaultsEligible() {
+        let policy = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .withoutDeclarativeStartupDefaults()
+
+        #expect(!policy.allowsDeclarativeStartupDefaults)
+        #expect(policy.allowsDeclarativeWorkingDirectoryDefaults)
+    }
+
+    @Test("Restore and external transactions suppress both declarative default families")
+    func restoredSurfaceSuppressesBothDefaultFamilies() {
+        let policy = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .forRestoredSurface()
+
+        #expect(!policy.allowsDeclarativeStartupDefaults)
+        #expect(!policy.allowsDeclarativeWorkingDirectoryDefaults)
+    }
+
+    @Test("Working-directory opt-out preserves an independently selected shell policy")
+    func workingDirectoryOptOutDoesNotChangeShellPolicy() {
+        let policy = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .withoutDeclarativeWorkingDirectoryDefaults()
+
+        #expect(policy.allowsDeclarativeStartupDefaults)
+        #expect(!policy.allowsDeclarativeWorkingDirectoryDefaults)
+    }
+
+    @Test("Creation intent resolves each declarative default family independently")
+    func creationIntentResolvesIndependentDefaultFamilies() {
+        let explicitStartup = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: false,
+                hasExplicitStartupWork: true,
+                hasExternallyManagedWorkingDirectory: false
+            )
+        #expect(!explicitStartup.allowsDeclarativeStartupDefaults)
+        #expect(explicitStartup.allowsDeclarativeWorkingDirectoryDefaults)
+
+        let externallyManagedWorkingDirectory = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: false,
+                hasExplicitStartupWork: false,
+                hasExternallyManagedWorkingDirectory: true
+            )
+        #expect(externallyManagedWorkingDirectory.allowsDeclarativeStartupDefaults)
+        #expect(!externallyManagedWorkingDirectory.allowsDeclarativeWorkingDirectoryDefaults)
+    }
+
+    @Test("Restore intent fails closed even without explicit startup work")
+    func restoreIntentSuppressesAllDeclarativeDefaults() {
+        let policy = TerminalSurfaceRuntimeSpawnPolicy.immediate
+            .resolvingDeclarativeDefaults(
+                isRestoredSurface: true,
+                hasExplicitStartupWork: false,
+                hasExternallyManagedWorkingDirectory: false
+            )
+
+        #expect(!policy.allowsDeclarativeStartupDefaults)
+        #expect(!policy.allowsDeclarativeWorkingDirectoryDefaults)
+    }
+
     @Test("Restore admission composes with relaunch spawn pacing")
     func admissionPreservesRestorePacing() {
         let nativeView = FakeTerminalSurfaceNativeView(

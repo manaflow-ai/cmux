@@ -59,7 +59,6 @@ enum SettingsSearchAliasIndex {
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
         "app:workspace-group-new-workspace-placement": localized("settings.search.alias.setting.app.workspace-group-new-workspace-placement", defaultValue: "workspaceGroups.newWorkspacePlacement group new workspace command n cmd-n plus insert position after current top end"),
         "app:fork-conversation-default": localized("settings.search.alias.setting.app.fork-conversation-default", defaultValue: "app.forkConversationDefaultDestination fork conversation right left top bottom split tab workspace default"),
-        "app:workspace-inherit-working-directory": localized("settings.search.alias.setting.app.workspace-inherit-working-directory", defaultValue: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"),
         "app:minimal-mode": localized("settings.search.alias.setting.app.minimal-mode", defaultValue: "app.minimalMode minimal layout simple chrome compact titlebar controls"),
         "app:keep-workspace-open": localized("settings.search.alias.setting.app.keep-workspace-open", defaultValue: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
         "app:focus-pane-first-click": localized("settings.search.alias.setting.app.focus-pane-first-click", defaultValue: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
@@ -97,6 +96,22 @@ enum SettingsSearchAliasIndex {
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
+        "terminal:new-surface-working-directory-policy": localized(
+            "settings.search.alias.setting.terminal.new-surface-working-directory-policy",
+            defaultValue: "terminal.newSurfaceWorkingDirectory policy working directory cwd current pane workspace root fixed path inherit split tab pane app.workspaceInheritWorkingDirectory legacy"
+        ),
+        "terminal:new-surface-working-directory-path": localized(
+            "settings.search.alias.setting.terminal.new-surface-working-directory-path",
+            defaultValue: "terminal.newSurfaceWorkingDirectory path fixed directory cwd folder tilde workspace root"
+        ),
+        "terminal:shell-startup-mode": localized(
+            "settings.search.alias.setting.terminal.shell-startup-mode",
+            defaultValue: "terminal.shellStartup mode shell login non-login interactive startup"
+        ),
+        "terminal:shell-startup-command": localized(
+            "settings.search.alias.setting.terminal.shell-startup-command",
+            defaultValue: "terminal.shellStartup command shell startup input command activate zsh mise"
+        ),
         "terminal:session-content-width": localized("settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"),
         "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),

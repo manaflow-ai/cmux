@@ -401,6 +401,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    private let declarativeTerminalConfigurationFileURL: URL
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
@@ -480,6 +481,7 @@ class TabManager: ObservableObject {
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
+        initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoWelcomeIfNeeded: Bool = true,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         commandRunner: any CommandRunning = CommandRunner(),
@@ -491,6 +493,7 @@ class TabManager: ObservableObject {
         focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
             GhosttyWorkingDirectoryResolver(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
@@ -506,6 +509,7 @@ class TabManager: ObservableObject {
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
+        self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
@@ -579,6 +583,7 @@ class TabManager: ObservableObject {
             titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
+            initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )
         observers.append(NotificationCenter.default.addObserver(
@@ -1012,7 +1017,8 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) -> Workspace {
         Workspace(
             id: id,
@@ -1031,8 +1037,10 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            initialRuntimeSpawnPolicy: initialRuntimeSpawnPolicy,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
@@ -1053,6 +1061,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -1068,6 +1077,7 @@ class TabManager: ObservableObject {
             remoteBrowserSettingsProvider: { .local },
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
         windowDockTitleRoutingStores.setObject(
@@ -1188,7 +1198,8 @@ class TabManager: ObservableObject {
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
         applyCreationTitleAsCustomTitle: Bool = true,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -1200,9 +1211,46 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let inheritanceEnabled = inheritWorkingDirectory
-                && settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-            let inheritedWorkingDirectory = inheritanceEnabled
+            let hasExplicitInitialStartupWork = initialTerminalCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                || initialTerminalInput?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            let effectiveInitialRuntimeSpawnPolicy = initialRuntimeSpawnPolicy
+                .resolvingDeclarativeDefaults(
+                    isRestoredSurface: initialTerminalStartupRestoreAgent != nil,
+                    hasExplicitStartupWork: hasExplicitInitialStartupWork,
+                    hasExternallyManagedWorkingDirectory: initialTerminalStartupRestoreAgent != nil
+                )
+            let legacyInheritanceEnabled = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+            let declarativeTerminalSettings = DeclarativeTerminalConfiguration().snapshot(
+                fileURL: declarativeTerminalConfigurationFileURL
+            )
+            let configuredWorkingDirectoryPolicy = declarativeTerminalSettings.effectiveWorkingDirectoryPolicy(
+                legacyInheritanceEnabled: legacyInheritanceEnabled
+            )
+            // Working-directory eligibility is independent from shell-startup
+            // eligibility. An explicit local command or input owns the shell
+            // launch, but it does not own the cwd unless it also supplies one.
+            // Only callers that explicitly disable cwd defaults (remote,
+            // restore, or layout scaffolds) take the compatibility fallback.
+            let allowsDeclarativeWorkingDirectoryDefaults =
+                effectiveInitialRuntimeSpawnPolicy.allowsDeclarativeWorkingDirectoryDefaults
+            let effectiveWorkingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy
+            if allowsDeclarativeWorkingDirectoryDefaults,
+               declarativeTerminalSettings.workingDirectoryPolicy != nil {
+                // An explicitly authored cmux.json policy is authoritative for
+                // ordinary workspaces, even when a legacy caller disables the
+                // old inherit-cwd boolean.
+                effectiveWorkingDirectoryPolicy = configuredWorkingDirectoryPolicy
+            } else if inheritWorkingDirectory && legacyInheritanceEnabled {
+                effectiveWorkingDirectoryPolicy = .inheritActivePane
+            } else {
+                effectiveWorkingDirectoryPolicy = .workspaceRoot
+            }
+            let sourceWorkspaceHasRemoteDirectoryProvenance = sourceWorkspace.map {
+                $0.isRemoteWorkspace || $0.isRemoteTmuxMirror
+            } == true
+            let inheritedWorkingDirectory = effectiveWorkingDirectoryPolicy == .inheritActivePane
                 ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
                 : nil
             let fontSizeLineage = inheritedTerminalFontSizeLineageForNewWorkspace(
@@ -1221,12 +1269,21 @@ class TabManager: ObservableObject {
             let nextTabCount = snapshot.tabs.count + 1
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
+            let defaultWorkingDirectory = defaultWorkspaceWorkingDirectoryProvider()
+            let workspaceRootWorkingDirectory = allowsDeclarativeWorkingDirectoryDefaults
+                ? (sourceWorkspaceHasRemoteDirectoryProvenance
+                    ? defaultWorkingDirectory
+                    : normalizedWorkingDirectory(sourceWorkspace?.workspaceRootDirectory)
+                        ?? defaultWorkingDirectory)
+                : defaultWorkingDirectory
             let workingDirectory = WorkspaceCreationWorkingDirectoryPolicy(
-                inheritanceEnabled: inheritanceEnabled
+                policy: effectiveWorkingDirectoryPolicy,
+                fixedPath: declarativeTerminalSettings.workingDirectoryPath
             ).resolve(
                 explicitWorkingDirectory: explicitWorkingDirectory,
                 inheritedWorkingDirectory: snapshot.preferredWorkingDirectory,
-                defaultWorkingDirectory: defaultWorkspaceWorkingDirectoryProvider()
+                defaultWorkingDirectory: defaultWorkingDirectory,
+                workspaceRootWorkingDirectory: workspaceRootWorkingDirectory
             )
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontSizeLineage: snapshot.inheritedTerminalFontSizeLineage
@@ -1264,7 +1321,8 @@ class TabManager: ObservableObject {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: select && allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: select && allowTextBoxFocusDefault,
+                initialRuntimeSpawnPolicy: effectiveInitialRuntimeSpawnPolicy
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
@@ -1684,6 +1742,13 @@ class TabManager: ObservableObject {
         guard let workspace else {
             return nil
         }
+        guard !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror else {
+            return nil
+        }
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.isRemoteTerminalContext(focusedPanelId) {
+            return nil
+        }
         // Use cached directory state only; avoiding live focus traversal keeps workspace
         // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
         if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
@@ -1696,10 +1761,32 @@ class TabManager: ObservableObject {
     }
 
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
-            return nil
-        }
-        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+        let legacyInheritanceEnabled = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+        let declarative = DeclarativeTerminalConfiguration().snapshot(
+            fileURL: declarativeTerminalConfigurationFileURL
+        )
+        let policy = declarative.effectiveWorkingDirectoryPolicy(
+            legacyInheritanceEnabled: legacyInheritanceEnabled
+        )
+        let defaultWorkingDirectory = defaultWorkspaceWorkingDirectoryProvider()
+        let sourceWorkspaceHasRemoteDirectoryProvenance = sourceWorkspace.map {
+            $0.isRemoteWorkspace || $0.isRemoteTmuxMirror
+        } == true
+        let sourceWorkspaceRoot = sourceWorkspaceHasRemoteDirectoryProvenance
+            ? defaultWorkingDirectory
+            : normalizedWorkingDirectory(sourceWorkspace?.workspaceRootDirectory)
+                ?? defaultWorkingDirectory
+        return WorkspaceCreationWorkingDirectoryPolicy(
+            policy: policy,
+            fixedPath: declarative.workingDirectoryPath
+        ).resolve(
+            explicitWorkingDirectory: nil,
+            inheritedWorkingDirectory: policy == .inheritActivePane
+                ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+                : nil,
+            defaultWorkingDirectory: defaultWorkingDirectory,
+            workspaceRootWorkingDirectory: sourceWorkspaceRoot
+        )
     }
 
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
@@ -4465,7 +4552,8 @@ class TabManager: ObservableObject {
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false,
-            applyCreationTitleAsCustomTitle: false
+            applyCreationTitleAsCustomTitle: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -6323,8 +6411,10 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults(),
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
@@ -6356,9 +6446,12 @@ extension TabManager {
             let fallback = Workspace(
                 id: fallbackWorkspaceId,
                 title: "Terminal 1",
+                workingDirectory: implicitWorkingDirectoryForNewWorkspace(from: nil),
                 portOrdinal: ordinal,
+                initialRuntimeSpawnPolicy: .immediate,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker

@@ -296,7 +296,10 @@ extension ContentView {
                     initialTerminalInput: launch.initialTerminalInput,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
+                    autoWelcomeIfNeeded: false,
+                    initialRuntimeSpawnPolicy: launch.remoteConfiguration == nil
+                        ? .immediate
+                        : .immediate.withoutDeclarativeDefaults()
                 )
                 if let remoteConfiguration = launch.remoteConfiguration {
                     forkWorkspace.configureRemoteConnection(

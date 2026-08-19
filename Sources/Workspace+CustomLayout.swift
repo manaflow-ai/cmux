@@ -77,7 +77,11 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
+                )?.id
             }
 
             guard let anchorPanelId,
@@ -85,7 +89,8 @@ extension Workspace {
                       from: anchorPanelId,
                       orientation: split.splitOrientation,
                       insertFirst: false,
-                      focus: false
+                      focus: false,
+                      runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
                 leaves.append((paneId: paneId, surfaces: []))
@@ -174,7 +179,8 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
-                startupEnvironment: surface.env ?? [:]
+                startupEnvironment: surface.env ?? [:],
+                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -232,7 +238,8 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
-                startupEnvironment: surface.env ?? [:]
+                startupEnvironment: surface.env ?? [:],
+                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }

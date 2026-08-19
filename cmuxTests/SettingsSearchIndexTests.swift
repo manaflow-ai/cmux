@@ -19,7 +19,9 @@ struct SettingsSearchIndexTests {
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
-        assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
+        assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "new-surface-working-directory-policy"))
+        assertSearch("non-login shell", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "shell-startup-mode"))
+        assertSearch("startup command", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "shell-startup-command"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("textbox new terminals", contains: SettingsSearchIndex.settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"))
@@ -109,7 +111,26 @@ struct SettingsSearchIndexTests {
     @Test func settingsPathAnchorIncludesWorkspaceWorkingDirectoryInheritance() {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "app.workspaceInheritWorkingDirectory")
-                == SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "new-surface-working-directory-policy")
+        )
+    }
+
+    @Test func settingsPathAnchorsDeclarativeTerminalConfiguration() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.newSurfaceWorkingDirectory.policy")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "new-surface-working-directory-policy")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.newSurfaceWorkingDirectory.path")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "new-surface-working-directory-path")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.shellStartup.mode")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "shell-startup-mode")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.shellStartup.command")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "shell-startup-command")
         )
     }
 
