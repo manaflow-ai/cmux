@@ -28,7 +28,8 @@ public struct CmuxConfigLines: Sendable {
     /// - Parameter contents: A config body, possibly empty.
     /// - Returns: ``LineEnding/crlf`` only when the first break in `contents` is
     ///   a CRLF, so a rewrite never converts an LF file (or one with no break at
-    ///   all) to CRLF.
+    ///   all) to CRLF. A classic-Mac CR-only body reads as ``LineEnding/lf`` and
+    ///   is rewritten with LF; ``split(_:)`` still finds its lines.
     public func lineEnding(of contents: String) -> LineEnding {
         // Character comparison sees "\r\n" as one grapheme cluster, so
         // `firstIndex(of: "\n")` finds only bare LFs and `firstIndex(of: "\r\n")`
@@ -38,20 +39,29 @@ public struct CmuxConfigLines: Sendable {
         return crlfIndex < lfIndex ? .crlf : .lf
     }
 
-    /// Splits `contents` into lines, tolerating LF and CRLF endings alike.
+    /// Splits `contents` into lines, tolerating LF, CRLF, and lone-CR endings.
     ///
     /// - Parameter contents: A config body, possibly empty.
-    /// - Returns: The lines without their trailing `"\r"`, and without the empty
-    ///   element a terminal newline leaves behind, so a body and its CRLF twin
-    ///   split identically. Empty content splits into no lines.
+    /// - Returns: The lines without their endings, and without the empty element
+    ///   a terminal newline leaves behind, so a body and its CRLF twin split
+    ///   identically. Empty content splits into no lines.
     public func split(_ contents: String) -> [String] {
         guard !contents.isEmpty else { return [] }
-        var lines = contents.components(separatedBy: "\n").map { line in
-            line.hasSuffix("\r") ? String(line.dropLast()) : line
-        }
+        // Fold CRLF and lone CR down to LF first: splitting on "\n" alone would
+        // leave a "\r" on the end of every line of a CRLF body, and would miss
+        // the breaks in a CR-only one entirely.
+        // The scan is over scalars on purpose: `contents.contains("\r")` compares
+        // Characters, and the "\r" of a CRLF is part of the "\r\n" grapheme
+        // cluster, so it would answer false for exactly the bodies at issue.
+        let normalized = contents.unicodeScalars.contains("\r")
+            ? contents
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+            : contents
+        var lines = normalized.components(separatedBy: "\n")
         // `components(separatedBy:)` leaves a trailing empty element only when
-        // `contents` ends with the separator, so testing the split result covers
-        // a trailing "\n" and a trailing "\r\n" alike — unlike
+        // the content ends with the separator, so testing the split result
+        // covers a trailing "\n" and a trailing "\r\n" alike — unlike
         // `contents.hasSuffix("\n")`, which is false for the latter.
         if lines.last == "" {
             lines.removeLast()
