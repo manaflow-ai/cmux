@@ -737,8 +737,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                beforeFree: { completion in
-                    retiredRemoteOutputLane.scheduleDrain(completion)
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
                 },
                 freeSurface: freeSurface
             )
@@ -753,8 +753,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-            beforeFree: { completion in
-                retiredRemoteOutputLane.scheduleDrain(completion)
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
             }
         )
     }

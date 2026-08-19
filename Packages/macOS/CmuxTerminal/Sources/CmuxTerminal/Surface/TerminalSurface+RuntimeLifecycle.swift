@@ -188,10 +188,9 @@ extension TerminalSurface {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            retiredRemoteOutputLane.scheduleDrain {
-                Task { @MainActor in
-                    staleRuntimeResources.release()
-                }
+            Task { @MainActor in
+                await retiredRemoteOutputLane.drain()
+                staleRuntimeResources.release()
             }
             return nil
         }
@@ -333,8 +332,8 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                beforeFree: { completion in
-                    retiredRemoteOutputLane.scheduleDrain(completion)
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
                 },
                 freeSurface: freeSurface
             )
@@ -350,8 +349,8 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-            beforeFree: { completion in
-                retiredRemoteOutputLane.scheduleDrain(completion)
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
             }
         )
     }
@@ -437,8 +436,8 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                beforeFree: { completion in
-                    retiredRemoteOutputLane.scheduleDrain(completion)
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
                 },
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
@@ -456,8 +455,8 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-            beforeFree: { completion in
-                retiredRemoteOutputLane.scheduleDrain(completion)
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
             },
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation

@@ -94,9 +94,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     main-thread owner state.
     ///   - callbackContext: The retained callback context released on the
     ///     main actor after the free completes.
-    ///   - beforeFree: A one-shot asynchronous fence that invokes its completion
-    ///     before `freeSurface` is scheduled. Defaults to an already-complete
-    ///     fence.
+    ///   - beforeFree: An asynchronous fence awaited before `freeSurface` is
+    ///     scheduled. Defaults to an already-complete fence.
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata releases.
@@ -107,9 +106,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         reason: String,
         surface: ghostty_surface_t,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
-        beforeFree: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { completion in
-            completion()
-        },
+        beforeFree: @escaping @Sendable () async -> Void = {},
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
         }
@@ -150,9 +147,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     released on the main actor after the free completes.
     ///   - byteTeeLease: The retained PTY tee lease, released on the main
     ///     actor after the free completes.
-    ///   - beforeFree: A one-shot asynchronous fence that invokes its completion
-    ///     before `freeSurface` is scheduled. Defaults to an already-complete
-    ///     fence.
+    ///   - beforeFree: An asynchronous fence awaited before `freeSurface` is
+    ///     scheduled. Defaults to an already-complete fence.
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata releases.
@@ -165,9 +161,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
-        beforeFree: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { completion in
-            completion()
-        },
+        beforeFree: @escaping @Sendable () async -> Void = {},
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil,
@@ -275,14 +269,15 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         }
     }
 
-    /// Runs the lane fence without occupying a native-free worker, then starts
+    /// Awaits the lane fence without blocking a native-free worker, then starts
     /// the bounded native-free operation on that worker's queue.
     private nonisolated static func scheduleNativeFree(
         _ request: TerminalSurfaceRuntimeTeardownRequest,
         on queue: DispatchQueue,
         completion: @escaping @Sendable () -> Void
     ) {
-        request.beforeFree {
+        Task {
+            await request.beforeFree()
             queue.async {
                 Self.freeNativeSurface(request)
                 completion()

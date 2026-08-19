@@ -16,8 +16,10 @@ internal import os
 /// is drained before its owner frees it.
 final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
     private let queue: DispatchQueue
-    // Short lifecycle gate: only a Boolean read/write is protected, and the
-    // lock is never held across a native call or a suspension point.
+    // The synchronous gate is required because enqueueTextInput and close can
+    // race from the main actor and teardown/lane threads; an actor hop could
+    // accept work after retirement. Only one Boolean read/write is protected,
+    // and the lock is never held across a native call or suspension point.
     private let isOpen = OSAllocatedUnfairLock(initialState: true)
 
     init(surfaceID: UUID, generation: UInt64) {
@@ -74,21 +76,24 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
         isOpen.withLock { $0 = false }
     }
 
-    /// Closes the lane and invokes `completion` after its FIFO fence runs.
+    /// Closes the lane and asynchronously waits for its FIFO fence.
     ///
-    /// The caller never waits for the fence. If Ghostty is wedged inside an
-    /// already-running operation, the lane worker remains the only blocked
-    /// thread; the teardown coordinator can keep its native-free worker slots
-    /// available until the fence eventually completes.
-    func scheduleDrain(_ completion: @escaping @Sendable () -> Void) {
+    /// Awaiting this method suspends the caller instead of blocking a thread.
+    /// If Ghostty is wedged inside an already-running operation, only the lane
+    /// worker remains blocked until that native call returns.
+    func drain() async {
         close()
-        queue.async(execute: completion)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                continuation.resume()
+            }
+        }
     }
 
 #if DEBUG
     /// Synchronously fences test-only direct-free helpers after queued work is done.
     /// This is unavailable in release builds; production teardown uses
-    /// ``scheduleDrain(_:)`` so no app worker waits on the lane.
+    /// ``drain()`` so no app worker waits on the lane.
     func drainSynchronouslyForTesting() {
         close()
         queue.sync {}
