@@ -444,6 +444,10 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     // shrink the viewport track accordingly.
     let mut right_x = area.width.saturating_sub(label_w);
     for segment in right_segments.iter().rev() {
+        if segment.text.is_empty() {
+            // Normal before a command's first result; later segments still draw.
+            continue;
+        }
         let width = (segment.text.width() as u16).min(right_x.saturating_sub(x));
         if width == 0 {
             break;
