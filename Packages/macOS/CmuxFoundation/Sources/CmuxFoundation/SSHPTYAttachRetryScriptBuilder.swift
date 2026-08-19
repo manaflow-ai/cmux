@@ -10,8 +10,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     ///
     /// `CMUX_SSH_RECONNECT_LIMIT` is free-form text, and a value too large for
     /// shell arithmetic makes both `-lt` and `-ge` fail with `integer expression
-    /// expected` instead of answering, so the limit is capped at a count no
-    /// outage reaches before the host comes back.
+    /// expected` instead of answering, so the limit is capped at a number of
+    /// retries no outage reaches before the host comes back.
     private static let maximumConfigurableRetryLimit = 1_000_000
 
     private let backoff: SSHPTYAttachReconnectBackoffPolicy
@@ -65,7 +65,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
             // Drop padding zeros first: the digit count is what caps an oversized
-            // limit below, and "0000001" is one attempt, not a seven-digit one.
+            // limit below, and "0000001" is a budget of one retry, not of a
+            // seven-digit number of them.
             "while :; do case \"$cmux_ssh_attach_reconnect_limit\" in 0?*) cmux_ssh_attach_reconnect_limit=\"${cmux_ssh_attach_reconnect_limit#0}\" ;; *) break ;; esac; done",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ???????*) cmux_ssh_attach_reconnect_limit=\(Self.maximumConfigurableRetryLimit) ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-\(backoff.initialDelaySeconds)}\"",

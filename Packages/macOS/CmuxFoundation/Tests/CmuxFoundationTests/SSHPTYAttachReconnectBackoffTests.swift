@@ -258,34 +258,43 @@ struct SSHPTYAttachReconnectBackoffTests {
         #expect(Self.delays(in: try Self.events(in: logURL)) == ["2", "4"])
     }
 
-    /// Padding zeros are not a digit count: "0000002" is two attempts.
+    /// Padding zeros are not a digit count: `0000002` is a budget of two retries,
+    /// not a seven-digit one. The limit counts retries, so a budget of N runs the
+    /// first attachment plus N reattachments.
     @Test func aZeroPaddedReconnectLimitKeepsItsValue() throws {
-        let directory = try Self.makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let logURL = directory.appendingPathComponent("events.log")
+        let cases: [(setting: String, attaches: Int, delays: [String])] = [
+            ("0000000", 1, []),
+            ("0000001", 2, ["2"]),
+            ("0000002", 3, ["2", "4"]),
+        ]
+        for testCase in cases {
+            let directory = try Self.makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let logURL = directory.appendingPathComponent("events.log")
 
-        let script = Self.script(
-            stubs: [
-                "date() { printf '%s\\n' 1000; }",
-                "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
-                "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 254; }",
-            ]
-        )
+            let script = Self.script(
+                stubs: [
+                    "date() { printf '%s\\n' 1000; }",
+                    "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+                    "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 254; }",
+                ]
+            )
 
-        let result = try Self.run(
-            script,
-            environment: [
-                "CMUX_TEST_LOG": logURL.path,
-                "CMUX_SSH_RECONNECT_LIMIT": "0000002",
-                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
-                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
-            ]
-        )
+            let result = try Self.run(
+                script,
+                environment: [
+                    "CMUX_TEST_LOG": logURL.path,
+                    "CMUX_SSH_RECONNECT_LIMIT": testCase.setting,
+                    "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                    "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
+                ]
+            )
 
-        #expect(result.status == 254, Comment(rawValue: result.stderr))
-        let events = try Self.events(in: logURL)
-        #expect(events.filter { $0 == "attach" }.count == 3)
-        #expect(Self.delays(in: events) == ["2", "4"])
+            #expect(result.status == 254, Comment(rawValue: result.stderr))
+            let events = try Self.events(in: logURL)
+            #expect(events.filter { $0 == "attach" }.count == testCase.attaches)
+            #expect(Self.delays(in: events) == testCase.delays)
+        }
     }
 
     // MARK: - The generated loop collapses its status output
