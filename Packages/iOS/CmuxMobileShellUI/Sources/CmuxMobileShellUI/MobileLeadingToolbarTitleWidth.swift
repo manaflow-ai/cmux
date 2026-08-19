@@ -18,11 +18,16 @@ struct MobileLeadingToolbarTitleWidth {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
-    /// Sum of the measured content widths of every visible trailing toolbar
-    /// item, 0 until the first layout pass reports them.
+    /// Sum of the measured content widths of the structurally visible trailing
+    /// toolbar items, 0 until the first layout pass reports them.
     let measuredTrailingItemsWidth: CGFloat
-    /// How many trailing toolbar items are visible; each carries its own glass
-    /// capsule chrome around the measured content.
+    /// How many of the structurally visible trailing items have reported a
+    /// measurement. A structural item without one (it just appeared and its
+    /// geometry callback has not fired yet) must still reserve fallback space,
+    /// or the title claims the new item's room and bounces it into More.
+    let measuredTrailingItemCount: Int
+    /// How many trailing toolbar items are structurally visible right now;
+    /// each carries its own glass capsule chrome around the measured content.
     let trailingItemCount: Int
 
     static let backButtonReserve: CGFloat = 44
@@ -31,6 +36,9 @@ struct MobileLeadingToolbarTitleWidth {
     static let barMarginsAndSpacing: CGFloat = 84
     /// Horizontal glass-capsule chrome around one trailing item's content.
     static let trailingItemChrome: CGFloat = 24
+    /// Safe content-width reserve for a structural item that has not reported
+    /// geometry yet.
+    static let unmeasuredTrailingItemReserve: CGFloat = 64
     static let unmeasuredFallback: CGFloat = 140
     static let floor: CGFloat = 96
 
@@ -40,6 +48,7 @@ struct MobileLeadingToolbarTitleWidth {
         hasTrailingCluster: Bool,
         hasChatToggle: Bool,
         measuredTrailingItemsWidth: CGFloat = 0,
+        measuredTrailingItemCount: Int = 0,
         trailingItemCount: Int = 0
     ) {
         self.contentWidth = contentWidth
@@ -47,6 +56,7 @@ struct MobileLeadingToolbarTitleWidth {
         self.hasTrailingCluster = hasTrailingCluster
         self.hasChatToggle = hasChatToggle
         self.measuredTrailingItemsWidth = measuredTrailingItemsWidth
+        self.measuredTrailingItemCount = measuredTrailingItemCount
         self.trailingItemCount = trailingItemCount
     }
 
@@ -57,9 +67,11 @@ struct MobileLeadingToolbarTitleWidth {
     }
 
     private var trailingReserve: CGFloat {
-        if measuredTrailingItemsWidth > 0 {
+        if measuredTrailingItemCount > 0 {
+            let unmeasured = CGFloat(max(trailingItemCount - measuredTrailingItemCount, 0))
             return measuredTrailingItemsWidth
                 + CGFloat(max(trailingItemCount, 1)) * Self.trailingItemChrome
+                + unmeasured * Self.unmeasuredTrailingItemReserve
         }
         guard hasTrailingCluster else { return 0 }
         return Self.trailingReserveBase + (hasChatToggle ? Self.chatToggleReserve : 0)

@@ -55,6 +55,7 @@ import Testing
             hasTrailingCluster: true,
             hasChatToggle: true,
             measuredTrailingItemsWidth: 0,
+            measuredTrailingItemCount: 0,
             trailingItemCount: 0,
             isEnabled: true,
             workspaceName: "Workspace",

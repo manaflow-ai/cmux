@@ -65,6 +65,7 @@ import Testing
             hasTrailingCluster: true,
             hasChatToggle: true,
             measuredTrailingItemsWidth: 150,
+            measuredTrailingItemCount: 2,
             trailingItemCount: 2
         )
         let expected: CGFloat = 393
@@ -85,6 +86,7 @@ import Testing
             hasTrailingCluster: true,
             hasChatToggle: true,
             measuredTrailingItemsWidth: 200,
+            measuredTrailingItemCount: 3,
             trailingItemCount: 3
         )
 
@@ -98,9 +100,38 @@ import Testing
             hasTrailingCluster: true,
             hasChatToggle: true,
             measuredTrailingItemsWidth: 0,
-            trailingItemCount: 0
+            measuredTrailingItemCount: 0,
+            trailingItemCount: 1
         )
 
         #expect(unmeasured.cap == cap(393))
+    }
+
+    @Test func structuralItemWithoutMeasurementStillReservesSpace() {
+        // The changes chip just appeared: the cluster has measured, the chip
+        // has not. The cap must not expand into the chip's space, or the
+        // system bounces it into the More menu.
+        let clusterOnly = MobileLeadingToolbarTitleWidth(
+            contentWidth: 393,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 90,
+            measuredTrailingItemCount: 1,
+            trailingItemCount: 1
+        )
+        let clusterPlusUnmeasuredChip = MobileLeadingToolbarTitleWidth(
+            contentWidth: 393,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 90,
+            measuredTrailingItemCount: 1,
+            trailingItemCount: 2
+        )
+
+        let reserveDelta = clusterOnly.cap - clusterPlusUnmeasuredChip.cap
+        #expect(reserveDelta
+            >= MobileLeadingToolbarTitleWidth.unmeasuredTrailingItemReserve)
     }
 }
