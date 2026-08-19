@@ -16288,7 +16288,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, cortex
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -29356,12 +29356,12 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "grok" else { return max(timeoutMs, 1) }
+        guard def.name == "grok" || def.name == "cortex" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
     private func nestedFeedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else { return max(timeoutMs, 1) }
+        guard def.name == "codex" || def.name == "grok" || def.name == "cortex" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 

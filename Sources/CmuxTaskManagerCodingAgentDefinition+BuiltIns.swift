@@ -43,6 +43,8 @@ extension CmuxTaskManagerCodingAgentDefinition {
               launchKinds: ["copilot"], directBasenames: ["copilot"], argumentNeedles: ["copilot"]),
         .init(id: "codebuddy", displayName: "CodeBuddy", assetName: nil,
               launchKinds: ["codebuddy"], directBasenames: ["codebuddy"], argumentNeedles: ["codebuddy"]),
+        .init(id: "cortex", displayName: "Cortex Code", assetName: nil,
+              launchKinds: ["cortex"], directBasenames: ["cortex"], argumentNeedles: ["cortex"]),
         .init(id: "factory", displayName: "Factory", assetName: nil,
               launchKinds: ["factory"], directBasenames: ["droid", "factory"], argumentNeedles: ["factory"]),
         .init(id: "qoder", displayName: "Qoder", assetName: nil,

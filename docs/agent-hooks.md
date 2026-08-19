@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, `qoder`, and `cortex`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -34,6 +34,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
 | Kimi Code | `kimi` | `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Cortex Code | `cortex` | `~/.snowflake/cortex/hooks.json` | `cortex --resume <id>` | PreToolUse |
 
 OpenCode also supports project-local Feed installation:
 
@@ -55,7 +56,7 @@ Grok uses its `Notification` hook for user-facing completion messages. cmux reco
 
 ## Workspace auto-naming
 
-When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end hooks also drive AI naming of workspaces and tabs. Supported adapters are Claude Code, Codex, Grok, OpenCode, Pi, and OMP; each adapter gates on the live setting over the socket, reuses the session store above for throttle state, summarizes with that agent's own CLI in a no-tools or isolated headless mode, and never overwrites a name the user set. Gemini, Amp, Cursor, Antigravity, Kiro, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder are skipped until they have both a verified conversation source and a safe cheap non-interactive summarizer runner. See [workspace-auto-naming.md](workspace-auto-naming.md).
+When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end hooks also drive AI naming of workspaces and tabs. Supported adapters are Claude Code, Codex, Grok, OpenCode, Pi, and OMP; each adapter gates on the live setting over the socket, reuses the session store above for throttle state, summarizes with that agent's own CLI in a no-tools or isolated headless mode, and never overwrites a name the user set. Gemini, Amp, Cursor, Antigravity, Kiro, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, Qoder, and Cortex Code are skipped until they have both a verified conversation source and a safe cheap non-interactive summarizer runner. See [workspace-auto-naming.md](workspace-auto-naming.md).
 
 ## Agent Hibernation
 
@@ -155,6 +156,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
+| Cortex Code | `CORTEX_HOME` | `CMUX_CORTEX_HOOKS_DISABLED=1` |
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
@@ -163,6 +165,8 @@ OMP uses OMP's native extension system. OMP native extension discovery scans `${
 Campfire ships this integration natively: current campfire versions include a built-in cmux bridge, so no install step is needed (like Claude Code via the cmux wrapper) — `cmux hooks campfire install` exists for older campfire versions, and the installed extension defers to the native bridge when both are present. Campfire embeds vanilla Pi under a `.campfire` white-label, so its extension discovery scans `${CAMPFIRE_CODING_AGENT_DIR:-~/.campfire/agent}/extensions/`. The cmux extension records only the HOST role (`CAMPFIRE_SESSION_ROLE=host`); a joiner is an ephemeral view whose argv carries the invite URL — a capability token that is never persisted or replayed. The extension also subscribes to campfire's in-process observer bridge and surfaces driver-actionable collaborative moments (a joiner waiting in the lobby, a capability ask) as cmux notifications.
 
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
+
+Cortex Code reads hooks from `~/.snowflake/cortex/hooks.json` (or `$CORTEX_HOME/hooks.json`), whose schema matches Claude Code's, so no launch wrapper is needed — `cortex` picks up the installed hooks on its own. Its `timeout` values are seconds, not milliseconds. Cortex Code runs `Notification` hooks regardless of its own `enableDesktopNotifications` setting, so cmux notifications arrive without a duplicate native banner; on older Cortex Code builds that gate hooks behind that setting, enable **Desktop Notifications** in Cortex Code for the notification hooks to fire.
 
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
 

@@ -230,6 +230,22 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
+            name: "cortex", displayName: "Cortex Code", statusKey: "cortex",
+            configDir: ".snowflake/cortex", configFile: "hooks.json",
+            configDirEnvOverride: "CORTEX_HOME",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "cortex", disableEnvVar: "CMUX_CORTEX_HOOKS_DISABLED",
+            hookMarker: "cmux hooks cortex", format: .nested(timeoutMs: 10_000),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse"]
+        ),
+        AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
             configDir: ".kimi", configFile: "config.toml", configDirEnvOverride: "KIMI_SHARE_DIR",
             createConfigDirIfMissing: true, binaryName: "kimi",

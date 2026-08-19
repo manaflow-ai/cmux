@@ -506,4 +506,143 @@ extension AgentLaunchSanitizer {
             "--list-toolsets"
         ]
     )
+
+    /// Cortex Code (`cortex`). Preserves the Snowflake connection, model, sandbox, and
+    /// config selection so a resumed session lands on the same account and workspace.
+    /// Drops session selectors (cmux appends its own `--resume <id>`), `--goal` /
+    /// `--worktree` payloads that would restart work rather than continue it, and rejects
+    /// the headless shapes (`--print`, stream-json IO) that never resume interactively.
+    static let cortexPolicy = Policy(
+        valueOptions: [
+            "--agent",
+            "--allowed-tools",
+            "-c",
+            "--cloud",
+            "--config",
+            "--config-file",
+            "--connection",
+            "--disallowed-tools",
+            "--effort",
+            "--fork",
+            "--github",
+            "--goal",
+            "--input-format",
+            "-m",
+            "--max-turns",
+            "--mcp-config",
+            "--mode",
+            "--model",
+            "--mount",
+            "-o",
+            "--output-format",
+            "--output-last-message",
+            "-p",
+            "--plugin-dir",
+            "--print",
+            "--profile",
+            "-r",
+            "--resume",
+            "--resume-session-at",
+            "--session-id",
+            "--session-name",
+            "--setting-sources",
+            "--shell",
+            "--skills",
+            "-w",
+            "--with-restricted-session-scope",
+            "--workdir",
+            "--worktree"
+        ],
+        optionalValueOptions: [
+            "--cloud",
+            "-r",
+            "--resume"
+        ],
+        booleanOptions: [
+            "--auto-accept-plans",
+            "--auto-update",
+            "--bypass",
+            "--continue",
+            "--dangerously-allow-all-tool-calls",
+            "--enable-fips",
+            "--fips-status",
+            "--fork-session",
+            "--include-partial-messages",
+            "--index",
+            "--mcp",
+            "--no-auto-update",
+            "--no-enable-fips",
+            "--no-mcp",
+            "--only-explicit-mcp-servers",
+            "--plan",
+            "--private",
+            "--snowflake-sandbox",
+            "--sql-read-only",
+            "--swarm",
+            "--team"
+        ],
+        variadicOptions: [
+            "--allowed-tools",
+            "--disallowed-tools",
+            "--mount",
+            "--plugin-dir"
+        ],
+        nonRestorableCommands: [
+            "acp",
+            "agent-studio",
+            "agents",
+            "airflow",
+            "analyst",
+            "artifact",
+            "automation",
+            "completion",
+            "connections",
+            "conversations",
+            "ctx",
+            "exec",
+            "lineage",
+            "mcp",
+            "profile",
+            "resume",
+            "search",
+            "skill",
+            "swarm",
+            "update",
+            "versions",
+            "worktree"
+        ],
+        droppedOptions: [
+            "--continue",
+            "--fork",
+            "--fork-session",
+            "--goal",
+            "-r",
+            "--resume",
+            "--resume-session-at",
+            "--session-id",
+            "--session-name",
+            "--worktree"
+        ],
+        droppedOptionPrefixes: [
+            "--fork=",
+            "--goal=",
+            "-r=",
+            "--resume=",
+            "--resume-session-at=",
+            "--session-id=",
+            "--session-name=",
+            "--worktree="
+        ],
+        rejectOptions: [
+            "--fips-status",
+            "--include-partial-messages",
+            "--input-format",
+            "-o",
+            "--output-format",
+            "--output-last-message",
+            "-p",
+            "--print",
+            "--swarm"
+        ]
+    )
 }
