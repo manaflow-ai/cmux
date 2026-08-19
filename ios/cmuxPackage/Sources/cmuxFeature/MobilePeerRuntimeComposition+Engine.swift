@@ -4,6 +4,7 @@ import CmuxMobileShell
 import CmuxPeerTransport
 import CmuxPeerTransportCore
 import Foundation
+import OSLog
 
 /// The MainActor-owned inputs one activation attempt snapshots at its start.
 struct MobilePeerActivationInputs: Sendable {
@@ -86,6 +87,13 @@ final class MobilePeerEndpointActivator: PeerSessionEstablishing, @unchecked Sen
             return session
         } catch let failure as PeerDialFailure {
             try Task.checkCancellation()
+            #if DEBUG
+            // The privacy-coded diagnostic ring flattens every transient
+            // reason to one kind; dev builds surface the exact step so a
+            // wedged activation is diagnosable from the device console.
+            Logger(subsystem: "dev.cmux.ios", category: "peer-transport")
+                .error("endpoint activation failed: \(failure.reason, privacy: .public)")
+            #endif
             diagnosticLog?.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
