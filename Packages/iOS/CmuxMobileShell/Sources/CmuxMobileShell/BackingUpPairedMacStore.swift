@@ -1088,7 +1088,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).filter {
             cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+                && (!requiresExactInstanceTag
+                    || MacPairingKey(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ) == MacPairingKey(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ))
         }
         guard requiresExactInstanceTag || matches.count == 1 else { return nil }
         return matches.first
@@ -1148,9 +1155,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             return false
         }
         guard let mac = localMacs.first(where: {
-                cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                    && $0.instanceTag == instanceTag
-            }) else {
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }) else {
             diagnosticLog?.recordAppEvent(
                 .pairedMacBackupWriteFailed,
                 correlationID: pairingID,

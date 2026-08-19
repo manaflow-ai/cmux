@@ -382,7 +382,14 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             .filter {
                 cmxCanonicalDeviceID($0.macDeviceID)
                     == cmxCanonicalDeviceID(macDeviceID)
-                    && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+                    && (!requiresExactInstanceTag
+                        || MacPairingKey(
+                            macDeviceID: $0.macDeviceID,
+                            instanceTag: $0.instanceTag
+                        ) == MacPairingKey(
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag
+                        ))
             }
         guard requiresExactInstanceTag || matches.count == 1 else { return nil }
         return matches.first

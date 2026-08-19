@@ -1487,8 +1487,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Fall back to the retained recovery target: automatic recovery nils
         // foregroundMacDeviceID before the redial, and the workspace being
         // redialed must keep reading as recovering, not disconnected.
-        let ownerDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
-        guard macID == ownerDeviceID else { return false }
+        guard let ownerDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID else {
+            return false
+        }
+        guard cmxCanonicalDeviceID(macID) == cmxCanonicalDeviceID(ownerDeviceID) else {
+            return false
+        }
         // Same device: the row is foreground-served only when its BUILD
         // matches the live (or recovering) pairing. A sibling build's row
         // stays healthy while the foreground connection recovers.
@@ -1541,7 +1545,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let macDeviceID, !macDeviceID.isEmpty else {
             return workspace.macDeviceID == nil && workspace.macInstanceTag == nil
         }
-        return workspace.macDeviceID == macDeviceID
+        return cmxCanonicalDeviceID(workspace.macDeviceID ?? "")
+            == cmxCanonicalDeviceID(macDeviceID)
     }
 
     private func remoteWorkspaceID(containingTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
@@ -3794,13 +3799,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // `promoteSecondaryToForeground` writes it via an unawaited Task, and it is
         // stale during reconnect/switch races). Trusting it could make `openWorkspace`
         // proceed without switching and route input/mutations to the wrong Mac.
-        if foregroundMacDeviceID == macDeviceID,
+        if let foregroundMacDeviceID,
+           MacPairingKey(
+               macDeviceID: foregroundMacDeviceID,
+               instanceTag: activeMacInstanceTag
+           ) == MacPairingKey(refreshedTarget),
            connectionState == .connected,
-           remoteClient != nil,
-           macInstanceTagAuthority.sameStoredAuthority(
-               refreshedTarget.instanceTag,
-               activeMacInstanceTag
-           ) {
+           remoteClient != nil {
             macSwitchRestoreBaseline = nil
             return true
         }
@@ -3912,11 +3917,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return connectionState == .connected
                 && remoteClient != nil
-                && foregroundMacDeviceID == macDeviceID
-                && macInstanceTagAuthority.sameStoredAuthority(
-                    refreshedTarget.instanceTag,
-                    activeMacInstanceTag
-                )
+                && foregroundMacDeviceID.map {
+                    MacPairingKey(
+                        macDeviceID: $0,
+                        instanceTag: activeMacInstanceTag
+                    ) == MacPairingKey(refreshedTarget)
+                } == true
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
@@ -3943,11 +3949,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                !connectionRequiresReauth,
                !(connectionState == .connected
                    && remoteClient != nil
-                   && foregroundMacDeviceID == macDeviceID
-                   && macInstanceTagAuthority.sameStoredAuthority(
-                       refreshedTarget.instanceTag,
-                       activeMacInstanceTag
-                   )),
+                   && foregroundMacDeviceID.map {
+                       MacPairingKey(
+                           macDeviceID: $0,
+                           instanceTag: activeMacInstanceTag
+                       ) == MacPairingKey(refreshedTarget)
+                   } == true),
                isStillLegacy,
                await !isHiddenMacDeviceID(
                    macDeviceID,
@@ -3996,12 +4003,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && remoteClient != nil
             && !foregroundHandoffNeedsRepair
             && focusedForegroundConnection?.client === remoteClient
-            && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
-            && (previousActive.instanceTag == nil
-                || macInstanceTagAuthority.sameStoredAuthority(
-                    previousActive.instanceTag,
-                    activeMacInstanceTag
-                ))
+            && foregroundMacDeviceID.map {
+                MacPairingKey(
+                    macDeviceID: $0,
+                    instanceTag: activeMacInstanceTag
+                ) == MacPairingKey(previousActive)
+            } == true
         guard !previousStillForeground else { return true }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = orderedReconnectRoutes(
@@ -4117,11 +4124,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             guard self.connectionState == .connected,
                   self.remoteClient != nil,
-                  self.foregroundMacDeviceID == macDeviceID,
-                  macInstanceTagAuthority.sameStoredAuthority(
-                    instanceTag,
-                    self.activeMacInstanceTag
-                  ) else { return }
+                  (self.foregroundMacDeviceID.map {
+                      MacPairingKey(
+                          macDeviceID: $0,
+                          instanceTag: self.activeMacInstanceTag
+                      ) == MacPairingKey(
+                          macDeviceID: macDeviceID,
+                          instanceTag: instanceTag
+                      )
+                  } == true) else { return }
             do {
                 try await pairedMacStore.setActive(
                     macDeviceID: macDeviceID,
@@ -4131,11 +4142,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 guard self.connectionState == .connected,
                       self.remoteClient != nil,
-                      self.foregroundMacDeviceID == macDeviceID,
-                      macInstanceTagAuthority.sameStoredAuthority(
-                          instanceTag,
-                          self.activeMacInstanceTag
-                      ) else { return }
+                      (self.foregroundMacDeviceID.map {
+                          MacPairingKey(
+                              macDeviceID: $0,
+                              instanceTag: self.activeMacInstanceTag
+                          ) == MacPairingKey(
+                              macDeviceID: macDeviceID,
+                              instanceTag: instanceTag
+                          )
+                      } == true) else { return }
                 if reloadAfterWrite {
                     await self.loadPairedMacs()
                 }
@@ -5486,11 +5501,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackUserID: scope.userID,
                 teamID: scope.teamID
             ).first(where: {
-                $0.macDeviceID == macDeviceID
-                    && macInstanceTagAuthority.sameStoredAuthority(
-                        $0.instanceTag,
-                        storedInstanceTag
-                    )
+                MacPairingKey(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ) == MacPairingKey(
+                    macDeviceID: macDeviceID,
+                    instanceTag: storedInstanceTag
+                )
             })
             guard let currentMac else { return .revoked }
             return .authorized(currentMac)
@@ -5993,11 +6010,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackUserID: scope.userID,
                 teamID: scope.teamID
             ).first(where: {
-                $0.macDeviceID == macID
-                    && macInstanceTagAuthority.sameStoredAuthority(
-                        $0.instanceTag,
-                        handle.storedInstanceTag
-                    )
+                MacPairingKey(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ) == MacPairingKey(
+                    macDeviceID: macID,
+                    instanceTag: handle.storedInstanceTag
+                )
             })
         } catch {
             await disconnectSecondaryClientAndDrain(client)
@@ -7310,10 +7329,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let remapped = previousSelection.flatMap { previous in
                 derived.first {
                     $0.rpcWorkspaceID == previous.rpcWorkspaceID
-                        && $0.macDeviceID == previous.macDeviceID
-                        && macInstanceTagAuthority.sameStoredAuthority(
-                            $0.macInstanceTag,
-                            previous.macInstanceTag
+                        && MacPairingKey(
+                            macDeviceID: $0.macDeviceID ?? "",
+                            instanceTag: $0.macInstanceTag
+                        ) == MacPairingKey(
+                            macDeviceID: previous.macDeviceID ?? "",
+                            instanceTag: previous.macInstanceTag
                         )
                 }
             }

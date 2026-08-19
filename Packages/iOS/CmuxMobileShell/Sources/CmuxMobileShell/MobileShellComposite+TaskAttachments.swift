@@ -93,10 +93,9 @@ extension MobileShellComposite {
         }
         guard !Task.isCancelled,
               let context = captureWorkspaceCreateContext(),
-              context.macDeviceID == macDeviceID,
-              macInstanceTagAuthority.sameStoredAuthority(
-                  context.instanceTag,
-                  instanceTag
+              context.matchesTarget(
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
               ) else {
             return fail(.notConnected(
                 hostDisplayName: taskComposerTargetName(

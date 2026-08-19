@@ -28,9 +28,13 @@ public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
         instanceTag: String?,
         role: MobileMacConnectionRole
     ) {
-        self.macDeviceID = macDeviceID
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
         self.displayName = displayName
-        self.instanceTag = instanceTag
+        self.instanceTag = identity.instanceTag
         self.role = role
     }
 }

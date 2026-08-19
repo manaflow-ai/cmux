@@ -1,4 +1,5 @@
 public import CmuxMobilePairedMac
+internal import CMUXMobileCore
 internal import CmuxMobileShellModel
 internal import Foundation
 
@@ -50,11 +51,13 @@ extension MobileShellComposite {
             return macInstanceTagAuthority.sameStoredAuthority(
                 identity.instanceTag,
                 instanceTag
-            ) && $0.value.contains(macDeviceID)
+            ) && $0.value.contains(where: {
+                cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
+            })
         })?.value {
             return aliases
         }
-        return [macDeviceID]
+        return [cmxCanonicalDeviceID(macDeviceID)]
     }
 
     /// Presence across every stored id represented by a visible paired-Mac row.

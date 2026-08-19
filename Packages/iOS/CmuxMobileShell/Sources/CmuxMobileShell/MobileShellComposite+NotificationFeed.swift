@@ -295,10 +295,15 @@ extension MobileShellComposite {
         defer { finishNotificationFeedOpenOperation(operationToken) }
         // Compare the exact pairing: a sibling build's notification on the
         // foreground DEVICE still needs a switch to that build.
-        let isForegroundPairing = item.macDeviceID == normalizedForegroundNotificationFeedMacID()
-            && macInstanceTagAuthority.sameStoredAuthority(
-                item.macInstanceTag, activeMacInstanceTag
+        let isForegroundPairing = normalizedForegroundNotificationFeedMacID().map {
+            MacPairingKey(
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            ) == MacPairingKey(
+                macDeviceID: $0,
+                instanceTag: activeMacInstanceTag
             )
+        } ?? false
         if !isForegroundPairing {
             guard await switchToMac(
                 macDeviceID: item.macDeviceID,
