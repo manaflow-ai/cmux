@@ -4,6 +4,7 @@ import SQLite3
 enum GlobalSearchKind: String, Codable, Sendable {
     case browser
     case markdown
+    case terminal
     case title
 
     var localizedLabel: String {
@@ -12,6 +13,8 @@ enum GlobalSearchKind: String, Codable, Sendable {
             return String(localized: "globalSearch.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "globalSearch.kind.markdown", defaultValue: "Markdown")
+        case .terminal:
+            return String(localized: "globalSearch.kind.terminal", defaultValue: "Terminal")
         case .title:
             return String(localized: "globalSearch.kind.title", defaultValue: "Title")
         }

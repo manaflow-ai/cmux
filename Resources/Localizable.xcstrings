@@ -125153,6 +125153,23 @@
         }
       }
     },
+    "globalSearch.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
     "globalSearch.kind.title": {
       "extractionState": "manual",
       "localizations": {

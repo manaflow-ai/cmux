@@ -13,6 +13,9 @@ final class GlobalSearchPanelCaptureManager {
     private var markdownCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
+    /// Last indexed scrollback fingerprint per terminal panel, to skip
+    /// unchanged re-captures across palette opens.
+    private var terminalCaptureFingerprints: [UUID: UInt64] = [:]
 
     init(
         indexProvider: @escaping () async -> SearchIndex?,
@@ -38,6 +41,8 @@ final class GlobalSearchPanelCaptureManager {
             }
         } else if let browserPanel = context.panel as? BrowserPanel {
             captureBrowserPanel(browserPanel)
+        } else if let terminalPanel = context.panel as? TerminalPanel {
+            await indexTerminalPanel(terminalPanel, context: context, index: index)
         }
     }
 
@@ -162,6 +167,7 @@ final class GlobalSearchPanelCaptureManager {
     func cancelCaptures(forPanelID panelID: UUID) {
         cancelBrowserCapture(forPanelID: panelID)
         cancelMarkdownCapture(forPanelID: panelID)
+        terminalCaptureFingerprints[panelID] = nil
     }
 
     private func cancelBrowserCapture(forPanelID panelID: UUID) {
@@ -188,6 +194,64 @@ final class GlobalSearchPanelCaptureManager {
         timer.schedule(deadline: .now() + .milliseconds(milliseconds), leeway: .milliseconds(25))
         timer.setEventHandler(handler: handler)
         return timer
+    }
+
+    /// Indexes a live terminal's scrollback.
+    ///
+    /// Reads through `boundedScreenTailVT`: Ghostty applies the row and byte
+    /// bounds before anything crosses the FFI, and the read itself runs on the
+    /// teardown coordinator, so a 50 MB scrollback (the configured default)
+    /// never lands on the main actor — the failure mode issue #5757 fixed for
+    /// `surface.read_text`. Sanitizing and hashing then run off-main too.
+    private func indexTerminalPanel(
+        _ panel: TerminalPanel,
+        context: GlobalSearchPanelContext,
+        index: SearchIndex
+    ) async {
+        let panelID = context.panelID
+        let capturedVT = await panel.surface.boundedScreenTailVT(
+            maxRows: GlobalSearchIndexingLimits.maxTerminalCaptureRows,
+            maxBytes: GlobalSearchIndexingLimits.maxTerminalCaptureVTBytes
+        )
+        guard !Task.isCancelled else { return }
+        guard let capturedVT else {
+            // No snapshot available (hibernated or torn down): keep whatever is
+            // indexed, since the hit still routes to the panel. close() purges.
+            return
+        }
+
+        let prepared = await Task.detached(priority: .utility) {
+            let text = GlobalSearchTerminalText.strippedVT(capturedVT)
+            return (text: text, fingerprint: GlobalSearchTerminalText.fingerprint(text))
+        }.value
+        guard !Task.isCancelled else { return }
+        guard terminalCaptureFingerprints[panelID] != prepared.fingerprint else { return }
+
+        guard let document = GlobalSearchDocuments.terminalDocument(for: context, text: prepared.text) else {
+            terminalCaptureFingerprints[panelID] = nil
+            await purgeTerminalDocument(forPanelID: panelID, index: index)
+            return
+        }
+
+        do {
+            try await index.upsert(document)
+            terminalCaptureFingerprints[panelID] = prepared.fingerprint
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.terminal.upsert failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+        }
+    }
+
+    private func purgeTerminalDocument(forPanelID panelID: UUID, index: SearchIndex) async {
+        let documentID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .terminal)
+        do {
+            try await index.deleteDocument(id: documentID)
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.terminal.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+        }
     }
 
     private func purgeMarkdownDocument(forPanelID panelID: UUID, index: SearchIndex) async {
