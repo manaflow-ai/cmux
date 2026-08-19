@@ -3,6 +3,8 @@ import CmuxMobileShell
 import CmuxPeerTransport
 import CmuxPeerTransportCore
 import Foundation
+import OSLog
+import Security
 
 /// A stable, retry-aware failure returned by every connection entrypoint after
 /// one endpoint activation fails.
@@ -255,5 +257,41 @@ struct MobilePeerRelayPolicyRecordStore: PeerRelayPolicyStoring {
 
     func removeAll() async throws {
         try await store.delete(account: Self.account)
+    }
+}
+
+/// Validates a configured Keychain access group against the process's actual
+/// entitlements before the transport builds identity stores on it.
+///
+/// Fleet-archived dev builds bake `$(AppIdentifierPrefix)` into
+/// `CMUXKeychainAccessGroup` without a signing context, so the plist carries
+/// the bare bundle identifier while the local re-sign entitles only the
+/// team-prefixed group. Passing that unentitled group made every Keychain
+/// read fail with `errSecMissingEntitlement`, which the durable device-id
+/// store correctly treats as "unavailable" — permanently wedging endpoint
+/// activation. An unentitled group therefore falls back to the app's default
+/// access group instead of poisoning every downstream read.
+enum MobilePeerKeychainAccessGroupValidator {
+    static func entitledGroup(_ candidate: String?) -> String? {
+        guard let candidate else { return nil }
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.cmux.keychain-access-group-probe",
+            kSecAttrAccessGroup as String: candidate,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecMissingEntitlement {
+            #if DEBUG
+            Logger(subsystem: "dev.cmux.ios", category: "peer-transport")
+                .error(
+                    "keychain access group not entitled, using default group: \(candidate, privacy: .public)"
+                )
+            #endif
+            return nil
+        }
+        return candidate
     }
 }

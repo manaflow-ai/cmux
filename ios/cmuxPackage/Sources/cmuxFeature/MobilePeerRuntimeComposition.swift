@@ -175,8 +175,10 @@ public final class MobilePeerRuntimeComposition:
         else {
             preconditionFailure("cmux iOS requires a valid bundle identifier")
         }
-        let keychainAccessGroup = injectedKeychainAccessGroup
-            ?? Self.keychainAccessGroup(infoDictionary: infoDictionary)
+        let keychainAccessGroup = MobilePeerKeychainAccessGroupValidator.entitledGroup(
+            injectedKeychainAccessGroup
+                ?? Self.keychainAccessGroup(infoDictionary: infoDictionary)
+        )
         #if DEBUG
         let transportVerificationMode = Self.initialTransportVerificationMode(
             defaults: defaults
