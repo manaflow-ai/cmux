@@ -2724,16 +2724,20 @@ impl Mux {
                 return Err(error);
             }
             if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
-                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                );
+                // Commit the durable exit before deleting the record. The
+                // record is the only proof that this host ever existed, so a
+                // failed commit must leave the next startup able to retry
+                // instead of facing a lifecycle row with no evidence.
                 self.mark_terminal_exited_and_detach(
                     &terminal_id,
                     "terminal-host-proven-dead",
                     "host-process-ended-before-adoption",
                     &options,
                 )?;
+                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                    &record_path,
+                    &record,
+                );
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
@@ -2751,16 +2755,16 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
                         self.mark_terminal_exited_and_detach(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
                             &options,
                         )?;
+                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                            &record_path,
+                            &record,
+                        );
                         handled_terminals.insert(terminal_id.clone());
                     } else {
                         // Socket loss and descriptor pressure are not process
