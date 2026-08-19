@@ -362,7 +362,8 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let status_bg = theme.status_bg.unwrap_or(chrome.status_bg);
     let status_fg = theme.status_fg.unwrap_or(chrome.status_fg);
     let base = Style::default().bg(status_bg).fg(status_fg);
-    let (left_segments, right_segments) = app.resolved_status_segments();
+    let segments = app.resolved_status_segments();
+    let (left_segments, right_segments) = (&segments.0, &segments.1);
     let segment_style = |segment: &crate::app::StatusSegmentView| {
         Style::default().bg(segment.bg.unwrap_or(status_bg)).fg(segment.fg.unwrap_or(status_fg))
     };
@@ -385,7 +386,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    for segment in &left_segments {
+    for segment in left_segments {
         put(frame, &mut x, &segment.text, segment_style(segment));
     }
     if app.config.status_bar.show_screens

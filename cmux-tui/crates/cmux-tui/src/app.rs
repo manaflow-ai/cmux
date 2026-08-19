@@ -6798,7 +6798,7 @@ pub struct App {
     status_outputs_generation: Arc<AtomicU64>,
     /// Resolved status segments, rebuilt only when the fingerprint of their
     /// inputs changes, so drawing does not re-expand templates every frame.
-    status_segments_cache: Option<(u64, ResolvedStatusSegments)>,
+    status_segments_cache: Option<(u64, Arc<ResolvedStatusSegments>)>,
 }
 
 struct QueuedDurableNotice {
@@ -6925,6 +6925,7 @@ fn run_status_segment_loop(
     stop: Arc<AtomicBool>,
 ) {
     const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    let mut pending_notify = false;
     while !stop.load(Ordering::Acquire) {
         let output = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
         if stop.load(Ordering::Acquire) {
@@ -6941,13 +6942,20 @@ fn run_status_segment_loop(
         };
         if changed {
             generation.fetch_add(1, Ordering::Release);
-            // A full or closed queue drops one poke; the next tick retries.
-            let _ = events.try_send(AppEvent::StatusCommandsUpdated);
+            pending_notify = true;
+        }
+        // A full queue cannot lose the update: the poke stays pending and
+        // retries every sleep slice until the event loop accepts it.
+        if pending_notify && events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+            pending_notify = false;
         }
         let deadline = Instant::now() + interval;
         while Instant::now() < deadline {
             if stop.load(Ordering::Acquire) {
                 return;
+            }
+            if pending_notify && events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+                pending_notify = false;
             }
             std::thread::sleep(
                 deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(200)),
@@ -7009,26 +7017,27 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
             }
         }
     }
+    let group = child.id() as i32;
     let deadline = Instant::now() + timeout;
     let mut captured: Vec<u8> = Vec::new();
     let mut exited = false;
     loop {
-        // Drain what is available. Once the cap is reached, stop reading:
-        // the pipe fills and throttles the child until timeout handling.
+        // Drain what is available, keeping only the bounded tail so the
+        // final line survives even when a command writes more than the cap.
         if let Some(pipe) = stdout.as_mut() {
             let mut chunk = [0u8; 4096];
             loop {
-                if captured.len() >= MAX_STATUS_OUTPUT_BYTES {
-                    break;
-                }
                 match pipe.read(&mut chunk) {
                     Ok(0) => {
                         stdout = None;
                         break;
                     }
                     Ok(read) => {
-                        let room = MAX_STATUS_OUTPUT_BYTES - captured.len();
-                        captured.extend_from_slice(&chunk[..read.min(room)]);
+                        captured.extend_from_slice(&chunk[..read]);
+                        if captured.len() > MAX_STATUS_OUTPUT_BYTES {
+                            let excess = captured.len() - MAX_STATUS_OUTPUT_BYTES;
+                            captured.drain(..excess);
+                        }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                     Err(_) => {
@@ -7053,14 +7062,20 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
         }
         std::thread::sleep(STATUS_POLL_TICK);
     }
-    // Dropping `stdout` closes this side of the pipe, so no resource stays
-    // behind even when a descendant of the command is still alive.
+    // A status command must not outlive its collection: descendants that
+    // detached from the exited command (for example `cmd &`) would
+    // otherwise accumulate one per interval. Idempotent when the group is
+    // already gone.
+    // SAFETY: plain syscall on the spawned child's own process group id.
+    unsafe {
+        libc::kill(-group, libc::SIGKILL);
+    }
     captured
 }
 
 #[cfg(windows)]
 fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) -> Vec<u8> {
-    use std::io::Read;
+    use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::AtomicU64;
 
     static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -7081,25 +7096,116 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
         let _ = std::fs::remove_file(&path);
         return Vec::new();
     };
+    // The job's kill-on-close limit terminates the whole descendant tree
+    // when this function returns, mirroring the Unix process-group kill.
+    let job = StatusCommandJob::assign(&child);
     let deadline = Instant::now() + timeout;
     loop {
         if matches!(child.try_wait(), Ok(Some(_))) {
             break;
         }
         if stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+            if let Ok(job) = job.as_ref() {
+                job.terminate();
+            }
             kill_status_command_group(&mut child);
             break;
         }
         std::thread::sleep(STATUS_POLL_TICK);
     }
+    drop(job);
     // A file read never blocks on writers, so lingering descendants cannot
-    // pin this call open.
+    // pin this call open. Read the bounded tail so the final line survives
+    // a command that writes more than the cap.
     let mut captured = Vec::new();
-    if let Ok(file) = std::fs::File::open(&path) {
+    if let Ok(mut file) = std::fs::File::open(&path) {
+        if let Ok(metadata) = file.metadata() {
+            let length = metadata.len();
+            let cap = MAX_STATUS_OUTPUT_BYTES as u64;
+            if length > cap {
+                let _ = file.seek(SeekFrom::Start(length - cap));
+            }
+        }
         let _ = file.take(MAX_STATUS_OUTPUT_BYTES as u64).read_to_end(&mut captured);
     }
     let _ = std::fs::remove_file(&path);
     captured
+}
+
+/// Windows job object with the kill-on-close limit, so every process a
+/// status command started dies when the capture returns. Same pattern as
+/// the journal hook runner in cmux-tui-core.
+#[cfg(windows)]
+struct StatusCommandJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl StatusCommandJob {
+    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self { handle };
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size =
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
+        if process.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(process);
+        }
+        if let Some(error) = assign_error {
+            return Err(error);
+        }
+        Ok(job)
+    }
+
+    fn terminate(&self) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for StatusCommandJob {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        // Kill-on-close terminates any remaining descendants here.
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
 }
 
 /// Kill a status command and, on Unix, its whole process group so every
@@ -12471,19 +12577,20 @@ impl App {
     /// latest output. The resolved result is cached against a fingerprint
     /// of every expansion input, so an ordinary draw reuses the previous
     /// strings instead of re-expanding templates.
-    pub(crate) fn resolved_status_segments(&mut self) -> ResolvedStatusSegments {
+    pub(crate) fn resolved_status_segments(&mut self) -> Arc<ResolvedStatusSegments> {
+        static EMPTY: std::sync::OnceLock<Arc<ResolvedStatusSegments>> = std::sync::OnceLock::new();
         if self.config.status_bar.left.is_empty() && self.config.status_bar.right.is_empty() {
-            return (Vec::new(), Vec::new());
+            return EMPTY.get_or_init(|| Arc::new((Vec::new(), Vec::new()))).clone();
         }
         let fingerprint = self.status_segments_fingerprint();
         if self.status_segments_cache.as_ref().map(|(cached, _)| *cached) != Some(fingerprint) {
-            let resolved = self.resolve_status_segments_now();
+            let resolved = Arc::new(self.resolve_status_segments_now());
             self.status_segments_cache = Some((fingerprint, resolved));
         }
         self.status_segments_cache
             .as_ref()
-            .map(|(_, resolved)| resolved.clone())
-            .unwrap_or_default()
+            .map(|(_, resolved)| Arc::clone(resolved))
+            .unwrap_or_else(|| EMPTY.get_or_init(|| Arc::new((Vec::new(), Vec::new()))).clone())
     }
 
     /// Allocation-free hash of every input `resolve_status_segments_now`
@@ -23381,7 +23488,8 @@ mod tests {
         }];
         app.status_command_outputs.lock().unwrap().insert(1, "widget".to_string());
 
-        let (left, right) = app.resolved_status_segments();
+        let segments = app.resolved_status_segments();
+        let (left, right) = (&segments.0, &segments.1);
         assert_eq!(left.len(), 1);
         assert!(
             left[0].text.contains(" work 1 "),
