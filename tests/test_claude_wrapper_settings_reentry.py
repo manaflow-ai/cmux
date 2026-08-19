@@ -644,7 +644,9 @@ def test_state_directory_sweep_only_removes_its_own_entries(failures: list[str])
             failures.append(
                 f"sweep removed {decoy_name}, which cmux did not write: {names[:8]!r} ({len(names)} entries)"
             )
-    seeded_left = [name for name in names if name.isdigit() and name.startswith("9")]
+    # Only the seeded range: the live launch writes its own state file, whose pid
+    # can start with any digit, and that one is expected to still be there.
+    seeded_left = [name for name in names if name.isdigit() and 900000 <= int(name) < 900000 + 300]
     if seeded_left:
         failures.append(f"sweep left {len(seeded_left)} of its own day-old entries behind: {seeded_left[:8]!r}")
 
