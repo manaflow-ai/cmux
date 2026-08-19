@@ -219,18 +219,22 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             "Expected the focus-mode test page to finish loading. data=\(loadGotoSplit() ?? [:])"
         )
 
-        let focusModeButton = app.buttons["BrowserFocusModeButton"].firstMatch
+        // Focus mode is a plain action in the overflow menu while inactive.
+        // Use its configured shortcut to enter it, then verify the active chip
+        // is promoted back into the inline accessory row.
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .option])
+
+        let focusModeButton = toolbarElement(app, identifier: "BrowserFocusModeButton")
         XCTAssertTrue(
             focusModeButton.waitForExistence(timeout: 5.0),
-            "Expected browser focus-mode toolbar button to exist"
+            "Expected the active browser focus-mode chip to be promoted inline"
         )
-        focusModeButton.click()
 
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 5.0) { data in
                 data["browserFocusModeActive"] == "true"
             },
-            "Expected toolbar button to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
+            "Expected the configured focus-mode shortcut to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
         )
 
         app.typeKey("f", modifierFlags: [.command])
@@ -277,12 +281,53 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             "Expected second Escape to exit focus mode without reaching the page. data=\(loadGotoSplit() ?? [:])"
         )
 
+        XCTAssertFalse(
+            focusModeButton.exists,
+            "The inactive focus-mode action should return to the overflow menu"
+        )
+
         let baselineAddTabInvocations = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
         app.typeKey("n", modifierFlags: [.command])
         XCTAssertTrue(
             waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baselineAddTabInvocations + 1, timeout: 5.0),
             "Expected Cmd+N to resume normal cmux routing after focus mode exit. data=\(loadKeyequiv())"
         )
+    }
+
+    func testWideBrowserToolbarUsesOverflowForPlainActions() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the browser fixture to finish loading before checking toolbar controls. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        let expectedInlineIdentifiers = [
+            "BrowserOverflowMenu",
+            "BrowserProfileButton",
+            "BrowserThemeModeButton",
+        ]
+        for identifier in expectedInlineIdentifiers {
+            XCTAssertTrue(
+                toolbarElement(app, identifier: identifier).waitForExistence(timeout: 5.0),
+                "Expected the wide browser toolbar to expose \(identifier)"
+            )
+        }
+
+        let plainActionIdentifiers = [
+            "BrowserFocusModeButton",
+            "BrowserDesignModeButton",
+            "BrowserScreenshotPageButton",
+            "BrowserToggleDevToolsButton",
+        ]
+        for identifier in plainActionIdentifiers {
+            XCTAssertFalse(
+                toolbarElement(app, identifier: identifier).exists,
+                "The inactive plain action \(identifier) should be inside BrowserOverflowMenu at every width"
+            )
+        }
     }
 
     private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
@@ -330,6 +375,10 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
 
         XCTFail("App failed to start. state=\(app.state.rawValue)")
+    }
+
+    private func toolbarElement(_ app: XCUIApplication, identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     private func makeBrowserHandledCmdFPageURL() -> String {
