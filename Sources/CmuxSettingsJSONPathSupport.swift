@@ -213,7 +213,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -414,6 +421,7 @@ extension CmuxSettingsFileStore {
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
+        "terminal.adaptiveDefaultTheme",
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",

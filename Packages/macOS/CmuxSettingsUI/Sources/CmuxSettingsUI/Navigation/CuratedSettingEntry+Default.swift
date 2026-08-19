@@ -101,6 +101,26 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
             // Terminal
+            .init(
+                section: .terminal,
+                id: "adaptive-default-theme",
+                title: String(localized: "settings.terminal.adaptiveDefaultTheme", defaultValue: "Adapt Default Theme to Appearance"),
+                detailText: [
+                    String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
+                        defaultValue: "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+                    ),
+                    String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
+                        defaultValue: "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
+                    ),
+                ].joined(separator: " "),
+                paths: ["terminal.adaptiveDefaultTheme"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.adaptive-default-theme",
+                    defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
+                )
+            ),
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
             .init(
                 section: .terminal,

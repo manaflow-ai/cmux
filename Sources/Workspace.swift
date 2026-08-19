@@ -3287,7 +3287,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.surfaceTabBarDirectory = initialDirectory
 
         // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+        let initialSurfaceTabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
@@ -6950,6 +6950,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         target: String,
         externalRemoteTerminalDocks: [DockSplitStore] = []
     ) {
+        let reconnectWasInFlight = remoteControllerConnectionState == .connecting ||
+            remoteControllerConnectionState == .reconnecting
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preservesProxyFailureForLiveTerminal =
@@ -6978,7 +6980,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
-        if state == .connected { _ = reattachPersistentRemotePTYPanels() }
+        if state == .connected,
+           (remoteSessionController != nil || !reconnectWasInFlight) {
+            _ = reattachPersistentRemotePTYPanels()
+        }
         applyBrowserRemoteWorkspaceStatusToPanels()
 
         if suppressProxyOnlySidebarError {

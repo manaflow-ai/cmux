@@ -10273,7 +10273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
         let tab = tabManager.addTab()
-        let config = GhosttyConfig.load()
+        let config = GhosttyConfig.loadForCmux()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
         let minimumLineCount = 2000
