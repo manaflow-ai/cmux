@@ -75,7 +75,11 @@ struct ManagedPolicySettingsImportTests {
 
             // The re-assert pass that fires on every defaults change must not
             // write the forced key either (this is the write-loop scenario).
+            // The store observes via receive(on: DispatchQueue.main), so
+            // drain the main run loop to let the re-assert actually run
+            // before asserting.
             notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
             #expect(defaults.object(forKey: key) == nil)
 
             // Neither may an explicit reload.
