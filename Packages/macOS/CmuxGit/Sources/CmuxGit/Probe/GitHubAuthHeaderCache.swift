@@ -77,7 +77,9 @@ actor GitHubAuthHeaderCache {
     /// The optional match prevents one request using an older credential from
     /// invalidating a newer credential resolved concurrently.
     func invalidate(ifMatching expectedHeader: String? = nil) {
-        if let expectedHeader, cachedHeader != expectedHeader {
+        if let expectedHeader,
+           let cachedHeader,
+           cachedHeader != expectedHeader {
             return
         }
         cacheGeneration += 1
@@ -88,9 +90,12 @@ actor GitHubAuthHeaderCache {
 
     /// Records a failed authenticated request and applies the same backoff as
     /// a failed CLI resolution. This prevents a credential that remains
-    /// invalid after one refresh from prompting again on every poll.
+    /// invalid after one refresh from prompting again on every poll. A missing
+    /// cached header is treated as unknown state and fails closed as well.
     func recordFailure(ifMatching expectedHeader: String? = nil) {
-        if let expectedHeader, cachedHeader != expectedHeader {
+        if let expectedHeader,
+           let cachedHeader,
+           cachedHeader != expectedHeader {
             return
         }
         cacheGeneration += 1

@@ -91,6 +91,23 @@ struct GitHubAuthHeaderCacheTests {
         #expect(await cache.header { await resolver.next() } == "Bearer fourth")
         #expect(await resolver.count == 4)
     }
+
+    @Test func unknownCredentialStateFailsClosedWithBackoff() async {
+        let clock = MutableDateClock(initial: Date(timeIntervalSince1970: 1_800_000_000))
+        let cache = GitHubAuthHeaderCache(
+            failureBackoffBase: 60,
+            failureBackoffMaximum: 15 * 60,
+            now: { clock.now }
+        )
+        let resolver = HeaderResolutionCounter(values: ["Bearer recovered"])
+
+        await cache.recordFailure(ifMatching: "Bearer unknown")
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await resolver.count == 0)
+        clock.advance(by: 60)
+        #expect(await cache.header { await resolver.next() } == "Bearer recovered")
+        #expect(await resolver.count == 1)
+    }
 }
 
 /// A test-only clock whose synchronous read can safely cross the cache actor.
