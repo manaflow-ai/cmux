@@ -489,7 +489,10 @@ async function findSessionAccountStatement(
       and binding."provider" = ${provider}
       and binding."session_key" = ${sessionKey}
       and account."id" = binding."account_id"
-      and account."state" = 'active'
+      -- 'refreshing' is a healthy account with a credential refresh in
+      -- flight (seconds). Moving the session would discard its prompt
+      -- cache for no reason, so the binding stays usable.
+      and account."state" in ('active', 'refreshing')
       and (account."cooldown_until" is null or account."cooldown_until" <= now())
       ${accountExclusion(sql`account."id"`, excludedAccountIds)}
     returning

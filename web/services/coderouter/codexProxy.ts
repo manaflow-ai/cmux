@@ -43,6 +43,35 @@ function sessionKeyFromRequest(request: Request): string | null {
   return raw;
 }
 
+const STICKY_REFRESH_RETRIES = 4;
+const STICKY_REFRESH_RETRY_DELAY_MS = 500;
+
+/**
+ * A sticky session that hits a refresh already in flight should wait for the
+ * winner's fresh credential rather than move to another account: a move
+ * discards the session's prompt cache and re-bills its whole prefix, while
+ * the in-flight refresh completes within seconds. Non-sticky requests keep
+ * the fail-fast behavior.
+ */
+async function credentialWithStickyPatience(
+  dependencies: Pick<CodexResponsesDependencies, "credential">,
+  input: { teamId: string; accountId: string; expectedRevision: number },
+  sticky: boolean,
+): Promise<Awaited<ReturnType<CodexResponsesDependencies["credential"]>>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await dependencies.credential(input);
+    } catch (error) {
+      const busy = error && typeof error === "object" && "_tag" in error &&
+        (error as { _tag: string })._tag === "CodeRouterRefreshBusy";
+      if (!busy || !sticky || attempt >= STICKY_REFRESH_RETRIES) throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, STICKY_REFRESH_RETRY_DELAY_MS)
+      );
+    }
+  }
+}
+
 export function createCodexResponsesProxy(
   dependencies: CodexResponsesDependencies,
 ): (request: Request) => Promise<Response> {
@@ -142,11 +171,15 @@ async function proxyCodexRequestWith(
     });
     let credential;
     try {
-      credential = await dependencies.credential({
-        teamId: identity.teamId,
-        accountId: account.id,
-        expectedRevision: account.vaultRevision,
-      });
+      credential = await credentialWithStickyPatience(
+        dependencies,
+        {
+          teamId: identity.teamId,
+          accountId: account.id,
+          expectedRevision: account.vaultRevision,
+        },
+        account.sticky,
+      );
     } catch (error) {
       failureStage = "credential_refresh";
       if (error && typeof error === "object" && "_tag" in error) {

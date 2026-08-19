@@ -188,6 +188,31 @@ describe("coderouter routing db behavior", () => {
     expect(bound).toBeNull();
   });
 
+  dbTest("a binding survives its account being mid-refresh", async () => {
+    if (!sql) throw new Error("no sql client");
+    await insertAccounts(2);
+    const first = await selectAccountForSession({
+      teamId: TEAM,
+      provider: "codex",
+      sessionKey: "refreshing-session",
+    });
+    expect(first).not.toBeNull();
+    await sql`
+      update coderouter_accounts
+      set state = 'refreshing',
+          refresh_lease_id = ${randomUUID()},
+          refresh_lease_expires_at = now() + interval '30 seconds'
+      where id = ${first?.id ?? ""}
+    `;
+    const during = await selectAccountForSession({
+      teamId: TEAM,
+      provider: "codex",
+      sessionKey: "refreshing-session",
+    });
+    expect(during?.id).toBe(first?.id ?? "");
+    expect(during?.sticky).toBe(true);
+  });
+
   dbTest("routes without stickiness while the session table is missing", async () => {
     if (!sql) throw new Error("no sql client");
     await insertAccounts(2);

@@ -11,6 +11,8 @@ let selectInputs: SelectInput[] = [];
 let accountsToServe: { id: string; sticky: boolean }[] = [];
 let cooldowns: string[] = [];
 let upstreamStatuses: number[] = [];
+let credentialBusyBudgets = new Map<string, number>();
+let credentialCalls: string[] = [];
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -45,15 +47,25 @@ const proxy = createCodexResponsesProxy({
       }
       : null;
   },
-  credential: async ({ accountId }) => ({
-    provider: "codex",
-    accessToken: `access-${accountId}`,
-    refreshToken: "refresh",
-    idToken: "id",
-    accountId: "chatgpt-account",
-    email: "person@example.com",
-    expiresAt: Date.now() + 60_000,
-  }),
+  credential: async ({ accountId }) => {
+    if (credentialBusyBudgets.get(accountId)) {
+      credentialBusyBudgets.set(
+        accountId,
+        (credentialBusyBudgets.get(accountId) ?? 1) - 1,
+      );
+      throw Object.assign(new Error("busy"), { _tag: "CodeRouterRefreshBusy" });
+    }
+    credentialCalls.push(accountId);
+    return {
+      provider: "codex",
+      accessToken: `access-${accountId}`,
+      refreshToken: "refresh",
+      idToken: "id",
+      accountId: "chatgpt-account",
+      email: "person@example.com",
+      expiresAt: Date.now() + 60_000,
+    };
+  },
   cooldown: async (accountId) => {
     cooldowns.push(accountId);
   },
@@ -64,6 +76,8 @@ beforeEach(() => {
   accountsToServe = [];
   cooldowns = [];
   upstreamStatuses = [];
+  credentialBusyBudgets = new Map();
+  credentialCalls = [];
 });
 
 function responsesRequest(headers: Record<string, string> = {}): Request {
@@ -114,6 +128,27 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs).toHaveLength(2);
     expect(selectInputs[1]?.excludedAccountIds).toEqual(["acct-1"]);
     expect(selectInputs[1]?.sessionKey).toBe("session-move");
+  });
+
+  test("a sticky session waits out an in-flight refresh instead of moving", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    credentialBusyBudgets.set("acct-1", 2);
+    const response = await proxy(responsesRequest({ session_id: "session-wait" }));
+    expect(response.status).toBe(200);
+    expect(selectInputs).toHaveLength(1);
+    expect(credentialCalls).toEqual(["acct-1"]);
+  });
+
+  test("a non-sticky request moves immediately on refresh-busy", async () => {
+    accountsToServe = [
+      { id: "acct-1", sticky: false },
+      { id: "acct-2", sticky: false },
+    ];
+    credentialBusyBudgets.set("acct-1", 1);
+    const response = await proxy(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(credentialCalls).toEqual(["acct-2"]);
+    expect(selectInputs).toHaveLength(2);
   });
 
   test("returns no_usable_account when selection is exhausted", async () => {
