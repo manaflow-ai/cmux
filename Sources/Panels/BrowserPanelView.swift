@@ -1485,10 +1485,7 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.canToggleBrowserFocusMode)
             Button(action: handleScreenshotPageButtonAction) {
-                Label(
-                    String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"),
-                    systemImage: "camera"
-                )
+                Text(String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"))
             }
             .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
             .accessibilityIdentifier("BrowserScreenshotPageButton")
