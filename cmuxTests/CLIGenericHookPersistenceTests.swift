@@ -12,6 +12,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let extraEnvironment: [String: String]
         let expectedArguments: [String]
         let expectedEnvironment: [String: String]?
+        let expectedSource: String?
+        let expectedRejectionReason: String?
+
+        init(
+            agent: String,
+            subcommand: String,
+            sessionId: String,
+            executable: String,
+            launchArguments: [String],
+            extraEnvironment: [String: String],
+            expectedArguments: [String],
+            expectedEnvironment: [String: String]?,
+            expectedSource: String? = nil,
+            expectedRejectionReason: String? = nil
+        ) {
+            self.agent = agent
+            self.subcommand = subcommand
+            self.sessionId = sessionId
+            self.executable = executable
+            self.launchArguments = launchArguments
+            self.extraEnvironment = extraEnvironment
+            self.expectedArguments = expectedArguments
+            self.expectedEnvironment = expectedEnvironment
+            self.expectedSource = expectedSource
+            self.expectedRejectionReason = expectedRejectionReason
+        }
     }
 
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
@@ -71,6 +97,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "danger-full-access"
                 ],
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-rejected-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--prompt",
+                    "one-shot prompt"
+                ],
+                extraEnvironment: [:],
+                expectedArguments: [],
+                expectedEnvironment: nil,
+                expectedSource: "rejected",
+                expectedRejectionReason: "sanitizerRejectedArgv"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-decode-failed-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: ["CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64"],
+                expectedArguments: [],
+                expectedEnvironment: nil,
+                expectedSource: "default",
+                expectedRejectionReason: "argvDecodeFailed"
             ),
             GenericHookPersistenceScenario(
                 agent: "kiro",
@@ -4329,6 +4383,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+        if let expectedSource = scenario.expectedSource {
+            XCTAssertEqual(launchCommand["source"] as? String, expectedSource)
+        }
+        if let expectedRejectionReason = scenario.expectedRejectionReason {
+            XCTAssertEqual(launchCommand["rejectionReason"] as? String, expectedRejectionReason)
+        }
 
         if scenario.agent == "kiro" {
             let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in

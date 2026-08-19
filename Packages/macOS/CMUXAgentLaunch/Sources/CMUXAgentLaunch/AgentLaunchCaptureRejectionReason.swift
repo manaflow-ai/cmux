@@ -41,6 +41,10 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// already exited).
     public static let argvUnavailable = Self(rawValue: "argvUnavailable")
 
+    /// A launch-capture value was present for a trusted launcher, but its
+    /// base64/NUL-separated payload could not be decoded into argv.
+    public static let argvDecodeFailed = Self(rawValue: "argvDecodeFailed")
+
     /// An argv was captured and trusted, but `AgentLaunchSanitizer` judged the
     /// invocation non-restorable (a one-shot subcommand such as `codex exec`, a
     /// rejected option, a wrapper launcher that cannot be replayed). This is

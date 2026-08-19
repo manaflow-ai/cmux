@@ -31323,11 +31323,16 @@ struct CMUXCLI {
         // the SAME argv are ordered inside AgentLaunchCaptureArgvVerdict.
         var cmuxCaptureRejectionReason: AgentLaunchCaptureRejectionReason?
         var processFallbackRejectionReason: AgentLaunchCaptureRejectionReason?
+        let rawEnvironmentArguments = env["CMUX_AGENT_LAUNCH_ARGV_B64"]
         let envArguments = envCaptureIsTrusted
-            ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            ? decodeNULSeparatedBase64(rawEnvironmentArguments)
             : nil
-        if !envCaptureIsTrusted, normalizedHookValue(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) != nil {
+        if !envCaptureIsTrusted, rawEnvironmentArguments != nil {
             cmuxCaptureRejectionReason = .launcherDoesNotDescribeKind
+        } else if envCaptureIsTrusted,
+                  rawEnvironmentArguments != nil,
+                  envArguments == nil {
+            cmuxCaptureRejectionReason = .argvDecodeFailed
         }
         var processArguments: [String]?
         if let fallbackPID {
@@ -31394,7 +31399,9 @@ struct CMUXCLI {
             rejectionReason: AgentLaunchCaptureRejectionReason
         ) -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                guard fallbackKind == "codex" else { return nil }
+                guard fallbackKind == "codex" || rejectionReason != .argvUnavailable else {
+                    return nil
+                }
                 return argvLessRecord(
                     executablePath: nil,
                     environment: nil,

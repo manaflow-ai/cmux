@@ -111,4 +111,15 @@ struct AgentLaunchCommandRejectionReasonTests {
         )
         #expect(object["rejectionReason"] == nil)
     }
+
+    @Test func decodeFailureHasAStableForwardCompatibleToken() throws {
+        let reason = AgentLaunchCaptureRejectionReason.argvDecodeFailed
+        let encoded = try JSONEncoder().encode(reason)
+        let decoded = try JSONDecoder().decode(
+            AgentLaunchCaptureRejectionReason.self,
+            from: encoded
+        )
+        #expect(decoded == reason)
+        #expect(reason.rawValue == "argvDecodeFailed")
+    }
 }
