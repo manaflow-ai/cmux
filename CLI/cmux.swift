@@ -30662,6 +30662,7 @@ export default CMUXSessionRestore;
     }
 
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
+        let lineEnding = configLines.lineEnding(of: existingContent)
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
@@ -30712,7 +30713,7 @@ export default CMUXSessionRestore;
             lines.append(contentsOf: insertedLines)
         }
 
-        return tomlContent(from: lines)
+        return tomlContent(from: lines, lineEnding: lineEnding)
     }
 
     private static func codexHooksFeatureLines(settingLine: String, previousLine: String? = nil) -> [String] {
@@ -30731,6 +30732,7 @@ export default CMUXSessionRestore;
         removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
         removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> String {
+        let lineEnding = configLines.lineEnding(of: existingContent)
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
         let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
@@ -30747,7 +30749,7 @@ export default CMUXSessionRestore;
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
-        return tomlContent(from: lines)
+        return tomlContent(from: lines, lineEnding: lineEnding)
     }
 
     private static func codexConfigTomlRemovingHookTrust(
@@ -30756,6 +30758,7 @@ export default CMUXSessionRestore;
         removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
         removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> String {
+        let lineEnding = configLines.lineEnding(of: existingContent)
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
         let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
@@ -30769,7 +30772,7 @@ export default CMUXSessionRestore;
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
-        return tomlContent(from: lines)
+        return tomlContent(from: lines, lineEnding: lineEnding)
     }
 
     private static func codexConfigTomlInstallingHookTrust(
@@ -30778,6 +30781,7 @@ export default CMUXSessionRestore;
         removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
         removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> CodexHookTrustInstallResult {
+        let lineEnding = configLines.lineEnding(of: existingContent)
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
         let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
@@ -30791,7 +30795,10 @@ export default CMUXSessionRestore;
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         guard !entries.isEmpty else {
-            return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
+            return CodexHookTrustInstallResult(
+                content: tomlContent(from: lines, lineEnding: lineEnding),
+                installedTrust: false
+            )
         }
         removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
 
@@ -30804,7 +30811,10 @@ export default CMUXSessionRestore;
             lines.append("trusted_hash = \"\(tomlBasicStringContent(entry.trustedHash))\"")
         }
         lines.append(cmuxCodexHookTrustEnd)
-        return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: true)
+        return CodexHookTrustInstallResult(
+            content: tomlContent(from: lines, lineEnding: lineEnding),
+            installedTrust: true
+        )
     }
 
     static func codexHookTrustEntries(
@@ -31074,18 +31084,28 @@ export default CMUXSessionRestore;
         return escaped
     }
 
+    private static let configLines = CmuxConfigLines()
+
+    /// Splits `config.toml` content into lines, tolerating the CRLF endings TOML
+    /// permits.
+    ///
+    /// Splitting on `"\n"` alone left a `"\r"` on every line of a CRLF config, and
+    /// the marker comparisons below (`line == cmuxCodexHookTrustBegin` and
+    /// friends) are exact, so no existing cmux block was ever found in one.
+    /// See ``CmuxConfigLines``.
     private static func tomlLines(from content: String) -> [String] {
-        guard !content.isEmpty else { return [] }
-        var lines = content.components(separatedBy: "\n")
-        if content.hasSuffix("\n"), lines.last == "" {
-            lines.removeLast()
-        }
-        return lines
+        configLines.split(content)
     }
 
-    private static func tomlContent(from lines: [String]) -> String {
-        guard !lines.isEmpty else { return "" }
-        return lines.joined(separator: "\n") + "\n"
+    /// Rejoins `config.toml` lines, keeping the ending style the file arrived in.
+    ///
+    /// `lineEnding` has no default so every rewrite has to name the style it
+    /// writes; pass `configLines.lineEnding(of:)` of the content that was read.
+    private static func tomlContent(
+        from lines: [String],
+        lineEnding: CmuxConfigLines.LineEnding
+    ) -> String {
+        configLines.joined(lines, lineEnding: lineEnding)
     }
 
     private static func tomlLineDefinesKey(_ key: String, line: String) -> Bool {
