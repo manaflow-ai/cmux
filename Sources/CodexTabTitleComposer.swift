@@ -22,7 +22,7 @@ struct CodexTabTitleComposer: Sendable {
         hasCustomTitle: Bool
     ) -> CodexTabTitlePresentation {
         let normalizedBaseTitle = baseTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = normalizedBaseTitle.isEmpty ? "Tab" : normalizedBaseTitle
+        let title = normalizedBaseTitle
         guard !hasCustomTitle, let lifecycle else {
             return CodexTabTitlePresentation(title: title, isAnimating: false)
         }

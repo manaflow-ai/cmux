@@ -11,7 +11,7 @@ extension Workspace {
         let baseTitle = fallback
             ?? panelTitles[panelId]
             ?? panel?.displayTitle
-            ?? "Tab"
+            ?? ""
         return CodexTabTitleComposer.presentation(
             baseTitle: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             lifecycle: agentLifecycleStatesByPanelId[panelId]?[CodexTabTitleComposer.statusKey],
