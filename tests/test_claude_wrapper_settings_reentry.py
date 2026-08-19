@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import stat
+import time
 import socket
 import subprocess
 import tempfile
@@ -112,6 +113,7 @@ def run_reentry(
     reserialize_settings: bool = False,
     hostile_state_dir: Path | None = None,
     occupy_state_path: bool = False,
+    seed_state_dir: int = 0,
     timeout: float = 30.0,
 ) -> ReentryRun:
     """Launch cmux's shim `claude` with a re-entrant custom Claude Binary Path.
@@ -131,7 +133,9 @@ def run_reentry(
     belongs, pointing at that directory, the way a squatter in a shared /tmp
     would. `occupy_state_path` puts a fifo where the state file belongs, inside
     the wrapper's own verified directory, so the paths that write, read and
-    delete it meet something that is not a regular file.
+    delete it meet something that is not a regular file. `seed_state_dir` fills
+    that directory with that many day-old pid-shaped entries plus one day-old
+    file nobody named after a pid, to exercise the sweep.
     """
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-") as td:
@@ -238,6 +242,17 @@ exec {launcher_dir / "claude-launcher"} claude "$@"
 
         wrapper_tmpdir = tmp / "tmp"
         wrapper_tmpdir.mkdir(parents=True, exist_ok=True)
+        if seed_state_dir:
+            state_dir = wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}"
+            state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            stale = time.time() - 2 * 24 * 3600
+            for index in range(seed_state_dir):
+                entry = state_dir / str(900000 + index)
+                entry.write_text("1\n", encoding="utf-8")
+                os.utime(entry, (stale, stale))
+            decoy = state_dir / "not-a-pid.txt"
+            decoy.write_text("keep me", encoding="utf-8")
+            os.utime(decoy, (stale, stale))
         if hostile_state_dir is not None:
             (wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}").symlink_to(hostile_state_dir)
 
@@ -558,6 +573,26 @@ def test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures: list[
         failures.append(f"wrapper did not leave the fifo at its state path alone: {run.state_entries!r}")
 
 
+def test_state_directory_sweep_only_removes_its_own_entries(failures: list[str]) -> None:
+    """The sweep clears cmux's own stale entries and nothing else.
+
+    Seeded past the sweep threshold with day-old pid-shaped entries plus one
+    day-old file that is not named after a pid, a launch has to collect its own
+    litter and leave the stranger's file exactly where it is.
+    """
+
+    run = run_reentry(argv=[], break_after=3, seed_state_dir=300, timeout=30.0)
+
+    if not run.real_argv:
+        failures.append(f"real claude never started with a seeded state directory: {run.stderr!r}")
+    names = [name for name, _ in run.state_entries]
+    if "not-a-pid.txt" not in names:
+        failures.append(f"sweep removed a file cmux did not write: {names[:8]!r} ({len(names)} entries)")
+    seeded_left = [name for name in names if name.isdigit() and name.startswith("9")]
+    if seeded_left:
+        failures.append(f"sweep left {len(seeded_left)} of its own day-old entries behind: {seeded_left[:8]!r}")
+
+
 def test_env_scrubbed_reentry_loop_is_stopped(failures: list[str]) -> None:
     """A launcher that rebuilds the environment must not unbound the loop.
 
@@ -648,6 +683,7 @@ def main() -> int:
     test_unbounded_reentry_loop_is_stopped(failures)
     test_env_scrubbed_reentry_loop_is_stopped(failures)
     test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures)
+    test_state_directory_sweep_only_removes_its_own_entries(failures)
     test_hostile_state_directory_is_not_written_through(failures)
     test_hostile_state_directory_survives_the_guard_trip(failures)
     test_reentry_guard_survives_a_reserializing_launcher(failures)

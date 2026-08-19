@@ -209,8 +209,10 @@ cmux_claude_wrapper_prune_hook_reentry_state() {
     local -a entries=("$dir"/*)
     [[ -e "${entries[0]}" || -L "${entries[0]}" ]] || return 0
     (( ${#entries[@]} > cmux_claude_wrapper_hook_reentry_state_sweep_threshold )) || return 0
-    # Yesterday's entries cannot belong to a live pid this wrapper cares about.
-    find "$dir" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null || true
+    # Only all-digit names, which is what this wrapper writes ($$), and only
+    # yesterday's: those cannot belong to a live pid it cares about. Anything
+    # else in the directory was not written here and is left alone.
+    find "$dir" -maxdepth 1 -type f -name '[0-9]*' ! -name '*[!0-9]*' -mtime +1 -delete 2>/dev/null || true
 }
 
 cmux_claude_wrapper_clear_hook_reentry_state() {
