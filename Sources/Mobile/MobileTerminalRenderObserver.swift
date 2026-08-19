@@ -24,8 +24,6 @@ final class MobileTerminalRenderObserver {
     private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
     private var reconciledSurfaceTopologyGeneration: UInt64?
-    private var cachedTerminalTheme: TerminalTheme = .monokai
-    private var hasLoadedTerminalTheme = false
     private var terminalThemeRevision: UInt64 = 0
     private lazy var themeInvalidationScheduler = MobileTerminalThemeInvalidationScheduler {
         [weak self] surfaceIDs in
@@ -123,7 +121,6 @@ final class MobileTerminalRenderObserver {
         terminalThemesBySurfaceID.removeAll()
         terminalConfigThemesBySurfaceID.removeAll()
         runtimeSurfaceGenerationsBySurfaceID.removeAll()
-        hasLoadedTerminalTheme = false
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
@@ -151,12 +148,8 @@ final class MobileTerminalRenderObserver {
 
     private func refreshNotificationDemand() {
         let shouldRetainDemand = hasAnyRenderEventSubscribers
-        let hasRenderGridSubscribers = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
-        if hasRenderGridSubscribers, !hasLoadedTerminalTheme {
-            refreshTerminalTheme()
-        } else if !hasRenderGridSubscribers {
+        if !MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") {
             clearRenderGridCaches()
-            hasLoadedTerminalTheme = false
         }
         if shouldRetainDemand {
             if releaseFrameDemand == nil {
@@ -392,17 +385,18 @@ final class MobileTerminalRenderObserver {
             if let sharedTheme {
                 resolvedTheme = sharedTheme
             } else {
+                let macTheme = MobileTerminalThemeResolver.resolvedTheme()
                 let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
                     candidate: themedFrame.terminalConfigTheme,
                     cached: terminalConfigThemesBySurfaceID[surfaceID],
-                    fallbackBoldColor: cachedTerminalTheme.boldColor
+                    fallbackBoldColor: macTheme.boldColor
                 )
                 if snapshot.frame.terminalConfigTheme != nil, let configTheme {
                     terminalConfigThemesBySurfaceID[surfaceID] = configTheme
                 }
                 let candidateTheme = (themedFrame.terminalTheme
                     ?? terminalThemesBySurfaceID[surfaceID]
-                    ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
+                    ?? macTheme).applyingSurfaceColors(from: snapshot.frame)
                 let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
                     candidate: candidateTheme,
                     cached: terminalThemesBySurfaceID[surfaceID],
@@ -445,11 +439,6 @@ final class MobileTerminalRenderObserver {
         }
     }
 
-    private func refreshTerminalTheme() {
-        cachedTerminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
-        hasLoadedTerminalTheme = true
-    }
-
     /// Rebase the screen-anchored delta chain onto an authoritative replay
     /// frame served outside the event lane (the `mobile.terminal.replay` RPC).
     /// The next emitted delta is then diffed against exactly the state the
@@ -467,14 +456,14 @@ final class MobileTerminalRenderObserver {
     }
 
     func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {
-        if !hasLoadedTerminalTheme { refreshTerminalTheme() }
+        let macTheme = MobileTerminalThemeResolver.resolvedTheme()
         var themedFrame = frame
-        themedFrame.terminalTheme = (frame.terminalTheme ?? cachedTerminalTheme)
+        themedFrame.terminalTheme = (frame.terminalTheme ?? macTheme)
             .applyingSurfaceColors(from: frame)
         themedFrame.terminalConfigTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
             candidate: frame.terminalConfigTheme,
             cached: nil,
-            fallbackBoldColor: cachedTerminalTheme.boldColor
+            fallbackBoldColor: macTheme.boldColor
         )
         themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
         return themedFrame
@@ -486,11 +475,9 @@ final class MobileTerminalRenderObserver {
     }
 
     private func invalidateTerminalThemes() {
-        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else {
-            hasLoadedTerminalTheme = false
-            return
-        }
-        refreshTerminalTheme()
+        // The resolver re-resolves on these same notifications; the flush task
+        // runs after all handlers of the post, so it reads the fresh theme.
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
         hasPendingThemeInvalidation = true
         enqueueTerminalUpdate(surfaceID: nil)
     }

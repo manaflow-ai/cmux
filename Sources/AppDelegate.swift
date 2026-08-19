@@ -2351,6 +2351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
+        MobileTerminalThemeResolver.start()
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
