@@ -6906,6 +6906,44 @@ fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option
 /// Resolved left and right status segments, in draw order.
 type ResolvedStatusSegments = (Vec<StatusSegmentView>, Vec<StatusSegmentView>);
 
+/// The values one status template expansion can interpolate.
+struct StatusTemplateValues<'a> {
+    session: &'a str,
+    workspace: &'a str,
+    screen: &'a str,
+    screens: &'a str,
+    title: &'a str,
+    user: &'a str,
+}
+
+/// Expand `{variable}` tokens in one left-to-right pass, so an inserted
+/// value is never rescanned: a workspace literally named `{screens}` stays
+/// `{screens}` in the output. Unknown tokens stay literal.
+fn expand_status_tokens(template: &str, values: &StatusTemplateValues<'_>) -> String {
+    let mut result = String::with_capacity(template.len() + 16);
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        result.push_str(&rest[..start]);
+        let candidate = &rest[start..];
+        let Some(end) = candidate.find('}') else {
+            result.push_str(candidate);
+            return result;
+        };
+        match &candidate[1..end] {
+            "session" => result.push_str(values.session),
+            "workspace" => result.push_str(values.workspace),
+            "screen" => result.push_str(values.screen),
+            "screens" => result.push_str(values.screens),
+            "title" => result.push_str(values.title),
+            "user" => result.push_str(values.user),
+            _ => result.push_str(&candidate[..=end]),
+        }
+        rest = &candidate[end + 1..];
+    }
+    result.push_str(rest);
+    result
+}
+
 /// One status segment resolved for drawing.
 #[derive(Clone)]
 pub(crate) struct StatusSegmentView {
@@ -12751,7 +12789,10 @@ impl App {
 
     /// Allocation-free hash of every input `resolve_status_segments_now`
     /// reads: command outputs (via the workers' change counter) plus the
-    /// interpolated session, workspace, screen, and title values.
+    /// interpolated session, workspace, screen, and title values. The
+    /// frequently-changing tab title participates only when a configured
+    /// template actually uses `{title}`, so ordinary title churn does not
+    /// rebuild fixed segments.
     fn status_segments_fingerprint(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -12765,16 +12806,27 @@ impl App {
                 screen.name.hash(&mut hasher);
             }
         }
-        if let Some(tab) = self
-            .tree
-            .active_screen()
-            .and_then(|screen| screen.pane(screen.active_pane))
-            .and_then(|pane| pane.tabs.get(pane.active_tab))
+        if self.status_templates_use("{title}")
+            && let Some(tab) = self
+                .tree
+                .active_screen()
+                .and_then(|screen| screen.pane(screen.active_pane))
+                .and_then(|pane| pane.tabs.get(pane.active_tab))
         {
             tab.name.hash(&mut hasher);
             tab.title.hash(&mut hasher);
         }
         hasher.finish()
+    }
+
+    /// Whether any configured literal status segment contains `token`.
+    fn status_templates_use(&self, token: &str) -> bool {
+        self.config.status_bar.left.iter().chain(self.config.status_bar.right.iter()).any(
+            |segment| match &segment.content {
+                crate::config::StatusSegmentContent::Text(template) => template.contains(token),
+                crate::config::StatusSegmentContent::Command { .. } => false,
+            },
+        )
     }
 
     fn resolve_status_segments_now(&self) -> ResolvedStatusSegments {
@@ -12810,7 +12862,7 @@ impl App {
         }
         let workspace = self.tree.active_workspace();
         let workspace_name = workspace.map(|ws| ws.name.clone()).unwrap_or_default();
-        let screens = workspace.map(|ws| ws.screens.len()).unwrap_or(0);
+        let screens = workspace.map(|ws| ws.screens.len()).unwrap_or(0).to_string();
         let screen_name = workspace
             .and_then(|ws| {
                 ws.screens.get(ws.active_screen).map(|screen| screen.display_name(ws.active_screen))
@@ -12823,13 +12875,17 @@ impl App {
             .and_then(|pane| pane.tabs.get(pane.active_tab))
             .map(|tab| tab.name.clone().unwrap_or_else(|| tab.title.clone()))
             .unwrap_or_default();
-        template
-            .replace("{session}", &self.session_label)
-            .replace("{workspace}", &workspace_name)
-            .replace("{screen}", &screen_name)
-            .replace("{screens}", &screens.to_string())
-            .replace("{title}", &title)
-            .replace("{user}", cached_status_user())
+        expand_status_tokens(
+            template,
+            &StatusTemplateValues {
+                session: &self.session_label,
+                workspace: &workspace_name,
+                screen: &screen_name,
+                screens: &screens,
+                title: &title,
+                user: cached_status_user(),
+            },
+        )
     }
 
     fn focused_surface_cwd(&self) -> Option<PathBuf> {
@@ -22279,20 +22335,21 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
         SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StatusWorkerStop, StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision,
-        SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer,
-        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
-        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_host_input,
-        forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
-        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
+        keyboard_protocol_accepts, layout_undo_error_completion,
+        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
+        record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
         sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
@@ -23623,6 +23680,29 @@ mod tests {
             "stop preempts the timeout: {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn status_token_expansion_never_rescans_inserted_values() {
+        let values = StatusTemplateValues {
+            session: "s",
+            workspace: "{screens}",
+            screen: "main",
+            screens: "3",
+            title: "{user}",
+            user: "lawrence",
+        };
+        assert_eq!(
+            expand_status_tokens("{workspace} of {screens} · {title}", &values),
+            "{screens} of 3 · {user}",
+            "inserted values stay literal"
+        );
+        assert_eq!(
+            expand_status_tokens("{unknown} {session", &values),
+            "{unknown} {session",
+            "unknown tokens and unterminated braces stay literal"
+        );
+        assert_eq!(expand_status_tokens("plain", &values), "plain");
     }
 
     #[test]
