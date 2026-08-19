@@ -4,6 +4,7 @@ public import Foundation
 /// initial scrollback replay.
 public struct SSHPTYAttachOutputProgress: Sendable {
     private static let maximumValidatedReplayPrefixBytes = 1 << 20
+    private static let maximumBufferedReplayBytes = 1 << 20
     private static let fingerprintOffset: UInt64 = 14695981039346656037
     private static let fingerprintPrime: UInt64 = 1099511628211
 
@@ -15,6 +16,8 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     private let replayPrefixTargetLength: Int
     private var replayPrefixCandidate = Data()
     private var replayPrefixValidationComplete: Bool
+    private var bufferingValidatedReplay = false
+    private var validatedReplayOutput = Data()
     private var replayFingerprintHash = Self.fingerprintOffset
 
     /// Whether any output arrived after the initial replay boundary.
@@ -53,6 +56,7 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         self.expectedReplayFingerprint = expectedReplayFingerprint
         replayPrefixTargetLength = canValidatePrefix ? normalizedSuppressBytes : 0
         replayPrefixValidationComplete = !canValidatePrefix || normalizedSuppressBytes == 0
+        bufferingValidatedReplay = canValidatePrefix
     }
 
     /// Computes the stable fingerprint used to validate a replay prefix.
@@ -116,17 +120,28 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             let candidate = replayPrefixCandidate
             replayPrefixCandidate.removeAll(keepingCapacity: false)
             replayBytesToSuppressRemaining = 0
-            if matches {
-                let remainder = Data(data.dropFirst(candidateBytes))
-                if !remainder.isEmpty {
-                    receivedLiveOutput = true
-                }
-                return remainder
+            if !matches {
+                // The bounded snapshot rolled over (or the session was
+                // replaced), so none of the new snapshot can be proven
+                // duplicate.
+                validatedReplayOutput = candidate
             }
-            // The bounded snapshot rolled over (or the session was replaced),
-            // so none of the new snapshot can be proven duplicate.
-            receivedLiveOutput = true
-            return candidate + Data(data.dropFirst(candidateBytes))
+            let replayRemainder = Data(
+                data.dropFirst(candidateBytes)
+                    .prefix(max(0, replayChunkBytes - candidateBytes))
+            )
+            appendValidatedReplayBytes(replayRemainder)
+            return flushValidatedReplayIfComplete(from: data, replayChunkBytes: replayChunkBytes)
+        }
+
+        if suppressingReplay,
+           expectedReplayFingerprint != nil,
+           bufferingValidatedReplay {
+            appendValidatedReplayBytes(Data(data.prefix(replayChunkBytes)))
+            return flushValidatedReplayIfComplete(
+                from: data,
+                replayChunkBytes: replayChunkBytes
+            )
         }
 
         let suppressBytes = suppressingReplay
@@ -157,11 +172,13 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     ///   the unvalidated candidate so the next full snapshot cannot duplicate
     ///   bytes that were already rendered by this attempt.
     public mutating func finishPendingReplay(discarding: Bool = false) -> Data {
-        guard !replayPrefixValidationComplete else { return Data() }
+        guard !replayPrefixValidationComplete || bufferingValidatedReplay else { return Data() }
         replayPrefixValidationComplete = true
         replayBytesToSuppressRemaining = 0
-        let pending = replayPrefixCandidate
+        let pending = replayPrefixCandidate + validatedReplayOutput
         replayPrefixCandidate.removeAll(keepingCapacity: false)
+        validatedReplayOutput.removeAll(keepingCapacity: false)
+        bufferingValidatedReplay = false
         if discarding {
             return Data()
         }
@@ -174,5 +191,32 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             replayFingerprintHash ^= UInt64(byte)
             replayFingerprintHash &*= Self.fingerprintPrime
         }
+    }
+
+    private mutating func appendValidatedReplayBytes(_ data: Data) {
+        guard !data.isEmpty else { return }
+        guard validatedReplayOutput.count <= Self.maximumBufferedReplayBytes - data.count else {
+            // The daemon's replay is bounded to the same order of magnitude;
+            // if an older peer violates that contract, stop buffering rather
+            // than allowing reconnect validation to grow without bound.
+            bufferingValidatedReplay = false
+            return
+        }
+        validatedReplayOutput.append(data)
+    }
+
+    private mutating func flushValidatedReplayIfComplete(
+        from data: Data,
+        replayChunkBytes: Int
+    ) -> Data {
+        guard replayBytesRemaining == 0 else { return Data() }
+        let liveRemainder = Data(data.dropFirst(replayChunkBytes))
+        let output = validatedReplayOutput + liveRemainder
+        validatedReplayOutput.removeAll(keepingCapacity: false)
+        bufferingValidatedReplay = false
+        if !output.isEmpty {
+            receivedLiveOutput = true
+        }
+        return output
     }
 }

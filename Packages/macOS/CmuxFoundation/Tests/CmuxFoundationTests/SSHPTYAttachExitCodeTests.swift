@@ -288,6 +288,24 @@ struct SSHPTYAttachExitCodeTests {
         #expect(progress.finishPendingReplay(discarding: true).isEmpty)
     }
 
+    @Test("a partially delivered verified replay can flush on a final attach")
+    func managedReconnectFlushesBufferedSuffixOnFinalAttach() {
+        let previousFingerprint = SSHPTYAttachOutputProgress.fingerprint(
+            of: Data("oldold".utf8)
+        )
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 10,
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: previousFingerprint
+        )
+        _ = progress.terminalOutput(
+            from: Data("oldoldnew".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(String(decoding: progress.finishPendingReplay(), as: UTF8.self) == "new")
+    }
+
     private static func writeExecutable(_ url: URL, _ source: String) throws {
         try source.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
