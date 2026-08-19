@@ -21724,7 +21724,8 @@ mod tests {
     use crate::localization;
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-        MachineCapabilities, MachineConnectionTarget, MachineController, MachineCreationSource,
+        MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineController,
+        MachineCreationSource,
         MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
         MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
         ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
