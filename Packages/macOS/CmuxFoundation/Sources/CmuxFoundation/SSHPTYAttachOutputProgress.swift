@@ -3,6 +3,7 @@ public import Foundation
 /// Tracks whether an SSH PTY attachment delivered output newer than its
 /// initial scrollback replay.
 public struct SSHPTYAttachOutputProgress: Sendable {
+    private static let maximumValidatedReplayPrefixBytes = 1 << 20
     private static let fingerprintOffset: UInt64 = 14695981039346656037
     private static let fingerprintPrime: UInt64 = 1099511628211
 
@@ -43,11 +44,15 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             normalizedReplayBytes,
             max(0, suppressReplayBytes ?? normalizedReplayBytes)
         )
+        let canValidatePrefix = expectedReplayFingerprint != nil &&
+            normalizedSuppressBytes <= Self.maximumValidatedReplayPrefixBytes
         replayBytesRemaining = normalizedReplayBytes
-        replayBytesToSuppressRemaining = normalizedSuppressBytes
+        replayBytesToSuppressRemaining = canValidatePrefix || expectedReplayFingerprint == nil
+            ? normalizedSuppressBytes
+            : 0
         self.expectedReplayFingerprint = expectedReplayFingerprint
-        replayPrefixTargetLength = expectedReplayFingerprint == nil ? 0 : normalizedSuppressBytes
-        replayPrefixValidationComplete = expectedReplayFingerprint == nil || normalizedSuppressBytes == 0
+        replayPrefixTargetLength = canValidatePrefix ? normalizedSuppressBytes : 0
+        replayPrefixValidationComplete = !canValidatePrefix || normalizedSuppressBytes == 0
     }
 
     /// Computes the stable fingerprint used to validate a replay prefix.
