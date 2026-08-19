@@ -590,9 +590,62 @@ extension GhosttySurfaceRepresentable.Coordinator {
             guard self.surfaceView === surfaceView,
                   terminalPresentationIsActive,
                   surfaceView.window != nil,
-                  outputConsumerRecoveryAlert == nil,
-                  let presenter = presentingController(for: surfaceView),
-                  !(presenter is UIAlertController) else { return }
+                  outputConsumerRecoveryAlert == nil else { return }
+            guard let presenter = presentingController(for: surfaceView),
+                  !(presenter is UIAlertController),
+                  presenter.viewIfLoaded?.window != nil else {
+                queueOutputConsumerRecoveryAlert(surfaceView: surfaceView)
+                return
+            }
+
+            presentOutputConsumerRecoveryAlert(
+                on: surfaceView,
+                from: presenter
+            )
+        }
+
+        private func queueOutputConsumerRecoveryAlert(surfaceView: GhosttySurfaceView) {
+            guard outputConsumerRecoveryPresentationTask == nil else { return }
+            outputConsumerRecoveryPresentationTask = Task { @MainActor [weak self, weak surfaceView] in
+                defer {
+                    self?.outputConsumerRecoveryPresentationTask = nil
+                }
+                while !Task.isCancelled {
+                    guard let self,
+                          let surfaceView,
+                          self.surfaceView === surfaceView,
+                          self.terminalPresentationIsActive,
+                          surfaceView.window != nil,
+                          self.outputConsumerRestartBlocked,
+                          self.outputConsumerRecoveryAlert == nil else {
+                        return
+                    }
+                    if let presenter = self.presentingController(for: surfaceView),
+                       !(presenter is UIAlertController),
+                       presenter.viewIfLoaded?.window != nil {
+                        self.presentOutputConsumerRecoveryAlert(
+                            on: surfaceView,
+                            from: presenter
+                        )
+                        return
+                    }
+                    do {
+                        try await self.outputConsumerRecoveryClock.sleep(
+                            for: .milliseconds(250),
+                            tolerance: nil
+                        )
+                    } catch {
+                        return
+                    }
+                }
+            }
+        }
+
+        private func presentOutputConsumerRecoveryAlert(
+            on surfaceView: GhosttySurfaceView,
+            from presenter: UIViewController
+        ) {
+            guard outputConsumerRecoveryAlert == nil else { return }
 
             let alert = UIAlertController(
                 title: L10n.string(

@@ -195,11 +195,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// A persistently terminating stream is held at a lifecycle boundary
         /// after the bounded restart budget is exhausted. Without this latch,
         /// the recovery branch would reset the counter and spin forever.
-        private var outputConsumerRestartBlocked = false
+        var outputConsumerRestartBlocked = false
         /// UIKit recovery alert currently owned by this mounted surface. The
         /// alert is the explicit user action that clears a persistent stream
         /// failure while the view remains in the window.
         weak var outputConsumerRecoveryAlert: UIAlertController?
+        var outputConsumerRecoveryPresentationTask: Task<Void, Never>?
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -247,6 +248,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// (`DispatchQueue.asyncAfter` is banned for intentional delays).
         let artifactChipHideClock: any Clock<Duration>
         let outputConsumerRestartClock: any Clock<Duration>
+        let outputConsumerRecoveryClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
@@ -281,7 +283,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
             onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
             artifactChipHideClock: any Clock<Duration> = ContinuousClock(),
-            outputConsumerRestartClock: any Clock<Duration> = ContinuousClock()
+            outputConsumerRestartClock: any Clock<Duration> = ContinuousClock(),
+            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock()
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -303,6 +306,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
             self.artifactChipHideClock = artifactChipHideClock
             self.outputConsumerRestartClock = outputConsumerRestartClock
+            self.outputConsumerRecoveryClock = outputConsumerRecoveryClock
             super.init()
         }
 
@@ -813,6 +817,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             outputConsumerRecoveryAlert?.dismiss(animated: false)
             outputConsumerRecoveryAlert = nil
+            outputConsumerRecoveryPresentationTask?.cancel()
+            outputConsumerRecoveryPresentationTask = nil
             outputConsumerRestartTask?.cancel()
             outputConsumerRestartTask = nil
             outputConsumerStabilityTask?.cancel()
