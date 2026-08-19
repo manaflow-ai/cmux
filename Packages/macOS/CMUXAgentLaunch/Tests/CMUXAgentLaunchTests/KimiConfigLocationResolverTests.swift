@@ -57,10 +57,12 @@ struct KimiConfigLocationResolverTests {
             "HOME": home.root.path,
             "KIMI_SHARE_DIR": "~/relocated-kimi",
         ])
+        // Tilde overrides expand against the process HOME, not the injected one.
         #expect(
             tilde.candidateDirectories().last?.path
-                == NSString(string: "~/relocated-kimi").expandingTildeInPath
+                == NSHomeDirectory() + "/relocated-kimi"
         )
+        #expect(tilde.candidateDirectories().last?.path != home.directory("relocated-kimi").path)
     }
 
     @Test("Fallback prefers an existing config, then an existing directory, then Kimi Code")
@@ -164,6 +166,46 @@ struct KimiConfigLocationResolverTests {
             resolver.reportedConfigURL(
                 inDoctorOutput: "config.toml: \(home.directory("Kimi Code").path)/xconfig.toml\n"
             ) == nil
+        )
+    }
+
+    @Test("A doctor report respects its parsing bounds")
+    func doctorReportRespectsParsingBounds() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let resolver = KimiConfigLocationResolver(environment: ["HOME": home.root.path])
+        let reported = home.config("bounded")
+        try makeDirectory(reported.deletingLastPathComponent())
+
+        // A usable path past the 8 KB report bound is never reached.
+        let padding = String(repeating: "x", count: 8_200)
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "\(padding)\nconfig.toml: \(reported.path) ok\n"
+            ) == nil
+        )
+
+        // A usable path on a line over the 1 KB line bound is skipped.
+        let longLinePrefix = String(repeating: "y", count: 1_100)
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "\(longLinePrefix) config.toml: \(reported.path) ok\n"
+            ) == nil
+        )
+
+        // A usable path preceded by more than 32 candidate path starts on the
+        // same line falls outside the capped scan and is not found.
+        let decoys = (0..<32).map { "/decoy\($0)" }.joined(separator: " ")
+        #expect(
+            resolver.reportedConfigURL(
+                inDoctorOutput: "\(decoys) \(reported.path) ok\n"
+            ) == nil
+        )
+
+        // The same path, reported alone, is found — confirming the bound,
+        // not the fixture, is what rejects it above.
+        #expect(
+            resolver.reportedConfigURL(inDoctorOutput: "\(reported.path)\n") == reported
         )
     }
 
