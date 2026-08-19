@@ -3537,13 +3537,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case snapshot
     }
 
-    /// Tracks the primary owner of one left-button release while Ghostty
-    /// synchronously emits any actions caused by that release.
-    private enum CommandClickReleaseRoutingState {
-        case idle
-        case awaitingRuntimeOutcome(TerminalCommandClickReleaseRouter.RuntimeOutcome?)
-    }
-
     private struct WordPathResolution {
         let path: String
         let source: WordPathResolutionSource
@@ -3599,7 +3592,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
-    private var commandClickReleaseRoutingState: CommandClickReleaseRoutingState = .idle
+    private var commandClickReleaseRoutingActive = false
+    private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -6510,7 +6504,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func beginCommandClickReleaseRouting() {
-        commandClickReleaseRoutingState = .awaitingRuntimeOutcome(nil)
+        commandClickReleaseRoutingActive = true
+        commandClickReleaseRuntimeOutcome = nil
     }
 
     /// Records a URL action only while its originating mouse release is active.
@@ -6518,18 +6513,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func recordCommandClickReleaseRuntimeOutcome(
         _ outcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
     ) {
-        guard case .awaitingRuntimeOutcome = commandClickReleaseRoutingState else { return }
-        commandClickReleaseRoutingState = .awaitingRuntimeOutcome(outcome)
+        guard commandClickReleaseRoutingActive else { return }
+        commandClickReleaseRuntimeOutcome = outcome
     }
 
     private func finishCommandClickReleaseRouting(
         ghosttyConsumed: Bool
     ) -> TerminalCommandClickReleaseRouter.RuntimeOutcome {
-        defer { commandClickReleaseRoutingState = .idle }
-        guard case let .awaitingRuntimeOutcome(runtimeOutcome) = commandClickReleaseRoutingState else {
+        defer {
+            commandClickReleaseRoutingActive = false
+            commandClickReleaseRuntimeOutcome = nil
+        }
+        guard commandClickReleaseRoutingActive else {
             return ghosttyConsumed ? .consumed : .unhandled
         }
-        return runtimeOutcome ?? (ghosttyConsumed ? .consumed : .unhandled)
+        return commandClickReleaseRuntimeOutcome ?? (ghosttyConsumed ? .consumed : .unhandled)
     }
 
     @discardableResult

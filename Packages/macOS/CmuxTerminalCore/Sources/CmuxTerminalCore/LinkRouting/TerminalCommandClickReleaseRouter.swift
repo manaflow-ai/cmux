@@ -2,50 +2,16 @@
 /// has processed the mouse event.
 public struct TerminalCommandClickReleaseRouter: Sendable {
     /// The terminal runtime's primary handling outcome for the release.
-    public enum RuntimeOutcome: Equatable, Sendable {
-        /// The runtime did not consume the release.
-        case unhandled
-        /// The runtime consumed the release without dispatching an open-URL action.
-        case consumed
-        /// The runtime dispatched an open-URL action for the release.
-        case openURL
-    }
+    public typealias RuntimeOutcome = TerminalCommandClickRuntimeOutcome
 
     /// How cmux resolved a local path candidate under the pointer.
-    public enum PathResolutionSource: Equatable, Sendable {
-        /// Ghostty's quick-look word supplied the candidate.
-        case quicklook
-        /// cmux's pointer-anchored terminal snapshot supplied the candidate.
-        case snapshot
-    }
+    public typealias PathResolutionSource = TerminalCommandClickPathResolutionSource
 
     /// An existing local path resolved under the pointer.
-    public struct ResolvedPath: Equatable, Sendable {
-        /// The absolute path to open.
-        public let path: String
-        /// The terminal-text source that produced the path.
-        public let source: PathResolutionSource
-
-        /// Creates a resolved local-path candidate.
-        ///
-        /// - Parameters:
-        ///   - path: The absolute path to open.
-        ///   - source: The terminal-text source that produced the path.
-        public init(path: String, source: PathResolutionSource) {
-            self.path = path
-            self.source = source
-        }
-    }
+    public typealias ResolvedPath = TerminalCommandClickResolvedPath
 
     /// The exclusive action selected for one command-click release.
-    public enum Route: Equatable, Sendable {
-        /// Keep the open-URL action already dispatched by the terminal runtime.
-        case runtimeOpenURL
-        /// Open the resolved local path through cmux's fallback path.
-        case pathFallback(ResolvedPath)
-        /// Perform no cmux fallback action.
-        case none
-    }
+    public typealias Route = TerminalCommandClickRoute
 
     /// Creates a command-click release router.
     public init() {}
