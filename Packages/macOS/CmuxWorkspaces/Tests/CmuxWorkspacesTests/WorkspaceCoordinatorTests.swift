@@ -175,7 +175,6 @@ struct WorkspaceCoordinatorTests {
     @Test
     func moveTabsToBottomMovesAGroupedSelectionWithItsAnchor() throws {
         let (model, host, groups, reorder) = makeWorld()
-        _ = host
         let first = CoordinatorStubTab()
         let groupedFirst = CoordinatorStubTab()
         let groupedSecond = CoordinatorStubTab()
@@ -198,6 +197,14 @@ struct WorkspaceCoordinatorTests {
         ])
         #expect(!reorder.canMoveTabsToBottom([groupedSecond.id]))
         #expect(reorder.canMoveTabsToTop([groupedSecond.id]))
+        #expect(!reorder.canMoveTabsToBottom([groupedFirst.id]))
+
+        let orderAtBottom = model.tabs.map(\.id)
+        let notificationsAtBottom = host.orderChanges
+        reorder.moveTabsToBottom([groupedFirst.id])
+
+        #expect(model.tabs.map(\.id) == orderAtBottom)
+        #expect(host.orderChanges == notificationsAtBottom)
     }
 
     @Test

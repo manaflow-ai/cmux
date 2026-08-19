@@ -8,6 +8,8 @@ import Foundation
 /// grouping, unread, and notification aggregation during row realization.
 struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
     let targetWorkspaceIds: [UUID]
+    let canMoveTargetsToTop: Bool
+    let canMoveTargetsToBottom: Bool
     let remoteTargetWorkspaceIds: [UUID]
     let allRemoteTargetsConnecting: Bool
     let allRemoteTargetsDisconnected: Bool
@@ -22,11 +24,15 @@ struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
     @MainActor
     init(
         targetWorkspaceIds: [UUID],
+        canMoveTargetsToTop: Bool,
+        canMoveTargetsToBottom: Bool,
         workspaceRowsById: [UUID: SidebarWorkspaceRowInput],
         anchorWorkspaceIds: Set<UUID>,
         notificationIndex: SidebarWorkspaceNotificationIndex
     ) {
         self.targetWorkspaceIds = targetWorkspaceIds
+        self.canMoveTargetsToTop = canMoveTargetsToTop
+        self.canMoveTargetsToBottom = canMoveTargetsToBottom
         remoteTargetWorkspaceIds = targetWorkspaceIds.filter {
             workspaceRowsById[$0]?.isRemoteContextMenuEligible == true
         }

@@ -8,6 +8,8 @@ import Foundation
 /// the notification store.
 struct SidebarWorkspaceContextMenuSnapshot: Equatable {
     let targetWorkspaceIds: [UUID]
+    let canMoveTargetsToTop: Bool
+    let canMoveTargetsToBottom: Bool
     let remoteTargetWorkspaceIds: [UUID]
     let allRemoteTargetsConnecting: Bool
     let allRemoteTargetsDisconnected: Bool

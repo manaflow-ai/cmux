@@ -39,6 +39,8 @@ struct SidebarWorkspaceRowInput {
     let checklistAddFieldActivationToken: Int
     let isChecklistPopoverPresented: Bool
     let isRemoteContextMenuEligible: Bool
+    let canMoveToTop: Bool
+    let canMoveToBottom: Bool
     let remoteConnectionState: WorkspaceRemoteConnectionState
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let inferredTaskStatus: WorkspaceTaskStatus
@@ -79,6 +81,8 @@ struct SidebarWorkspaceRowInput {
             isChecklistPopoverPresented: isChecklistPopoverPresented,
             contextMenu: SidebarWorkspaceContextMenuSnapshot(
                 targetWorkspaceIds: targetAggregate.targetWorkspaceIds,
+                canMoveTargetsToTop: targetAggregate.canMoveTargetsToTop,
+                canMoveTargetsToBottom: targetAggregate.canMoveTargetsToBottom,
                 remoteTargetWorkspaceIds: targetAggregate.remoteTargetWorkspaceIds,
                 allRemoteTargetsConnecting: targetAggregate.allRemoteTargetsConnecting,
                 allRemoteTargetsDisconnected: targetAggregate.allRemoteTargetsDisconnected,

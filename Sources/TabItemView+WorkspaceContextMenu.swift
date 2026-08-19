@@ -196,12 +196,12 @@ extension TabItemView {
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             actions.moveTargetsToTop(targetIds)
         }
-        .disabled(targetIds.isEmpty)
+        .disabled(!context.canMoveTargetsToTop)
 
         Button(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")) {
             actions.moveTargetsToBottom(targetIds)
         }
-        .disabled(targetIds.isEmpty)
+        .disabled(!context.canMoveTargetsToBottom)
 
         Menu(moveMenuTitle) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {

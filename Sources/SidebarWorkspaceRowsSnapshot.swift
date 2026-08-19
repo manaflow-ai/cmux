@@ -20,6 +20,8 @@ struct SidebarWorkspaceRowsSnapshot {
         workspaceRowsById: [UUID: SidebarWorkspaceRowInput],
         groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot],
         selectedContextTargetIds: [UUID],
+        canMoveSelectedTargetsToTop: Bool,
+        canMoveSelectedTargetsToBottom: Bool,
         anchorWorkspaceIds: Set<UUID>,
         workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot,
         canCreateEmptyGroup: Bool,
@@ -33,6 +35,8 @@ struct SidebarWorkspaceRowsSnapshot {
         self.notificationIndex = notificationIndex
         selectedContextMenuTargetAggregate = SidebarWorkspaceContextMenuTargetAggregate(
             targetWorkspaceIds: selectedContextTargetIds,
+            canMoveTargetsToTop: canMoveSelectedTargetsToTop,
+            canMoveTargetsToBottom: canMoveSelectedTargetsToBottom,
             workspaceRowsById: workspaceRowsById,
             anchorWorkspaceIds: anchorWorkspaceIds,
             notificationIndex: notificationIndex
@@ -48,6 +52,8 @@ struct SidebarWorkspaceRowsSnapshot {
         }
         return SidebarWorkspaceContextMenuTargetAggregate(
             targetWorkspaceIds: [input.workspaceId],
+            canMoveTargetsToTop: input.canMoveToTop,
+            canMoveTargetsToBottom: input.canMoveToBottom,
             workspaceRowsById: workspaceRowsById,
             anchorWorkspaceIds: anchorWorkspaceIds,
             notificationIndex: notificationIndex

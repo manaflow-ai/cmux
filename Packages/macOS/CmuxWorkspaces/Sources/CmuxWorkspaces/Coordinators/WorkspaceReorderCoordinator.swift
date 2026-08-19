@@ -94,9 +94,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Applies a tier-relative move through the shared group and pin ordering path.
     private func moveTabs(_ tabIds: Set<UUID>, to placement: TierPlacement) {
-        guard !tabIds.isEmpty else { return }
+        guard canMoveTabs(tabIds, to: placement) else { return }
         let selectedTabs = model.tabs.filter { tabIds.contains($0.id) }
-        guard !selectedTabs.isEmpty else { return }
         let previousOrder = model.tabs.map(\.id)
 
         if !model.workspaceGroups.isEmpty {
