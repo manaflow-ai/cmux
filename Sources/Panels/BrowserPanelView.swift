@@ -757,6 +757,7 @@ struct BrowserPanelView: View {
     private func handleBrowserPanelDisappear() {
         stopOmnibarSuggestionRefreshConsumer()
         cancelPendingOmnibarSuggestionWork()
+        panel.cancelDesignModeToolbarToggle()
         focusModeShortcutHintMonitor.stop()
         screenshotPageCopiedScheduler.cancel()
         screenshotPageCopied = false
@@ -1164,6 +1165,8 @@ struct BrowserPanelView: View {
                 browserProfileButton
                 browserThemeModeButton
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("BrowserToolbarAccessoryRow")
             .overlay(alignment: .topTrailing) {
                 browserScreenshotCopiedIndicator
                     .offset(y: -24)
@@ -1283,6 +1286,12 @@ struct BrowserPanelView: View {
                 )
                 .fixedSize()
                 .allowsHitTesting(false)
+                .accessibilityRepresentation {
+                    Label(
+                        String(localized: "browser.screenshotPage.copied", defaultValue: "Copied"),
+                        systemImage: "checkmark"
+                    )
+                }
                 .accessibilityIdentifier("BrowserScreenshotPageCopied")
                 .transition(.opacity)
                 .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
@@ -1409,9 +1418,7 @@ struct BrowserPanelView: View {
         case .focus:
             handleBrowserFocusModeButtonAction()
         case .design:
-            Task { @MainActor in
-                _ = await panel.toggleDesignMode(reason: "toolbar")
-            }
+            panel.toggleDesignModeFromToolbar()
         case nil:
             break
         }
@@ -1484,6 +1491,7 @@ struct BrowserPanelView: View {
                 )
             }
             .disabled(!panel.canToggleBrowserFocusMode)
+            .accessibilityIdentifier("BrowserOverflowFocusModeButton")
             Button(action: handleScreenshotPageButtonAction) {
                 Text(String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"))
             }
@@ -1493,6 +1501,7 @@ struct BrowserPanelView: View {
                 controller: panel.designModeController,
                 onToggle: { await panel.toggleDesignMode(reason: "overflowMenu") }
             )
+            .accessibilityIdentifier("BrowserOverflowDesignModeButton")
             Button {
                 panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
                 Task { await panel.toggleOrInjectReactGrab() }
@@ -1502,10 +1511,12 @@ struct BrowserPanelView: View {
                     systemImage: "cursorarrow.click.2"
                 )
             }
+            .accessibilityIdentifier("BrowserOverflowReactGrabButton")
 
             Button(action: { openDevTools() }) {
                 Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
             }
+            .accessibilityIdentifier("BrowserToggleDevToolsButton")
         } label: {
             CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)

@@ -316,16 +316,33 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             )
         }
 
-        let plainActionIdentifiers = [
+        let inlinePlainActionIdentifiers = [
             "BrowserFocusModeButton",
             "BrowserDesignModeButton",
             "BrowserScreenshotPageButton",
             "BrowserToggleDevToolsButton",
         ]
-        for identifier in plainActionIdentifiers {
+        for identifier in inlinePlainActionIdentifiers {
             XCTAssertFalse(
                 toolbarElement(app, identifier: identifier).exists,
-                "The inactive plain action \(identifier) should be inside BrowserOverflowMenu at every width"
+                "The inactive plain action \(identifier) should not be inline at any width"
+            )
+        }
+
+        let overflowMenu = toolbarElement(app, identifier: "BrowserOverflowMenu")
+        overflowMenu.click()
+
+        let overflowActionIdentifiers = [
+            "BrowserOverflowFocusModeButton",
+            "BrowserOverflowDesignModeButton",
+            "BrowserScreenshotPageButton",
+            "BrowserOverflowReactGrabButton",
+            "BrowserToggleDevToolsButton",
+        ]
+        for identifier in overflowActionIdentifiers {
+            XCTAssertTrue(
+                app.menuItems.matching(identifier: identifier).firstMatch.waitForExistence(timeout: 5.0),
+                "Expected inactive action \(identifier) to remain available in BrowserOverflowMenu"
             )
         }
     }
@@ -418,8 +435,12 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
+    private func browserToolbar(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "BrowserToolbarAccessoryRow").firstMatch
+    }
+
     private func toolbarElement(_ app: XCUIApplication, identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        browserToolbar(app).descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     private func makeBrowserHandledCmdFPageURL() -> String {

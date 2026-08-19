@@ -1,6 +1,26 @@
 import Foundation
 
 extension BrowserPanel {
+    /// Starts the toolbar's Design Mode transition on the panel-owned task.
+    /// Keeping the operation here lets lifecycle teardown cancel it without
+    /// leaving an unstructured task attached to a transient SwiftUI view.
+    func toggleDesignModeFromToolbar() {
+        guard designModeToolbarToggleTask == nil else { return }
+        designModeToolbarToggleTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.toggleDesignMode(reason: "toolbar")
+            if !Task.isCancelled {
+                self.designModeToolbarToggleTask = nil
+            }
+        }
+    }
+
+    /// Cancels a toolbar-triggered Design Mode transition during view teardown.
+    func cancelDesignModeToolbarToggle() {
+        designModeToolbarToggleTask?.cancel()
+        designModeToolbarToggleTask = nil
+    }
+
     @discardableResult
     func toggleDesignMode(reason: String) async -> Bool {
         await setDesignModeEnabled(!designModeController.isActive, reason: reason)
