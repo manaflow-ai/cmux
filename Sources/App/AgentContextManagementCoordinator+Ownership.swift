@@ -3,35 +3,6 @@ import Foundation
 
 @MainActor
 extension AgentContextManagementCoordinator {
-    func lifecycleDidChange(
-        key: String,
-        panelId: UUID,
-        lifecycle: AgentHibernationLifecycleState
-    ) {
-        // Feed owns a transient `needsInput` lifecycle key that is deliberately
-        // outside the managed-provider namespace. It still represents a modal
-        // dialog for this panel, so re-evaluate pending recovery immediately;
-        // `evaluate` reads the authoritative owner map and fails closed.
-        guard AgentContextProvider(managedAgentKind: key) != nil else {
-            if states[panelId]?.pressure.isUnderPressure == true,
-               let owner = owner(for: panelId, preferredWorkspaceID: nil) {
-                structuredLog(
-                    "lifecycle.ignored",
-                    workspaceID: owner.workspaceID,
-                    surfaceID: panelId,
-                    detail: "non-provider-key=\(key) lifecycle=\(lifecycle.rawValue)"
-                )
-                evaluate(surfaceID: panelId, owner: owner)
-            }
-            return
-        }
-        updateLifecycle(
-            AgentContextLifecycleState(rawValue: lifecycle.rawValue) ?? .unknown,
-            key: key,
-            panelId: panelId
-        )
-    }
-
     func provider(for panelId: UUID, preferredWorkspaceID: UUID? = nil) -> AgentContextProvider? {
         owner(for: panelId, preferredWorkspaceID: preferredWorkspaceID)
             .flatMap { $0.binding(panelId: panelId) }

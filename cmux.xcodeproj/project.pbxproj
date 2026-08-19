@@ -46,8 +46,10 @@
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
+		C0DE10000000000000000131 /* AgentContextHandoffVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000130 /* AgentContextHandoffVerifier.swift */; };
 		C0DE10000000000000000115 /* AgentContextManagementCoordinator+Evaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000107 /* AgentContextManagementCoordinator+Evaluation.swift */; };
 		C0DE1000000000000000012B /* AgentContextManagementCoordinator+Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1000000000000000012A /* AgentContextManagementCoordinator+Input.swift */; };
+		C0DE10000000000000000133 /* AgentContextManagementCoordinator+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000132 /* AgentContextManagementCoordinator+Lifecycle.swift */; };
 		C0DE10000000000000000118 /* AgentContextManagementCoordinator+Ownership.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000119 /* AgentContextManagementCoordinator+Ownership.swift */; };
 		C0DE10000000000000000114 /* AgentContextManagementCoordinator+State.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000104 /* AgentContextManagementCoordinator+State.swift */; };
 		C0DE10000000000000000112 /* AgentContextManagementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10000000000000000102 /* AgentContextManagementCoordinator.swift */; };
@@ -2926,8 +2928,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
+		C0DE10000000000000000130 /* AgentContextHandoffVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentContextHandoffVerifier.swift; sourceTree = "<group>"; };
 		C0DE10000000000000000107 /* AgentContextManagementCoordinator+Evaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Evaluation.swift"; sourceTree = "<group>"; };
 		C0DE1000000000000000012A /* AgentContextManagementCoordinator+Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Input.swift"; sourceTree = "<group>"; };
+		C0DE10000000000000000132 /* AgentContextManagementCoordinator+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Lifecycle.swift"; sourceTree = "<group>"; };
 		C0DE10000000000000000119 /* AgentContextManagementCoordinator+Ownership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+Ownership.swift"; sourceTree = "<group>"; };
 		C0DE10000000000000000104 /* AgentContextManagementCoordinator+State.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentContextManagementCoordinator+State.swift"; sourceTree = "<group>"; };
 		C0DE10000000000000000102 /* AgentContextManagementCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentContextManagementCoordinator.swift; sourceTree = "<group>"; };
@@ -6149,6 +6153,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE10000000000000000119 /* AgentContextManagementCoordinator+Ownership.swift */,
 				C0DE1000000000000000012A /* AgentContextManagementCoordinator+Input.swift */,
 				C0DE10000000000000000103 /* AgentContextManagementSettings.swift */,
+				C0DE10000000000000000130 /* AgentContextHandoffVerifier.swift */,
+				C0DE10000000000000000132 /* AgentContextManagementCoordinator+Lifecycle.swift */,
 				C0DE10000000000000000107 /* AgentContextManagementCoordinator+Evaluation.swift */,
 				F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */,
 				8997D00E8997D00E8997D00E /* AgentHibernationController+CommittedTerminationCleanup.swift */,
@@ -9038,8 +9044,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
+				C0DE10000000000000000131 /* AgentContextHandoffVerifier.swift in Sources */,
 				C0DE10000000000000000115 /* AgentContextManagementCoordinator+Evaluation.swift in Sources */,
 				C0DE1000000000000000012B /* AgentContextManagementCoordinator+Input.swift in Sources */,
+				C0DE10000000000000000133 /* AgentContextManagementCoordinator+Lifecycle.swift in Sources */,
 				C0DE10000000000000000118 /* AgentContextManagementCoordinator+Ownership.swift in Sources */,
 				C0DE10000000000000000114 /* AgentContextManagementCoordinator+State.swift in Sources */,
 				C0DE10000000000000000112 /* AgentContextManagementCoordinator.swift in Sources */,

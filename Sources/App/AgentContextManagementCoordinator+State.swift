@@ -126,6 +126,31 @@ extension AgentContextManagementCoordinator {
                 dock.agentRuntimeByPanelId[panelId]?.agentLifecycleStates.values.contains(.needsInput) == true
             }
         }
+
+        /// Resolves a local handoff path for the panel, rejecting remote
+        /// terminal contexts whose cwd exists only on another host.
+        func contextHandoffFileURL(panelId: UUID) -> URL? {
+            let directory: String?
+            switch self {
+            case .workspace(let workspace):
+                guard !workspace.isRemoteTerminalContext(panelId) else { return nil }
+                directory = workspace.panelDirectories[panelId]
+                    ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
+                    ?? workspace.currentDirectory
+            case .dock(let dock):
+                guard dock.detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal != true else {
+                    return nil
+                }
+                directory = dock.terminalWorkingDirectory(for: panelId)
+                    ?? dock.panels[panelId].flatMap { ($0 as? TerminalPanel)?.requestedWorkingDirectory }
+            }
+            guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !directory.isEmpty else {
+                return nil
+            }
+            return URL(fileURLWithPath: directory, isDirectory: true)
+                .appendingPathComponent(".cmux-context-handoff.md", isDirectory: false)
+        }
     }
 
     struct PanelState {
@@ -144,9 +169,13 @@ extension AgentContextManagementCoordinator {
         var dialogOpen = false
         var userInputObserved = false
         var injectionInFlight = false
+        /// Set only after lifecycle idle and durable handoff-file verification.
         var preservationCompleted = false
         var preservationAwaitingAcknowledgement = false
         var preservationObservedRunning = false
+        var preservationHandoffPath: URL?
+        var preservationRequestedAt: Date?
+        var preservationVerificationInFlight = false
         /// Prevents a recovery command's own compaction output from starting
         /// another recovery cycle until the provider reports a real
         /// running-to-idle boundary.

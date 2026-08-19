@@ -65,6 +65,33 @@ extension AgentContextManagementCoordinator {
             return
         }
 
+        if step == .preserveState {
+            guard let handoffPath = owner.contextHandoffFileURL(panelId: surfaceID) else {
+                state.unsafeClearNotificationSent = true
+                state.preservationAwaitingAcknowledgement = true
+                state.preservationHandoffPath = nil
+                state.preservationRequestedAt = nil
+                state.preservationVerificationInFlight = false
+                states[surfaceID] = state
+                notifyUnsafeClear(
+                    owner: owner,
+                    surfaceID: surfaceID,
+                    reason: .preservationUnavailable
+                )
+                structuredLog(
+                    "injection.rejected",
+                    workspaceID: owner.workspaceID,
+                    surfaceID: surfaceID,
+                    detail: "step=\(step.rawValue) reason=handoff-path-unavailable"
+                )
+                return
+            }
+            state.preservationHandoffPath = handoffPath
+            state.preservationRequestedAt = Date()
+            state.preservationCompleted = false
+            state.preservationVerificationInFlight = false
+        }
+
         state.injectionInFlight = true
         // Clear detector occurrence history at the tee boundary before the
         // provider receives recovery input. The tee owns parser mutation; this
@@ -89,6 +116,11 @@ extension AgentContextManagementCoordinator {
         let accepted = terminal.surface.sendContextManagementInput(text + "\n")
         guard accepted else {
             state.injectionInFlight = false
+            if step == .preserveState {
+                state.preservationHandoffPath = nil
+                state.preservationRequestedAt = nil
+                state.preservationVerificationInFlight = false
+            }
             if settings.action == .clear, !state.unsafeClearNotificationSent {
                 state.unsafeClearNotificationSent = true
                 states[surfaceID] = state
@@ -119,6 +151,7 @@ extension AgentContextManagementCoordinator {
             state.preservationAwaitingAcknowledgement = true
             state.preservationObservedRunning = false
             state.injectionInFlight = false
+            state.preservationVerificationInFlight = false
             states[surfaceID] = state
             return
         }
@@ -127,11 +160,87 @@ extension AgentContextManagementCoordinator {
         state.recoveryAwaitingLifecycleBoundary = true
         state.recoveryObservedRunning = false
         state.unsafeClearNotificationSent = false
+        state.preservationHandoffPath = nil
+        state.preservationRequestedAt = nil
+        state.preservationVerificationInFlight = false
         state.pressure = AgentContextPressureSnapshot()
         userInputObservedBeforePressure.remove(surfaceID)
         state.userInputObserved = false
         states[surfaceID] = state
         owner.clearPressureStatus(key: Self.statusKey(for: surfaceID), panelId: surfaceID)
+    }
+
+    /// Verifies a preservation request after the provider's real idle boundary.
+    ///
+    /// The lifecycle transition is necessary but not sufficient: the provider
+    /// must also have created a fresh, non-empty handoff file after cmux asked
+    /// for it. The actor performs filesystem work off the main actor and
+    /// returns one value back through this coordinator's event-driven lane.
+    func beginPreservationVerification(
+        panelId: UUID,
+        path: URL,
+        requestedAt: Date
+    ) {
+        let verifier = handoffVerifier
+        Task { @MainActor [weak self, verifier] in
+            let result = await verifier.verify(path: path, requestedAt: requestedAt)
+            self?.finishPreservationVerification(
+                panelId: panelId,
+                path: path,
+                requestedAt: requestedAt,
+                result: result
+            )
+        }
+    }
+
+    private func finishPreservationVerification(
+        panelId: UUID,
+        path: URL,
+        requestedAt: Date,
+        result: AgentContextHandoffVerifier.Result
+    ) {
+        guard var state = states[panelId],
+              state.preservationAwaitingAcknowledgement,
+              state.preservationHandoffPath == path,
+              state.preservationRequestedAt == requestedAt,
+              let owner = owner(for: panelId, preferredWorkspaceID: nil),
+              let binding = owner.binding(panelId: panelId),
+              sameSession(state.binding, binding) else {
+            return
+        }
+        state.preservationVerificationInFlight = false
+        switch result {
+        case .written:
+            state.preservationAwaitingAcknowledgement = false
+            state.preservationObservedRunning = false
+            state.preservationCompleted = true
+            states[panelId] = state
+            structuredLog(
+                "preservation.acknowledged",
+                workspaceID: owner.workspaceID,
+                surfaceID: panelId,
+                detail: "handoff-file=written"
+            )
+            evaluate(surfaceID: panelId, owner: owner)
+        case .missing, .notRegularFile, .empty, .stale, .unreadable:
+            // Keep the preservation phase pending and fail closed. The user
+            // notification explains that cmux will not type `/clear` without
+            // durable evidence; a later explicit user input starts a fresh
+            // pressure episode and clears this gate.
+            state.unsafeClearNotificationSent = true
+            states[panelId] = state
+            structuredLog(
+                "preservation.rejected",
+                workspaceID: owner.workspaceID,
+                surfaceID: panelId,
+                detail: "handoff-file=\(result.rawValue)"
+            )
+            notifyUnsafeClear(
+                owner: owner,
+                surfaceID: panelId,
+                reason: .preservationUnavailable
+            )
+        }
     }
 
     private func notifyInjection(
@@ -166,7 +275,7 @@ extension AgentContextManagementCoordinator {
         structuredLog("injection", workspaceID: owner.workspaceID, surfaceID: surfaceID, detail: "step=\(step.rawValue)")
     }
 
-    private func notifyUnsafeClear(owner: PanelOwner, surfaceID: UUID, reason: AgentContextInjectionBlockReason) {
+    func notifyUnsafeClear(owner: PanelOwner, surfaceID: UUID, reason: AgentContextInjectionBlockReason) {
         AppDelegate.shared?.notificationStore?.addNotification(
             tabId: owner.workspaceID,
             surfaceId: surfaceID,

@@ -25,4 +25,6 @@ public enum AgentContextInjectionBlockReason: String, Codable, Equatable, Sendab
     case surfaceUnavailable
     /// A preservation instruction is waiting for an authoritative lifecycle boundary.
     case preservationInFlight
+    /// A durable handoff file could not be proven before a destructive clear.
+    case preservationUnavailable
 }

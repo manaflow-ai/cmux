@@ -23,7 +23,7 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     public let action: AgentContextInjectionAction
     /// Whether a preservation instruction should precede `.clear`.
     public let preserveState: Bool
-    /// Whether the preservation instruction has been acknowledged by lifecycle/output evidence.
+    /// Whether a lifecycle boundary and durable handoff-file evidence completed preservation.
     public let preservationCompleted: Bool
     /// Whether a preservation instruction is awaiting its lifecycle boundary.
     public let preservationAwaitingAcknowledgement: Bool
@@ -42,7 +42,7 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     ///   - injectionInFlight: Whether a recovery write is already being delivered.
     ///   - action: The configured semantic recovery action.
     ///   - preserveState: Whether clear should first request a durable handoff note.
-    ///   - preservationCompleted: Whether the handoff request completed a lifecycle boundary.
+    ///   - preservationCompleted: Whether the handoff request completed a lifecycle boundary and file check.
     ///   - preservationAwaitingAcknowledgement: Whether the handoff request is still in flight.
     public init(
         enabled: Bool,
