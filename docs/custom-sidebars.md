@@ -123,6 +123,12 @@ Rules of the runtime:
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
   template runs once per key and `item()` is the row's live item signal.
+- `.fixed()` on a row inside a `Reorderable` makes it a non-grabbable slot
+  (it still shifts to open gaps and keeps its own taps). Build a grouped
+  sidebar as ONE flat Reorderable of headers (.fixed) + rows, and resolve the
+  drop's container from the flat index; `Examples/CustomSidebars/workspaces.js`
+  shows the full pattern including cross-group drag via
+  `workspace.group.add`/`workspace.group.remove`.
 - `Reorderable({ items, key, onMove, spacing }, template)` is the drag-to-reorder list:
   the grabbed row lifts and follows the pointer, the other rows spring aside
   live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`

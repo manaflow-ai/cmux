@@ -21,24 +21,38 @@ sidebar(() =>
         onMove: (id, index) => log("moved " + id + " -> " + index),
       },
       (w) =>
-        HStack({ spacing: 8 }, [
-          Circle({ size: 7 }).fill("accent"),
-          Text(() => w().title).font(13),
-          Spacer(),
-        ])
-          .padding(6)
-          .cornerRadius(6)
-          .background("#7f7f7f26")
-          .frame({ maxWidth: "infinity" })
-          .onTap(() => log("tapped " + w().id))
+        (w().header
+          ? HStack({ spacing: 6 }, [
+              Image("chevron.down").font(10).color("tertiary"),
+              Text(() => w().title).font(12).weight("semibold"),
+            ])
+              .padding(6)
+              .frame({ maxWidth: "infinity" })
+              .fixed()
+              .onTap(() => log("tapped header " + w().id))
+          : HStack({ spacing: 8 }, [
+              Circle({ size: 7 }).fill("accent"),
+              Text(() => w().title).font(13),
+              Spacer(),
+            ])
+              .padding(6)
+              .cornerRadius(6)
+              .background("#7f7f7f26")
+              .frame({ maxWidth: "infinity" })
+              .onTap(() => log("tapped " + w().id)))
     ),
   ])
 )
 """
 
-let items: SwiftValue = .array((1...6).map { i in
-    .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text")])
-})
+let items: SwiftValue = .array(
+    (1...3).map { i in
+        .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text")])
+    } + [.object(["id": .string("hdr"), "title": .string("Section"), "header": .bool(true)])]
+    + (4...6).map { i in
+        .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text")])
+    }
+)
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
