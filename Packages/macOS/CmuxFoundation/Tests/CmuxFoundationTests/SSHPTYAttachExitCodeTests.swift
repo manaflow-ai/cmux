@@ -270,6 +270,24 @@ struct SSHPTYAttachExitCodeTests {
         #expect(progress.receivedLiveOutput)
     }
 
+    @Test("an incomplete replay candidate is discarded when another attach will retry")
+    func managedReconnectDiscardsIncompleteCandidateForRetry() {
+        let previousFingerprint = SSHPTYAttachOutputProgress.fingerprint(
+            of: Data("oldold".utf8)
+        )
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 10,
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: previousFingerprint
+        )
+        _ = progress.terminalOutput(
+            from: Data("new".utf8),
+            suppressingReplay: true
+        )
+
+        #expect(progress.finishPendingReplay(discarding: true).isEmpty)
+    }
+
     private static func writeExecutable(_ url: URL, _ source: String) throws {
         try source.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)

@@ -151,14 +151,21 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         return Data(data.dropFirst(suppressBytes))
     }
 
-    /// Flushes a buffered candidate when the bridge closes before replay ends.
-    public mutating func finishPendingReplay() -> Data {
+    /// Finishes a buffered candidate when the bridge closes before replay ends.
+    ///
+    /// - Parameter discarding: When another managed attempt is guaranteed, drop
+    ///   the unvalidated candidate so the next full snapshot cannot duplicate
+    ///   bytes that were already rendered by this attempt.
+    public mutating func finishPendingReplay(discarding: Bool = false) -> Data {
         guard !replayPrefixValidationComplete else { return Data() }
         replayPrefixValidationComplete = true
         replayBytesToSuppressRemaining = 0
-        receivedLiveOutput = true
         let pending = replayPrefixCandidate
         replayPrefixCandidate.removeAll(keepingCapacity: false)
+        if discarding {
+            return Data()
+        }
+        receivedLiveOutput = true
         return pending
     }
 

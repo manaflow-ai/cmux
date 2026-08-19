@@ -13492,7 +13492,9 @@ struct CMUXCLI {
             expectedReplayFingerprint: expectedReplayFingerprint
         )
         defer {
-            let pendingReplay = outputProgress.finishPendingReplay()
+            let pendingReplay = outputProgress.finishPendingReplay(
+                discarding: sshPTYAttachWrapperRetryPending()
+            )
             if !pendingReplay.isEmpty {
                 cliWriteStdout(pendingReplay)
             }
@@ -13540,18 +13542,10 @@ struct CMUXCLI {
                     replayStateStored = true
                 }
             } else if count == 0 {
-                let pendingReplay = outputProgress.finishPendingReplay()
-                if !pendingReplay.isEmpty {
-                    cliWriteStdout(pendingReplay)
-                }
                 try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    let pendingReplay = outputProgress.finishPendingReplay()
-                    if !pendingReplay.isEmpty {
-                        cliWriteStdout(pendingReplay)
-                    }
                     try finishBridgeClosedNormally()
                     return
                 }
