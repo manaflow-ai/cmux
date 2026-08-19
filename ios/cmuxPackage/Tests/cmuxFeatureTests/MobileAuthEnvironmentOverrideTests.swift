@@ -34,9 +34,27 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(MobileAuthComposition.oauthBrowserSessionPrivacy == .ephemeral)
     }
 
+    @Test func malformedKeychainGroupFallsBackToTheSignedAppDefault() throws {
+        let bundle = try fixtureBundle(
+            localConfig: [:],
+            bundleIdentifier: "dev.cmux.app.internal",
+            keychainAccessGroup: "dev.cmux.app.internal"
+        )
+        let composition = try makeComposition(bundle: bundle)
+
+        // An unsigned/manual archive can expand AppIdentifierPrefix to an
+        // unqualified bundle id. Passing that string to SecItem APIs produces
+        // errSecMissingEntitlement. Nil selects the app's signed default group.
+        #expect(composition.keychainAccessGroup == nil)
+    }
+
     /// Write `localConfig` as `LocalConfig.plist` inside a fresh directory
     /// bundle, mirroring how a build bundles the override plist.
-    private func fixtureBundle(localConfig: [String: String]) throws -> Bundle {
+    private func fixtureBundle(
+        localConfig: [String: String],
+        bundleIdentifier: String? = nil,
+        keychainAccessGroup: String? = nil
+    ) throws -> Bundle {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-auth-env-fixture-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -46,6 +64,22 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             options: 0
         )
         try data.write(to: directory.appendingPathComponent("LocalConfig.plist"))
+        if let bundleIdentifier {
+            var info: [String: Any] = [
+                "CFBundleExecutable": "cmux",
+                "CFBundleIdentifier": bundleIdentifier,
+                "CFBundlePackageType": "APPL",
+            ]
+            if let keychainAccessGroup {
+                info["CMUXKeychainAccessGroup"] = keychainAccessGroup
+            }
+            let infoData = try PropertyListSerialization.data(
+                fromPropertyList: info,
+                format: .xml,
+                options: 0
+            )
+            try infoData.write(to: directory.appendingPathComponent("Info.plist"))
+        }
         return try #require(Bundle(path: directory.path))
     }
 

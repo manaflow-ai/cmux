@@ -661,6 +661,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "final signed beta IPA Info.plist is dev.cmux.app.beta",
     )
     _check(
+        info.get("CMUXKeychainAccessGroup") == BETA_APP_ID,
+        "final signed beta IPA Info.plist carries the exact beta keychain group",
+    )
+    _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
     )
@@ -987,6 +991,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
+    _check(
+        info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
+        "final signed App Store IPA Info.plist carries the exact App Store keychain group",
+    )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
         "final signed IPA keeps the App Store marketing version",
