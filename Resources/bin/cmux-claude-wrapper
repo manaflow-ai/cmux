@@ -190,7 +190,14 @@ cmux_claude_wrapper_write_hook_reentry_state() {
 }
 
 cmux_claude_wrapper_clear_hook_reentry_state() {
-    rm -f "$(cmux_claude_wrapper_hook_reentry_state_file)" 2>/dev/null || true
+    local dir file
+    dir="$(cmux_claude_wrapper_hook_reentry_state_dir)"
+    # Same ownership gate as the read and write paths: deleting through someone
+    # else's link is their file removed, not ours.
+    cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 0
+    file="$dir/$$"
+    [[ ! -L "$file" ]] || return 0
+    rm -f "$file" 2>/dev/null || true
 }
 
 cmux_claude_wrapper_hook_reentry_recorded() {

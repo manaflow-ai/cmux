@@ -157,6 +157,7 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
         # Resolves `claude` through PATH the way `shutil.which` / `command -v` /
         # `execvp` do in a user launcher, which is what finds cmux's shim.
         break_after_literal = "None" if break_after is None else str(break_after)
+        victim_literal = "None" if hostile_state_dir is None else repr(str(hostile_state_dir))
         scrub_literal = "True" if scrub_env_marker else "False"
         scrub_state_literal = "True" if scrub_state_file else "False"
         reserialize_literal = "True" if reserialize_settings else "False"
@@ -166,11 +167,19 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
 import glob, json, os, shutil, sys
 
 pass_dir = {str(pass_dir)!r}
+victim_dir = {victim_literal}
 break_after = {break_after_literal}
 scrub_env_marker = {scrub_literal}
 scrub_state_file = {scrub_state_literal}
 reserialize_settings = {reserialize_literal}
 argv = sys.argv[2:]
+if victim_dir is not None:
+    # Named after this pid, which is the pid the wrapper composes its state path
+    # from: an unguarded write or delete through the planted symlink lands here.
+    decoy = os.path.join(victim_dir, str(os.getpid()))
+    if not os.path.exists(decoy):
+        with open(decoy, "w") as handle:
+            handle.write("decoy")
 if scrub_env_marker:
     for key in ("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", "cmux_claude_wrapper_reexec_guard", "cmux_claude_wrapper_reexec_targets"):
         os.environ.pop(key, None)
@@ -449,13 +458,43 @@ def test_hostile_state_directory_is_not_written_through(failures: list[str]) -> 
         victim = Path(victim_dir)
         run = run_reentry(argv=[], break_after=3, hostile_state_dir=victim, timeout=30.0)
 
-        planted = sorted(path.name for path in victim.iterdir())
-        if planted:
-            failures.append(f"wrapper wrote through the planted symlink: {planted!r}")
+        # The launcher plants one decoy, named after the pid the wrapper composes
+        # its state path from; nothing else may appear, and it must be untouched.
+        planted = sorted(victim.iterdir())
+        if len(planted) != 1 or planted[0].read_text(encoding="utf-8") != "decoy":
+            failures.append(
+                f"wrapper wrote through the planted symlink: {[(p.name, p.read_text(encoding='utf-8')) for p in planted]!r}"
+            )
         if not run.real_argv:
             failures.append(f"real claude never started with a hostile state directory: {run.stderr!r}")
         if run.returncode != 0:
             failures.append(f"expected a clean launch with a hostile state directory, got {run.returncode}: {run.stderr!r}")
+
+
+def test_hostile_state_directory_survives_the_guard_trip(failures: list[str]) -> None:
+    """The cleanup path must refuse the planted link too, not just read and write.
+
+    The guard deletes its state file when it trips, so this run lets the loop
+    run to the limit. The launcher plants a decoy named after the pid the
+    wrapper composes its state path from, which is exactly the file an
+    unguarded write would overwrite or an unguarded delete would remove.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-victim-") as victim_dir:
+        victim = Path(victim_dir)
+        run = run_reentry(argv=[], break_after=None, hostile_state_dir=victim, timeout=30.0)
+
+        if run.returncode == -1:
+            failures.append(f"loop did not stop with a hostile state directory: {run.stderr!r}")
+            return
+        if run.returncode == 0:
+            failures.append(f"expected a non-zero exit from the re-entry guard, got 0: {run.stderr!r}")
+        decoys = sorted(path for path in victim.iterdir())
+        if len(decoys) != 1:
+            failures.append(f"victim directory changed through the planted symlink: {[p.name for p in decoys]!r}")
+            return
+        if decoys[0].read_text(encoding="utf-8") != "decoy":
+            failures.append(f"wrapper wrote through the planted symlink: {decoys[0].read_text(encoding='utf-8')!r}")
 
 
 def test_env_scrubbed_reentry_loop_is_stopped(failures: list[str]) -> None:
@@ -548,6 +587,7 @@ def main() -> int:
     test_unbounded_reentry_loop_is_stopped(failures)
     test_env_scrubbed_reentry_loop_is_stopped(failures)
     test_hostile_state_directory_is_not_written_through(failures)
+    test_hostile_state_directory_survives_the_guard_trip(failures)
     test_reentry_guard_survives_a_reserializing_launcher(failures)
     if failures:
         print("FAIL: claude wrapper --settings re-entry checks failed")
