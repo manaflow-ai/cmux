@@ -51,13 +51,13 @@ struct AgentNotificationDelivery: Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: category?.rawValue),
-            soundContext: soundContext,
             agent: Self.agentContext(
                 category: category,
                 pending: pending,
                 agentKind: agentKind,
                 isSubagent: isSubagent
             ),
+            soundContext: soundContext,
             coalesces: coalesces
         )
         return true
