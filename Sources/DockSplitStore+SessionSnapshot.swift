@@ -127,7 +127,7 @@ extension DockSplitStore {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
-            let resumeBinding = effectiveSessionResumeBinding(
+            var resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
                 detected: detectedResumeBinding
             )
@@ -156,6 +156,28 @@ extension DockSplitStore {
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
+            let hasLiveRestorableAgent = isLiveRestorableAgentForSessionSnapshot(
+                restorableAgent: restorableAgent,
+                panelId: panelId,
+                observation: observation,
+                terminal: terminal,
+                transfer: transfer,
+                agentWasRunning: agentWasRunning,
+                currentAgentProcessIdentity: currentAgentProcessIdentity,
+                agentProcessPresence: agentProcessPresence
+            )
+            if resumeBinding == nil, hasLiveRestorableAgent,
+               let derivedBinding = restorableAgent?.resumeBindingSnapshot(),
+               setSurfaceResumeBinding(derivedBinding, panelId: panelId) {
+                resumeBinding = derivedBinding
+                setResumeBindingGap(false, panelId: panelId)
+            } else if resumeBinding == nil, hasLiveRestorableAgent {
+                // Preserve the agent metadata in the session snapshot, but do
+                // not hide a live session that cannot be made restorable.
+                setResumeBindingGap(true, panelId: panelId)
+            } else {
+                setResumeBindingGap(false, panelId: panelId)
+            }
             let policy = Workspace.makeSessionRestorePolicyService()
             let tmuxStartCommand = restorableAgent == nil
                 ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
@@ -434,5 +456,67 @@ extension DockSplitStore {
             currentProcessIdentity: currentAgentProcessIdentity,
             processPresence: agentProcessPresence
         ) ?? false
+    }
+
+    private func isLiveRestorableAgentForSessionSnapshot(
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        panelId: UUID,
+        observation: RestorableAgentSessionIndex.Entry?,
+        terminal: TerminalPanel,
+        transfer: Workspace.DetachedSurfaceTransfer?,
+        agentWasRunning: Bool?,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
+        agentProcessPresence: (Int) -> PIDPresence
+    ) -> Bool {
+        guard restorableAgent != nil else { return false }
+        if agentWasRunning == true {
+            return true
+        }
+
+        // A restore launcher is itself durable live intent. It may not have
+        // produced a process index entry yet, so retain the session binding
+        // while the launch is queued or running.
+        switch restoredAgentLifecycle.resumeStatesByPanelId[panelId]
+            ?? transfer?.restorableAgentResumeState {
+        case .awaitingAutoResumeCommand, .autoResumeCommandRunning, .observedAgentCommandRunning:
+            return true
+        case .manualResumeAvailable, .completedAgentExit, nil:
+            break
+        }
+
+        guard let restorableAgent, let observation,
+              observation.snapshot.kind == restorableAgent.kind,
+              observation.snapshot.sessionId == restorableAgent.sessionId else {
+            return false
+        }
+        let runtimeIdentities = confirmedRuntimeProcessIdentities(
+            for: restorableAgent,
+            panelId: panelId,
+            transfer: transfer,
+            currentAgentProcessIdentity: currentAgentProcessIdentity
+        )
+        return observation.processLiveness.wasRunning(
+            fallingBackTo: terminal.shellActivity.state,
+            recordedProcessIdentities: observation.agentProcessIdentities,
+            confirmedRuntimeProcessIdentities: runtimeIdentities,
+            currentProcessIdentity: currentAgentProcessIdentity,
+            processPresence: agentProcessPresence
+        ) == true
+    }
+
+    private func confirmedRuntimeProcessIdentities(
+        for agent: SessionRestorableAgentSnapshot,
+        panelId: UUID,
+        transfer: Workspace.DetachedSurfaceTransfer?,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        guard agent.kind != .claude else { return [] }
+        let runtime = agentRuntimeByPanelId[panelId] ?? transfer?.agentRuntime
+        let key = "\(agent.kind.rawValue).\(agent.sessionId)"
+        guard let recordedIdentity = runtime?.agentPIDProcessIdentities[key],
+              currentAgentProcessIdentity(Int(recordedIdentity.pid)) == recordedIdentity else {
+            return []
+        }
+        return [recordedIdentity]
     }
 }
