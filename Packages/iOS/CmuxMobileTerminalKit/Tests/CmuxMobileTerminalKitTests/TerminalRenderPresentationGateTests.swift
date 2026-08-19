@@ -137,4 +137,35 @@ struct TerminalRenderPresentationGateTests {
         #expect(!preOutput.carriesOutputRevision(1))
         #expect(output.carriesOutputRevision(1))
     }
+
+    @Test("replacing a discarded token preserves the presentation gate")
+    func discardedTokenCanBeReplacedWithoutReleasingQueuedWork() {
+        var gate = TerminalRenderPresentationGate()
+        let discarded = TerminalRenderSubmission(
+            token: 50,
+            generation: 7,
+            kind: .ordinary,
+            outputRevision: 4
+        )
+        let replacement = TerminalRenderSubmission(
+            token: 51,
+            generation: 7,
+            kind: .ordinary,
+            outputRevision: 4
+        )
+        let queued = TerminalRenderSubmission(
+            token: 52,
+            generation: 7,
+            kind: .localScroll,
+            outputRevision: 5
+        )
+
+        #expect(gate.enqueue(discarded) == .started(discarded))
+        #expect(gate.enqueue(queued) == .queued(queued))
+        #expect(gate.replaceInFlight(with: replacement) == .started(replacement))
+        #expect(gate.inFlight == replacement)
+        #expect(gate.pending == queued)
+        #expect(gate.complete(token: discarded.token, generation: discarded.generation) == .ignored)
+        #expect(gate.complete(token: replacement.token, generation: replacement.generation) == .started(queued))
+    }
 }
