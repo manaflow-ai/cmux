@@ -7119,7 +7119,18 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let Ok(mut child) = command.spawn() else { return Vec::new() };
+    let Ok(mut child) = ({
+        // Spawn under the raise lock: a raise that wins the lock happens
+        // strictly before this spawn, so a retired worker cannot start an
+        // obsolete command; a spawn that wins is killed by the next tick.
+        let _spawn_guard = stop.lock.lock().unwrap();
+        if stop.is_raised() {
+            return Vec::new();
+        }
+        command.spawn()
+    }) else {
+        return Vec::new();
+    };
     let mut stdout = child.stdout.take();
     if let Some(pipe) = stdout.as_ref() {
         use std::os::fd::AsRawFd;
@@ -7236,7 +7247,16 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
         command.creation_flags(CREATE_SUSPENDED);
     }
-    let Ok(mut child) = command.spawn() else {
+    let Ok(mut child) = ({
+        // Spawn under the raise lock; see the Unix path for the ordering
+        // argument.
+        let _spawn_guard = stop.lock.lock().unwrap();
+        if stop.is_raised() {
+            let _ = std::fs::remove_file(&path);
+            return Vec::new();
+        }
+        command.spawn()
+    }) else {
         let _ = std::fs::remove_file(&path);
         return Vec::new();
     };
