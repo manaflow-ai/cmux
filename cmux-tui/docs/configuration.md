@@ -22,6 +22,7 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `theme.notification_info` | color | `110` | Info notification attention dot and border |
 | `theme.notification_warning` | color | `179` | Warning notification attention dot and border |
 | `theme.notification_error` | color | `167` | Error notification attention dot and border |
+| `theme.border_style` | `"single"`, `"rounded"`, `"thick"`, `"double"`, or `"none"` | `"single"` | Pane border glyph set; `"none"` leaves the border cells blank so panes separate by empty space |
 
 ## Tabs
 
@@ -206,6 +207,22 @@ The cloud connector runs `cmux provider control` and `cmux provider stream` remo
 | `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
 The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted when reading older config files but no longer select or launch a browser. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
+
+## Pane
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `pane.padding` | integer | `0` | Blank cells between the pane border and the terminal content, on every side, clamped to 0 through 4 |
+
+Padding shrinks the PTY size accordingly and never pads a pane below one content cell. Border geometry, the tab bar, and the scrollbar keep their positions, so `{"theme":{"border_style":"none"},"pane":{"padding":1}}` renders borderless panes separated by whitespace.
+
+## Status bar
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `status_bar.visible` | boolean | `true` | Shows the bottom screens bar |
+
+Hiding the bar gives its row back to the panes. Transient status messages still overlay the bottom row until dismissed, single-surface style. The screens strip, the session label, and the horizontal viewport track are not rendered while hidden; screens stay reachable through `prev-screen`, `next-screen`, `select-screen-N`, and the sidebar.
 
 ## Scrollbar
 

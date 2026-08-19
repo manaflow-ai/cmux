@@ -140,7 +140,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     } else {
         pane::draw_all(app, frame)
     };
-    if app.is_surface_only() {
+    if app.is_surface_only() || !app.config.status_bar.visible {
+        // No reserved status row: transient messages overlay the last row
+        // with foreground styling only, single-surface style.
         draw_surface_status(app, frame);
     } else {
         draw_status_bar(app, frame);

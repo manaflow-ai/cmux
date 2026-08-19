@@ -6095,12 +6095,13 @@ type PaneParts<T> = (Option<T>, Option<T>, T, Option<T>);
 fn pane_parts_for_virtual_rect(
     rect: VirtualRect,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     has_browser_omnibar: bool,
 ) -> Option<PaneParts<VirtualRect>> {
     let local =
         Rect { x: 0, y: rect.y, width: u16::try_from(rect.width).ok()?, height: rect.height };
     let (bar, omnibar, content, track) =
-        pane_parts_for_rect(local, scrollbar_position, has_browser_omnibar);
+        pane_parts_for_rect(local, scrollbar_position, pane_padding, has_browser_omnibar);
     Some((
         bar.map(|part| virtualize_local_rect(rect.x, part)),
         omnibar.map(|part| virtualize_local_rect(rect.x, part)),
@@ -6127,6 +6128,7 @@ struct PaneAreaProjection<'a> {
     stacked_headers: &'a HashSet<PaneId>,
     area: Rect,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
     viewport_offset: Option<u64>,
 }
@@ -6159,6 +6161,7 @@ fn full_pane_parts_for_layout(
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
 ) -> Option<(SurfaceId, PaneParts<VirtualRect>)> {
     let surface_id = pane.active_surface()?;
@@ -6169,7 +6172,7 @@ fn full_pane_parts_for_layout(
     } else if stacked_headers.contains(&pane.id) {
         stacked_header_parts_for_virtual_rect(full_rect)?
     } else {
-        pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)?
+        pane_parts_for_virtual_rect(full_rect, scrollbar_position, pane_padding, has_browser_omnibar)?
     };
     Some((surface_id, parts))
 }
@@ -6180,6 +6183,7 @@ fn pane_area_source(
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
 ) -> Option<PaneAreaSource> {
     let (surface, (full_bar, full_omnibar, full_content, full_track)) = full_pane_parts_for_layout(
@@ -6187,6 +6191,7 @@ fn pane_area_source(
         full_rect,
         stacked_headers,
         scrollbar_position,
+        pane_padding,
         surface_only,
     )?;
     Some(PaneAreaSource {
@@ -6285,6 +6290,7 @@ fn swept_viewport_size_leases(
         stacked_headers,
         area,
         scrollbar_position,
+        pane_padding,
         surface_only,
         viewport_offset,
     } = projection;
@@ -6303,6 +6309,7 @@ fn swept_viewport_size_leases(
             full_rect,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
         ) else {
             continue;
@@ -6407,6 +6414,7 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
         stacked_headers,
         area,
         scrollbar_position,
+        pane_padding,
         surface_only,
         viewport_offset,
     } = projection;
@@ -6424,6 +6432,7 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
             full_rect,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
         ) else {
             continue;
@@ -6903,7 +6912,10 @@ fn sidebar_layout_for_state(
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
     let (width, height) = size;
-    let content_height = height.saturating_sub(1);
+    // The bottom row belongs to the screens status bar unless the user
+    // hides it; a hidden bar gives the row back to the panes.
+    let content_height =
+        if config.status_bar.visible { height.saturating_sub(1) } else { height };
     if !visible {
         return SidebarLayout {
             content: Rect { x: 0, y: 0, width, height: content_height },
@@ -7050,13 +7062,21 @@ fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u
     clamp_rail_width(desired, configured_max, available)
 }
 
-fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, false);
+fn content_size_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    padding: u16,
+) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, padding, false);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
-fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
+fn browser_content_size_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    padding: u16,
+) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, padding, true);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
@@ -7170,6 +7190,7 @@ fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requ
 fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
+    padding: u16,
     browser_omnibar: bool,
 ) -> PaneParts<Rect> {
     let (bar, mut content, track) = if rect.width > 2 && rect.height > 2 {
@@ -7201,6 +7222,16 @@ fn pane_parts_for_rect(
     } else {
         (None, rect, None)
     };
+    // Configured padding: blank cells between border and content, applied
+    // only while at least one content cell survives on that axis.
+    if content.width > 0 && content.height > 0 {
+        let pad_x = padding.min(content.width.saturating_sub(1) / 2);
+        let pad_y = padding.min(content.height.saturating_sub(1) / 2);
+        content.x = content.x.saturating_add(pad_x);
+        content.width = content.width.saturating_sub(pad_x.saturating_mul(2)).max(1);
+        content.y = content.y.saturating_add(pad_y);
+        content.height = content.height.saturating_sub(pad_y.saturating_mul(2)).max(1);
+    }
     let omnibar = if browser_omnibar && content.height >= 2 {
         let row = Rect { height: 1, ..content };
         content.y = content.y.saturating_add(1);
@@ -7859,7 +7890,7 @@ fn run_with_machine_updates_inner(
             SidebarWidthOverrides::default(),
         )
         .content;
-        content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
+        content_size_for_rect(pane, config.scrollbar.position, config.pane.padding).unwrap_or((1, 1))
     });
     ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
     let initial_workspace_error = recover_initial_workspace_failure(
@@ -9418,7 +9449,11 @@ impl App {
             return RenderAction::None;
         };
         let preparation = MachineSessionPreparation {
-            initial_size: content_size_for_rect(self.content_area, self.config.scrollbar.position),
+            initial_size: content_size_for_rect(
+                self.content_area,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+            ),
             default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
@@ -12182,6 +12217,7 @@ impl App {
                 stacked_headers: &self.viewport_stacked_headers,
                 area: self.content_area,
                 scrollbar_position: self.config.scrollbar.position,
+                pane_padding: self.config.pane.padding,
                 surface_only: self.surface_only,
                 viewport_offset: Some(self.viewport_offset),
             });
@@ -12366,6 +12402,7 @@ impl App {
             stacked_headers: &layout.stacked_headers,
             area,
             scrollbar_position: self.config.scrollbar.position,
+            pane_padding: self.config.pane.padding,
             surface_only: self.surface_only,
             viewport_offset: viewport_enabled.then_some(self.viewport_offset),
         };
@@ -12398,6 +12435,7 @@ impl App {
                     stacked_headers: &layout.stacked_headers,
                     area,
                     scrollbar_position: self.config.scrollbar.position,
+                    pane_padding: self.config.pane.padding,
                     surface_only: self.surface_only,
                     viewport_offset: Some(self.viewport_offset),
                 },
@@ -14750,7 +14788,7 @@ impl App {
 
     /// Content size for a pane filling `rect`.
     fn size_of_rect(&self, rect: Rect) -> Option<(u16, u16)> {
-        content_size_for_rect(rect, self.config.scrollbar.position)
+        content_size_for_rect(rect, self.config.scrollbar.position, self.config.pane.padding)
     }
 
     /// Size hint for splitting `pane`: the second side of its rect.
@@ -17082,13 +17120,21 @@ impl App {
     fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
         match pane {
             Some(pane) => self.pane_areas.iter().find(|area| area.pane == pane).and_then(|area| {
-                browser_content_size_for_rect(area.logical_rect(), self.config.scrollbar.position)
+                browser_content_size_for_rect(
+                    area.logical_rect(),
+                    self.config.scrollbar.position,
+                    self.config.pane.padding,
+                )
             }),
             None => self
                 .active_pane()
                 .and_then(|pane| self.browser_tab_size_hint(Some(pane)))
                 .or_else(|| {
-                    browser_content_size_for_rect(self.content_area, self.config.scrollbar.position)
+                    browser_content_size_for_rect(
+                        self.content_area,
+                        self.config.scrollbar.position,
+                        self.config.pane.padding,
+                    )
                 }),
         }
     }
@@ -17142,7 +17188,7 @@ impl App {
             area.omnibar.is_some()
         } else {
             let (_, omnibar, _, _) =
-                pane_parts_for_rect(area.rect, self.config.scrollbar.position, true);
+                pane_parts_for_rect(area.rect, self.config.scrollbar.position, self.config.pane.padding, true);
             omnibar.is_some()
         };
         if !has_omnibar {
@@ -24653,6 +24699,7 @@ mod tests {
                 stacked_headers: &HashSet::new(),
                 area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
+                pane_padding: 0,
                 surface_only: None,
                 viewport_offset: Some(0),
             },
@@ -24711,6 +24758,7 @@ mod tests {
                 stacked_headers: &HashSet::new(),
                 area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
+                pane_padding: 0,
                 surface_only: None,
                 viewport_offset: Some(0),
             },
@@ -24850,6 +24898,7 @@ mod tests {
             stacked_headers: &stacked_headers,
             area,
             scrollbar_position: ScrollbarPosition::Column,
+            pane_padding: 0,
             surface_only: None,
             viewport_offset: Some(0),
         });
@@ -24892,6 +24941,7 @@ mod tests {
                     stacked_headers: &stacked_headers,
                     area,
                     scrollbar_position: ScrollbarPosition::Column,
+                    pane_padding: 0,
                     surface_only: None,
                     viewport_offset: Some(offset),
                 },
@@ -26399,10 +26449,40 @@ mod tests {
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
         let (_bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Column, true);
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, 0, true);
         assert_eq!(omnibar, Some(Rect { x: 11, y: 5, width: 77, height: 1 }));
         assert_eq!(content, Rect { x: 11, y: 6, width: 77, height: 21 });
         assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
+    }
+
+    #[test]
+    fn pane_padding_insets_content_and_keeps_at_least_one_cell() {
+        let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
+        let (bar, _, content, track) = pane_parts_for_rect(rect, ScrollbarPosition::Column, 2, false);
+        // Bar and track keep the border geometry; only content is inset.
+        assert_eq!(bar, Some(Rect { x: 10, y: 4, width: 80, height: 1 }));
+        assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
+        assert_eq!(content, Rect { x: 13, y: 7, width: 73, height: 18 });
+
+        // A tiny pane never pads itself out of existence.
+        let tiny = Rect { x: 0, y: 0, width: 5, height: 4 };
+        let (_, _, content, _) = pane_parts_for_rect(tiny, ScrollbarPosition::Border, 4, false);
+        assert!(content.width >= 1 && content.height >= 1, "content survived: {content:?}");
+
+        // Padded content sizes drive PTY sizing through the same helper.
+        assert_eq!(content_size_for_rect(rect, ScrollbarPosition::Column, 0), Some((77, 22)));
+        assert_eq!(content_size_for_rect(rect, ScrollbarPosition::Column, 2), Some((73, 18)));
+    }
+
+    #[test]
+    fn hidden_status_bar_gives_the_bottom_row_to_panes() {
+        let mut config = Config::default();
+        let overrides = SidebarWidthOverrides::default();
+        let visible = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
+        assert_eq!(visible.content.height, 29);
+        config.status_bar.visible = false;
+        let hidden = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
+        assert_eq!(hidden.content.height, 30);
     }
 
     #[test]
@@ -26541,7 +26621,7 @@ mod tests {
     fn browser_omnibar_degrades_gracefully_with_one_content_row() {
         let rect = Rect { x: 0, y: 0, width: 20, height: 3 };
         let (_bar, omnibar, content, _track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, true);
         assert_eq!(omnibar, None);
         assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
     }
@@ -26551,7 +26631,7 @@ mod tests {
         for height in [1, 2] {
             let rect = Rect { x: 4, y: 5, width: 20, height };
             let (bar, omnibar, content, track) =
-                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, false);
 
             assert_eq!(bar, Some(Rect { height: 1, ..rect }));
             assert_eq!(omnibar, None);
@@ -26564,7 +26644,7 @@ mod tests {
     fn narrow_tall_pane_keeps_unboxed_terminal_content() {
         let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
         let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, false);
 
         assert_eq!(bar, None);
         assert_eq!(omnibar, None);
@@ -26575,7 +26655,7 @@ mod tests {
     #[test]
     fn browser_tab_size_hint_uses_omnibar_reduced_content() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
-        assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column), Some((77, 21)));
+        assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column, 0), Some((77, 21)));
     }
 
     #[test]
@@ -29417,7 +29497,7 @@ mod tests {
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
         let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+            pane_parts_for_rect(rect, app.config.scrollbar.position, app.config.pane.padding, false);
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
@@ -29485,7 +29565,7 @@ mod tests {
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
         let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+            pane_parts_for_rect(rect, app.config.scrollbar.position, app.config.pane.padding, false);
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;

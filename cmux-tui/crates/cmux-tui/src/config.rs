@@ -187,6 +187,10 @@ struct RawConfig {
     #[serde(default)]
     scrollbar: RawScrollbar,
     #[serde(default)]
+    pane: RawPane,
+    #[serde(default)]
+    status_bar: RawStatusBar,
+    #[serde(default)]
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
@@ -203,6 +207,19 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPane {
+    /// Blank cells between the pane border and the terminal content.
+    padding: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusBar {
+    visible: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -257,6 +274,7 @@ struct RawTheme {
     notification_info: Option<ColorValue>,
     notification_warning: Option<ColorValue>,
     notification_error: Option<ColorValue>,
+    border_style: Option<BorderStyle>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -705,6 +723,77 @@ impl ColorValue {
     }
 }
 
+/// Pane border line style. `None` keeps the border cells blank so panes
+/// separate by empty space; geometry is unchanged in every style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BorderStyle {
+    #[default]
+    Single,
+    Rounded,
+    Thick,
+    Double,
+    None,
+}
+
+/// The six glyphs a pane box is drawn with.
+#[derive(Debug, Clone, Copy)]
+pub struct BorderGlyphs {
+    pub horizontal: &'static str,
+    pub vertical: &'static str,
+    pub top_left: &'static str,
+    pub top_right: &'static str,
+    pub bottom_left: &'static str,
+    pub bottom_right: &'static str,
+}
+
+impl BorderStyle {
+    pub fn glyphs(self) -> BorderGlyphs {
+        match self {
+            BorderStyle::Single => BorderGlyphs {
+                horizontal: "─",
+                vertical: "│",
+                top_left: "┌",
+                top_right: "┐",
+                bottom_left: "└",
+                bottom_right: "┘",
+            },
+            BorderStyle::Rounded => BorderGlyphs {
+                horizontal: "─",
+                vertical: "│",
+                top_left: "╭",
+                top_right: "╮",
+                bottom_left: "╰",
+                bottom_right: "╯",
+            },
+            BorderStyle::Thick => BorderGlyphs {
+                horizontal: "━",
+                vertical: "┃",
+                top_left: "┏",
+                top_right: "┓",
+                bottom_left: "┗",
+                bottom_right: "┛",
+            },
+            BorderStyle::Double => BorderGlyphs {
+                horizontal: "═",
+                vertical: "║",
+                top_left: "╔",
+                top_right: "╗",
+                bottom_left: "╚",
+                bottom_right: "╝",
+            },
+            BorderStyle::None => BorderGlyphs {
+                horizontal: " ",
+                vertical: " ",
+                top_left: " ",
+                top_right: " ",
+                bottom_left: " ",
+                bottom_right: " ",
+            },
+        }
+    }
+}
+
 /// Resolved presentation colors used by the renderers.
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
@@ -722,6 +811,7 @@ pub struct Theme {
     pub notification_info: Color,
     pub notification_warning: Color,
     pub notification_error: Color,
+    pub border_style: BorderStyle,
 }
 
 impl Default for Theme {
@@ -740,6 +830,7 @@ impl Default for Theme {
             notification_info: Color::Indexed(110),
             notification_warning: Color::Indexed(179),
             notification_error: Color::Indexed(167),
+            border_style: BorderStyle::Single,
         }
     }
 }
@@ -2629,10 +2720,36 @@ pub struct Config {
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub pane: PaneOptions,
+    pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
+}
+
+/// The maximum configurable pane padding, in cells per side.
+pub const MAX_PANE_PADDING: u16 = 4;
+
+/// Pane presentation options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaneOptions {
+    /// Blank cells between the pane border and the terminal content,
+    /// applied on every side, clamped to `MAX_PANE_PADDING`.
+    pub padding: u16,
+}
+
+/// Bottom screens-bar options. A hidden bar gives its row back to the
+/// panes; transient status messages still overlay the last row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatusBarOptions {
+    pub visible: bool,
+}
+
+impl Default for StatusBarOptions {
+    fn default() -> Self {
+        Self { visible: true }
+    }
 }
 
 /// One resolved user command from the top-level `commands` section.
@@ -3084,6 +3201,15 @@ pub fn load() -> Config {
     }
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
+    }
+    if let Some(style) = raw.theme.border_style {
+        config.theme.border_style = style;
+    }
+    if let Some(padding) = raw.pane.padding {
+        config.pane.padding = padding.min(MAX_PANE_PADDING);
+    }
+    if let Some(visible) = raw.status_bar.visible {
+        config.status_bar.visible = visible;
     }
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
@@ -6590,7 +6716,8 @@ mod tests {
                     "selection_background": "#101010",
                     "sidebar_rail": 42,
                     "sidebar_active_bg": "#202020",
-                    "tab_bg": 44
+                    "tab_bg": 44,
+                    "border_style": "rounded"
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {
@@ -6638,6 +6765,8 @@ mod tests {
                     }
                 ],
                 "scrollbar": {"position": "border"},
+                "pane": {"padding": 9},
+                "status_bar": {"visible": false},
                 "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
@@ -6733,6 +6862,9 @@ mod tests {
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert_eq!(config.theme.border_style, BorderStyle::Rounded);
+        assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");
+        assert!(!config.status_bar.visible);
         assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
@@ -7345,6 +7477,34 @@ mod tests {
             "the prefix chord must not remain advertised as a modeless action"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
+    }
+
+    #[test]
+    fn border_style_parses_every_name_and_defaults_to_single() {
+        assert_eq!(Theme::default().border_style, BorderStyle::Single);
+        for (name, style) in [
+            ("single", BorderStyle::Single),
+            ("rounded", BorderStyle::Rounded),
+            ("thick", BorderStyle::Thick),
+            ("double", BorderStyle::Double),
+            ("none", BorderStyle::None),
+        ] {
+            let raw: RawConfig =
+                serde_json::from_str(&format!(r#"{{"theme":{{"border_style":"{name}"}}}}"#))
+                    .unwrap();
+            assert_eq!(raw.theme.border_style, Some(style), "{name} did not parse");
+        }
+        let hidden = BorderStyle::None.glyphs();
+        for glyph in [
+            hidden.horizontal,
+            hidden.vertical,
+            hidden.top_left,
+            hidden.top_right,
+            hidden.bottom_left,
+            hidden.bottom_right,
+        ] {
+            assert_eq!(glyph, " ");
+        }
     }
 
     #[test]
