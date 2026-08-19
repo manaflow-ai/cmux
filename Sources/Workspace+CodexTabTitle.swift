@@ -1,4 +1,3 @@
-import Bonsplit
 import Foundation
 
 extension Workspace {
