@@ -335,7 +335,16 @@ extension MobilePairedMacStoring {
         let existing: MobilePairedMac?
         switch condition {
         case .matchingInstanceTag(let tag):
-            existing = matches.first { $0.instanceTag == tag }
+            let expectedID = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: tag
+            ).id
+            existing = matches.first {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).id == expectedID
+            }
             guard existing != nil else { return false }
         case .unclaimed:
             guard !matches.contains(where: { $0.instanceTag != nil }) else { return false }
@@ -370,10 +379,16 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
+        let expectedID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
         let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
             .first {
-                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
-                    && $0.instanceTag == instanceTag
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).id == expectedID
             }
         if let existing, existing.lastSeenAt >= now { return false }
         try await upsert(

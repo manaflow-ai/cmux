@@ -3157,10 +3157,19 @@ extension MobileIrohRuntimeComposition {
         )
         let canonicalTarget = cmxCanonicalDeviceID(macDeviceID)
         let matches = snapshot.bindings.filter { binding in
-            guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
+            let bindingIdentity = CmxMacAppInstanceIdentity(
+                macDeviceID: binding.deviceID,
+                instanceTag: binding.tag
+            )
+            guard bindingIdentity.macDeviceID == canonicalTarget else {
                 return false
             }
-            if let instanceTag { return binding.tag == instanceTag }
+            if let instanceTag {
+                return bindingIdentity.instanceTag == CmxMacAppInstanceIdentity(
+                    macDeviceID: canonicalTarget,
+                    instanceTag: instanceTag
+                ).instanceTag
+            }
             return true
         }
         // Bound the WHOLE operation. Each revoke request carries its own network

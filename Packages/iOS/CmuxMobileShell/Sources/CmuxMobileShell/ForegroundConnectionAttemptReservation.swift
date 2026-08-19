@@ -41,7 +41,13 @@ struct ForegroundConnectionAttemptReservation {
             // A saved row is an exact owner. A legacy untagged row is only
             // compatible with another untagged attempt, never with Stable or
             // Nightly merely because the physical device id matches.
-            return mac.instanceTag == tag
+            return CmxMacAppInstanceIdentity(
+                macDeviceID: requestedMacDeviceID,
+                instanceTag: tag
+            ).id == CmxMacAppInstanceIdentity(
+                macDeviceID: mac.macDeviceID,
+                instanceTag: mac.instanceTag
+            ).id
         }
     }
 }

@@ -664,16 +664,23 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     ) throws -> Bool {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let normalizedInputTag = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag
         var didWrite = false
         try transaction {
             let recordInstanceTag: String?
             switch routeWriteCondition {
             case .matchingInstanceTag(let expectedInstanceTag):
-                recordInstanceTag = expectedInstanceTag
+                recordInstanceTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: expectedInstanceTag
+                ).instanceTag
             case .unclaimed:
                 recordInstanceTag = nil
             case nil:
-                recordInstanceTag = instanceTag
+                recordInstanceTag = normalizedInputTag
             }
             let ownerKey = Self.ownerKey(
                 stackUserID: stackUserID,
@@ -1067,7 +1074,11 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         instanceTag: String?
     ) -> String {
-        "\(stackUserID ?? "")\u{1F}\(teamID ?? "")\u{1F}\(instanceTag ?? "")"
+        let normalizedTag = CmxMacAppInstanceIdentity(
+            macDeviceID: "",
+            instanceTag: instanceTag
+        ).instanceTag
+        return "\(stackUserID ?? "")\u{1F}\(teamID ?? "")\u{1F}\(normalizedTag ?? "")"
     }
 
 }

@@ -261,7 +261,15 @@ extension MobileShellComposite {
         let deviceId = instance.deviceId
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
-               .firstIndex(where: { $0.tag == instance.tag }) {
+               .firstIndex(where: {
+                   CmxMacAppInstanceIdentity(
+                       macDeviceID: deviceId,
+                       instanceTag: $0.tag
+                   ).id == CmxMacAppInstanceIdentity(
+                       macDeviceID: deviceId,
+                       instanceTag: instance.tag
+                   ).id
+               }) {
             registryDevices[deviceIndex].instances[instanceIndex].routes = routes
         }
         guard !routes.isEmpty,
@@ -269,9 +277,17 @@ extension MobileShellComposite {
               let mac = pairedMac,
               await isScopeCurrent(scope),
               presenceMap.reconnectRouteAuthority(
-                  deviceId: deviceId,
-                  pairedMacInstanceTag: mac.instanceTag
-              )?.tag == instance.tag,
+                deviceId: deviceId,
+                pairedMacInstanceTag: mac.instanceTag
+              ).map({ authority in
+                  CmxMacAppInstanceIdentity(
+                      macDeviceID: deviceId,
+                      instanceTag: authority.tag
+                  ).id
+              }) == CmxMacAppInstanceIdentity(
+                  macDeviceID: deviceId,
+                  instanceTag: instance.tag
+              ).id,
               let updated = DeviceRegistryService.selectReconnectRoutes(
                   local: mac.routes,
                   registry: routes

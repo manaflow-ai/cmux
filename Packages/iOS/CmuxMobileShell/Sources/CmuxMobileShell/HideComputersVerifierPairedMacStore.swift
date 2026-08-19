@@ -6,6 +6,13 @@ import Foundation
 actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
     private var records: [MobilePairedMac]
 
+    private func identityID(macDeviceID: String, instanceTag: String?) -> String {
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
+    }
+
     init(records: [MobilePairedMac]) {
         self.records = records
     }
@@ -56,7 +63,8 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
             }
         }
         if let index = records.firstIndex(where: {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
         }) {
             records[index].displayName = displayName
             records[index].routes = routes
@@ -99,8 +107,8 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
             expectedInstanceTag = nil
         }
         let index = records.firstIndex {
-            $0.macDeviceID == macDeviceID
-                && $0.instanceTag == expectedInstanceTag
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: expectedInstanceTag)
                 && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
         }
         switch condition {
@@ -108,7 +116,10 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
             guard index != nil else { return false }
         case .unclaimed:
             let hasClaimedSibling = records.contains {
-                $0.macDeviceID == macDeviceID
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).macDeviceID == cmxCanonicalDeviceID(macDeviceID)
                     && $0.instanceTag != nil
                     && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
             }
@@ -159,7 +170,7 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
 
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let matches = records.filter {
-            $0.macDeviceID == macDeviceID
+            cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
                 && isVisibleInActiveScope($0, stackUserID: stackUserID, teamID: teamID)
         }
         guard matches.count == 1, let target = matches.first else { return }
@@ -180,8 +191,8 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         records = records.map { mac in
             var copy = mac
             if isVisibleInActiveScope(copy, stackUserID: stackUserID, teamID: teamID) {
-                copy.isActive = copy.macDeviceID == macDeviceID
-                    && copy.instanceTag == instanceTag
+                copy.isActive = identityID(macDeviceID: copy.macDeviceID, instanceTag: copy.instanceTag)
+                        == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
             }
             return copy
         }
@@ -207,7 +218,7 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         now: Date
     ) async throws {
         let matches = records.indices.filter {
-            records[$0].macDeviceID == macDeviceID
+            cmxCanonicalDeviceID(records[$0].macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
                 && records[$0].stackUserID == stackUserID
                 && records[$0].teamID == teamID
         }
@@ -229,8 +240,8 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         now: Date
     ) async throws {
         guard let index = records.firstIndex(where: {
-            $0.macDeviceID == macDeviceID
-                && $0.instanceTag == instanceTag
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
                 && $0.stackUserID == stackUserID
                 && $0.teamID == teamID
         }) else { return }
@@ -262,8 +273,8 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         teamID: String?
     ) async throws {
         records.removeAll {
-            $0.macDeviceID == macDeviceID
-                && $0.instanceTag == instanceTag
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
                 && $0.stackUserID == stackUserID
                 && $0.teamID == teamID
         }
