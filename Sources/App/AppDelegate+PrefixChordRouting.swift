@@ -2,15 +2,33 @@ import AppKit
 import CmuxSettings
 
 extension AppDelegate {
+    /// Resolves the window identity shared by every prefix pass-through seam.
+    /// AppKit can omit `event.window` while still carrying a valid event number;
+    /// the configured shortcut resolver provides the same main-window fallback
+    /// used by ordinary shortcut routing before raw event/window values.
+    func prefixChordWindowNumber(
+        for event: NSEvent,
+        fallbackWindow: NSWindow? = nil
+    ) -> Int {
+        if let configured = configuredShortcutChordWindowNumber(for: event) {
+            return configured
+        }
+        if let window = event.window {
+            return window.windowNumber
+        }
+        if let fallbackWindow {
+            return fallbackWindow.windowNumber
+        }
+        return event.windowNumber > 0 ? event.windowNumber : 0
+    }
+
     /// Returns whether this event was explicitly marked as an unmatched
     /// prefix suffix. All secondary shortcut surfaces use this seam before
     /// attempting their own legacy matching so a mismatch remains literal.
     func shouldBypassPrefixChordPassThrough(_ event: NSEvent) -> Bool {
-        guard CmuxPrefixChordPassThroughGuard.hasMarkers else { return false }
-        let windowNumber = event.window?.windowNumber
-            ?? configuredShortcutChordWindowNumber(for: event)
-            ?? (event.windowNumber > 0 ? event.windowNumber : 0)
-        return CmuxPrefixChordPassThroughGuard.shouldBypass(
+        guard prefixChordPassThroughCoordinator.hasMarkers else { return false }
+        let windowNumber = prefixChordWindowNumber(for: event)
+        return prefixChordPassThroughCoordinator.shouldBypass(
             event,
             windowNumber: windowNumber
         )
@@ -27,7 +45,7 @@ extension AppDelegate {
         // layer in that tiny interval, and the already-declared pass-through
         // must still prevent a later cmux matcher from stealing the byte.
         let hasPassThroughMarker = event.type == .keyDown
-            && CmuxPrefixChordPassThroughGuard.hasMarkers
+            && prefixChordPassThroughCoordinator.hasMarkers
             && shouldBypassPrefixChordPassThrough(event)
         guard shortcutPrefixChordCoordinator.isEnabled else {
             return hasPassThroughMarker ? false : nil
@@ -91,10 +109,8 @@ extension AppDelegate {
     }
 
     private func markPrefixChordPassThrough(_ event: NSEvent) {
-        let windowNumber = event.window?.windowNumber
-            ?? configuredShortcutChordWindowNumber(for: event)
-            ?? 0
-        CmuxPrefixChordPassThroughGuard.mark(event, windowNumber: windowNumber)
+        let windowNumber = prefixChordWindowNumber(for: event)
+        prefixChordPassThroughCoordinator.mark(event, windowNumber: windowNumber)
     }
 
     /// Prefix routing must stand down for modal interaction and active IME

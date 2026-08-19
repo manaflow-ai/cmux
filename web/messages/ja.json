@@ -1829,7 +1829,7 @@
       "settingsFileDesc": "cmux.json には cmux 管理のアプリ設定、ショートカット、アクション、コマンド、ワークスペースレイアウトを保存します。",
       "settingsFilePrecedence": "cmux.json で定義したショートカットはアプリ内設定より優先されます。管理対象のショートカットは設定画面に表示されたままですが、そこでの編集は無効になります。",
       "settingsFileChords": "単発ショートカットは文字列、コードは2要素の配列で指定します。例: [\"ctrl+b\", \"c\"] は Ctrl+B の後に C を押します。",
-      "shortcutsPrefixIntro": "任意の共有リーダーキーには shortcuts.prefix を使います。修飾キー付きストローク（または Space）1つを文字列または1要素の配列で指定でき、null や未割り当ての別名も使えます。2ストロークのプレフィックスは拒否されます。",
+      "shortcutsPrefixIntro": "任意の共有リーダーキーには shortcuts.prefix を使います。修飾キー付きストローク（または Space）1つを文字列、1要素の配列、または { \"first\": { \"key\": \"b\", \"control\": true } } のような1ストロークの構造化オブジェクトで指定でき、null や未割り当ての別名で無効にできます。この説明がすべてです。2ストロークのプレフィックスは拒否されます。",
       "shortcutsPrefixCallout": "プレフィックス層は既定でオフです。解除されるまで cmux は短時間だけ続くキーを待ち、利用可能なキーを表示します。Escape またはタイムアウトで解除され、一致しないキーは変更せずフォーカス中のターミナルへ渡されます。Escape とメディア／システム定義キーは有効なプレフィックスではありません。",
       "exampleConfig": "設定例",
       "metaTitle": "設定",
@@ -1938,7 +1938,7 @@
         "shortcuts": {
           "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。",
-          "prefix": "コード層で使う任意の cmux リーダーキーです。既定の未割り当てのままにすると、既存のターミナル動作を維持します。修飾キー付きストローク1つ、または Space を指定します。Escape、メディアキー、その他のシステム定義キーは使用できません。Escape で解除でき、短いタイムアウトでも解除され、一致しない続きのキーは変更せずターミナルへ渡されます。"
+          "prefix": "プレフィックス層で使う任意の cmux リーダーキーです。既定の未割り当てのままにすると、既存のターミナル動作を維持します。修飾キー付きストローク1つ、または Space を指定します。Escape、メディアキー、その他のシステム定義キーは使用できません。Escape で解除でき、短いタイムアウトでも解除され、一致しない続きのキーは変更せずターミナルへ渡されます。"
         },
         "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",
         "activePaneBorderColor": "分割ワークスペースでフォーカス中の cmux ペインの周囲に描画する任意の境界線色です。",

@@ -92,6 +92,7 @@ import Testing
         let store = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
             startWatching: false
         )
 
@@ -138,6 +139,7 @@ import Testing
         let invalidStore = KeyboardShortcutSettingsFileStore(
             primaryPath: invalidURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
             startWatching: false
         )
         #expect(invalidStore.prefixShortcut().isUnbound)
@@ -161,6 +163,7 @@ import Testing
         let malformedBindingStore = KeyboardShortcutSettingsFileStore(
             primaryPath: malformedBindingURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
             startWatching: false
         )
         #expect(malformedBindingStore.override(for: .newTab) == nil)
@@ -179,6 +182,7 @@ import Testing
         let fallbackStore = KeyboardShortcutSettingsFileStore(
             primaryPath: directoryURL.appendingPathComponent("missing.json").path,
             fallbackPath: fallbackURL.path,
+            additionalFallbackPaths: [],
             startWatching: false
         )
         #expect(

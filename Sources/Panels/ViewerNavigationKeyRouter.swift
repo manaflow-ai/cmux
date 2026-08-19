@@ -46,7 +46,7 @@ final class ViewerNavigationKeyRouter {
         perform: (KeyboardShortcutSettings.Action) -> Void
     ) -> Bool {
         pendingChord = nil
-        guard bindings.contains(where: { $0.action == action }),
+        guard bindings.contains(where: { $0.action == action && !$0.shortcut.isUnbound }),
               isAllowed(action, event) else {
             return false
         }

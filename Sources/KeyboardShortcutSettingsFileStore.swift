@@ -1107,7 +1107,10 @@ final class CmuxSettingsFileStore {
             // opt-in system-wide Show/Hide hotkey — honors the rebinding
             // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
-                return parseShortcutObjectForm(object, action: action)
+                return parseShortcutObjectForm(
+                    object,
+                    allowsBareFirstStroke: action.allowsBareFirstStroke
+                )
             }
             return nil
         }()

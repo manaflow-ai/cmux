@@ -1907,7 +1907,7 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
-      "shortcutsPrefixIntro": "Use shortcuts.prefix for the optional shared leader key. It accepts one modifier stroke (or Space) as a string, a one-item array, null, or an unbound alias. A two-stroke prefix is rejected.",
+      "shortcutsPrefixIntro": "Use shortcuts.prefix for the optional shared leader key. It accepts one modifier stroke (or Space) as a string, a one-item array, or a structured one-stroke object such as { \"first\": { \"key\": \"b\", \"control\": true } }; null and unbound aliases disable it. This summary is exhaustive: a two-stroke prefix is rejected.",
       "shortcutsPrefixCallout": "The prefix layer is off by default. While armed, cmux waits briefly for one suffix and shows the available keys; Escape or timeout cancels it. An unmatched suffix is passed to the focused terminal unchanged, and Escape/media/system-defined keys are not valid prefixes.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {

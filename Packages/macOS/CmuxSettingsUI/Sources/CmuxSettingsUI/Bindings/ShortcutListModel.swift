@@ -19,10 +19,13 @@ final class ShortcutListModel {
     private(set) var whenOverrideRawStrings: [String: String] = [:]
     var chordModeActions: Set<String> = []
     @ObservationIgnored var chordModeOverrides: [String: Bool] = [:]
-    /// The last prefix value written locally, retained until its observation
-    /// echo arrives so a stream's initial stale value cannot roll back a
-    /// just-recorded leader between sequential Settings edits.
-    @ObservationIgnored var pendingPrefix: StoredShortcut?
+    /// Monotonic generation for serialized prefix persistence. A generation
+    /// lets a late failure or observation from an older request avoid rolling
+    /// back a newer user choice.
+    @ObservationIgnored var prefixWriteGeneration: UInt64 = 0
+    /// Prefix writes are chained so JSONConfigStore requests cannot complete
+    /// out of order when Settings edits arrive back-to-back.
+    @ObservationIgnored var prefixWriteTail: Task<Void, Never>?
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
     private(set) var primaryModifierRejections: Set<String> = []
@@ -430,17 +433,10 @@ final class ShortcutListModel {
         rejectedConflictShortcuts.removeAll()
         chordModeActions.removeAll()
         chordModeOverrides.removeAll()
-        pendingPrefix = nil
         prefix = .unbound
         prefixRejection = nil
         await write([:], resetAllLegacy: true)
-        do {
-            try await jsonStore.reset(catalog.shortcuts.prefix)
-            onShortcutsChanged()
-        } catch {
-            prefix = await jsonStore.value(for: catalog.shortcuts.prefix)
-            errorLog.record(error, keyID: catalog.shortcuts.prefix.id)
-        }
+        await resetPrefix()
     }
 
     // MARK: - Prune helpers (moved verbatim from section)

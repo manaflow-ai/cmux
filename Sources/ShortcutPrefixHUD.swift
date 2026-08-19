@@ -52,6 +52,7 @@ final class ShortcutPrefixHUD {
             defer: true
         )
         panel.isOpaque = false
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.shortcutPrefixHUD")
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.level = .floating

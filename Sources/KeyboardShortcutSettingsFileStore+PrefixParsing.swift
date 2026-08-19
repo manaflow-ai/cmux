@@ -17,7 +17,7 @@ extension CmuxSettingsFileStore {
                 ? .unbound
                 : (strokes.count == 1 ? StoredShortcut.parseConfig(strokes: strokes) : nil)
         } else if let object = rawValue as? [String: Any] {
-            parsed = parseShortcutObjectForm(object, action: .openSettings)
+            parsed = parseShortcutObjectForm(object, allowsBareFirstStroke: false)
         } else {
             parsed = nil
         }
@@ -34,7 +34,7 @@ extension CmuxSettingsFileStore {
     /// Decodes the nested-object binding the CmuxSettings package writes.
     func parseShortcutObjectForm(
         _ object: [String: Any],
-        action: KeyboardShortcutSettings.Action
+        allowsBareFirstStroke: Bool
     ) -> StoredShortcut? {
         guard let firstValue = object["first"],
               let first = parseShortcutStrokeObject(firstValue) else {
@@ -48,7 +48,7 @@ extension CmuxSettingsFileStore {
             }
             return .unbound
         }
-        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
+        guard allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
             return nil
         }
         let second: ShortcutStroke?

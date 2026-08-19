@@ -2,13 +2,13 @@ import Foundation
 
 /// Stable identity for one physical key event as it crosses AppKit routing layers.
 ///
-/// AppKit and WebKit can replay an event as a distinct ``NSEvent`` instance. The
-/// event number lets a host recognize that replay while still treating key
-/// autorepeat (which receives a new event number) as a new physical event.
-/// Synthetic events may use `0`; the remaining fields then provide a conservative
-/// structural identity.
+/// AppKit and WebKit can replay an event as a distinct ``NSEvent`` instance. Key
+/// events do not expose a supported AppKit event number, so hosts use the
+/// structural fields below to recognize an in-flight replay. Synthetic events
+/// may also use `0`; the complete tuple remains a conservative identity.
 public struct ShortcutPrefixChordEventIdentity: Sendable, Equatable, Hashable {
-    /// AppKit's event number, or `0` for synthetic events without one.
+    /// An optional platform event number for event kinds that provide one; key
+    /// events use `0` because AppKit does not define `eventNumber` for them.
     public let eventNumber: UInt64
     /// Window in which the event was observed, when known.
     public let windowID: Int?
@@ -37,10 +37,8 @@ public struct ShortcutPrefixChordEventIdentity: Sendable, Equatable, Hashable {
         self.timestamp = timestamp.isFinite ? timestamp : 0
     }
 
-    /// Event numbers are process-wide AppKit identities.  A replay can carry
-    /// the same number while losing the original window association, so the
-    /// number is authoritative whenever it is non-zero.  Synthetic events do
-    /// not have that guarantee and use the complete structural tuple instead.
+    /// Nonzero platform event numbers are authoritative when a host supplies
+    /// them. Keyboard and synthetic events use the complete structural tuple.
     public static func == (
         lhs: ShortcutPrefixChordEventIdentity,
         rhs: ShortcutPrefixChordEventIdentity

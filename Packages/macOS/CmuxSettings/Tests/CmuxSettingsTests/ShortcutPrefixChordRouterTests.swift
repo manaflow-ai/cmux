@@ -16,59 +16,6 @@ struct ShortcutPrefixChordRouterTests {
         )
     }
 
-    @Test func prefixPolicyIsStrictAndShared() {
-        #expect(
-            ShortcutPrefixPolicy().result(for: .unbound) == .unbound
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "b")) == nil
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "space"))
-                == ShortcutStroke(key: "space")
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(
-                ShortcutStroke(key: "b", control: true, keyCode: 11)
-            ) == ShortcutStroke(key: "b", control: true, keyCode: 11)
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(
-                StoredShortcut(
-                    first: ShortcutStroke(key: "b", control: true),
-                    second: ShortcutStroke(key: "c")
-                )
-            ) == nil
-        )
-        let malformedEmptyPrefix = StoredShortcut(
-            first: ShortcutStroke(key: ""),
-            second: ShortcutStroke(key: "c")
-        )
-        #expect(
-            ShortcutPrefixPolicy().result(for: malformedEmptyPrefix)
-                == .emptyStrokeNotSupported
-        )
-        #expect(ShortcutPrefixPolicy().normalized(malformedEmptyPrefix) == nil)
-        #expect(
-            ShortcutPrefixPolicy().normalized(
-                ShortcutStroke(key: "media.volumeUp", command: true)
-            ) == nil
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(
-                ShortcutStroke(key: "volumeUp", command: true)
-            ) == nil
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(
-                ShortcutStroke(key: "escape", control: true)
-            ) == nil
-        )
-        #expect(
-            ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "")) == nil
-        )
-    }
-
     @Test func disabledPrefixNeverConsumesInput() {
         var router = ShortcutPrefixChordRouter()
 

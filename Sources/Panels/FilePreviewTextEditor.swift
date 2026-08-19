@@ -334,8 +334,8 @@ final class SavingTextView: NSTextView {
     /// has already consumed the leader and suffix events.
     @discardableResult
     func performPrefixChordSave() -> Bool {
-        guard panel != nil else { return false }
-        panel?.saveTextContent()
+        guard let panel else { return false }
+        panel.saveTextContent()
         return true
     }
 

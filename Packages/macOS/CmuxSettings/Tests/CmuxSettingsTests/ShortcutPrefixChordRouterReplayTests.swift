@@ -168,6 +168,63 @@ struct ShortcutPrefixChordRouterReplayTests {
         #expect(!router.isArmed)
     }
 
+    @Test func freshUnsupportedEventInPendingWindowPassesThroughAsMismatch() {
+        var router = ShortcutPrefixChordRouter(prefix: prefix)
+        _ = router.handle(stroke: prefix, now: 40, windowID: 1, bindings: [binding])
+
+        let result = router.handleUnsupportedOnce(
+            now: 40.1,
+            windowID: 1,
+            eventID: ShortcutPrefixChordEventIdentity(
+                windowID: 1,
+                keyCode: 99,
+                modifierFlags: 0,
+                timestamp: 40.1
+            )
+        )
+
+        #expect(result == .init(result: .mismatchPassThrough, wasDuplicate: false))
+        #expect(!router.isArmed)
+    }
+
+    @Test func freshUnsupportedEventInAnotherWindowDoesNotOwnPendingChord() {
+        var router = ShortcutPrefixChordRouter(prefix: prefix)
+        _ = router.handle(stroke: prefix, now: 41, windowID: 1, bindings: [binding])
+
+        let result = router.handleUnsupportedOnce(
+            now: 41.1,
+            windowID: 2,
+            eventID: ShortcutPrefixChordEventIdentity(
+                windowID: 2,
+                keyCode: 99,
+                modifierFlags: 0,
+                timestamp: 41.1
+            )
+        )
+
+        #expect(result == .init(result: .passThrough, wasDuplicate: false))
+        #expect(!router.isArmed)
+    }
+
+    @Test func bypassReplayIsIdempotentAndDoesNotDisarmPendingState() {
+        var router = ShortcutPrefixChordRouter(prefix: prefix)
+        _ = router.handle(stroke: prefix, now: 42, windowID: 1, bindings: [binding])
+        let event = ShortcutPrefixChordEventIdentity(
+            windowID: 1,
+            keyCode: 100,
+            modifierFlags: 0,
+            timestamp: 42.1
+        )
+
+        let first = router.rememberBypassedEvent(eventID: event)
+        let replay = router.rememberBypassedEvent(eventID: event)
+
+        #expect(first == .init(result: .passThrough, wasDuplicate: false))
+        #expect(replay == .init(result: .passThrough, wasDuplicate: true))
+        #expect(router.isArmed)
+        #expect(router.deadline == 42.8)
+    }
+
     @Test func prefixInNewWindowRearmsWithThatWindowTable() {
         var router = ShortcutPrefixChordRouter(prefix: prefix)
         _ = router.handle(

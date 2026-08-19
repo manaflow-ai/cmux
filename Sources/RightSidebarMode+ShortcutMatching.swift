@@ -10,14 +10,19 @@ extension RightSidebarMode {
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
+        if let app = AppDelegate.shared {
+            return app.rightSidebarModeShortcut(
+                for: event,
+                allowingAction: allowingAction
+            )
+        }
         for mode in RightSidebarMode.allCases {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
                   mode.isAvailable() else {
                 continue
             }
-            let matches = AppDelegate.shared?.matchConfiguredShortcut(event: event, action: action)
-                ?? KeyboardShortcutSettings.shortcut(for: action).matches(event: event)
+            let matches = KeyboardShortcutSettings.shortcut(for: action).matches(event: event)
             guard matches else { continue }
             return mode
         }

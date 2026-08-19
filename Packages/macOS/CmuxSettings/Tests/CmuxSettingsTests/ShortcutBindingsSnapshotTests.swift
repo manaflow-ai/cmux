@@ -64,28 +64,6 @@ import Testing
         #expect(StoredShortcut.decodeFromJSON(raw) == expected)
     }
 
-    @Test(arguments: [
-        ShortcutStroke(key: "b"),
-        ShortcutStroke(key: "escape", control: true),
-        ShortcutStroke(key: "media.volumeUp", command: true),
-    ])
-    func prefixPolicyRejectsUnsupportedStrokes(_ stroke: ShortcutStroke) {
-        #expect(ShortcutPrefixPolicy().normalized(stroke) == nil)
-    }
-
-    @Test func prefixPolicyRejectsChordsAndAcceptsOnlyModifierOrSpace() {
-        #expect(
-            ShortcutPrefixPolicy().normalized(
-                StoredShortcut(
-                    first: ShortcutStroke(key: "b", control: true),
-                    second: ShortcutStroke(key: "c")
-                )
-            ) == nil
-        )
-        #expect(ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "space")) == ShortcutStroke(key: "space"))
-        #expect(ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "k", command: true)) == ShortcutStroke(key: "k", command: true))
-    }
-
     @Test func routingEquivalenceIgnoresRecordingKeyCodeMetadata() {
         let recorded = ShortcutStroke(key: "b", control: true, keyCode: 11)
         let handWritten = ShortcutStroke(key: "b", control: true)

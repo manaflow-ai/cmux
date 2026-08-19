@@ -166,10 +166,6 @@ public struct ShortcutPrefixChordRouter: Sendable {
             // ``expire(now:)`` or by the next distinct event.
             return HandleResult(result: previous, wasDuplicate: true)
         }
-        if let eventID {
-            recentEvents.remove(eventID)
-        }
-
         let result = handleUntracked(
             stroke: stroke,
             now: now,
@@ -204,10 +200,6 @@ public struct ShortcutPrefixChordRouter: Sendable {
         if let eventID, let previous = recentEvents.lookup(eventID) {
             return HandleResult(result: previous, wasDuplicate: true)
         }
-        if let eventID {
-            recentEvents.remove(eventID)
-        }
-
         let result: EventResult
         if let pending {
             self.pending = nil
@@ -340,12 +332,20 @@ public struct ShortcutPrefixChordRouter: Sendable {
         // The HUD only advertises bindings that win at least one suffix. The
         // pending table retains every eligible binding so a suffix that is
         // ambiguous with a different candidate still fails closed at runtime.
-        return bindings
-            .filter { candidate in
-                representativeStrokes(for: candidate).contains { stroke in
-                    uniqueMatch(bindings, stroke: stroke) == candidate
-                }
+        var candidatesBySuffix: [StrokeIdentity: [ShortcutPrefixChordBinding]] = [:]
+        for binding in bindings {
+            for stroke in representativeStrokes(for: binding) {
+                candidatesBySuffix[StrokeIdentity(stroke), default: []].append(binding)
             }
+        }
+
+        var winners = Set<ShortcutPrefixChordBinding>()
+        for candidates in candidatesBySuffix.values {
+            if let winner = uniqueWinner(candidates) {
+                winners.insert(winner)
+            }
+        }
+        return winners
             .sorted {
                 let lhs = Self.suffixIdentity($0)
                 let rhs = Self.suffixIdentity($1)
@@ -369,8 +369,13 @@ public struct ShortcutPrefixChordRouter: Sendable {
         stroke: ShortcutStroke
     ) -> ShortcutPrefixChordBinding? {
         let matches = bindings.filter { Self.matchesSuffix($0, stroke: stroke) }
-        guard !matches.isEmpty else { return nil }
+        return uniqueWinner(matches)
+    }
 
+    private static func uniqueWinner(
+        _ matches: [ShortcutPrefixChordBinding]
+    ) -> ShortcutPrefixChordBinding? {
+        guard !matches.isEmpty else { return nil }
         // Existing cmux shortcut routing gives a priority action first refusal
         // in its eligible context. Permit exactly one priority winner, but do
         // not guess when two priority actions (or two ordinary actions) match.
@@ -463,13 +468,12 @@ public struct ShortcutPrefixChordRouter: Sendable {
         }
 
         static func < (lhs: StrokeIdentity, rhs: StrokeIdentity) -> Bool {
-            [lhs.key, lhs.command ? "1" : "0", lhs.shift ? "1" : "0",
-             lhs.option ? "1" : "0", lhs.control ? "1" : "0"]
-                .joined(separator: "\u{1f}")
-                <
-                [rhs.key, rhs.command ? "1" : "0", rhs.shift ? "1" : "0",
-                 rhs.option ? "1" : "0", rhs.control ? "1" : "0"]
-                .joined(separator: "\u{1f}")
+            if lhs.key != rhs.key { return lhs.key < rhs.key }
+            if lhs.command != rhs.command { return !lhs.command && rhs.command }
+            if lhs.shift != rhs.shift { return !lhs.shift && rhs.shift }
+            if lhs.option != rhs.option { return !lhs.option && rhs.option }
+            if lhs.control != rhs.control { return !lhs.control && rhs.control }
+            return false
         }
     }
 }

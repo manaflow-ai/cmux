@@ -165,13 +165,7 @@ extension AppDelegate {
             ?? event.window
             ?? shortcutRoutingActiveWindow
         guard let firstResponder = window?.firstResponder else { return false }
-
-        var pending: [NSResponder] = [firstResponder]
-        var visited = Set<ObjectIdentifier>()
-        while let candidate = pending.popLast() {
-            guard visited.insert(ObjectIdentifier(candidate)).inserted else {
-                continue
-            }
+        return firstPrefixChordCandidate(startingAt: firstResponder) { candidate in
             if let outline = candidate as? FileExplorerNSOutlineView,
                outline.handleOpenSelectionShortcut(event) {
                 return true
@@ -184,14 +178,8 @@ extension AppDelegate {
                searchField.handleOpenSelectionShortcut(event) {
                 return true
             }
-            if let next = candidate.nextResponder {
-                pending.append(next)
-            }
-            if let view = candidate as? NSView, let superview = view.superview {
-                pending.append(superview)
-            }
-        }
-        return false
+            return nil
+        } ?? false
     }
 
     private func executeFocusedViewerPrefixChordAction(
@@ -216,22 +204,35 @@ extension AppDelegate {
         if responder is SavingTextView || responder is TextBoxInputTextView {
             return responder
         }
+        return firstPrefixChordCandidate(startingAt: responder) { candidate in
+            if candidate is SavingTextView || candidate is TextBoxInputTextView {
+                return candidate
+            }
+            return nil
+        }
+    }
+
+    /// Walks the responder chain and hosted view tree once, returning the first
+    /// candidate accepted by `transform`. Cycle protection keeps AppKit's
+    /// bidirectional responder/view graph bounded.
+    private func firstPrefixChordCandidate<T>(
+        startingAt responder: NSResponder,
+        _ transform: (NSResponder) -> T?
+    ) -> T? {
         var pending: [NSResponder] = [responder]
         var visited = Set<ObjectIdentifier>()
         while let candidate = pending.popLast() {
             guard visited.insert(ObjectIdentifier(candidate)).inserted else {
                 continue
             }
-            if candidate is SavingTextView || candidate is TextBoxInputTextView {
-                return candidate
+            if let match = transform(candidate) {
+                return match
             }
             if let next = candidate.nextResponder {
                 pending.append(next)
             }
-            // Some hosted text editors are reachable through the view tree but
-            // not through the responder chain exposed by the current first
-            // responder. Follow both edges, with cycle protection, so chord
-            // execution reaches the same focused editor as normal key routing.
+            // Some hosted editors are reachable through the view tree but not
+            // through the responder chain exposed by the current first responder.
             if let view = candidate as? NSView, let superview = view.superview {
                 pending.append(superview)
             }

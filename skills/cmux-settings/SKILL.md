@@ -59,8 +59,11 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 - Notifications: `notifications.dockBadge`, `.sound` (enum including `"none"`, `"custom_file"`), `.customSoundFilePath`, `.hooks` (array).
 - Browser: `browser.defaultSearchEngine`, `.theme`, `.defaultZoomLevel`, `.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`.
 - Automation: `automation.socketControlMode` (`off | cmuxOnly | automation | password | allowAll`), `.portBase`, `.portRange`.
-- Shortcut leader: `shortcuts.prefix` = one modifier stroke (or Space), `null`,
-  or `""` to disable the prefix layer.
+- Shortcut leader: `shortcuts.prefix` = one modifier stroke (or Space), either
+  as a string, a one-item array, or a structured one-stroke object such as
+  `{ "first": { "key": "b", "control": true } }`; `null`, `""`, and unbound
+  aliases disable the prefix layer. This summary is exhaustive: a two-stroke
+  prefix is invalid.
 - Shortcut actions: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 
 Full list of settings, defaults, and descriptions: `cmux-settings list-supported` or [references/all-keys.md](references/all-keys.md).

@@ -271,7 +271,7 @@ final class MarkdownWebView: WKWebView {
         if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(event) == true {
             return false
         }
-        handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
+        return handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 
 /// Main-actor coordinator for the optional global leader-key chord layer.
@@ -19,7 +20,11 @@ final class ShortcutPrefixChordCoordinator {
     }
 
     private var router = ShortcutPrefixChordRouter()
-    private var expiryTimer: Timer?
+    private lazy var expiryTimer = MainActorCoalescingDeadlineTimer(
+        owner: self
+    ) { owner in
+        owner.expireIfNeeded()
+    }
     private let hud = ShortcutPrefixHUD()
     private weak var owner: AppDelegate?
 
@@ -46,8 +51,7 @@ final class ShortcutPrefixChordCoordinator {
         let configuredPrefix = prefixStroke(from: KeyboardShortcutSettings.prefixShortcut())
         guard router.configuredPrefix != configuredPrefix else { return }
         router.setPrefix(configuredPrefix)
-        expiryTimer?.invalidate()
-        expiryTimer = nil
+        expiryTimer.cancel()
         hud.hide()
     }
 
@@ -73,29 +77,15 @@ final class ShortcutPrefixChordCoordinator {
                 guard configuredPrefix != nil || router.isArmed else {
                     return .passThrough
                 }
-                let pendingIsLive = router.deadline.map { now < $0 } ?? false
-                let pendingBelongsToEventWindow = router.pendingWindowID == eventWindowID
-                let bindings = pendingIsLive && pendingBelongsToEventWindow
-                    || !router.matchesConfiguredPrefix(stroke)
-                    ? []
-                    : bindings(for: event, owner: owner)
-                let handled = router.handleOnce(
+                return handle(
                     stroke: stroke,
+                    event: event,
+                    owner: owner,
+                    eventWindowID: eventWindowID,
+                    eventID: eventID,
                     now: now,
-                    windowID: eventWindowID,
-                    bindings: bindings,
-                    eventID: eventID
+                    isEscape: false
                 )
-                let result = offerResult(for: handled)
-                if case .armed = handled.result, !handled.wasDuplicate {
-                    hud.show(
-                        bindings: router.availableBindings,
-                        anchorWindow: event.window
-                            ?? owner.resolvedShortcutEventWindow(event)
-                            ?? NSApp.keyWindow
-                    )
-                }
-                return result
             }
             let unsupported = router.handleUnsupportedOnce(
                 now: now,
@@ -129,37 +119,15 @@ final class ShortcutPrefixChordCoordinator {
             return .passThrough
         }
 
-        // A pending chord already captured its eligible table.  Likewise, a
-        // non-prefix stroke while idle cannot arm anything.  Only a potential
-        // prefix (or an expired pending state that may immediately re-arm)
-        // needs the relatively expensive focus/action scan.
-        let bindings: [ShortcutPrefixChordBinding]
-        let pendingIsLive = router.deadline.map { now < $0 } ?? false
-        let pendingBelongsToEventWindow = router.pendingWindowID == eventWindowID
-        if pendingIsLive && pendingBelongsToEventWindow
-            || !router.matchesConfiguredPrefix(stroke) {
-            bindings = []
-        } else {
-            bindings = bindings(for: event, owner: owner)
-        }
-        let handled = router.handleOnce(
+        return handle(
             stroke: stroke,
+            event: event,
+            owner: owner,
+            eventWindowID: eventWindowID,
+            eventID: eventID,
             now: now,
-            windowID: eventWindowID,
-            isEscape: isEscape,
-            bindings: bindings,
-            eventID: eventID
+            isEscape: isEscape
         )
-        let result = offerResult(for: handled)
-        if case .armed = handled.result, !handled.wasDuplicate {
-            hud.show(
-                bindings: router.availableBindings,
-                anchorWindow: event.window
-                    ?? owner.resolvedShortcutEventWindow(event)
-                    ?? NSApp.keyWindow
-            )
-        }
-        return result
     }
 
     /// Records an event that is intentionally outside the prefix layer's
@@ -203,8 +171,7 @@ final class ShortcutPrefixChordCoordinator {
                 // ledger still returns the original consumed decision, but
                 // the presentation must follow the live state rather than
                 // leaving a stale HUD/timer visible until another event.
-                expiryTimer?.invalidate()
-                expiryTimer = nil
+                expiryTimer.cancel()
                 hud.hide()
             }
             return .consume
@@ -212,18 +179,15 @@ final class ShortcutPrefixChordCoordinator {
             if handled.wasDuplicate {
                 return .consume
             }
-            expiryTimer?.invalidate()
-            expiryTimer = nil
+            expiryTimer.cancel()
             hud.hide()
             return .execute(binding)
         case let .disarmed(consume):
-            expiryTimer?.invalidate()
-            expiryTimer = nil
+            expiryTimer.cancel()
             hud.hide()
             return consume ? .consume : .passThrough
         case .mismatchPassThrough:
-            expiryTimer?.invalidate()
-            expiryTimer = nil
+            expiryTimer.cancel()
             hud.hide()
             return handled.wasDuplicate ? .duplicatePassThrough : .mismatchPassThrough
         case .passThrough:
@@ -231,8 +195,7 @@ final class ShortcutPrefixChordCoordinator {
                 // A timeout or a window change can clear the pending state and
                 // still produce ordinary pass-through for the current event.
                 // Tear down the one-shot presentation immediately.
-                expiryTimer?.invalidate()
-                expiryTimer = nil
+                expiryTimer.cancel()
                 hud.hide()
             }
             return handled.wasDuplicate ? .duplicatePassThrough : .passThrough
@@ -240,33 +203,60 @@ final class ShortcutPrefixChordCoordinator {
     }
 
     func reset() {
-        expiryTimer?.invalidate()
-        expiryTimer = nil
+        expiryTimer.cancel()
         router.reset()
         hud.hide()
     }
 
     private func scheduleExpiry(at deadline: TimeInterval) {
-        expiryTimer?.invalidate()
         let delay = max(deadline - ProcessInfo.processInfo.systemUptime, 0.001)
-        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            // Timer callbacks are delivered by the main run loop, but the
-            // block itself is not actor-isolated in Foundation's signature.
-            // Re-enter the coordinator's actor explicitly instead of relying
-            // on an unchecked synchronous cast.
-            Task { @MainActor [weak self] in
-                self?.expireIfNeeded()
-            }
-        }
-        expiryTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        expiryTimer.schedule(after: .milliseconds(Int((delay * 1_000).rounded(.up))))
     }
 
     private func expireIfNeeded() {
         guard router.expire(now: ProcessInfo.processInfo.systemUptime) != nil else { return }
-        expiryTimer?.invalidate()
-        expiryTimer = nil
+        expiryTimer.cancel()
         hud.hide()
+    }
+
+    /// Routes a normalized stroke through the shared router and presents the
+    /// available-suffix HUD whenever a new prefix is armed.
+    private func handle(
+        stroke: CmuxSettings.ShortcutStroke,
+        event: NSEvent,
+        owner: AppDelegate,
+        eventWindowID: Int?,
+        eventID: ShortcutPrefixChordEventIdentity,
+        now: TimeInterval,
+        isEscape: Bool
+    ) -> OfferResult {
+        let pendingIsLive = router.deadline.map { now < $0 } ?? false
+        let pendingBelongsToEventWindow = router.pendingWindowID == eventWindowID
+        let eligibleBindings: [ShortcutPrefixChordBinding]
+        if (pendingIsLive && pendingBelongsToEventWindow)
+            || !router.matchesConfiguredPrefix(stroke) {
+            eligibleBindings = []
+        } else {
+            eligibleBindings = bindings(for: event, owner: owner)
+        }
+        let handled = router.handleOnce(
+            stroke: stroke,
+            now: now,
+            windowID: eventWindowID,
+            isEscape: isEscape,
+            bindings: eligibleBindings,
+            eventID: eventID
+        )
+        let result = offerResult(for: handled)
+        if case .armed = handled.result, !handled.wasDuplicate {
+            hud.show(
+                bindings: router.availableBindings,
+                anchorWindow: event.window
+                    ?? owner.resolvedShortcutEventWindow(event)
+                    ?? NSApp.keyWindow
+            )
+        }
+        return result
     }
 
     private func bindings(
@@ -315,13 +305,11 @@ final class ShortcutPrefixChordCoordinator {
     }
 
     private func windowID(for event: NSEvent) -> Int? {
-        if let window = event.window {
-            return window.windowNumber
-        }
-        if let window = owner?.resolvedShortcutEventWindow(event) {
-            return window.windowNumber
-        }
-        return event.windowNumber > 0 ? event.windowNumber : nil
+        let number = owner?.prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: owner?.resolvedShortcutEventWindow(event)
+        ) ?? event.windowNumber
+        return number > 0 ? number : nil
     }
 
     private func eventIdentity(
@@ -329,7 +317,7 @@ final class ShortcutPrefixChordCoordinator {
         windowID: Int?
     ) -> ShortcutPrefixChordEventIdentity {
         ShortcutPrefixChordEventIdentity(
-            eventNumber: event.eventNumber >= 0 ? UInt64(event.eventNumber) : 0,
+            eventNumber: 0,
             windowID: windowID,
             keyCode: event.keyCode,
             modifierFlags: event.modifierFlags.rawValue,

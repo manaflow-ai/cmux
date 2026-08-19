@@ -79,4 +79,28 @@ struct ShortcutPrefixChordPassThroughLedgerTests {
         #expect(ledger.contains(identities[1]))
         #expect(ledger.contains(identities[2]))
     }
+
+    @Test func remarkingOneIdentityDoesNotConsumeCapacity() {
+        var ledger = ShortcutPrefixChordPassThroughLedger(capacity: 2)
+        let first = ShortcutPrefixChordEventIdentity(
+            eventNumber: 1,
+            keyCode: 0,
+            modifierFlags: 0,
+            timestamp: 0
+        )
+        let second = ShortcutPrefixChordEventIdentity(
+            eventNumber: 2,
+            keyCode: 1,
+            modifierFlags: 0,
+            timestamp: 1
+        )
+
+        ledger.mark(first)
+        ledger.mark(first)
+        ledger.mark(second)
+
+        #expect(ledger.count == 2)
+        #expect(ledger.contains(first))
+        #expect(ledger.contains(second))
+    }
 }

@@ -58,9 +58,6 @@ public struct ShortcutPrefixChordEventLedger<Decision: Sendable & Equatable>: Se
         order.removeAll(keepingCapacity: true)
     }
 
-    /// Number of retained event decisions, exposed for deterministic tests.
-    public var count: Int { decisions.count }
-
     private mutating func trimIfNeeded() {
         while order.count > capacity {
             let oldest = order.removeFirst()

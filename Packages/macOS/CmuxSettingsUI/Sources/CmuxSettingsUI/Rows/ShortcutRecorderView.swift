@@ -339,10 +339,14 @@ public final class RecorderHostButton: NSButton {
     /// Settings window without leaving an in-flight recorder with a stale
     /// prefix.
     func refreshConfiguredPrefixWhileRecording() {
-        guard isRecording, pendingFirstIsConfiguredPrefix else { return }
-        pendingFirst = configuredPrefix?.canonicalized()
-        if pendingFirst == nil {
-            pendingFirstIsConfiguredPrefix = false
+        guard isRecording else { return }
+        let prefix = configuredPrefix?.canonicalized()
+        if pendingFirstIsConfiguredPrefix {
+            pendingFirst = prefix
+            pendingFirstIsConfiguredPrefix = prefix != nil
+        } else if pendingFirst == nil, let prefix {
+            pendingFirst = prefix
+            pendingFirstIsConfiguredPrefix = true
         }
         refreshTitle()
     }

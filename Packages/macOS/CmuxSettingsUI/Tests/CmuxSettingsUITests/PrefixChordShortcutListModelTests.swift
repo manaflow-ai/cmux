@@ -67,6 +67,44 @@ import CmuxSettings
         #expect(model.chordModeActions.isEmpty)
     }
 
+    @Test func changingPrefixRebasesPersistedChords() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        let firstPrefix = ShortcutStroke(key: "b", control: true)
+        let secondPrefix = ShortcutStroke(key: "c", control: true)
+        await model.assignPrefix(firstPrefix)
+        await model.assignChord(
+            StoredShortcut(
+                first: firstPrefix,
+                second: ShortcutStroke(key: "n")
+            ),
+            to: .newTab
+        )
+
+        await model.assignPrefix(secondPrefix)
+
+        #expect(
+            await store.value(for: catalog.shortcuts.bindings)[ShortcutAction.newTab.rawValue]
+                == StoredShortcut(first: secondPrefix, second: ShortcutStroke(key: "n"))
+        )
+    }
+
+    @Test func overlappingPrefixWritesLeaveTheNewestValuePersisted() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        async let first: Void = model.assignPrefix(ShortcutStroke(key: "b", control: true))
+        async let second: Void = model.assignPrefix(ShortcutStroke(key: "c", control: true))
+        _ = await (first, second)
+
+        #expect(
+            await store.value(for: catalog.shortcuts.prefix)
+                == StoredShortcut(first: ShortcutStroke(key: "c", control: true))
+        )
+        #expect(model.prefix == StoredShortcut(first: ShortcutStroke(key: "c", control: true)))
+    }
+
     @Test func malformedChordWithoutSuffixIsRejectedNotWritten() async throws {
         // A recorder teardown must not silently downgrade a requested chord to
         // a single-stroke binding at the persistence boundary.

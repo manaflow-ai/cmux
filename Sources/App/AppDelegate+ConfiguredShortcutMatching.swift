@@ -20,19 +20,11 @@ extension AppDelegate {
         event: NSEvent,
         shortcut: StoredShortcut
     ) -> Bool {
-        guard !shouldBypassPrefixChordPassThrough(event),
-              !shortcut.isUnbound else {
-            return false
-        }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        guard let stroke = routableConfiguredShortcutStroke(
+            event: event,
+            shortcut: shortcut
+        ) else { return false }
+        return matchShortcutStroke(event: event, stroke: stroke)
     }
 
     func matchConfiguredShortcut(
@@ -66,6 +58,20 @@ extension AppDelegate {
 
     /// Resolves a right-sidebar mode shortcut after applying its effective predicate.
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
+        rightSidebarModeShortcut(
+            for: event,
+            allowingAction: { [self] action in
+                shortcutWhenClauseAllows(action: action, event: event)
+            }
+        )
+    }
+
+    /// Resolves a right-sidebar mode with a caller-supplied context predicate
+    /// while retaining the shared configured-shortcut matcher.
+    func rightSidebarModeShortcut(
+        for event: NSEvent,
+        allowingAction: @escaping (KeyboardShortcutSettings.Action) -> Bool
+    ) -> RightSidebarMode? {
         let shortcutWindow = resolvedShortcutEventWindow(event)
             ?? event.window
             ?? shortcutRoutingActiveWindow
@@ -76,9 +82,7 @@ extension AppDelegate {
         return KeyboardShortcutSettingsObserver.shared
             .rightSidebarModeShortcutMatcher.modeShortcut(
                 for: event,
-                allowingAction: { [self] action in
-                    shortcutWhenClauseAllows(action: action, event: event)
-                },
+                allowingAction: allowingAction,
                 matching: { [self] action, _, event in
                     matchConfiguredShortcut(event: event, action: action)
                 }
@@ -100,18 +104,12 @@ extension AppDelegate {
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
-        guard !shouldBypassPrefixChordPassThrough(event) else { return nil }
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
-                return nil
-            }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+        guard let stroke = routableConfiguredShortcutStroke(
+            event: event,
+            shortcut: shortcut
+        ) else { return nil }
+        return numberedShortcutDigit(event: event, stroke: stroke)
     }
 
     func routableNumberedConfiguredShortcutDigit(
@@ -137,26 +135,37 @@ extension AppDelegate {
               shortcutWhenClauseAllows(action: action, event: event) else {
             return false
         }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
-                return false
-            }
-            return matchDirectionalShortcut(
-                event: event,
-                stroke: secondStroke,
-                arrowGlyph: arrowGlyph,
-                arrowKeyCode: arrowKeyCode
-            )
-        }
-        guard !shortcut.hasChord else { return false }
+        guard let stroke = routableConfiguredShortcutStroke(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: action)
+        ) else { return false }
         return matchDirectionalShortcut(
             event: event,
-            stroke: shortcut.firstStroke,
+            stroke: stroke,
             arrowGlyph: arrowGlyph,
             arrowKeyCode: arrowKeyCode
         )
+    }
+
+    /// Resolves the one stroke that the ordinary shortcut path may route for
+    /// this event. Prefix state, pass-through markers, unbound values, and
+    /// chord-vs-single semantics are shared by every surface-specific matcher.
+    private func routableConfiguredShortcutStroke(
+        event: NSEvent,
+        shortcut: StoredShortcut
+    ) -> ShortcutStroke? {
+        guard !shouldBypassPrefixChordPassThrough(event),
+              !shortcut.isUnbound else {
+            return nil
+        }
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke.isRoutingEquivalent(to: prefix) else {
+                return nil
+            }
+            return secondStroke
+        }
+        guard !shortcut.hasChord else { return nil }
+        return shortcut.firstStroke
     }
 }

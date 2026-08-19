@@ -391,7 +391,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         #expect(textView.hasMarkedText())
     }
 
-    @Test func openSelectionSetShortcutRejectsChords() {
+    @Test func openSelectionSetShortcutAcceptsChords() {
         withIsolatedShortcutSettings {
             let chord = StoredShortcut(
                 first: ShortcutStroke(key: "o", command: true, shift: false, option: false, control: false),
@@ -400,8 +400,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
 
             KeyboardShortcutSettings.setShortcut(chord, for: .fileExplorerOpenSelection)
 
-            #expect(KeyboardShortcutSettings.shortcut(for: .fileExplorerOpenSelection) ==
-                KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut)
+            #expect(KeyboardShortcutSettings.shortcut(for: .fileExplorerOpenSelection) == chord)
         }
     }
 

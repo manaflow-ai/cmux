@@ -412,11 +412,14 @@ private struct WorkspaceTodoPaneContent: View {
         guard isPlainReturn || toggleChecklistItemCompleteShortcutMatches(press) else {
             return .ignored
         }
-        guard let id = highlightedItemId,
-              let item = ordered.first(where: { $0.id == id }) else { return .ignored }
+        guard let target = PrefixChordChecklistToggleTarget(
+            items: ordered,
+            highlightedItemID: highlightedItemId,
+            isEligible: true
+        ) else { return .ignored }
         WorkspaceTodoActions.setChecklistItemState(
-            id: item.id,
-            state: item.state == .completed ? .pending : .completed,
+            id: target.itemID,
+            state: target.nextState,
             in: workspace
         )
         return .handled

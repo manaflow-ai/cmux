@@ -474,9 +474,12 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return/configured shortcut toggles the highlighted item; no-op when nothing is
     /// highlighted.
     private func toggleHighlighted(in visible: [WorkspaceChecklistItem]) {
-        guard let id = highlightedItemId,
-              let item = visible.first(where: { $0.id == id }) else { return }
-        actions.setItemState(item.id, item.state == .completed ? .pending : .completed)
+        guard let target = PrefixChordChecklistToggleTarget(
+            items: visible,
+            highlightedItemID: highlightedItemId,
+            isEligible: true
+        ) else { return }
+        actions.setItemState(target.itemID, target.nextState)
     }
 
     /// Enter commits the trimmed text and re-arms the field (a fresh, empty,

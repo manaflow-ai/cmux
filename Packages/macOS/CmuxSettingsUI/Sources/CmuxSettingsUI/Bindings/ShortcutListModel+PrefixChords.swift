@@ -3,13 +3,6 @@ import CmuxSettings
 extension ShortcutListModel {
     func ingestPrefix(_ prefix: StoredShortcut) {
         let normalized = ShortcutPrefixPolicy().normalized(prefix) ?? .unbound
-        if let pendingPrefix {
-            // The observation stream can yield its initial snapshot before a
-            // local write reaches the file watcher. Ignore that stale value;
-            // the matching echo (or the post-write read) retires the marker.
-            guard normalized == pendingPrefix else { return }
-            self.pendingPrefix = nil
-        }
         self.prefix = normalized
         prefixRejection = nil
     }
@@ -90,6 +83,7 @@ extension ShortcutListModel {
             return
         }
         prefixRejection = nil
+        await rebaseChordBindings(to: normalized)
         await writePrefix(StoredShortcut(first: normalized))
     }
 
