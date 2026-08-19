@@ -55108,13 +55108,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] stopped reconnecting (status %s); repeated error output was hidden while retrying."
+            "value": "[cmux] stopped reconnecting to the remote PTY; repeated error output was hidden while retrying. Reattach to see it, or check the connection to the host."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 再接続を停止しました（ステータス %s）。再試行中は繰り返しのエラー出力を非表示にしていました。"
+            "value": "[cmux] リモート PTY への再接続を停止しました。再試行中は繰り返しのエラー出力を非表示にしていました。再接続し直して確認するか、ホストへの接続を確認してください。"
           }
         }
       }
@@ -55125,13 +55125,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] remote PTY connection lost; reconnecting (attempt %s, next retry in %ss)."
+            "value": "[cmux] reconnecting to the remote PTY (attempt %s, next retry in %ss)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] リモート PTY への接続が失われました。再接続しています（試行 %s 回目、次の再試行まで %s 秒）。"
+            "value": "[cmux] リモート PTY に再接続しています（試行 %s 回目、次の再試行まで %s 秒）。"
           }
         }
       }

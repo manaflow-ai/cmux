@@ -45,7 +45,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let initialReauthentication = reauthenticates ? 1 : 0
         let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
         let statusFormat = SSHPTYAttachReconnectBackoffPolicy.statusLineFormat.remoteCommandShellQuoted
-        let quietedStopFormat = SSHPTYAttachReconnectBackoffPolicy.quietedStopFormat.remoteCommandShellQuoted
+        let quietedStopMessage = SSHPTYAttachReconnectBackoffPolicy.quietedStopMessage.remoteCommandShellQuoted
         let retryWithoutReauthenticationStatus =
             SSHPTYAttachExitCode.retryableWithoutReauthentication.rawValue
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
@@ -77,7 +77,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             // Retrying has ended, so say that repeats were hidden rather than let
             // the last silenced attempt look like it failed without a reason. A
             // session that ended cleanly needs no such note.
-            "cmux_ssh_attach_stop_retrying() { cmux_ssh_attach_close_status_line; if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cmux_ssh_attach_quiet=0; if [ \"${cmux_ssh_attach_status:-0}\" -ne 0 ]; then printf '\\033[33m%s\\033[0m\\n' \"$(printf \(quietedStopFormat) \"$cmux_ssh_attach_status\")\" >&2 || true; fi; fi; }",
+            "cmux_ssh_attach_stop_retrying() { cmux_ssh_attach_close_status_line; if [ \"$cmux_ssh_attach_quiet\" -eq 1 ]; then cmux_ssh_attach_quiet=0; if [ \"${cmux_ssh_attach_status:-0}\" -ne 0 ]; then printf '\\033[33m%s\\033[0m\\n' \(quietedStopMessage) >&2 || true; fi; fi; }",
             // A compound attach command cannot take an assignment prefix, and the
             // quiet path needs a redirect, so one attempt gets its own function.
             "cmux_ssh_attach_run_attempt() {",
@@ -102,10 +102,11 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         lines.append(contentsOf: [
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
-            // Foreground authentication talks to the user, so it is never quieted
-            // and it ends the status line before prompting.
+            // Foreground authentication talks to the user, so it runs outside the
+            // quieted attempt and ends the status line before prompting. The
+            // streak itself continues: an outage that reauthenticates every cycle
+            // must not print the same attach error once per cycle.
             "    cmux_ssh_attach_close_status_line",
-            "    cmux_ssh_attach_quiet=0",
             "    cmux_ssh_attach_auth_launching=1",
             "    ( cmux_ssh_attach_foreground_auth ) <&0 &",
             "    cmux_ssh_attach_auth_pid=$!",

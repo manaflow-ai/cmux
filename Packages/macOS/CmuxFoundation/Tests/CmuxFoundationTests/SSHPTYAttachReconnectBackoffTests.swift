@@ -84,11 +84,11 @@ struct SSHPTYAttachReconnectBackoffTests {
         let policy = SSHPTYAttachReconnectBackoffPolicy()
         #expect(
             policy.statusLine(attempt: 1, delaySeconds: 2)
-                == "[cmux] remote PTY connection lost; reconnecting (attempt 1, next retry in 2s)."
+                == "[cmux] reconnecting to the remote PTY (attempt 1, next retry in 2s)."
         )
         #expect(
             policy.statusLine(attempt: 27, delaySeconds: 30)
-                == "[cmux] remote PTY connection lost; reconnecting (attempt 27, next retry in 30s)."
+                == "[cmux] reconnecting to the remote PTY (attempt 27, next retry in 30s)."
         )
     }
 
@@ -98,6 +98,7 @@ struct SSHPTYAttachReconnectBackoffTests {
     @Test func theStatusLineDoesNotGuessWhyTheHostFailed() {
         let line = SSHPTYAttachReconnectBackoffPolicy().statusLine(attempt: 3, delaySeconds: 8)
         #expect(!line.lowercased().contains("unreachable"))
+        #expect(!line.lowercased().contains("lost"))
         #expect(!line.lowercased().contains("daemon"))
     }
 
@@ -253,12 +254,12 @@ struct SSHPTYAttachReconnectBackoffTests {
         #expect(result.status == 7, Comment(rawValue: result.transcript))
         #expect(
             result.transcript.contains(
-                "[cmux] remote PTY connection lost; reconnecting (attempt 1, next retry in 2s)."
+                "[cmux] reconnecting to the remote PTY (attempt 1, next retry in 2s)."
             ),
             Comment(rawValue: result.transcript)
         )
         #expect(
-            result.transcript.contains("reconnecting (attempt 4, next retry in 16s)."),
+            result.transcript.contains("reconnecting to the remote PTY (attempt 4, next retry in 16s)."),
             Comment(rawValue: result.transcript)
         )
         // Four failed attempts, one status line. Split on line feeds only: a
@@ -310,12 +311,60 @@ struct SSHPTYAttachReconnectBackoffTests {
         // Retrying stopped while repeats were hidden, so the pane says so rather
         // than ending on a silenced failure.
         #expect(
-            result.transcript.contains("stopped reconnecting (status 7)"),
+            result.transcript.contains("stopped reconnecting to the remote PTY"),
             Comment(rawValue: result.transcript)
         )
         // Nothing about the outage is written to disk.
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
         #expect(leftovers.isEmpty, Comment(rawValue: leftovers.joined(separator: ", ")))
+    }
+
+    /// An outage that reauthenticates every cycle must not print the same attach
+    /// error once per cycle: the authentication prompt speaks, the repeats do not.
+    @Test func reauthenticatingBetweenAttemptsKeepsRepeatsHidden() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let counterURL = directory.appendingPathComponent("attempts")
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        )
+        let script = ([
+            "cmux_ssh_attach_auth_pid=",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "date() { printf '%s\\n' 1000; }",
+            "sleep() { :; }",
+            "cmux_ssh_attach_foreground_auth() { printf 'cmux-test-auth\\n' >&2; return 0; }",
+            "cmux_test_attach() {",
+            "  count=$(cat \"$CMUX_TEST_COUNTER\" 2>/dev/null) || count=0",
+            "  count=$((count + 1))",
+            "  printf '%s\\n' \"$count\" > \"$CMUX_TEST_COUNTER\"",
+            "  printf 'cmux-test-raw-noise %s\\n' \"$count\" >&2",
+            "  if [ \"$count\" -ge 4 ]; then return 7; fi",
+            "  return 255",
+            "}",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try Self.runOnTerminal(
+            script,
+            environment: ["CMUX_TEST_COUNTER": counterURL.path],
+            temporaryDirectory: directory
+        )
+
+        #expect(result.status == 7, Comment(rawValue: result.transcript))
+        // The prompt is never quieted; the attach repeats behind it are.
+        #expect(
+            result.transcript.components(separatedBy: "cmux-test-auth").count - 1 >= 2,
+            Comment(rawValue: result.transcript)
+        )
+        #expect(result.transcript.contains("cmux-test-raw-noise 1"), Comment(rawValue: result.transcript))
+        for repeated in 2...4 {
+            #expect(
+                !result.transcript.contains("cmux-test-raw-noise \(repeated)"),
+                Comment(rawValue: result.transcript)
+            )
+        }
     }
 
     /// A session that reattaches and then ends cleanly is not a stopped reconnect.
@@ -377,7 +426,7 @@ struct SSHPTYAttachReconnectBackoffTests {
         transcript.unicodeScalars
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String(String.UnicodeScalarView($0)) }
-            .filter { $0.contains("reconnecting (attempt") }
+            .filter { $0.contains("reconnecting to the remote PTY (attempt") }
             .count
     }
 

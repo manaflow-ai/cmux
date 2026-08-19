@@ -229,7 +229,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(
             waitForFile(
                 at: transcriptURL,
-                containing: "reconnecting (attempt",
+                containing: "reconnecting to the remote PTY",
                 while: process,
                 timeout: 3
             )
@@ -308,7 +308,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         try process.run()
         let enteredBackoff = waitForFile(
             at: transcriptURL,
-            containing: "reconnecting (attempt",
+            containing: "reconnecting to the remote PTY",
             while: process,
             timeout: 3
         )

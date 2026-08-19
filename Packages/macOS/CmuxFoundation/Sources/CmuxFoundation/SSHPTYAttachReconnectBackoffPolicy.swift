@@ -86,15 +86,15 @@ public struct SSHPTYAttachReconnectBackoffPolicy: Sendable, Equatable {
     public static var statusLineFormat: String {
         String(
             localized: "cli.sshPtyAttach.reconnectStatus",
-            defaultValue: "[cmux] remote PTY connection lost; reconnecting (attempt %s, next retry in %ss)."
+            defaultValue: "[cmux] reconnecting to the remote PTY (attempt %s, next retry in %ss)."
         )
     }
 
     /// The localized note printed when retrying stops after hiding repeats.
-    public static var quietedStopFormat: String {
+    public static var quietedStopMessage: String {
         String(
             localized: "cli.sshPtyAttach.reconnectQuietedStop",
-            defaultValue: "[cmux] stopped reconnecting (status %s); repeated error output was hidden while retrying."
+            defaultValue: "[cmux] stopped reconnecting to the remote PTY; repeated error output was hidden while retrying. Reattach to see it, or check the connection to the host."
         )
     }
 
