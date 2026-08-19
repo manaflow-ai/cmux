@@ -37,6 +37,12 @@ public struct MobileAuthComposition {
     public let appNamespace: MobileIOSAppNamespace?
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
+    /// The runtime Production/Staging switch surface for Settings: the ACTIVE
+    /// environment this process resolved at startup, the PENDING persisted
+    /// override the next launch will read (they diverge until the user closes
+    /// and reopens the app), and whether a build-time override
+    /// (`LocalConfig.plist` or an Info.plist bake) pins this build's backend.
+    public let backendEnvironmentSwitch: CMUXBackendEnvironmentSwitchState
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -77,7 +83,7 @@ public struct MobileAuthComposition {
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
 
-        let overrides = Self.authOverrides(
+        let buildOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
             bakedAuthEnvironment: bundle.object(
                 forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
@@ -85,6 +91,16 @@ public struct MobileAuthComposition {
             bakedAPIBaseURL: bundle.object(
                 forInfoDictionaryKey: Self.apiBaseURLInfoPlistKey
             ) as? String
+        )
+        // The Settings picker's persisted choice, read from the same injected
+        // defaults the caches use. It merges BELOW every build-time override,
+        // so tagged dev builds keep their baked isolation and the runtime
+        // switch takes effect exactly where nothing is baked (TestFlight/App
+        // Store builds).
+        let runtimeBackendOverride = CMUXBackendEnvironmentOverride.load(from: defaults)
+        let overrides = Self.mergingRuntimeBackendOverride(
+            runtimeBackendOverride,
+            into: buildOverrides
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
@@ -96,6 +112,15 @@ public struct MobileAuthComposition {
             overrides: overrides
         )
         self.config = resolvedConfig
+        self.backendEnvironmentSwitch = CMUXBackendEnvironmentSwitchState(
+            active: Self.activeBackendEnvironment(
+                resolvedAPIBaseURL: resolvedConfig.apiBaseURL
+            ),
+            isPinnedByBuild: Self.backendEnvironmentIsPinned(
+                buildOverrides: buildOverrides
+            ),
+            defaults: defaults
+        )
 
         let client = StackAuthClient(
             config: resolvedConfig,
@@ -226,6 +251,14 @@ public struct MobileAuthComposition {
     /// agent's localhost server.
     nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
 
+    /// The override-table key carrying the cmux web API base URL.
+    nonisolated static let apiBaseURLOverrideKey = "ApiBaseURL"
+
+    /// The override-table key moving the whole web origin: it retargets the
+    /// magic-link callback and is the default API base when no explicit
+    /// ``apiBaseURLOverrideKey`` entry exists (see `CmuxAuthRuntime.AuthConfig`).
+    nonisolated static let webOriginURLOverrideKey = "WebOriginURL"
+
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the
@@ -242,13 +275,72 @@ public struct MobileAuthComposition {
            !baked.isEmpty {
             overrides[authEnvironmentOverrideKey] = baked
         }
-        if overrides["ApiBaseURL"] == nil,
+        if overrides[apiBaseURLOverrideKey] == nil,
            let baked = bakedAPIBaseURL?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !baked.isEmpty {
-            overrides["ApiBaseURL"] = baked
+            overrides[apiBaseURLOverrideKey] = baked
         }
         return overrides
+    }
+
+    /// Merge the Settings picker's persisted backend override BELOW every
+    /// build-time override: each key is contributed only when nothing already
+    /// decides it, so the per-key precedence is `LocalConfig.plist` > baked
+    /// Info.plist > runtime override > build default. Baked values are the
+    /// tagged-dev-build isolation mechanism and keep winning; TestFlight and
+    /// App Store builds bake nothing, so the runtime override applies exactly
+    /// there. A production override contributes nothing ("no key" and
+    /// production are indistinguishable by design), leaving today's
+    /// resolution byte-identical.
+    nonisolated static func mergingRuntimeBackendOverride(
+        _ backendOverride: CMUXBackendEnvironmentOverride,
+        into overrides: [String: String]
+    ) -> [String: String] {
+        guard backendOverride == .staging else { return overrides }
+        var merged = overrides
+        let contribution: [String: String] = [
+            // The staging web deployment authenticates against the
+            // development Stack project.
+            authEnvironmentOverrideKey: "development",
+            apiBaseURLOverrideKey: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+            // Moves the magic-link callback with the API base, so staging
+            // magic-link emails cannot point at the per-environment default.
+            webOriginURLOverrideKey: CMUXBackendEnvironmentOverride.stagingWebOrigin,
+        ]
+        for (key, value) in contribution where merged[key] == nil {
+            merged[key] = value
+        }
+        return merged
+    }
+
+    /// Whether a build-time source (`LocalConfig.plist` or an Info.plist
+    /// bake) already decides a backend key, so the runtime override cannot
+    /// steer this build. Settings uses this to explain that a tagged dev
+    /// build's backend is pinned at build time instead of offering a picker
+    /// that would not take effect.
+    nonisolated static func backendEnvironmentIsPinned(
+        buildOverrides: [String: String]
+    ) -> Bool {
+        [
+            authEnvironmentOverrideKey,
+            apiBaseURLOverrideKey,
+            webOriginURLOverrideKey,
+        ].contains { buildOverrides[$0] != nil }
+    }
+
+    /// Map the resolved web API origin back to the picker's two channels: the
+    /// staging origin means the staging backend is ACTIVE this launch;
+    /// anything else (cmux.com, a tagged build's isolated localhost origin,
+    /// the localhost dev default) reports as production, so the staging badge
+    /// and the "close and reopen" divergence notice key off the origin the
+    /// process actually talks to.
+    nonisolated static func activeBackendEnvironment(
+        resolvedAPIBaseURL: String
+    ) -> CMUXBackendEnvironmentOverride {
+        resolvedAPIBaseURL == CMUXBackendEnvironmentOverride.stagingWebOrigin
+            ? .staging
+            : .production
     }
 
     /// Resolve which Stack project this build signs in to: an explicit

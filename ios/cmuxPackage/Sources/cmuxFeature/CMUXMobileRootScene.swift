@@ -371,6 +371,9 @@ public struct CMUXMobileRootScene: View {
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
+            // The runtime Production/Staging backend switch resolved by the
+            // auth composition, consumed by the Settings backend section.
+            .environment(\.backendEnvironmentSwitch, auth.backendEnvironmentSwitch)
             #endif
     }
 

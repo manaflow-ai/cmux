@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
@@ -49,12 +50,16 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         return try #require(Bundle(path: directory.path))
     }
 
-    private func makeComposition(bundle: Bundle) throws -> MobileAuthComposition {
-        let defaults = try #require(UserDefaults(suiteName: "cmux-auth-env-tests-\(UUID().uuidString)"))
+    private func makeComposition(
+        bundle: Bundle,
+        defaults: UserDefaults? = nil
+    ) throws -> MobileAuthComposition {
+        let resolvedDefaults = try defaults
+            ?? #require(UserDefaults(suiteName: "cmux-auth-env-tests-\(UUID().uuidString)"))
         return MobileAuthComposition(
             environment: [:],
             bundle: bundle,
-            defaults: defaults,
+            defaults: resolvedDefaults,
             reachability: OfflineReachabilityStub(),
             policy: .current
         )
@@ -353,6 +358,219 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == true)
+    }
+
+    // MARK: - Runtime backend override (Settings Production/Staging picker)
+
+    /// The staging web origin the runtime override selects.
+    private static let stagingOrigin = CMUXBackendEnvironmentOverride.stagingWebOrigin
+
+    @Test func persistedStagingOverrideResolvesStagingBackendInReleaseResolution() {
+        // TestFlight/App Store shape: no LocalConfig.plist, nothing baked, a
+        // Release build default. The persisted staging override must flip the
+        // whole backend: development Stack project, staging API base, and a
+        // staging magic-link callback (WebOriginURL moves both together).
+        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
+            .staging,
+            into: MobileAuthComposition.authOverrides(
+                localConfig: [:],
+                bakedAuthEnvironment: nil,
+                bakedAPIBaseURL: nil
+            )
+        )
+        let environment = MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: overrides
+        )
+        #expect(environment == .development)
+        let config = AuthConfig(environment: environment, overrides: overrides)
+        #expect(config.stack.projectId == Self.developmentProjectID)
+        #expect(config.apiBaseURL == Self.stagingOrigin)
+        #expect(config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
+    }
+
+    @Test func bakedInfoPlistValuesBeatTheRuntimeStagingOverride() {
+        // Baked values are the tagged-dev-build isolation mechanism; a
+        // persisted staging override merges only into keys nothing decides.
+        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
+            .staging,
+            into: MobileAuthComposition.authOverrides(
+                localConfig: [:],
+                bakedAuthEnvironment: "production",
+                bakedAPIBaseURL: "http://localhost:9450"
+            )
+        )
+        #expect(overrides["AuthEnvironment"] == "production")
+        #expect(overrides["ApiBaseURL"] == "http://localhost:9450")
+    }
+
+    @Test func localConfigBeatsBakeAndRuntimeOverride() {
+        // The full per-key precedence: LocalConfig.plist > baked Info.plist >
+        // runtime override > build default.
+        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
+            .staging,
+            into: MobileAuthComposition.authOverrides(
+                localConfig: [
+                    "AuthEnvironment": "production",
+                    "ApiBaseURL": "http://localhost:8123",
+                    "WebOriginURL": "http://localhost:8123",
+                ],
+                bakedAuthEnvironment: "development",
+                bakedAPIBaseURL: "http://localhost:9450"
+            )
+        )
+        #expect(overrides["AuthEnvironment"] == "production")
+        #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
+        #expect(overrides["WebOriginURL"] == "http://localhost:8123")
+    }
+
+    @Test func productionRuntimeOverrideContributesNothing() {
+        // "No key" and production are indistinguishable by design, so a
+        // production override must leave the table byte-identical.
+        let base = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: nil,
+            bakedAPIBaseURL: nil
+        )
+        #expect(MobileAuthComposition.mergingRuntimeBackendOverride(.production, into: base) == base)
+
+        let baked = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: "production",
+            bakedAPIBaseURL: "http://localhost:9450"
+        )
+        #expect(MobileAuthComposition.mergingRuntimeBackendOverride(.production, into: baked) == baked)
+    }
+
+    @Test func persistedStagingOverrideFlipsTheComposition() throws {
+        // Full composition over injected defaults: the persisted override is
+        // read from the SAME defaults the caches use, resolves the staging
+        // backend, and reports staging as both ACTIVE and PENDING (no
+        // relaunch divergence right after a staging launch).
+        let defaults = try freshDefaults()
+        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: [:]),
+            defaults: defaults
+        )
+        #expect(composition.authEnvironment == .development)
+        #expect(composition.config.stack.projectId == Self.developmentProjectID)
+        #expect(composition.config.apiBaseURL == Self.stagingOrigin)
+        #expect(composition.config.magicLinkCallbackURL == "\(Self.stagingOrigin)/auth/callback")
+        #expect(composition.backendEnvironmentSwitch.active == .staging)
+        #expect(composition.backendEnvironmentSwitch.pending == .staging)
+        #expect(!composition.backendEnvironmentSwitch.isPinnedByBuild)
+    }
+
+    @Test func productionPersistedOverrideKeepsTodaysResolution() throws {
+        // Storing production removes the key; either way the composition must
+        // reproduce the untouched build default (tests compile DEBUG, so the
+        // development project and localhost web origin).
+        let defaults = try freshDefaults()
+        CMUXBackendEnvironmentOverride.production.store(in: defaults)
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: [:]),
+            defaults: defaults
+        )
+        #expect(composition.config.stack.projectId == Self.developmentProjectID)
+        #expect(composition.config.apiBaseURL == "http://localhost:3000")
+        #expect(composition.backendEnvironmentSwitch.active == .production)
+        #expect(composition.backendEnvironmentSwitch.pending == .production)
+    }
+
+    @Test func unknownPersistedOverrideBehavesAsProduction() throws {
+        // A corrupted or future raw value must never strand the build on a
+        // non-production backend: it loads as production and changes nothing.
+        let defaults = try freshDefaults()
+        defaults.set("qa", forKey: CMUXBackendEnvironmentOverride.defaultsKey)
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: [:]),
+            defaults: defaults
+        )
+        #expect(composition.config.stack.projectId == Self.developmentProjectID)
+        #expect(composition.config.apiBaseURL == "http://localhost:3000")
+        #expect(composition.backendEnvironmentSwitch.active == .production)
+        #expect(composition.backendEnvironmentSwitch.pending == .production)
+    }
+
+    @Test func bakedBuildReportsPinnedBackendEnvironment() throws {
+        // A tagged dev build (LocalConfig/Info.plist decides a backend key)
+        // reports the pin so Settings explains it instead of showing a picker
+        // that cannot steer the build; the baked origin still wins.
+        let defaults = try freshDefaults()
+        CMUXBackendEnvironmentOverride.staging.store(in: defaults)
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: ["ApiBaseURL": "http://localhost:9450"]),
+            defaults: defaults
+        )
+        #expect(composition.backendEnvironmentSwitch.isPinnedByBuild)
+        #expect(composition.config.apiBaseURL == "http://localhost:9450")
+        #expect(composition.backendEnvironmentSwitch.active == .production)
+    }
+
+    @Test func backendSwitchStateWritesThePendingOverrideWithoutChangingActive() throws {
+        // The Settings picker persists for the NEXT launch; the running
+        // process keeps its startup resolution (iOS apps never self-restart).
+        let defaults = try freshDefaults()
+        let composition = try makeComposition(
+            bundle: fixtureBundle(localConfig: [:]),
+            defaults: defaults
+        )
+        composition.backendEnvironmentSwitch.setPending(.staging)
+        #expect(composition.backendEnvironmentSwitch.pending == .staging)
+        #expect(composition.backendEnvironmentSwitch.active == .production)
+        composition.backendEnvironmentSwitch.setPending(.production)
+        #expect(composition.backendEnvironmentSwitch.pending == .production)
+        // Production removes the key, keeping "no key" == production.
+        #expect(defaults.string(forKey: CMUXBackendEnvironmentOverride.defaultsKey) == nil)
+    }
+
+    @Test func stagingSwitchOnReleaseFlipsStackProjectAndRequestsSessionClear() throws {
+        // A Release build defaults to the production project; the staging
+        // override resolves the development project, so the existing
+        // project-switch detection clears the per-project session state on
+        // the first staging launch (tokens/user ids never cross projects).
+        let overrides = MobileAuthComposition.mergingRuntimeBackendOverride(
+            .staging,
+            into: MobileAuthComposition.authOverrides(
+                localConfig: [:],
+                bakedAuthEnvironment: nil,
+                bakedAPIBaseURL: nil
+            )
+        )
+        let resolvedProjectID = AuthConfig(
+            environment: MobileAuthComposition.resolvedAuthEnvironment(
+                isDevelopmentBuild: false,
+                overrides: overrides
+            ),
+            overrides: overrides
+        ).stack.projectId
+        let buildDefaultProjectID = AuthConfig(
+            environment: .production,
+            overrides: overrides
+        ).stack.projectId
+        #expect(resolvedProjectID == Self.developmentProjectID)
+        #expect(buildDefaultProjectID == Self.productionProjectID)
+
+        let defaults = try freshDefaults()
+        defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: resolvedProjectID,
+            buildDefaultProjectID: buildDefaultProjectID,
+            defaults: defaults
+        ) == true)
+    }
+
+    @Test func activeBackendEnvironmentTracksTheResolvedOrigin() {
+        #expect(MobileAuthComposition.activeBackendEnvironment(
+            resolvedAPIBaseURL: CMUXBackendEnvironmentOverride.stagingWebOrigin
+        ) == .staging)
+        #expect(MobileAuthComposition.activeBackendEnvironment(
+            resolvedAPIBaseURL: "https://cmux.com"
+        ) == .production)
+        #expect(MobileAuthComposition.activeBackendEnvironment(
+            resolvedAPIBaseURL: "http://localhost:3000"
+        ) == .production)
     }
 
     // MARK: - Presence follows the auth channel

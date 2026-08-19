@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
@@ -26,6 +27,9 @@ struct MobileSettingsView: View {
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
+    /// The runtime Production/Staging backend switch. `nil` in previews and
+    /// hosts without the app root, which hides the backend section.
+    @Environment(\.backendEnvironmentSwitch) private var backendEnvironmentSwitch
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
@@ -71,6 +75,14 @@ struct MobileSettingsView: View {
                 }
 
                 MobileSettingsAccountSection(signOut: signOut)
+
+                // Runtime Production/Staging backend switch, applied on the
+                // next launch. The section gates its own visibility (team
+                // accounts, DEBUG builds, or an existing non-production
+                // override) and explains build-time pins.
+                if let backendEnvironmentSwitch {
+                    MobileBackendEnvironmentSection(state: backendEnvironmentSwitch)
+                }
 
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
@@ -461,6 +473,27 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsVersionRow")
+
+                    // Like the dev tag in the version string, a non-default
+                    // backend must be visible at a glance when reading builds.
+                    if backendEnvironmentSwitch?.active == .staging {
+                        LabeledContent {
+                            Text(L10n.string(
+                                "mobile.settings.backend.staging",
+                                defaultValue: "Staging"
+                            ))
+                            .foregroundStyle(.orange)
+                        } label: {
+                            Label(
+                                L10n.string(
+                                    "mobile.settings.backend.environment",
+                                    defaultValue: "Environment"
+                                ),
+                                systemImage: "server.rack"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsAboutEnvironmentRow")
+                    }
                 }
             }
             .task {

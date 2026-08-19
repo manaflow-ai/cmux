@@ -7039,6 +7039,142 @@
         }
       }
     },
+    "mobile.settings.backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックエンド"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.environment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging is a separate environment with separate accounts and data. Switching signs you out, and your Mac and iPhone must be on the same environment to pair."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージングはアカウントとデータが分かれた別の環境です。切り替えるとサインアウトされます。ペアリングするには Mac と iPhone が同じ環境である必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.pinnedFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build's backend is pinned at build time. The environment choice takes effect only in TestFlight and App Store builds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドのバックエンドはビルド時に固定されています。環境の選択は TestFlight および App Store ビルドでのみ有効です。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.production": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Production"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.relaunchNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close and reopen cmux to apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用するには cmux を一度閉じてから開き直してください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.stagingBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STAGING"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccount": {
       "extractionState": "manual",
       "localizations": {
