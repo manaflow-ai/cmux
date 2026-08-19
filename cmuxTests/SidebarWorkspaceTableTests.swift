@@ -94,7 +94,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func rowHeightCacheInvalidatesWhenColumnWidthChanges() {
+    func rowHeightCacheRemeasuresWhenColumnWidthChangesAndServesFreshHeight() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
         var measurementCount = 0
@@ -108,7 +108,9 @@ struct SidebarWorkspaceTableTests {
 
         #expect(measurementCount == 2)
         #expect(changed == IndexSet(integer: 0))
-        #expect(cache.height(for: row, columnWidth: 200) == nil)
+        // A content-equivalent entry measured at the live width remains the
+        // freshest safe answer until the full-width settle pass completes.
+        #expect(cache.height(for: row, columnWidth: 200) == 60)
         #expect(cache.height(for: row, columnWidth: 240) == 60)
     }
 
