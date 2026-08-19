@@ -13,10 +13,12 @@ stream and tests it against a deterministic fake Mac host. Neither package has
 a dependency on the existing cmux mobile implementation.
 `Packages/CmuxLiteTransport` now owns route ordering and one serialized dial
 attempt, while still leaving concrete network adapters out of the experiment.
+`Packages/CmuxLiteIroh` adds the unit-testable Swift adapter boundary around a
+future native binding, with no Rust or C code linked yet.
 
 Later slices will add, in order:
 
-1. an Iroh byte-stream adapter;
+1. the native Rust/C Iroh binding;
 2. a Tailscale compatibility adapter;
 3. session reconnect and migration policy;
 4. terminal synchronization over deterministic transcripts;
