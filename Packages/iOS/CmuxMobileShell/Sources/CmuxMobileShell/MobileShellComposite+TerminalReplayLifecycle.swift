@@ -520,9 +520,17 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "terminal.output.replay_barrier_viewport_transition_retry surface=\(surfaceID)"
             )
+            guard let retryToken = self.prepareTerminalReplayFailureRetry(
+                surfaceID: surfaceID,
+                replayBarrierToken: token
+            ) else {
+                // The retry helper fail-opens the barrier when this bounded
+                // viewport-transition episode has exhausted its budget.
+                return
+            }
             shouldRearmAfterTimeout = !self.requestTerminalReplayForCurrentBarrier(
                 surfaceID: surfaceID,
-                replayBarrierToken: token,
+                replayBarrierToken: retryToken,
                 coveredReplayBarrierDroppedOutputCount: nil,
                 reason: "viewport_transition_timeout"
             )

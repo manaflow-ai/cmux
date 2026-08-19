@@ -3742,15 +3742,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     )
                     return
                 }
-                let observed = verifiedReplayExportThenSubmit(
-                    export: { read.exportGridSynchronously() },
-                    submit: {
-                        ghostty_surface_render_now_with_token(
-                            submission.surface,
-                            submission.token
-                        )
-                    }
-                )
+                // Register the exported grid on MainActor before submitting
+                // the token. The Ghostty callback may be synchronous, so the
+                // observation task must already be queued when it arrives.
+                let observed = read.exportGridSynchronously()
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.acceptVerifiedReplayObservedFrame(
@@ -3768,6 +3763,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         self.cancelRenderSubmission(token: submission.token)
                     }
                 }
+                guard observed != nil else { return }
+                ghostty_surface_render_now_with_token(
+                    submission.surface,
+                    submission.token
+                )
             }
         }
         return true
