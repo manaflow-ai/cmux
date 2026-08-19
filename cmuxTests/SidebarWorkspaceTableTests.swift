@@ -202,6 +202,34 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func authoritativeApplySupersedesStagedReload() async {
+        var events: [String] = []
+        let row = makeRowConfiguration()
+        let input = SidebarWorkspaceTableApplyInput(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        let scheduler = SidebarWorkspaceTableMutationScheduler(
+            applyFlush: { _ in events.append("apply") },
+            viewportChangeFlush: {},
+            reloadFlush: { events.append("reload") }
+        )
+
+        scheduler.stageTableReload()
+        scheduler.stageApply(input)
+        await flushStagedTableMutations()
+
+        #expect(
+            events == ["apply"],
+            "A stale reload must not run against the old row graph before the authoritative snapshot."
+        )
+    }
+
+    @Test
+    @MainActor
     func equivalentCellConfigurationDoesNotRenderAgain() {
         let cell = SidebarWorkspaceTableCellView()
         let workspaceId = UUID()
