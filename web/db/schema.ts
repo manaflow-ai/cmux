@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -578,6 +579,38 @@ export const coderouterVaultLeases = pgTable(
   },
   (table) => [
     index("coderouter_vault_leases_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+/**
+ * Session -> account stickiness for coderouter routing.
+ *
+ * Providers cache prompt prefixes per account, so moving a live session to a
+ * different account re-bills its whole prompt prefix as uncached input. A row
+ * here pins one agent session (the Codex CLI `session_id` header) to one
+ * account. Placement of a new session spreads across the least-loaded usable
+ * accounts under FOR UPDATE SKIP LOCKED, so concurrent session starts cannot
+ * herd onto a single account (port of subrouter PR #228).
+ */
+export const coderouterSessionAccounts = pgTable(
+  "coderouter_session_accounts",
+  {
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    sessionKey: text("session_key").notNull(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "coderouter_session_accounts_pkey",
+      columns: [table.teamId, table.provider, table.sessionKey],
+    }),
+    index("coderouter_session_accounts_account_idx").on(table.accountId),
+    index("coderouter_session_accounts_last_seen_idx").on(table.lastSeenAt),
   ],
 );
 
