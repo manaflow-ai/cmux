@@ -207,8 +207,8 @@ import CmuxFoundation
         let first = await service.authHeaderValue()
         let second = await service.authHeaderValue()
 
-        #expect(first == "Bearer token-one")
-        #expect(second == "Bearer token-one")
+        #expect(first?.value == "Bearer token-one")
+        #expect(second == first)
         #expect(await runner.runCount == 1)
     }
 }

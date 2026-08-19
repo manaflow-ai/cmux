@@ -17,8 +17,8 @@ struct GitHubAuthHeaderCacheTests {
             await resolver.next()
         }
 
-        #expect(first == "Bearer first")
-        #expect(second == "Bearer first")
+        #expect(first?.value == "Bearer first")
+        #expect(second?.value == "Bearer first")
         #expect(await resolver.count == 1)
     }
 
@@ -45,7 +45,7 @@ struct GitHubAuthHeaderCacheTests {
         #expect(await cache.header { await resolver.next() } == nil)
         #expect(await resolver.count == 2)
         clock.advance(by: 1)
-        #expect(await cache.header { await resolver.next() } == "Bearer recovered")
+        #expect((await cache.header { await resolver.next() })?.value == "Bearer recovered")
         #expect(await resolver.count == 3)
     }
 
@@ -53,13 +53,20 @@ struct GitHubAuthHeaderCacheTests {
         let cache = GitHubAuthHeaderCache()
         let resolver = HeaderResolutionCounter(values: ["Bearer first", "Bearer second"])
 
-        #expect(await cache.header { await resolver.next() } == "Bearer first")
-        await cache.invalidate(ifMatching: "Bearer unrelated")
-        #expect(await cache.header { await resolver.next() } == "Bearer first")
+        let first = await cache.header { await resolver.next() }
+        #expect(first?.value == "Bearer first")
+        guard let first else {
+            Issue.record("expected the first credential lease")
+            return
+        }
+        await cache.invalidate(
+            GitHubAuthHeaderLease(value: "Bearer unrelated", generation: first.generation)
+        )
+        #expect((await cache.header { await resolver.next() }) == first)
         #expect(await resolver.count == 1)
 
-        await cache.invalidate(ifMatching: "Bearer first")
-        #expect(await cache.header { await resolver.next() } == "Bearer second")
+        await cache.invalidate(first)
+        #expect((await cache.header { await resolver.next() })?.value == "Bearer second")
         #expect(await resolver.count == 2)
     }
 
@@ -74,42 +81,79 @@ struct GitHubAuthHeaderCacheTests {
             values: ["Bearer first", "Bearer second", "Bearer third", "Bearer fourth"]
         )
 
-        #expect(await cache.header { await resolver.next() } == "Bearer first")
-        await cache.invalidate(ifMatching: "Bearer first")
-        #expect(await cache.header { await resolver.next() } == "Bearer second")
-        await cache.recordFailure(ifMatching: "Bearer second")
+        let first = await cache.header { await resolver.next() }
+        #expect(first?.value == "Bearer first")
+        guard let first else {
+            Issue.record("expected the first credential lease")
+            return
+        }
+        await cache.invalidate(first)
+        let second = await cache.header { await resolver.next() }
+        #expect(second?.value == "Bearer second")
+        guard let second else {
+            Issue.record("expected the second credential lease")
+            return
+        }
+        await cache.recordFailure(second)
 
         clock.advance(by: 60)
-        #expect(await cache.header { await resolver.next() } == "Bearer third")
-        await cache.recordFailure(ifMatching: "Bearer third")
+        let third = await cache.header { await resolver.next() }
+        #expect(third?.value == "Bearer third")
+        guard let third else {
+            Issue.record("expected the third credential lease")
+            return
+        }
+        await cache.recordFailure(third)
 
         // The second rejected credential advances the backoff to two minutes.
         clock.advance(by: 119)
         #expect(await cache.header { await resolver.next() } == nil)
         #expect(await resolver.count == 3)
         clock.advance(by: 1)
-        #expect(await cache.header { await resolver.next() } == "Bearer fourth")
+        #expect((await cache.header { await resolver.next() })?.value == "Bearer fourth")
         #expect(await resolver.count == 4)
     }
 
-    @Test func unknownCredentialStateFailsClosedWithBackoff() async {
+    @Test func staleSameValueLeasesCannotClearOrOvercountBackoff() async {
         let clock = MutableDateClock(initial: Date(timeIntervalSince1970: 1_800_000_000))
         let cache = GitHubAuthHeaderCache(
             failureBackoffBase: 60,
             failureBackoffMaximum: 15 * 60,
             now: { clock.now }
         )
-        let resolver = HeaderResolutionCounter(values: ["Bearer recovered"])
+        let resolver = HeaderResolutionCounter(
+            values: ["Bearer same", "Bearer same", "Bearer same"]
+        )
 
-        await cache.recordFailure(ifMatching: "Bearer unknown")
-        // A delayed success from the rejected request cannot clear the
-        // backoff while the authoritative credential is unknown.
-        await cache.recordSuccess(ifMatching: "Bearer unknown")
+        let first = await cache.header { await resolver.next() }
+        guard let first else {
+            Issue.record("expected the first credential lease")
+            return
+        }
+        await cache.invalidate(first)
+        let second = await cache.header { await resolver.next() }
+        guard let second else {
+            Issue.record("expected the replacement credential lease")
+            return
+        }
+        await cache.recordFailure(second)
+        // A duplicate 401 and a delayed 200 from the old generation are both
+        // ignored, so one polling pass advances the streak only once.
+        await cache.recordFailure(second)
+        await cache.recordSuccess(first)
         #expect(await cache.header { await resolver.next() } == nil)
-        #expect(await resolver.count == 0)
+        #expect(await resolver.count == 2)
+
         clock.advance(by: 60)
-        #expect(await cache.header { await resolver.next() } == "Bearer recovered")
-        #expect(await resolver.count == 1)
+        let third = await cache.header { await resolver.next() }
+        guard let third else {
+            Issue.record("expected the next credential lease")
+            return
+        }
+        await cache.recordFailure(third)
+        clock.advance(by: 119)
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await resolver.count == 3)
     }
 }
 

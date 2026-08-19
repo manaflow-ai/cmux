@@ -5,7 +5,7 @@ extension PullRequestProbeService {
     /// environment, else `gh auth token` via the injected runner. A `nil`
     /// result suppresses transport; GitHub probes never fall back to anonymous
     /// requests.
-    nonisolated func authHeaderValue() async -> String? {
+    nonisolated func authHeaderValue() async -> GitHubAuthHeaderLease? {
         return await authHeaderCache.header {
             if let environmentHeader = environmentAuthHeader() {
                 return environmentHeader
@@ -37,17 +37,17 @@ extension PullRequestProbeService {
 
     /// Drops a cached CLI credential after GitHub rejects an authenticated
     /// request. The next probe resolves a fresh credential.
-    nonisolated func invalidateAuthHeader(ifMatching header: String) async {
-        await authHeaderCache.invalidate(ifMatching: header)
+    nonisolated func invalidateAuthHeader(_ lease: GitHubAuthHeaderLease) async {
+        await authHeaderCache.invalidate(lease)
     }
 
     /// Applies auth-failure backoff after a replacement credential is rejected.
-    nonisolated func recordAuthHeaderFailure(ifMatching header: String) async {
-        await authHeaderCache.recordFailure(ifMatching: header)
+    nonisolated func recordAuthHeaderFailure(_ lease: GitHubAuthHeaderLease) async {
+        await authHeaderCache.recordFailure(lease)
     }
 
     /// Clears an auth-failure streak after GitHub accepts the credential.
-    nonisolated func recordAuthHeaderSuccess(ifMatching header: String) async {
-        await authHeaderCache.recordSuccess(ifMatching: header)
+    nonisolated func recordAuthHeaderSuccess(_ lease: GitHubAuthHeaderLease) async {
+        await authHeaderCache.recordSuccess(lease)
     }
 }

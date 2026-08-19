@@ -34,7 +34,7 @@ extension PullRequestProbeService {
             return (repoResults: [:], rateLimitRetryDate: nil)
         }
 
-        guard let authHeader = await authHeaderValue() else {
+        guard let authLease = await authHeaderValue() else {
             debugLog("workspace.prRefresh.authUnavailable")
             return (
                 repoResults: Dictionary(
@@ -59,7 +59,7 @@ extension PullRequestProbeService {
                             && (cacheBySlug[repoSlug].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
                             } ?? false),
-                        authHeader: authHeader
+                        authLease: authLease
                     )
                     return (repoSlug, result)
                 }
@@ -77,7 +77,7 @@ extension PullRequestProbeService {
         }
         return (
             repoResults: results,
-            rateLimitRetryDate: await requestCoordinator.retryDate(authHeader: authHeader)
+            rateLimitRetryDate: await requestCoordinator.retryDate(authHeader: authLease.value)
         )
     }
 
@@ -88,7 +88,7 @@ extension PullRequestProbeService {
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
         useFreshCache: Bool,
-        authHeader: String
+        authLease: GitHubAuthHeaderLease
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
@@ -113,7 +113,7 @@ extension PullRequestProbeService {
                 candidateBranches: unresolvedBranches,
                 baseEntry: cachedEntry,
                 refreshedAt: Date(),
-                authHeader: authHeader
+                authLease: authLease
             )
             debugLog(
                 "workspace.prRefresh.repo.cache.miss repo=\(repoSlug) " +
@@ -136,7 +136,7 @@ extension PullRequestProbeService {
             candidateBranches: normalizedCandidateBranches.sorted(),
             baseEntry: baseEntry,
             refreshedAt: fetchTimestamp,
-            authHeader: authHeader
+            authLease: authLease
         )
         debugLog(
             "workspace.prRefresh.repo.perBranch repo=\(repoSlug) " +
@@ -171,7 +171,7 @@ extension PullRequestProbeService {
         candidateBranches: [String],
         baseEntry: WorkspacePullRequestRepoCacheEntry,
         refreshedAt: Date,
-        authHeader: String
+        authLease: GitHubAuthHeaderLease
     ) async -> WorkspacePullRequestBranchLookupOutcome {
         guard !candidateBranches.isEmpty else {
             return WorkspacePullRequestBranchLookupOutcome(
@@ -189,7 +189,7 @@ extension PullRequestProbeService {
                     let result = await self.branchFetchResult(
                         repoSlug: repoSlug,
                         branch: branch,
-                        authHeader: authHeader
+                        authLease: authLease
                     )
                     return (branch, result)
                 }
@@ -232,7 +232,7 @@ extension PullRequestProbeService {
     nonisolated func branchFetchResult(
         repoSlug: String,
         branch: String,
-        authHeader: String,
+        authLease: GitHubAuthHeaderLease,
         allowAuthRefresh: Bool = true
     ) async -> WorkspacePullRequestBranchFetchResult {
         guard let endpoint = Self.branchEndpoint(
@@ -244,14 +244,14 @@ extension PullRequestProbeService {
 
         guard let response = await performRequest(
             endpoint: endpoint,
-            authHeader: authHeader
+            authHeader: authLease.value
         ) else {
             debugLog("workspace.prRefresh.branch.fail repo=\(repoSlug) branch=\(branch) status=nil")
             return .transientFailure
         }
 
         if response.statusCode == 200 {
-            await recordAuthHeaderSuccess(ifMatching: authHeader)
+            await recordAuthHeaderSuccess(authLease)
         }
 
         if response.statusCode == 401 {
@@ -266,18 +266,18 @@ extension PullRequestProbeService {
                 "workspace.prRefresh.authRejected repo=\(repoSlug) branch=\(branch)"
             )
             if allowAuthRefresh {
-                await invalidateAuthHeader(ifMatching: authHeader)
-                guard let refreshedAuthHeader = await authHeaderValue() else {
+                await invalidateAuthHeader(authLease)
+                guard let refreshedAuthLease = await authHeaderValue() else {
                     return .transientFailure
                 }
                 return await branchFetchResult(
                     repoSlug: repoSlug,
                     branch: branch,
-                    authHeader: refreshedAuthHeader,
+                    authLease: refreshedAuthLease,
                     allowAuthRefresh: false
                 )
             }
-            await recordAuthHeaderFailure(ifMatching: authHeader)
+            await recordAuthHeaderFailure(authLease)
             return .transientFailure
         }
 
