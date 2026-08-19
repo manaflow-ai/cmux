@@ -2329,7 +2329,7 @@ final class TerminalNotificationStore: ObservableObject {
                 let commandSubtitle = content.subtitle
                 let commandBody = content.body
 
-                nativeDeliveryHooks.schedule(request) { error in
+                nativeDeliveryHooks.schedule(request) { [weak self] error in
                     if let error {
                         terminalNotificationLogger.error(
                             "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
