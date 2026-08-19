@@ -12,6 +12,7 @@ import (
 const (
 	persistentDaemonBridgeLeaseParam = "bridge_lease_id"
 	persistentDaemonBridgeLeaseMax   = 128
+	persistentDaemonBridgeLeaseError = "persistent daemon connection could not be established; reconnect and try again"
 )
 
 func newPersistentDaemonBridgeLeaseID() (string, error) {

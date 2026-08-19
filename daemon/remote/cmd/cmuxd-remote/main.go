@@ -924,7 +924,12 @@ func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot str
 	}
 	bridgeLeaseID, err := newPersistentDaemonBridgeLeaseID()
 	if err != nil {
-		return fmt.Errorf("create persistent daemon bridge lease: %w", err)
+		logPersistentDaemonEvent(
+			stderr,
+			"bridge_lease_generation_failed",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
+		return errors.New(persistentDaemonBridgeLeaseError)
 	}
 	conn, err := dialPersistentDaemonWithBridgeLease(paths.socket, token, bridgeLeaseID)
 	if err != nil {
@@ -1475,6 +1480,8 @@ func persistentDaemonAuthenticationFailureReason(err error) string {
 		"authentication method is invalid",
 		"authentication token is invalid":
 		return err.Error()
+	case "persistent daemon bridge lease rejected":
+		return "bridge_lease_rejected"
 	default:
 		return persistentDaemonErrorCategory(err)
 	}
@@ -1550,7 +1557,7 @@ func authenticatePersistentDaemonConnWithLease(
 				OK: false,
 				Error: &rpcError{
 					Code:    "unauthorized",
-					Message: "persistent daemon bridge lease rejected",
+					Message: persistentDaemonBridgeLeaseError,
 				},
 			}, errors.New("persistent daemon bridge lease rejected"))
 		}
@@ -1666,7 +1673,8 @@ func dialPersistentDaemon(socketPath string, token string) (net.Conn, error) {
 }
 
 func dialPersistentDaemonWithBridgeLease(socketPath string, token string, bridgeLeaseID string) (net.Conn, error) {
-	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1675,15 +1683,6 @@ func dialPersistentDaemonWithBridgeLease(socketPath string, token string, bridge
 		return nil, err
 	}
 	return conn, nil
-}
-
-func authenticatePersistentDaemonClient(conn net.Conn, token string) error {
-	return authenticatePersistentDaemonClientWithTimeoutAndBridgeLease(
-		conn,
-		token,
-		persistentDaemonAuthTimeout,
-		"",
-	)
 }
 
 func authenticatePersistentDaemonClientWithTimeout(conn net.Conn, token string, timeout time.Duration) error {
@@ -2054,10 +2053,11 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 		timeoutMs = parsed
 	}
 
-	conn, err := net.DialTimeout(
+	dialer := net.Dialer{Timeout: time.Duration(timeoutMs) * time.Millisecond}
+	conn, err := dialer.DialContext(
+		context.Background(),
 		"tcp",
 		net.JoinHostPort(host, strconv.Itoa(port)),
-		time.Duration(timeoutMs)*time.Millisecond,
 	)
 	if err != nil {
 		return rpcResponse{
