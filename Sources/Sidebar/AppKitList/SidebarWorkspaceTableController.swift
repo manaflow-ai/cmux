@@ -37,11 +37,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
+    private var isApplyingStructuralUpdate = false
+    private var deferredHeightRowIds: Set<SidebarWorkspaceRenderItemID> = []
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
+    private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
+    private var hasPendingContentRefresh = false
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
@@ -51,7 +55,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() },
-        reloadFlush: { [weak self] in self?.containerView?.tableView.reloadData() }
+        reloadFlush: { [weak self] in self?.reloadTableWithoutAnimation() },
+        contentRefreshFlush: { [weak self] in self?.flushContentRefresh() },
+        heightChangeFlush: { [weak self] rowIds in self?.flushHeightChanges(for: rowIds) }
     )
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
@@ -162,6 +168,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard containerView === container else { return }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
+        deferredHeightRowIds.removeAll(keepingCapacity: false)
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -173,6 +180,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation = nil
         unreadSource = nil
         unreadSnapshot = SidebarUnreadSnapshot()
+        appliedUnreadSnapshot = SidebarUnreadSnapshot()
+        hasPendingContentRefresh = false
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -203,10 +212,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func applyUnreadSnapshot(_ nextSnapshot: SidebarUnreadSnapshot) {
-        let previousSnapshot = unreadSnapshot
         unreadSnapshot = nextSnapshot
-        guard isPresentationActive, let table = containerView?.tableView else { return }
+        guard isPresentationActive else { return }
+        hasPendingContentRefresh = true
+        mutationScheduler.stageContentRefresh()
+    }
 
+    /// Applies the latest unread projection only after any pending authoritative
+    /// row snapshot has committed. This keeps notification-driven content and
+    /// table geometry on the same mutation lane as close/rename/reorder.
+    private func flushContentRefresh() {
+        guard hasPendingContentRefresh else { return }
+        hasPendingContentRefresh = false
+        guard isPresentationActive else { return }
+
+        let previousSnapshot = appliedUnreadSnapshot
+        let nextSnapshot = unreadSnapshot
+        appliedUnreadSnapshot = nextSnapshot
         let candidateIds = Set(previousSnapshot.summaryByWorkspaceId.keys)
             .union(nextSnapshot.summaryByWorkspaceId.keys)
         let changedWorkspaceIds = Set(candidateIds.filter {
@@ -237,7 +259,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         reconfigureVisibleRows(changedRows)
         if !heightChanges.isEmpty {
-            noteHeightOfRowsWithoutAnimation(table, heightChanges)
+            mutationScheduler.stageHeightChanges(
+                for: heightChanges.compactMap { rows.indices.contains($0) ? rows[$0].id : nil }
+            )
         }
     }
 
@@ -255,6 +279,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
+        deferredHeightRowIds.removeAll(keepingCapacity: true)
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -438,12 +463,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // Multiset equality (not Set) so duplicate ids — corrupt state —
             // never masquerade as a pure reorder; and past the threshold the
             // move planner's rescans would go quadratic, so bulk permutations
-            // take the reload path (they gain nothing from animation).
+            // take the atomic reload path. Small moves are still useful for
+            // preserving visible cells, but they never animate their frames.
             let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
                 if pair.0 != pair.1 { count += 1 }
             }
             isSmallPureReorder = previousIds.count == nextIds.count
-                && mismatches <= Self.maxAnimatedReorderMoves
+                && mismatches <= Self.maxMoveRowReorderMismatches
                 && Self.multisetEqual(previousIds, nextIds)
         }
         let requiresAtomicReorderReload =
@@ -456,6 +482,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             )
             : nil
         rows = nextRows
+        appliedUnreadSnapshot = unreadSnapshot
 
 #if DEBUG
         if hasStructuralChanges || !contentChanges.isEmpty {
@@ -467,23 +494,25 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
         if hasStructuralChanges {
             if heightChanges.isEmpty, isSmallPureReorder {
-                // Stable-geometry reorder (drag-drop): move rows in place.
-                // reloadData tears down every visible cell and snaps the
-                // scroll position, while moves keep cells alive and settle
-                // smoothly. A reorder that also changes height must reload:
+                // Stable-geometry reorder (drag-drop): move rows in place in a
+                // zero-duration transaction. reloadData tears down every
+                // visible cell and snaps the scroll position, while moves keep
+                // cells alive. A reorder that also changes height must reload:
                 // AppKit can otherwise reuse a moved cell at its old frame
                 // before the separate height notification takes effect,
                 // clipping checklist or notification content.
                 let table = containerView.tableView
-                table.beginUpdates()
-                var current = previousIds
-                for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
-                    guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
-                    table.moveRow(at: fromIndex, to: targetIndex)
-                    current.remove(at: fromIndex)
-                    current.insert(nextIds[targetIndex], at: targetIndex)
+                performTableGeometryUpdateWithoutAnimation {
+                    table.beginUpdates()
+                    var current = previousIds
+                    for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
+                        guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
+                        table.moveRow(at: fromIndex, to: targetIndex)
+                        current.remove(at: fromIndex)
+                        current.insert(nextIds[targetIndex], at: targetIndex)
+                    }
+                    table.endUpdates()
                 }
-                table.endUpdates()
                 // Per-index state (first-row flag, drop-indicator geometry)
                 // shifts with the order even when per-id content didn't.
                 let visible = table.rows(in: table.visibleRect)
@@ -501,11 +530,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 let postUpdateActions = requiresAtomicReorderReload
                     ? detachLoadedCells()
                     : []
-                table.reloadData()
-                // A height-changing reorder needs the atomic reload above to
-                // avoid stale moved-row frames. Preserve a stable visible row's
-                // pixel offset so that correctness does not jump the viewport.
-                viewportAnchor?.restore(table: table, rows: nextRows)
+                performTableGeometryUpdateWithoutAnimation {
+                    table.reloadData()
+                    // A height-changing reorder needs the atomic reload above
+                    // to avoid stale moved-row frames. Preserve a stable
+                    // visible row's pixel offset so correctness does not jump
+                    // the viewport.
+                    viewportAnchor?.restore(table: table, rows: nextRows)
+                }
                 mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
         } else {
@@ -1163,7 +1195,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// A user drag misaligns one contiguous span (single-digit moves); past
     /// this, the per-move array rescans trend quadratic and the reload path
     /// is both cheaper and visually equivalent for bulk permutations.
-    private static let maxAnimatedReorderMoves = 32
+    private static let maxMoveRowReorderMismatches = 32
 
     private static func multisetEqual(
         _ a: [SidebarWorkspaceRenderItemID],
@@ -1438,6 +1470,53 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         NSAnimationContext.endGrouping()
     }
 
+    /// Commits one structural table mutation against one immutable row
+    /// snapshot. AppKit otherwise inherits an ambient animation transaction;
+    /// a later publisher can then update heights while moved cells still have
+    /// their intermediate frames. The gate also defers any re-entrant height
+    /// invalidation until the structural transaction has fully settled.
+    private func performTableGeometryUpdateWithoutAnimation(_ update: () -> Void) {
+        isApplyingStructuralUpdate = true
+        NSAnimationContext.beginGrouping()
+        let context = NSAnimationContext.current
+        context.duration = 0
+        context.allowsImplicitAnimation = false
+        defer {
+            NSAnimationContext.endGrouping()
+            isApplyingStructuralUpdate = false
+            guard !deferredHeightRowIds.isEmpty else { return }
+            let rowIds = deferredHeightRowIds
+            deferredHeightRowIds.removeAll(keepingCapacity: true)
+            mutationScheduler.stageHeightChanges(for: rowIds)
+        }
+        update()
+    }
+
+    private func reloadTableWithoutAnimation() {
+        guard let table = containerView?.tableView else { return }
+        performTableGeometryUpdateWithoutAnimation {
+            table.reloadData()
+        }
+    }
+
+    /// Drains row-height invalidations after the current structural snapshot
+    /// has committed. The lookup is identity-based because an index can move
+    /// while a workspace publisher is delivering its update.
+    private func flushHeightChanges(for rowIds: Set<SidebarWorkspaceRenderItemID>) {
+        guard isPresentationActive else { return }
+        if isApplyingStructuralUpdate {
+            deferredHeightRowIds.formUnion(rowIds)
+            return
+        }
+        guard let table = containerView?.tableView else { return }
+        let indexes = IndexSet(rows.indices.compactMap { index in
+            rowIds.contains(rows[index].id) ? index : nil
+        })
+        guard !indexes.isEmpty else { return }
+        reconfigureVisibleRows(indexes)
+        noteHeightOfRowsWithoutAnimation(table, indexes)
+    }
+
     private func reconfigureRows(withIds ids: [SidebarWorkspaceRenderItemID]) {
         let idSet = Set(ids)
         let indexes = IndexSet(rows.indices.filter { idSet.contains(rows[$0].id) })
@@ -1531,13 +1610,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cell: SidebarWorkspaceRowTableCellView,
         model: SidebarWorkspaceRowModel
     ) {
-        guard let table = containerView?.tableView,
-              let index = rows.firstIndex(where: { $0.id == rowId }) else { return }
-        let height = ceil(cell.layoutContent(model: model, width: currentColumnWidth(), apply: false))
-        let current = table.rect(ofRow: index).height
+        guard rows.contains(where: { $0.id == rowId }) else { return }
+        let width = currentColumnWidth()
+        let height = ceil(cell.layoutContent(model: model, width: width, apply: false))
+        let row = rows.first { $0.id == rowId }
+        let current = pumpHeightOverrides[rowId]
+            ?? row.flatMap { rowHeightCache.height(for: $0, columnWidth: width) }
+            ?? row?.estimatedHeight
+            ?? 0
         guard abs(height - current) >= 0.5 else { return }
         pumpHeightOverrides[rowId] = height
-        noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
+        mutationScheduler.stageHeightChanges(for: [rowId])
     }
 
     private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {
