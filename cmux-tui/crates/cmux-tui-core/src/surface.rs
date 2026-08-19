@@ -2248,6 +2248,12 @@ impl Surface {
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
         cmd.env("TERM", &opts.term);
+        // The embedded ghostty-vt terminal always parses 24-bit SGR and every
+        // frontend forwards RGB cells losslessly, so children can rely on
+        // truecolor regardless of where the session server was started
+        // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
+        // caller can still override it.
+        cmd.env("COLORTERM", "truecolor");
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
