@@ -1593,7 +1593,8 @@ final class cmuxUITests: XCTestCase {
             minimumCount: 2
         )
         XCTAssertTrue(didDisableCaffeine)
-        XCTAssertEqual(await server.caffeineSetValues(), [true, false])
+        let caffeineSetValues = await server.caffeineSetValues()
+        XCTAssertEqual(caffeineSetValues, [true, false])
     }
 
     @MainActor

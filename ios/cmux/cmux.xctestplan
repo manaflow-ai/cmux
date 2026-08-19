@@ -3,9 +3,7 @@
     {
       "id" : "24499A57-8A8C-49DD-9DF6-FD06943246D4",
       "name" : "Test Scheme Action",
-      "options" : {
-
-      }
+      "options" : {}
     }
   ],
   "defaultOptions" : {
@@ -21,6 +19,13 @@
         "containerPath" : "container:cmuxPackage",
         "identifier" : "cmuxFeatureTests",
         "name" : "cmuxFeatureTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:../Packages/iOS/CmuxAgentChatUI",
+        "identifier" : "CmuxAgentChatUITests",
+        "name" : "CmuxAgentChatUITests"
       }
     },
     {
