@@ -1,4 +1,4 @@
-import CmuxWorkspaces
+import CMUXAgentLaunch
 import Testing
 
 @Suite("Managed agent stall supervisor policy")
@@ -46,7 +46,7 @@ struct AgentStallSupervisorPolicyTests {
     func retryAtManagedPrompt() {
         #expect(
             policy.decision(for: input()) ==
-                .retry(attempt: 1, maximumAttempts: 3, delaySeconds: 1, input: "retry\n")
+                .retry(attempt: 1, maximumAttempts: 3, delaySeconds: 1, actionID: "replayLastPrompt")
         )
         #expect(policy.decision(for: input(promptBoundary: .midTurn)) == .ignore(.notIdle))
         #expect(policy.decision(for: input(promptBoundary: .unknown)) == .ignore(.notIdle))
@@ -122,17 +122,17 @@ struct AgentStallSupervisorPolicyTests {
     @Test("retry budget uses one, two, and four second delays, then stops")
     func boundedBackoff() {
         #expect(policy.decision(for: input(completedRetryAttempts: 0)) ==
-            .retry(attempt: 1, maximumAttempts: 3, delaySeconds: 1, input: "retry\n"))
+            .retry(attempt: 1, maximumAttempts: 3, delaySeconds: 1, actionID: "replayLastPrompt"))
         #expect(policy.decision(for: input(completedRetryAttempts: 1)) ==
-            .retry(attempt: 2, maximumAttempts: 3, delaySeconds: 2, input: "retry\n"))
+            .retry(attempt: 2, maximumAttempts: 3, delaySeconds: 2, actionID: "replayLastPrompt"))
         #expect(policy.decision(for: input(completedRetryAttempts: 2)) ==
-            .retry(attempt: 3, maximumAttempts: 3, delaySeconds: 4, input: "retry\n"))
+            .retry(attempt: 3, maximumAttempts: 3, delaySeconds: 4, actionID: "replayLastPrompt"))
         #expect(policy.decision(for: input(completedRetryAttempts: 3)) == .ignore(.exhausted))
     }
 
-    @Test("a retryable rule without prompt input fails closed")
-    func missingRetryInput() throws {
-        let missingInputClassifier = AgentStallClassifier(patterns: [
+    @Test("a retryable rule without a provider action fails closed")
+    func missingRetryAction() throws {
+        let missingActionClassifier = AgentStallClassifier(patterns: [
             AgentStallPattern(
                 identifier: "test.retry-without-input",
                 providers: ["codex"],
@@ -141,7 +141,7 @@ struct AgentStallSupervisorPolicyTests {
                 suggestedActionID: "retryAutomatically"
             ),
         ])
-        let classification = try #require(missingInputClassifier.classify(
+        let classification = try #require(missingActionClassifier.classify(
             provider: "codex",
             output: "Known transient failure"
         ))
@@ -149,7 +149,17 @@ struct AgentStallSupervisorPolicyTests {
         #expect(policy.decision(for: input(
             classification: classification,
             output: nil
-        )) == .ignore(.missingRetryInput))
+        )) == .ignore(.missingRetryAction))
+    }
+
+    @Test("provider retry action replays the prior prompt as real terminal keys")
+    func retryActionInput() {
+        let resolver = AgentStallRetryActionResolver()
+
+        #expect(resolver.input(for: "replayLastPrompt", provider: "claude") == "\u{001B}[A\r")
+        #expect(resolver.input(for: "replayLastPrompt", provider: "codex") == "\u{001B}[A\r")
+        #expect(resolver.input(for: "unknown", provider: "codex") == nil)
+        #expect(resolver.input(for: "replayLastPrompt", provider: "unknown") == nil)
     }
 
     private func trustedAccessClassification() -> AgentStallClassification? {

@@ -437,26 +437,8 @@ enum CommandPaletteSettingsToggleCommands {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
             ),
-            CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "autoResumeAgentSessions",
-                settingsKey: "terminal.autoResumeAgentSessions",
-                title: {
-                    String(
-                        localized: "settings.terminal.agentAutoResume",
-                        defaultValue: "Resume Agent Sessions on Reopen"
-                    )
-                },
-                sectionTitle: terminal,
-                keywords: ["terminal.autoResumeAgentSessions", "terminal", "agent", "resume", "sessions", "reopen", "restore"],
-                isOn: { defaults in AgentSessionAutoResumeSettings.isEnabled(defaults: defaults) },
-                setOn: { newValue, defaults, notificationCenter in
-                    AgentSessionAutoResumeSettings.setEnabled(
-                        newValue,
-                        defaults: defaults,
-                        notificationCenter: notificationCenter
-                    )
-                }
-            ),
+            agentSessionAutoResumeDescriptor(sectionTitle: terminal),
+            agentSessionAutoRetryDescriptor(sectionTitle: terminal),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "agentHibernation",
                 settingsKey: "terminal.agentHibernation.enabled",

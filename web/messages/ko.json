@@ -1013,7 +1013,8 @@
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "터미널 스크롤 휠과 트랙패드 이동량에 적용되는 배율입니다. 값이 클수록 빠르게 스크롤되고, 작을수록 느리게 스크롤됩니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
-          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
+          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다.",
+          "autoRetryAgentSessions": "관리되는 Claude Code 또는 Codex 창이 유휴 프롬프트로 돌아오면 세션 내 일시적 API 오류를 자동으로 재시도합니다. 지수 백오프로 재시도 횟수를 제한하며, 안전장치 거부·할당량·인증·정상 완료·명시적 중단 상태는 절대 재시도하지 않습니다."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다."

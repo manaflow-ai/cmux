@@ -366,6 +366,9 @@ class TerminalController {
         workspaceID: UUID? = nil
     ) {
         let uniqueSurfaceIds = Set(surfaceIds)
+        for surfaceId in uniqueSurfaceIds {
+            AppDelegate.shared?.agentStallSupervisor?.panelDidClose(panelID: surfaceId)
+        }
         socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
         if let workspaceID {
             for surfaceId in uniqueSurfaceIds {
@@ -11497,6 +11500,10 @@ class TerminalController {
     }
 
     private func helpText() -> String {
+        let agentLifecycleHelp = String(
+            localized: "cli.socket.setAgentLifecycle.help",
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--prompt-boundary] [--normal-completion] [--hook-failure] - Report coding-agent lifecycle and authoritative turn boundaries"
+        )
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
 
@@ -11541,7 +11548,7 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
-          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          \(agentLifecycleHelp)
           agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block

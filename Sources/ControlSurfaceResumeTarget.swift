@@ -65,12 +65,22 @@ enum ControlSurfaceResumeTarget {
 
     @discardableResult
     func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
-        switch self {
+        let didSet = switch self {
         case .workspace(_, let workspace, let surfaceID):
             workspace.setSurfaceResumeBinding(binding, panelId: surfaceID)
         case .dock(_, let dock, let surfaceID):
             dock.setSurfaceResumeBinding(binding, panelId: surfaceID)
         }
+        guard didSet else { return false }
+        let owner: ControlSidebarPanelOwner = switch self {
+        case .workspace(_, let workspace, _): .workspace(workspace)
+        case .dock(_, let dock, _): .dock(dock)
+        }
+        AppDelegate.shared?.agentStallSupervisor?.bindingDidChange(
+            owner: owner,
+            panelID: self.surfaceID
+        )
+        return true
     }
 
     func bindingForClear(
@@ -92,16 +102,19 @@ enum ControlSurfaceResumeTarget {
         _ binding: SurfaceResumeBindingSnapshot?,
         agentSessionEnded: Bool
     ) {
+        let didClear: Bool
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+            didClear = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
         case .dock(_, let dock, let surfaceID):
-            _ = dock.clearSurfaceResumeBinding(
+            didClear = dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 binding: binding,
                 agentSessionEnded: agentSessionEnded
             )
         }
+        guard didClear else { return }
+        AppDelegate.shared?.agentStallSupervisor?.bindingDidClear(panelID: self.surfaceID)
     }
 
     func registeredBinding(

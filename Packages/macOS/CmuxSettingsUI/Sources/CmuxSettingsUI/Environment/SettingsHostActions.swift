@@ -213,9 +213,14 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
+
+    /// Notifies the live agent supervisor after the retry opt-in commits.
+    func agentSessionAutoRetrySettingDidChange()
 }
 
 public extension SettingsHostActions {
+    /// Default no-op for previews and package-only hosts.
+    func agentSessionAutoRetrySettingDidChange() {}
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
 

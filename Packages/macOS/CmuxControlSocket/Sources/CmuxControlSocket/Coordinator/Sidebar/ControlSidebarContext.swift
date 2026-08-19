@@ -77,6 +77,10 @@ public protocol ControlSidebarContext: AnyObject {
         panelID: UUID?
     )
 
+    /// Returns the app-bundle-localized command usage so the package never
+    /// resolves `String(localized:)` against its resource-less bundle.
+    nonisolated func controlSidebarAgentLifecycleUsage() -> String
+
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
@@ -90,6 +94,18 @@ public protocol ControlSidebarContext: AnyObject {
     ) -> Bool
 
     /// Enqueues the `set_agent_lifecycle` mutation.
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        promptBoundary: Bool,
+        normalCompletion: Bool,
+        hookFailureEvidence: Bool
+    )
+
+    /// Legacy lifecycle scheduling entry point retained for package clients
+    /// that do not yet publish prompt-boundary evidence.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
@@ -332,4 +348,51 @@ public protocol ControlSidebarContext: AnyObject {
     /// Snapshots panel health rows (`surface_health`), or `nil` when the tab
     /// can't resolve.
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]?
+}
+
+public extension ControlSidebarContext {
+    /// Resource-less package fallback; the app conformer supplies localized
+    /// copy from its own bundle.
+    nonisolated func controlSidebarAgentLifecycleUsage() -> String {
+        "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure]"
+    }
+
+    /// Bridges evidence-aware callers to a legacy conformer's lifecycle seam.
+    /// Conformers should implement this overload when they consume the new
+    /// boundary facts; the reciprocal defaults keep older package clients
+    /// source-compatible during the protocol transition.
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        promptBoundary: Bool,
+        normalCompletion: Bool,
+        hookFailureEvidence: Bool
+    ) {
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID
+        )
+    }
+
+    /// Bridges legacy callers to the evidence-aware lifecycle seam.
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?
+    ) {
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID,
+            promptBoundary: false,
+            normalCompletion: false,
+            hookFailureEvidence: false
+        )
+    }
 }

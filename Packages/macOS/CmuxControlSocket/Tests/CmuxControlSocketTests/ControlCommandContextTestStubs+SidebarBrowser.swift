@@ -92,7 +92,8 @@ extension ControlSidebarContext {
         lifecycleRawValue: String,
         panelID: UUID?,
         promptBoundary: Bool,
-        normalCompletion: Bool
+        normalCompletion: Bool,
+        hookFailureEvidence: Bool
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

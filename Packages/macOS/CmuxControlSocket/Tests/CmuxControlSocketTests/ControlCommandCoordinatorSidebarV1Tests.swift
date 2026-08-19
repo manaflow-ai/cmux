@@ -14,7 +14,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         let response = coordinator.handleSidebarV1(
             command: "set_agent_lifecycle",
             args: "codex idle --tab=\(workspaceID.uuidString) "
-                + "--panel=\(panelID.uuidString) --prompt-boundary --normal-completion"
+                + "--panel=\(panelID.uuidString) --prompt-boundary --normal-completion --hook-failure"
         )
 
         #expect(response == "OK")
@@ -24,6 +24,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentLifecycleCall?.panelID == panelID)
         #expect(context.agentLifecycleCall?.promptBoundary == true)
         #expect(context.agentLifecycleCall?.normalCompletion == true)
+        #expect(context.agentLifecycleCall?.hookFailureEvidence == true)
     }
 
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {

@@ -82,6 +82,9 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    /// Capture demand owned by the composition-root tee service.
+    let agentStallOutputDemand = AgentStallOutputDemand()
+
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -89,12 +92,24 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let outputDemand: AgentStallOutputDemand
+        private let outputBuffer: AgentStallOutputCaptureBuffer
+        private let surfaceID: UUID
 
-        init(context: Unmanaged<TerminalOutputTeeContext>) {
+        init(
+            context: Unmanaged<TerminalOutputTeeContext>,
+            outputDemand: AgentStallOutputDemand,
+            outputBuffer: AgentStallOutputCaptureBuffer,
+            surfaceID: UUID
+        ) {
             self.context = context
+            self.outputDemand = outputDemand
+            self.outputBuffer = outputBuffer
+            self.surfaceID = surfaceID
         }
 
         func release() {
+            outputDemand.unregister(outputBuffer, for: surfaceID)
             context.release()
         }
     }
@@ -105,17 +120,25 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
+        let outputBuffer = AgentStallOutputCaptureBuffer()
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            stallOutputBuffer: outputBuffer
         ))
+        agentStallOutputDemand.register(outputBuffer, for: surfaceID)
         ghostty_surface_set_pty_tee_cb(
             surface,
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext)
+        return Lease(
+            context: teeContext,
+            outputDemand: agentStallOutputDemand,
+            outputBuffer: outputBuffer,
+            surfaceID: surfaceID
+        )
     }
 
     @MainActor

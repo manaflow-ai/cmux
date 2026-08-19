@@ -375,6 +375,9 @@ extension GhosttySurfaceScrollView {
     }
 
     func terminalSurfaceDidReceiveExplicitInput() {
+        if let panelID = terminalSurface?.id {
+            AppDelegate.shared?.agentStallSupervisor?.explicitInputDidBegin(panelID: panelID)
+        }
         cancelPendingNotificationScrollRestoreForUserInput()
     }
 

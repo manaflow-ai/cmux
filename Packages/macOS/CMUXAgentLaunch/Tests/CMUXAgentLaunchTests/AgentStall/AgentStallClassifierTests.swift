@@ -1,4 +1,4 @@
-import CmuxWorkspaces
+import CMUXAgentLaunch
 import Testing
 
 @Suite("Managed agent stall classification")
@@ -22,7 +22,7 @@ struct AgentStallClassifierTests {
         #expect(result.cause == .safeguardRefusal)
         #expect(result.disposition == .humanRequired)
         #expect(result.patternIdentifier == "openai.trusted-access.cybersecurity-refusal")
-        #expect(result.retryInput == nil)
+        #expect(result.retryActionID == nil)
     }
 
     @Test("classifies the current Codex Trusted Access warning icon")
@@ -69,7 +69,7 @@ struct AgentStallClassifierTests {
 
         #expect(result.cause == .rateLimit)
         #expect(result.disposition == .retryable)
-        #expect(result.retryInput == "retry\n")
+        #expect(result.retryActionID == "replayLastPrompt")
     }
 
     @Test("classifies Anthropic usage-credit exhaustion as human-required")
@@ -132,7 +132,7 @@ struct AgentStallClassifierTests {
                 output: output
             ))
             #expect(result.disposition == .retryable)
-            #expect(result.retryInput == "retry\n")
+            #expect(result.retryActionID == "replayLastPrompt")
         }
     }
 
@@ -150,22 +150,38 @@ struct AgentStallClassifierTests {
 
     @Test("classifies Codex overload banners from transcript fixtures")
     func codexOverloadBanners() throws {
-        for output in [
-            "Try again later.",
-            "Selected model is at capacity. Please try a different model.",
-        ] {
-            let result = try #require(classifier.classify(provider: "codex", output: output))
-            #expect(result.cause == .overload)
-            #expect(result.disposition == .retryable)
-            #expect(result.retryInput == "retry\n")
-        }
+        let ambiguous = try #require(classifier.classify(
+            provider: "codex",
+            output: "Try again later.",
+            hasStructuredEvidence: true
+        ))
+        #expect(ambiguous.cause == .overload)
+        #expect(ambiguous.disposition == .retryable)
+        #expect(ambiguous.retryActionID == "replayLastPrompt")
+
+        let modelCapacity = try #require(classifier.classify(
+            provider: "codex",
+            output: "Selected model is at capacity. Please try a different model."
+        ))
+        #expect(modelCapacity.cause == .overload)
+        #expect(modelCapacity.disposition == .retryable)
+        #expect(modelCapacity.retryActionID == "replayLastPrompt")
+    }
+
+    @Test("ambiguous overload prose requires structured hook evidence")
+    func ambiguousOverloadFailsClosedWithoutHookEvidence() {
+        #expect(classifier.classify(
+            provider: "codex",
+            output: "Try again later."
+        ) == nil)
     }
 
     @Test("classifies a structured Codex quota signal without retrying it")
     func codexStructuredQuotaSignal() throws {
         let result = try #require(classifier.classify(
             provider: "codex",
-            output: "event_msg error codex_error_info=usage_limit_exceeded"
+            output: "event_msg error codex_error_info=usage_limit_exceeded",
+            hasStructuredEvidence: true
         ))
 
         #expect(result.cause == .quotaExhausted)
@@ -176,17 +192,31 @@ struct AgentStallClassifierTests {
     func codexStructuredSignals() throws {
         let safeguard = try #require(classifier.classify(
             provider: "codex",
-            output: "event_msg error codex_error_info=cyber_policy"
+            output: "event_msg error codex_error_info=cyber_policy",
+            hasStructuredEvidence: true
         ))
         #expect(safeguard.cause == .safeguardRefusal)
         #expect(safeguard.disposition == .humanRequired)
 
         let transport = try #require(classifier.classify(
             provider: "codex",
-            output: "event_msg error codex_error_info=http_connection_failed"
+            output: "event_msg error codex_error_info=http_connection_failed",
+            hasStructuredEvidence: true
         ))
         #expect(transport.cause == .transientTransport)
         #expect(transport.disposition == .retryable)
+    }
+
+    @Test("structured Codex vocabulary in ordinary output fails closed")
+    func codexStructuredVocabularyRequiresHookEvidence() {
+        for output in [
+            "event_msg error codex_error_info=cyber_policy",
+            "event_msg error codex_error_info=usage_limit_exceeded",
+            "event_msg error codex_error_info=http_connection_failed",
+            "Handled server_overloaded and told the caller to try again later.",
+        ] {
+            #expect(classifier.classify(provider: "codex", output: output) == nil)
+        }
     }
 
     @Test("classifies standalone 429 and 5xx provider status banners")
@@ -204,6 +234,52 @@ struct AgentStallClassifierTests {
         #expect(serverError.cause == .transientTransport)
     }
 
+    @Test("classifies parenthesized provider status errors")
+    func parenthesizedProviderStatusErrors() throws {
+        let rateLimit = try #require(classifier.classify(
+            provider: "codex",
+            output: "API error (status 429): Too Many Requests"
+        ))
+        #expect(rateLimit.cause == .rateLimit)
+
+        let serverError = try #require(classifier.classify(
+            provider: "claude",
+            output: "API error (status 503): Service Unavailable"
+        ))
+        #expect(serverError.cause == .transientTransport)
+    }
+
+    @Test("classifies expanded usage-limit banners without matching prose")
+    func expandedUsageLimitBanners() throws {
+        for output in [
+            "You have reached your usage limit. Try again later.",
+            "You've exceeded your usage limit.",
+            "Your usage limit has been exceeded.",
+            "Usage limit reached",
+        ] {
+            let result = try #require(classifier.classify(
+                provider: "codex",
+                output: output
+            ))
+            #expect(result.cause == .quotaExhausted)
+            #expect(result.disposition == .humanRequired)
+        }
+        #expect(classifier.classify(
+            provider: "codex",
+            output: "I explained how your usage limit has been exceeded in the docs."
+        ) == nil)
+    }
+
+    @Test("classifies explicit overload wording as retryable")
+    func explicitOverloadWording() throws {
+        let result = try #require(classifier.classify(
+            provider: "codex",
+            output: "The API is currently overloaded. Please try again later."
+        ))
+        #expect(result.cause == .overload)
+        #expect(result.disposition == .retryable)
+    }
+
     @Test("classifies an expired provider token as human-required")
     func expiredTokenBanner() throws {
         let result = try #require(classifier.classify(
@@ -213,7 +289,7 @@ struct AgentStallClassifierTests {
 
         #expect(result.cause == .authenticationExpired)
         #expect(result.disposition == .humanRequired)
-        #expect(result.retryInput == nil)
+        #expect(result.retryActionID == nil)
     }
 
     @Test(
@@ -246,8 +322,7 @@ struct AgentStallClassifierTests {
                 providers: ["claude_code", "anthropic"],
                 cause: .transientTransport,
                 requiredFragments: ["custom transport failure"],
-                retryInput: "retry\n",
-                retryActionID: "retryTurn",
+                retryActionID: "replayLastPrompt",
                 suggestedActionID: "retryAutomatically"
             ),
         ])

@@ -117,6 +117,27 @@ Use `cmux surface resume set --shell <command>` to attach a resume command to th
 
 Approvals are prefix-based and signed by cmux. They also bind the working directory and exact environment values when present. A process can propose a command, but it cannot make that command sticky without the user choosing Auto-Restore or Ask Each Time in cmux.
 
+## Automatic in-session retry
+
+cmux can supervise managed Claude Code and Codex sessions whose process
+remains alive but whose turn ends at an idle agent prompt after a recognized
+transient API or transport failure. This is opt-in under **Settings > Terminal >
+Retry Stalled Agent Sessions**, or in `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoRetryAgentSessions": true
+  }
+}
+```
+
+Retries stay in the same session and use bounded 1, 2, and 4 second backoff.
+Provider safeguards, exhausted credits or quota, expired authentication,
+normal completion, unknown output, and explicit user interruption are never
+retried. Human-required stalls appear as a sidebar status and a notification
+with the next action.
+
 ## Disable automatic resume
 
 To restore panes without automatically restarting saved agent sessions, turn off

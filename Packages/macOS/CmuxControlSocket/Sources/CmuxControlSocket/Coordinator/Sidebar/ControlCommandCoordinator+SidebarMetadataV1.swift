@@ -355,7 +355,11 @@ extension ControlCommandCoordinator {
     /// main and runs the registry disk IO on the calling thread.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        // Keep the package-level fallback useful when a command is parsed by a
+        // context-free coordinator (for example, protocol/help tests). The app
+        // context supplies the localized copy at runtime.
+        let usage = context?.controlSidebarAgentLifecycleUsage()
+            ?? "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -383,7 +387,10 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            promptBoundary: parsed.options["prompt-boundary"] != nil,
+            normalCompletion: parsed.options["normal-completion"] != nil,
+            hookFailureEvidence: parsed.options["hook-failure"] != nil
         )
         return "OK"
     }

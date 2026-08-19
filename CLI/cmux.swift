@@ -25316,7 +25316,16 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: hasPendingBackgroundWork ? .running : .idle,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    promptBoundary: !hasPendingBackgroundWork,
+                    // Claude's stop hook supplies the current turn's
+                    // assistant message; without it, the provider dropped
+                    // back to its prompt and PTY evidence remains relevant.
+                    normalCompletion: !hasPendingBackgroundWork
+                        && claudeHookProvesNormalCompletion(
+                            assistantMessage: claudeAssistantMessageFromHookPayload(parsedInput.object),
+                            payload: parsedInput.rawObject ?? parsedInput.object
+                        )
                 )
                 if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
@@ -26029,15 +26038,21 @@ struct CMUXCLI {
         key: String,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
-        surfaceId: String?
+        surfaceId: String?,
+        promptBoundary: Bool = false,
+        normalCompletion: Bool = false,
+        hookFailureEvidence: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
             return
         }
         do {
+            let boundaryOption = promptBoundary ? " --prompt-boundary" : ""
+            let completionOption = normalCompletion ? " --normal-completion" : ""
+            let failureOption = hookFailureEvidence ? " --hook-failure" : ""
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(boundaryOption)\(completionOption)\(failureOption)",
                 client: client
             )
         } catch {
@@ -32661,7 +32676,10 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        promptBoundary: def.name == "codex",
+                        normalCompletion: false,
+                        hookFailureEvidence: def.name == "codex"
                     )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -32702,7 +32720,30 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        promptBoundary: def.name == "codex",
+                        // The transcript reader treats terminal error events
+                        // as authoritative and clears them only after a
+                        // healthy terminal completion, so successful prose
+                        // cannot be mistaken for a provider banner.
+                        normalCompletion: def.name == "codex"
+                            && codexFailure == nil
+                            && codexHookProvesNormalCompletion(
+                                assistantMessage: firstString(
+                                    in: input.object ?? [:],
+                                    keys: [
+                                        "last_assistant_message", "lastAssistantMessage",
+                                        "last_agent_message", "lastAgentMessage",
+                                    ]
+                                ) ?? firstString(
+                                    in: input.rawObject ?? [:],
+                                    keys: [
+                                        "last_assistant_message", "lastAssistantMessage",
+                                        "last_agent_message", "lastAgentMessage",
+                                    ]
+                                ),
+                                payload: input.rawObject ?? input.object
+                            )
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }

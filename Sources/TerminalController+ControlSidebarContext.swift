@@ -43,6 +43,14 @@ extension TerminalController: ControlSidebarContext {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pid {
                     owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
+                    if let panelID {
+                        AppDelegate.shared?.agentStallSupervisor?.processDidChange(
+                            owner: owner,
+                            panelID: panelID,
+                            key: key,
+                            pid: pid
+                        )
+                    }
                 }
                 return
             }
@@ -58,6 +66,14 @@ extension TerminalController: ControlSidebarContext {
             ), key: key, panelId: panelID)
             if let pid {
                 owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
+                if let panelID {
+                    AppDelegate.shared?.agentStallSupervisor?.processDidChange(
+                        owner: owner,
+                        panelID: panelID,
+                        key: key,
+                        pid: pid
+                    )
+                }
             }
         }
     }
@@ -92,11 +108,26 @@ extension TerminalController: ControlSidebarContext {
                     discardQueuedNotifications: false
                 )
             }
+            if let panelID {
+                AppDelegate.shared?.agentStallSupervisor?.processDidChange(
+                    owner: owner,
+                    panelID: panelID,
+                    key: key,
+                    pid: pid
+                )
+            }
         }
     }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
+    }
+
+    nonisolated func controlSidebarAgentLifecycleUsage() -> String {
+        String(
+            localized: "cli.socket.setAgentLifecycle.usage",
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure]"
+        )
     }
 
     /// `nonisolated` so the vault-registry disk IO runs on the calling
@@ -140,14 +171,43 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        promptBoundary: Bool = false,
+        normalCompletion: Bool = false,
+        hookFailureEvidence: Bool = false
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            let outputCapture: AgentStallOutputCapture?
+            if lifecycle == .running {
+                outputCapture = nil
+            } else if let panelID {
+                // Only an authoritative provider Stop event consumes the
+                // bounded turn capture. Generic notification/status updates
+                // can arrive before that event and must not erase its evidence.
+                if promptBoundary {
+                    outputCapture = GhosttyApp.agentStallOutputDemand?.finishCapture(for: panelID)
+                } else {
+                    outputCapture = nil
+                }
+            } else {
+                outputCapture = nil
+            }
             owner.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            guard let panelID else { return }
+            AppDelegate.shared?.agentStallSupervisor?.lifecycleDidChange(
+                owner: owner,
+                panelID: panelID,
+                key: key,
+                lifecycle: lifecycle,
+                promptBoundary: promptBoundary,
+                normalCompletion: normalCompletion,
+                hookFailureEvidence: hookFailureEvidence,
+                outputCapture: outputCapture
+            )
         }
     }
 

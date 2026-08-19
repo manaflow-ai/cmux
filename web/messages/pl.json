@@ -1014,7 +1014,8 @@
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
           "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
-          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
+          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox.",
+          "autoRetryAgentSessions": "Automatycznie ponawia przejściowe błędy API w ramach sesji, gdy zarządzany panel Claude Code lub Codex wraca do bezczynnego monitu. Liczba prób jest ograniczona z wykładniczym czasem oczekiwania; odrzucenia zabezpieczeń, wyczerpanie limitu, uwierzytelnianie, normalne ukończenie i jawne przerwania nigdy nie są ponawiane."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."

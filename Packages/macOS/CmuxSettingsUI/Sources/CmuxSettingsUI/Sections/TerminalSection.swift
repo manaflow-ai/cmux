@@ -8,6 +8,7 @@ import SwiftUI
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
+    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
@@ -39,6 +40,7 @@ public struct TerminalSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
+        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
@@ -154,30 +156,6 @@ public struct TerminalSection: View {
         )
     }
 
-    private var sessionContentWidthSubtitle: String {
-        if sessionContentWidthEnabled {
-            return String(
-                localized: "settings.terminal.sessionContentWidth.subtitleOn",
-                defaultValue: "Terminal and agent chat content wraps within this width. Narrow panes still use all available space."
-            )
-        }
-        return String(
-            localized: "settings.terminal.sessionContentWidth.subtitleOff",
-            defaultValue: "Terminal and agent chat content uses the full pane width."
-        )
-    }
-
-    private func sessionContentAlignmentTitle(_ alignment: SessionContentAlignment) -> String {
-        switch alignment {
-        case .left:
-            return String(localized: "settings.terminal.sessionContentAlignment.left", defaultValue: "Left")
-        case .center:
-            return String(localized: "settings.terminal.sessionContentAlignment.center", defaultValue: "Center")
-        case .right:
-            return String(localized: "settings.terminal.sessionContentAlignment.right", defaultValue: "Right")
-        }
-    }
-
     @ViewBuilder
     private var resumeCommandsCard: some View {
         SettingsCard {
@@ -252,7 +230,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.sessionContentMaxWidth"),
                 String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"),
-                subtitle: sessionContentWidthSubtitle,
+                subtitle: Self.sessionContentWidthSubtitle(enabled: sessionContentWidthEnabled),
                 controlWidth: 250
             ) {
                 HStack(spacing: 8) {
@@ -299,7 +277,7 @@ public struct TerminalSection: View {
                     )
                 ) {
                     ForEach(SessionContentAlignment.allCases, id: \.self) { alignment in
-                        Text(sessionContentAlignmentTitle(alignment)).tag(alignment)
+                        Text(Self.sessionContentAlignmentTitle(alignment)).tag(alignment)
                     }
                 }
                 .labelsHidden()
@@ -379,6 +357,12 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
             }
+            SettingsCardDivider()
+            AgentRecoverySettingsRows(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: hostActions
+            )
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),

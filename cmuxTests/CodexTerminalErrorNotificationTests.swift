@@ -80,6 +80,7 @@ struct CodexTerminalErrorNotificationTests {
             server.commands.contains { command in
                 command.hasPrefix("set_agent_lifecycle codex needsInput ") &&
                     command.contains("--prompt-boundary") &&
+                    command.contains("--hook-failure") &&
                     !command.contains("--normal-completion")
             },
             "Expected the failed turn to publish an error prompt boundary, saw \(server.commands)"

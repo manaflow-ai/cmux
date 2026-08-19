@@ -1013,7 +1013,8 @@
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
-          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。",
+          "autoRetryAgentSessions": "当受管控的 Claude Code 或 Codex 面板返回空闲提示符时，自动重试会话内的临时 API 故障。重试次数通过指数退避进行限制；安全防护拒绝、配额、身份验证、正常完成和明确中断状态绝不会重试。"
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。"

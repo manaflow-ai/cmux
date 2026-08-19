@@ -10,9 +10,13 @@ struct AgentRecoverySettingsModelTests {
     @Test("auto-retry publishes its live signal only after persistence commits")
     func autoRetrySignalsCommittedChange() async {
         let suiteName = "AgentRecoverySettingsModelTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = UserDefaultsSettingsStore(defaults: defaults)
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
         let host = AgentRecoverySettingsHostActionsSpy()
         let model = AgentRecoverySettingsModel(
             defaultsStore: store,

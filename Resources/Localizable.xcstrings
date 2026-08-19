@@ -267031,6 +267031,188 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
+    },
+    "cli.socket.setAgentLifecycle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--prompt-boundary] [--normal-completion] [--hook-failure] - Report coding-agent lifecycle and authoritative turn boundaries" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--prompt-boundary] [--normal-completion] [--hook-failure] - コーディングエージェントのライフサイクルと確定済みターン境界を報告" } }
+      }
+    },
+    "cli.socket.setAgentLifecycle.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure]" } }
+      }
+    },
+    "agent.stall.action.manualResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review the pane and resume the session manually." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインを確認し、セッションを手動で再開してください。" } }
+      }
+    },
+    "agent.stall.action.reauthenticate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again or refresh provider credentials, then resume the session." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再度サインインするかプロバイダーの認証情報を更新してから、セッションを再開してください。" } }
+      }
+    },
+    "agent.stall.action.restoreCredits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restore provider credits or quota, then resume the session." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロバイダーのクレジットまたはクォータを回復してから、セッションを再開してください。" } }
+      }
+    },
+    "agent.stall.action.trustedAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Apply for Trusted Access or change the request, then resume the session." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Trusted Access を申請するか依頼内容を変更してから、セッションを再開してください。" } }
+      }
+    },
+    "agent.stall.cause.auth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "expired authentication" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "認証の期限切れ" } }
+      }
+    },
+    "agent.stall.cause.overload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "a provider overload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロバイダーの過負荷" } }
+      }
+    },
+    "agent.stall.cause.quota": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "an exhausted credit or usage quota" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クレジットまたは使用量クォータの枯渇" } }
+      }
+    },
+    "agent.stall.cause.rateLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "a provider rate limit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロバイダーのレート制限" } }
+      }
+    },
+    "agent.stall.cause.safeguard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "a provider safeguard refusal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロバイダーの安全策による拒否" } }
+      }
+    },
+    "agent.stall.cause.transport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "a transient network or server error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一時的なネットワークまたはサーバーエラー" } }
+      }
+    },
+    "agent.stall.notification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace “%1$@”: %2$@ stopped because of %3$@. %4$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース「%1$@」の %2$@ が %3$@ により停止しました。%4$@" } }
+      }
+    },
+    "agent.stall.notification.exhausted.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automatic retries stopped. Review the pane and resume the session manually." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動再試行を停止しました。ペインを確認し、セッションを手動で再開してください。" } }
+      }
+    },
+    "agent.stall.notification.exhausted.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent retry limit reached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントの再試行上限に達しました" } }
+      }
+    },
+    "agent.stall.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent action required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントへの対応が必要です" } }
+      }
+    },
+    "agent.stall.provider.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claude Code" } }
+      }
+    },
+    "agent.stall.provider.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "agent.stall.status.exhausted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent retry limit reached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントの再試行上限に達しました" } }
+      }
+    },
+    "agent.stall.status.humanRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ stalled: %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ が停止: %2$@" } }
+      }
+    },
+    "agent.stall.status.retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retrying %1$@ (attempt %2$lld/%3$lld)…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ を再試行中（%2$lld/%3$lld 回）…" } }
+      }
+    },
+    "agent.stall.workspace.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "settings.search.alias.setting.terminal.agent-auto-retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "terminal.autoRetryAgentSessions auto retry stalled error transport api rate limit overloaded agents claude codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "terminal.autoRetryAgentSessions 自動 再試行 停止 エラー 通信 API レート制限 過負荷 エージェント Claude Codex" } }
+      }
+    },
+    "settings.terminal.agentAutoRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry Stalled Agent Sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止したエージェントセッションを再試行" } }
+      }
+    },
+    "settings.terminal.agentAutoRetry.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stalled agent sessions stay idle until you resume them manually." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止したエージェントセッションは、手動で再開するまで待機します。" } }
+      }
+    },
+    "settings.terminal.agentAutoRetry.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transient API failures at an idle agent prompt retry automatically with bounded backoff. Safeguards, quota, and auth failures always require you." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントの待機プロンプトで一時的な API エラーが発生した場合、制限付きのバックオフで自動再試行します。安全策、クォータ、認証の失敗には常に操作が必要です。" } }
+      }
     }
   },
   "version": "1.0"
