@@ -1,5 +1,7 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import Foundation
+import GhosttyKit
 import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
@@ -69,6 +71,19 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         }
     }
 
+    func handleRenderFailed(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        Task { @MainActor [weak self] in
+            guard let surfaceView = self?.surfaceView else { return }
+            MobileDebugLog.anchormux(
+                "render.callback_failed token=\(token) status=\(status.rawValue)"
+            )
+            surfaceView.handleRenderSubmissionFailure(token: token, status: status)
+        }
+    }
+
     static let ioWriteCallback: @convention(c) (
         UnsafeMutableRawPointer?,
         UnsafePointer<CChar>?,
@@ -84,6 +99,17 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         UInt64
     ) -> Void = { userdata, token in
         GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+    }
+
+    static let renderFailedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64,
+        ghostty_render_presentation_status_e
+    ) -> Void = { userdata, token, status in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderFailed(
+            token: token,
+            status: status
+        )
     }
 
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {

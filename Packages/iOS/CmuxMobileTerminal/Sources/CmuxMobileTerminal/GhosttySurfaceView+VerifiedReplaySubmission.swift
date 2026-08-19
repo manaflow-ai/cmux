@@ -51,19 +51,27 @@ extension GhosttySurfaceView {
                 )
             )
             ensureSurfaceOperationDeadlinePump()
-            enqueueVerifiedReplaySubmission(
+            let accepted = enqueueVerifiedReplaySubmission(
                 read: read,
                 submission: submission,
                 generation: generation
             )
+            if !accepted {
+                completePendingVerifiedReplayPresentation(
+                    id: submission.token,
+                    returning: nil
+                )
+                clearVerifiedReplayPresentation()
+            }
         }
     }
 
+    @discardableResult
     func enqueueVerifiedReplaySubmission(
         read: VerifiedReplaySurfaceRead?,
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
-    ) {
+    ) -> Bool {
         enqueueRenderSubmission(
             GhosttySurfaceView.RenderSubmission(
                 token: submission.token,
