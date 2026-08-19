@@ -47,9 +47,9 @@ use ghostty_vt::{
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::style::Color;
-use wait_timeout::ChildExt;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+use wait_timeout::ChildExt;
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
@@ -13240,13 +13240,13 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
-            AppEvent::StatusCommandsUpdated => Ok(
-                if self.config.status_bar.visible && !self.is_surface_only() {
+            AppEvent::StatusCommandsUpdated => {
+                Ok(if self.config.status_bar.visible && !self.is_surface_only() {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
-                },
-            ),
+                })
+            }
             AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
                 destination_generation,
@@ -21784,7 +21784,8 @@ mod tests {
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
+        reset_pane_area_projection_work, run_status_command,
+        should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
@@ -21814,7 +21815,7 @@ mod tests {
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use ratatui::style::Modifier;
+    use ratatui::style::{Color, Modifier};
     use unicode_width::UnicodeWidthStr;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};

@@ -2850,14 +2850,13 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
                 let argv: Vec<String> =
                     run.into_iter().filter(|argument| !argument.is_empty()).collect();
                 if argv.is_empty() {
-                    eprintln!("cmux-tui: ignoring status_bar.{side} segment with an empty run argv");
+                    eprintln!(
+                        "cmux-tui: ignoring status_bar.{side} segment with an empty run argv"
+                    );
                     continue;
                 }
                 let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
-                StatusSegmentContent::Command {
-                    argv,
-                    interval: Duration::from_secs(interval),
-                }
+                StatusSegmentContent::Command { argv, interval: Duration::from_secs(interval) }
             }
         };
         segments.push(StatusSegment {
@@ -7679,11 +7678,7 @@ mod tests {
             "interval clamps to at least one second"
         );
 
-        let options = StatusBarOptions {
-            left,
-            right,
-            ..StatusBarOptions::default()
-        };
+        let options = StatusBarOptions { left, right, ..StatusBarOptions::default() };
         let commands = options.command_segments();
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].0, 1, "command index counts left segments first");

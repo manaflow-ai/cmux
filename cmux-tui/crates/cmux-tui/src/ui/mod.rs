@@ -364,9 +364,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let base = Style::default().bg(status_bg).fg(status_fg);
     let (left_segments, right_segments) = app.resolved_status_segments();
     let segment_style = |segment: &crate::app::StatusSegmentView| {
-        Style::default()
-            .bg(segment.bg.unwrap_or(status_bg))
-            .fg(segment.fg.unwrap_or(status_fg))
+        Style::default().bg(segment.bg.unwrap_or(status_bg)).fg(segment.fg.unwrap_or(status_fg))
     };
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
@@ -425,23 +423,22 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     if status_text.is_none() {
         app.hide_status_message();
     }
-    let label = status_text
-        .as_ref()
-        .map(
-            |message| {
+    let label =
+        status_text
+            .as_ref()
+            .map(|message| {
                 if show_copy { format!(" {message} {copy_label} ") } else { format!(" {message} ") }
-            },
-        )
-        .unwrap_or_else(|| {
-            if app.config.status_bar.show_session {
-                format!(
-                    "[{}] ",
-                    truncate(&app.session_label, available_label_width.saturating_sub(3))
-                )
-            } else {
-                String::new()
-            }
-        });
+            })
+            .unwrap_or_else(|| {
+                if app.config.status_bar.show_session {
+                    format!(
+                        "[{}] ",
+                        truncate(&app.session_label, available_label_width.saturating_sub(3))
+                    )
+                } else {
+                    String::new()
+                }
+            });
     let label_w = label.width().min(area.width as usize) as u16;
     // Right-aligned custom segments sit left of the label; draw them and
     // shrink the viewport track accordingly.
