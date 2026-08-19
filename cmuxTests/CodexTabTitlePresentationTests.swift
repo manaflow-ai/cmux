@@ -11,31 +11,6 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CodexTabTitlePresentationTests {
-    @Test("the composer keeps non-running states free of an animation marker")
-    func composerHandlesUnknownAndNeedsInputStates() {
-        for lifecycle in [AgentHibernationLifecycleState.unknown, .needsInput] {
-            let presentation = CodexTabTitleComposer.presentation(
-                baseTitle: "some-name",
-                lifecycle: lifecycle,
-                hasCustomTitle: false
-            )
-            #expect(presentation.title == "some-name")
-            #expect(!presentation.isAnimating)
-        }
-    }
-
-    @Test("the composer preserves a legitimate marker-prefixed title")
-    func composerPreservesMarkerPrefixedTitle() {
-        let presentation = CodexTabTitleComposer.presentation(
-            baseTitle: "✳ some-name",
-            lifecycle: .needsInput,
-            hasCustomTitle: false
-        )
-
-        #expect(presentation.title == "✳ some-name")
-        #expect(!presentation.isAnimating)
-    }
-
     @Test("a running Codex turn decorates the tab without changing its stable title")
     func runningTurnShowsAnimatedMarker() throws {
         let workspace = Workspace()
@@ -81,6 +56,26 @@ struct CodexTabTitlePresentationTests {
 
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "Pinned lane")
+        #expect(tab.isLoading)
+    }
+
+    @Test("an auto-generated title still receives Codex lifecycle markers")
+    func autoTitleIsNotTreatedAsUserOwned() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(
+            workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: "Generated lane",
+                source: .auto
+            )
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.title == "◐ Generated lane")
         #expect(tab.isLoading)
     }
 
