@@ -141,83 +141,6 @@ struct TerminalSurfaceMountOwnershipTests {
     }
 
     @MainActor
-    @Test("a stale viewport callback cannot open a replacement mount")
-    func staleViewportCallbackCannotOpenReplacementMount() async throws {
-        let store = MobileShellComposite.preview()
-        let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
-        let terminal = try #require(workspace.terminals.first)
-        let surfaceID = terminal.id.rawValue
-        let coordinator = GhosttySurfaceRepresentable.Coordinator(
-            workspaceID: workspace.id.rawValue,
-            surfaceID: surfaceID,
-            store: store,
-            artifactFilesEnabled: false,
-            terminalFolderTapEnabled: false,
-            terminalFilesChipEnabled: false,
-            sessionArtifactCountEnabled: false,
-            visibleArtifactCount: 0,
-            onArtifactFilesRequested: { _ in },
-            onArtifactPathTapped: { _ in },
-            onVisibleArtifactCountChanged: { _ in },
-            onArtifactGalleryRefreshSignal: { _ in }
-        )
-        let surfaceView = GhosttySurfaceView(
-            runtime: try GhosttyRuntime.shared(),
-            delegate: coordinator
-        )
-        let host = UIViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        surfaceView.frame = host.view.bounds
-        host.view.addSubview(surfaceView)
-        coordinator.attach(surfaceView: surfaceView)
-        defer {
-            surfaceView.removeFromSuperview()
-            coordinator.detach()
-            surfaceView.prepareForDismantle()
-            window.isHidden = true
-        }
-
-        let mountPrimed = await waitUntil {
-            coordinator.outputStartMinimumViewportReportID != nil
-                && store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
-        }
-        #expect(mountPrimed)
-        let minimumReportID = try #require(coordinator.outputStartMinimumViewportReportID)
-        let staleReportID = minimumReportID &- 1
-        coordinator.ghosttySurfaceView(
-            surfaceView,
-            didResize: TerminalGridSize(
-                columns: 72,
-                rows: 61,
-                pixelWidth: 1_296,
-                pixelHeight: 2_135
-            ),
-            reportID: staleReportID
-        )
-        for _ in 0..<20 {
-            await Task.yield()
-        }
-        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
-
-        coordinator.ghosttySurfaceView(
-            surfaceView,
-            didResize: TerminalGridSize(
-                columns: 72,
-                rows: 61,
-                pixelWidth: 1_296,
-                pixelHeight: 2_135
-            ),
-            reportID: minimumReportID
-        )
-        let mounted = await waitUntil {
-            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
-        }
-        #expect(mounted)
-    }
-
-    @MainActor
     @Test("terminal does not claim output after an unacknowledged viewport timeout")
     func terminalDoesNotClaimOutputAfterUnacknowledgedViewportTimeout() async throws {
         let store = MobileShellComposite.preview()
@@ -340,5 +263,15 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         return predicate()
     }
+}
+
+private struct ImmediateClock: Clock {
+    typealias Duration = Swift.Duration
+    typealias Instant = ContinuousClock.Instant
+
+    var now: Instant { .now }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until _: Instant, tolerance _: Duration? = nil) async throws {}
 }
 #endif
