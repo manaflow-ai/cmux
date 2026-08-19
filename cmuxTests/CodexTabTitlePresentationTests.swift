@@ -81,6 +81,7 @@ struct CodexTabTitlePresentationTests {
 
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "Pinned lane")
+        #expect(tab.isLoading)
     }
 
     @Test("another agent lifecycle key does not borrow Codex title markers")
