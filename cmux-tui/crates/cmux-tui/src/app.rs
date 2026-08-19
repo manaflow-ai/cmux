@@ -7124,12 +7124,16 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
     if let Some(pipe) = stdout.as_ref() {
         use std::os::fd::AsRawFd;
         // SAFETY: fcntl flag update on a pipe fd this function owns.
-        unsafe {
+        let nonblocking = unsafe {
             let fd = pipe.as_raw_fd();
             let flags = libc::fcntl(fd, libc::F_GETFL);
-            if flags >= 0 {
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-            }
+            flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == 0
+        };
+        if !nonblocking {
+            // Fail closed: a blocking pipe would defeat the deadline and
+            // stop checks, so never enter the capture loop with one.
+            kill_status_command_group(&mut child);
+            return Vec::new();
         }
     }
     let group = child.id() as i32;
