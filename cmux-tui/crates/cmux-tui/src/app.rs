@@ -7015,8 +7015,23 @@ fn run_status_segment_loop(worker: StatusSegmentWorker) {
     let StatusSegmentWorker { index, argv, interval, outputs, generation, poke, events, stop } =
         worker;
     let mut pending_notify = false;
+    let mut unreaped: Option<std::process::Child> = None;
     while !stop.is_raised() {
-        let output = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
+        // A previous command stuck in uninterruptible kernel I/O survives
+        // SIGKILL; never stack another process behind it, and reap it once
+        // the kernel releases it, so stuck processes stay bounded at one
+        // per segment with no lasting zombie.
+        // A reaped predecessor is dropped by the reassignment below.
+        if let Some(child) = unreaped.as_mut()
+            && matches!(child.try_wait(), Ok(None))
+        {
+            if stop.wait_timeout(interval) {
+                return;
+            }
+            continue;
+        }
+        let (output, stuck_child) = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
+        unreaped = stuck_child;
         if stop.is_raised() {
             return;
         }
@@ -7093,22 +7108,33 @@ fn cached_status_user() -> &'static str {
     })
 }
 
-fn run_status_command(argv: &[String], timeout: Duration, stop: &StatusWorkerStop) -> String {
+/// Returns the segment text plus the child when it could not be reaped
+/// (stuck in uninterruptible kernel I/O); the segment loop keeps at most
+/// one such child and never starts another command behind it.
+fn run_status_command(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (String, Option<std::process::Child>) {
     const MAX_STATUS_OUTPUT_CHARS: usize = 200;
-    let captured = capture_status_output(argv, timeout, stop);
+    let (captured, stuck_child) = capture_status_output(argv, timeout, stop);
     let text = String::from_utf8_lossy(&captured);
     let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
-    strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect()
+    (strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect(), stuck_child)
 }
 
 const MAX_STATUS_OUTPUT_BYTES: usize = 64 * 1024;
 const STATUS_POLL_TICK: Duration = Duration::from_millis(25);
 
 #[cfg(unix)]
-fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorkerStop) -> Vec<u8> {
+fn capture_status_output(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (Vec<u8>, Option<std::process::Child>) {
     use std::io::Read;
 
-    let Some(program) = argv.first() else { return Vec::new() };
+    let Some(program) = argv.first() else { return (Vec::new(), None) };
     let mut command = std::process::Command::new(program);
     command
         .args(&argv[1..])
@@ -7119,18 +7145,16 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let Ok(mut child) = ({
-        // Spawn under the raise lock: a raise that wins the lock happens
-        // strictly before this spawn, so a retired worker cannot start an
-        // obsolete command; a spawn that wins is killed by the next tick.
-        let _spawn_guard = stop.lock.lock().unwrap();
-        if stop.is_raised() {
-            return Vec::new();
-        }
-        command.spawn()
-    }) else {
-        return Vec::new();
-    };
+    // Final unlocked stop check directly before the spawn. Holding the
+    // raise lock across spawn would let a stalled filesystem block reload
+    // and shutdown on the UI thread, so the residual race is resolved the
+    // other way: a command that spawns against a concurrent raise is
+    // killed at the first poll tick below.
+    if stop.is_raised() {
+        return (Vec::new(), None);
+    }
+    let Ok(mut child) = command.spawn() else { return (Vec::new(), None) };
+    let mut child_reaped = false;
     let mut stdout = child.stdout.take();
     if let Some(pipe) = stdout.as_ref() {
         use std::os::fd::AsRawFd;
@@ -7143,8 +7167,8 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         if !nonblocking {
             // Fail closed: a blocking pipe would defeat the deadline and
             // stop checks, so never enter the capture loop with one.
-            kill_status_command_group(&mut child);
-            return Vec::new();
+            let reaped = kill_status_command_group(&mut child);
+            return (Vec::new(), (!reaped).then_some(child));
         }
     }
     let group = child.id() as i32;
@@ -7200,11 +7224,12 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         }
         if matches!(child.try_wait(), Ok(Some(_))) {
             // One more drain pass picks up bytes written before exit.
+            child_reaped = true;
             exited = true;
             continue;
         }
         if stop.is_raised() || Instant::now() >= deadline {
-            kill_status_command_group(&mut child);
+            child_reaped = kill_status_command_group(&mut child);
             exited = true;
             continue;
         }
@@ -7218,22 +7243,26 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
     unsafe {
         libc::kill(-group, libc::SIGKILL);
     }
-    captured
+    (captured, (!child_reaped).then_some(child))
 }
 
 #[cfg(windows)]
-fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorkerStop) -> Vec<u8> {
+fn capture_status_output(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (Vec<u8>, Option<std::process::Child>) {
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::AtomicU64;
 
     static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    let Some(program) = argv.first() else { return Vec::new() };
+    let Some(program) = argv.first() else { return (Vec::new(), None) };
     let path = std::env::temp_dir().join(format!(
         "cmux-status-{}-{}.out",
         std::process::id(),
         CAPTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
-    let Ok(file) = std::fs::File::create(&path) else { return Vec::new() };
+    let Ok(file) = std::fs::File::create(&path) else { return (Vec::new(), None) };
     let mut command = std::process::Command::new(program);
     command
         .args(&argv[1..])
@@ -7247,18 +7276,14 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
         command.creation_flags(CREATE_SUSPENDED);
     }
-    let Ok(mut child) = ({
-        // Spawn under the raise lock; see the Unix path for the ordering
-        // argument.
-        let _spawn_guard = stop.lock.lock().unwrap();
-        if stop.is_raised() {
-            let _ = std::fs::remove_file(&path);
-            return Vec::new();
-        }
-        command.spawn()
-    }) else {
+    // Final unlocked stop check; see the Unix path for the trade-off.
+    if stop.is_raised() {
         let _ = std::fs::remove_file(&path);
-        return Vec::new();
+        return (Vec::new(), None);
+    }
+    let Ok(mut child) = command.spawn() else {
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
     };
     // The job's kill-on-close limit terminates the whole descendant tree
     // when this function returns, mirroring the Unix process-group kill.
@@ -7270,7 +7295,7 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
             let _ = child.kill();
             let _ = child.wait();
             let _ = std::fs::remove_file(&path);
-            return Vec::new();
+            return (Vec::new(), None);
         }
     };
     if resume_suspended_status_child(&child).is_err() {
@@ -7278,11 +7303,13 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_file(&path);
-        return Vec::new();
+        return (Vec::new(), None);
     }
+    let mut child_reaped = false;
     let deadline = Instant::now() + timeout;
     loop {
         if matches!(child.try_wait(), Ok(Some(_))) {
+            child_reaped = true;
             break;
         }
         // Bound the file while the command runs: a spewing command is
@@ -7295,7 +7322,7 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
             .is_ok_and(|metadata| metadata.len() > MAX_STATUS_OUTPUT_BYTES as u64);
         if oversized || stop.is_raised() || Instant::now() >= deadline {
             job.terminate();
-            kill_status_command_group(&mut child);
+            child_reaped = kill_status_command_group(&mut child);
             break;
         }
         std::thread::sleep(STATUS_POLL_TICK);
@@ -7316,7 +7343,7 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &StatusWorker
         let _ = file.take(MAX_STATUS_OUTPUT_BYTES as u64).read_to_end(&mut captured);
     }
     let _ = std::fs::remove_file(&path);
-    captured
+    (captured, (!child_reaped).then_some(child))
 }
 
 /// Windows job object with the kill-on-close limit, so every process a
@@ -7449,9 +7476,10 @@ fn resume_suspended_status_child(child: &std::process::Child) -> std::io::Result
 /// Kill a status command and, on Unix, its whole process group so every
 /// descendant exits with it. Reaping is bounded: a child stuck in
 /// uninterruptible kernel I/O survives SIGKILL until the kernel releases
-/// it, and blocking on it would transitively hang reload and shutdown, so
-/// after the bound the child is left for reaping at process exit.
-fn kill_status_command_group(child: &mut std::process::Child) {
+/// it, and blocking on it would transitively hang reload and shutdown.
+/// Returns whether the child was reaped; the caller keeps an unreaped
+/// child and refuses to start another command behind it.
+fn kill_status_command_group(child: &mut std::process::Child) -> bool {
     #[cfg(unix)]
     // SAFETY: plain syscall on the child's own process group id.
     unsafe {
@@ -7464,7 +7492,8 @@ fn kill_status_command_group(child: &mut std::process::Child) {
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            _ => break,
+            Ok(None) => return false,
+            _ => return true,
         }
     }
 }
@@ -23686,13 +23715,13 @@ mod tests {
     #[test]
     fn status_command_runner_returns_last_clean_line() {
         let run = StatusWorkerStop::new();
-        let output = run_status_command(
+        let (output, _) = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "printf 'one\\ntwo\\n\\n'".to_string()],
             Duration::from_secs(5),
             &run,
         );
         assert_eq!(output, "two", "the last nonempty line wins");
-        let colored = run_status_command(
+        let (colored, _) = run_status_command(
             &[
                 "/bin/sh".to_string(),
                 "-c".to_string(),
@@ -23707,7 +23736,8 @@ mod tests {
                 &["/nonexistent-status-cmd".to_string()],
                 Duration::from_secs(1),
                 &run,
-            ),
+            )
+            .0,
             "",
             "spawn failures resolve to an empty segment"
         );
@@ -23718,12 +23748,13 @@ mod tests {
     fn status_command_timeout_kills_the_process_tree_and_keeps_partial_output() {
         let started = Instant::now();
         let run = StatusWorkerStop::new();
-        let output = run_status_command(
+        let (output, stuck) = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
             Duration::from_secs(1),
             &run,
         );
         assert_eq!(output, "early", "output before the timeout survives the group kill");
+        assert!(stuck.is_none(), "a killable command is reaped within the bound");
         assert!(
             started.elapsed() < Duration::from_secs(10),
             "the runtime bound is real: {:?}",
@@ -23736,7 +23767,7 @@ mod tests {
         let stopped = StatusWorkerStop::new();
         stopped.raise();
         let started = Instant::now();
-        let output = run_status_command(
+        let (output, _) = run_status_command(
             &["/bin/sh".to_string(), "-c".to_string(), "sleep 60".to_string()],
             Duration::from_secs(60),
             &stopped,
