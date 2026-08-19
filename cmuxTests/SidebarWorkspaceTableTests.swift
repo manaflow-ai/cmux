@@ -440,6 +440,100 @@ struct SidebarWorkspaceTableTests {
     }
 
     @Test
+    @MainActor
+    func rapidReorderAndRowHeightBurstKeepsTableRowsDisjoint() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 720),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let ids = (0..<24).map { _ in UUID() }
+        let baseHeights = ids.indices.map { CGFloat(28 + ($0 % 5) * 11) }
+        let initialRows = ids.enumerated().map { index, id in
+            makeRowConfiguration(
+                workspaceId: id,
+                contentToken: index,
+                fixedHeight: baseHeights[index]
+            )
+        }
+        let actions = makeTableActions()
+        controller.apply(
+            rows: initialRows,
+            actions: actions,
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        var orderedIds = ids
+        for pass in 0..<12 {
+            let moved = orderedIds.remove(at: (pass * 3) % orderedIds.count)
+            orderedIds.insert(moved, at: min(orderedIds.count, (pass * 7) % orderedIds.count))
+            let heightsById = Dictionary(uniqueKeysWithValues: zip(ids, baseHeights))
+            let reorderedRows = orderedIds.enumerated().map { index, id in
+                makeRowConfiguration(
+                    workspaceId: id,
+                    contentToken: pass * 2 + index,
+                    fixedHeight: heightsById[id]!
+                )
+            }
+            controller.apply(
+                rows: reorderedRows,
+                actions: actions,
+                workspaceIds: orderedIds,
+                selectedWorkspaceId: nil,
+                selectedScrollTargetWorkspaceId: nil
+            )
+            await flushStagedTableMutations()
+
+            // A row-height update arriving immediately after the reorder is the
+            // same ordering seen when a workspace rename/status publication
+            // lands during a close/reorder burst.
+            let changedId = orderedIds[(pass * 5) % orderedIds.count]
+            let updatedRows = orderedIds.enumerated().map { index, id in
+                makeRowConfiguration(
+                    workspaceId: id,
+                    contentToken: pass * 2 + index + 1,
+                    fixedHeight: id == changedId ? heightsById[id]! + 37 : heightsById[id]!
+                )
+            }
+            controller.apply(
+                rows: updatedRows,
+                actions: actions,
+                workspaceIds: orderedIds,
+                selectedWorkspaceId: nil,
+                selectedScrollTargetWorkspaceId: nil
+            )
+            await flushStagedTableMutations()
+            container.layoutSubtreeIfNeeded()
+            container.tableView.layoutSubtreeIfNeeded()
+
+            let table = container.tableView
+            let rowRects = updatedRows.indices.map(table.rect(ofRow:))
+            for index in rowRects.indices.dropLast() {
+                #expect(
+                    rowRects[index].maxY <= rowRects[index + 1].minY,
+                    "row \\(index) overlaps row \\(index + 1) after reorder/height pass \\(pass)"
+                )
+            }
+            for index in updatedRows.indices {
+                let cell = try #require(
+                    table.view(atColumn: 0, row: index, makeIfNecessary: true)
+                        as? SidebarWorkspaceTableCellView
+                )
+                #expect(cell.representedRowId == updatedRows[index].id)
+            }
+        }
+    }
+
+    @Test
     func reorderIndicatorPainterMatchesPredicateAndSuppressesDraggedRow() {
         let ids = (0..<5).map { _ in UUID() }
 
