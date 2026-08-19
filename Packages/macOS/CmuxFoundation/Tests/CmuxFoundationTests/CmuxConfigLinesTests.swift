@@ -50,9 +50,12 @@ struct CmuxConfigLinesTests {
         #expect(configLines.lineEnding(of: "a\r\nb\r\n") == .crlf)
         #expect(configLines.lineEnding(of: "no newline here") == .lf)
         #expect(configLines.lineEnding(of: "") == .lf)
-        // Mixed bodies follow whichever break comes first.
+        // Mixed bodies follow whichever break comes first, lone CR included: a
+        // later CRLF must not turn a CR- or LF-first body into a CRLF rewrite.
         #expect(configLines.lineEnding(of: "a\r\nb\nc") == .crlf)
         #expect(configLines.lineEnding(of: "a\nb\r\nc") == .lf)
+        #expect(configLines.lineEnding(of: "a\rb\r\nc") == .lf)
+        #expect(configLines.lineEnding(of: "a\rb\r") == .lf)
     }
 
     @Test("Rejoins with the requested ending and terminates the last line")
