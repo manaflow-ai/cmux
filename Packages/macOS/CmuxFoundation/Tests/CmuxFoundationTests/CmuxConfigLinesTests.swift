@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxFoundation
 
+/// Covers ``CmuxConfigLines``: the splitting, line-ending detection, and
+/// rejoining that cmux's config editors share.
 @Suite("Config line splitting and rejoining")
 struct CmuxConfigLinesTests {
     private let configLines = CmuxConfigLines()

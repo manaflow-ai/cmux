@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import CmuxFoundation
 
+/// Covers ``CmuxGhosttyConfigSettingEditor`` on CRLF configs: the editor writes
+/// the user's Ghostty config, and rewriting one used to append a blank line per
+/// write and leave the file with mixed endings.
 @Suite("Ghostty config setting editor line handling")
 struct CmuxGhosttyConfigSettingEditorTests {
     private let editor = CmuxGhosttyConfigSettingEditor()
@@ -12,6 +15,8 @@ struct CmuxGhosttyConfigSettingEditorTests {
 
     """
 
+    /// The same body written with CRLF endings, as a Windows-side editor or a
+    /// CRLF-normalizing sync would leave it.
     private static func crlf(_ contents: String) -> String {
         contents.replacingOccurrences(of: "\n", with: "\r\n")
     }
