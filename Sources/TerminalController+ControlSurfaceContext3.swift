@@ -269,7 +269,7 @@ extension TerminalController {
                 return .surfaceNotTerminal(surfaceId)
             }
             let queued: Bool
-            switch terminalPanel.sendInputResult(text, isUserInitiated: true) {
+            switch terminalPanel.sendInputResult(text, isUserInitiated: false) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
                 queued = false
@@ -316,7 +316,7 @@ extension TerminalController {
             return remote
         }
         let queued: Bool
-        switch terminalPanel.sendInputResult(text, isUserInitiated: true) {
+        switch terminalPanel.sendInputResult(text, isUserInitiated: false) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
@@ -364,7 +364,7 @@ extension TerminalController {
             }
             let sendResult = terminalPanel.sendNamedKeyResult(
                 key,
-                isUserInitiated: true
+                isUserInitiated: false
             )
             switch sendResult {
             case .sent:
@@ -415,7 +415,7 @@ extension TerminalController {
         }
         let sendResult = terminalPanel.sendNamedKeyResult(
             key,
-            isUserInitiated: true
+            isUserInitiated: false
         )
         switch sendResult {
         case .sent:

@@ -14704,9 +14704,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 case .rejected:
                     NSSound.beep()
                 case .acceptedMutation:
-                    // The font mutation fans out across the workspace. Attribute
-                    // the handled input only to the responder that originated it.
-                    originatingSurface?.didReceiveExplicitInput(isUserInitiated: true)
+                    // The font mutation fans out across the workspace. Notify
+                    // only the responder that originated it; this shortcut is
+                    // not human prompt input for context-management purposes.
+                    originatingSurface?.didReceiveExplicitInput()
                     originatingSurface?.didAcceptExplicitInput()
                 case .consumedWithoutMutation:
                     break

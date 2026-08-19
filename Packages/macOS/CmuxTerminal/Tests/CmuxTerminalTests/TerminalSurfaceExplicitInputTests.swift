@@ -137,6 +137,20 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(userInputCount == 2)
     }
 
+    @Test func nonPromptShortcutInputDoesNotNotifyUserInput() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var userInputCount = 0
+        fixture.surface.onUserExplicitInput = { userInputCount += 1 }
+
+        // Workspace font-size shortcuts use the non-user explicit-input path;
+        // they must not cancel pending context recovery as if prompt text was typed.
+        fixture.surface.didReceiveExplicitInput()
+        fixture.surface.didAcceptExplicitInput()
+
+        #expect(userInputCount == 0)
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

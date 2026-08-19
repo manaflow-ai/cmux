@@ -13757,7 +13757,7 @@ class TerminalController {
         text: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        switch terminalPanel.sendInputResult(text, isUserInitiated: true) {
+        switch terminalPanel.sendInputResult(text, isUserInitiated: false) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: refreshReason)
             return .sent
@@ -13779,7 +13779,7 @@ class TerminalController {
         keyName: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        switch terminalPanel.sendNamedKeyResult(keyName, isUserInitiated: true) {
+        switch terminalPanel.sendNamedKeyResult(keyName, isUserInitiated: false) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: refreshReason)
             return .sent
