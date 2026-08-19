@@ -38,6 +38,12 @@ struct CmuxConfigLinesTests {
         #expect(configLines.split("\r\n") == [""])
     }
 
+    @Test("Finds the lines of a classic-Mac CR-only body")
+    func splitsCROnlyBody() {
+        #expect(configLines.split("a = 1\rb = 2\r") == ["a = 1", "b = 2"])
+        #expect(configLines.split("a = 1\rb = 2") == ["a = 1", "b = 2"])
+    }
+
     @Test("Reports the line ending of the first break in the body")
     func reportsLineEndingOfFirstBreak() {
         #expect(configLines.lineEnding(of: "a\nb\n") == .lf)
