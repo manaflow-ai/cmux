@@ -51,6 +51,36 @@ final class SidebarActiveForegroundColorTests: XCTestCase {
         XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
+
+    func testDarkSidebarUsesWhiteWhenTheAppAppearanceIsLight() {
+        guard let color = sidebarForegroundNSColor(
+            opacity: 0.9,
+            colorScheme: .dark
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.9, accuracy: 0.001)
+    }
+
+    func testLightSidebarUsesBlackWhenTheAppAppearanceIsDark() {
+        guard let color = sidebarForegroundNSColor(
+            opacity: 0.8,
+            colorScheme: .light
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
+    }
 }
 
 
