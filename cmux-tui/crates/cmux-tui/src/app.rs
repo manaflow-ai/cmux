@@ -59,7 +59,8 @@ use crate::config::{
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+    MachineConnectRoute,
     MachineConnectionPhase, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
     MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdate,
     MachineUpdateStream, ManagedMachineDescriptor, ManagedMachineStatus,
@@ -6733,6 +6734,9 @@ pub struct App {
     selection_generation: u64,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
+    /// The last status message written to the client log, so a message that
+    /// stays on screen across frames is recorded once.
+    logged_status_message: Option<String>,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -7627,17 +7631,27 @@ fn prepare_machine_session(
     preparation: MachineSessionPreparation,
     app_events: SyncSender<AppEvent>,
 ) -> anyhow::Result<PreparedMachineSession> {
-    ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
+    // A session reused from the warm pool was fully prepared when it was
+    // first opened: the managed-workspace guard and default colors were
+    // already applied, so only the (possibly stale) client size is refreshed.
+    // Skipping those round-trips is what makes warm switching instant.
+    if !replacement.reused {
+        ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
+    }
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = replacement
-        .session
-        .set_default_colors(preparation.default_colors)
-        .err()
-        .map(|error| error.to_string());
+    let color_error = if replacement.reused {
+        None
+    } else {
+        replacement
+            .session
+            .set_default_colors(preparation.default_colors)
+            .err()
+            .map(|error| error.to_string())
+    };
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -7944,6 +7958,9 @@ fn run_with_machine_updates_inner(
         .transpose()?;
 
     enable_raw_mode()?;
+    // The TUI owns the terminal now: stray stderr writes (panics, libraries)
+    // would corrupt the raw-mode screen, so route fd 2 into the client log.
+    crate::client_log::redirect_stderr_into_log();
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
@@ -8221,6 +8238,7 @@ fn run_with_machine_updates_inner(
         selection_generation: 0,
         status_selection: None,
         rendered_status_message: None,
+        logged_status_message: None,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -8397,6 +8415,9 @@ impl Drop for TerminalRestoreGuard {
             with_panic_stdout_lock(&self.stdout_lock, || {
                 let _ = restore_terminal_unlocked(&self.host_keyboard_protocol);
             });
+            // The terminal is the user's again; exit-time diagnostics should
+            // reach it instead of the client log.
+            crate::client_log::restore_stderr_from_log();
         }
     }
 }
@@ -8674,6 +8695,15 @@ impl App {
         if self.machine_presented == Some(selected) && ui.session_available {
             return None;
         }
+        // Switching to a machine whose connection is already warm settles in
+        // one round-trip: keep painting the current machine instead of
+        // blanking the content with a "connecting" interstitial.
+        if self.machine_presented.is_some()
+            && self.machine_presented != Some(selected)
+            && ui.connection_phase(selected) == MachineConnectionPhase::Ready
+        {
+            return None;
+        }
         let name =
             ui.snapshot.machines.iter().find(|machine| machine.key == selected)?.name.as_str();
         Some((name, ui.connection_phase(selected)))
@@ -8687,7 +8717,12 @@ impl App {
             self.machine_selection_intent = Some(machine);
         }
         if let Some(ui) = self.machine_ui.as_mut() {
-            let phase = if self.machine_presented == Some(machine) {
+            let phase = if self.machine_presented == Some(machine)
+                || ui.connection_phase(machine) == MachineConnectionPhase::Ready
+            {
+                // A warm pooled connection stays Ready: the switch reuses it,
+                // so neither the rail badge nor the content interstitial
+                // should flash "connecting".
                 MachineConnectionPhase::Ready
             } else {
                 MachineConnectionPhase::Connecting
@@ -10027,6 +10062,12 @@ impl App {
             self.schedule_machine_provider_reconnect();
             return RenderAction::None;
         }
+        let level = match notice.level {
+            DurableNoticeLevel::Error => "ERROR",
+            DurableNoticeLevel::Warning => "WARN",
+            DurableNoticeLevel::Info => "INFO",
+        };
+        crate::client_log::log(level, "provider-notice", &notice.message);
         self.durable_notices.push_back(QueuedDurableNotice { notice, painted_at: None });
         RenderAction::Draw
     }
@@ -14785,6 +14826,9 @@ impl App {
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
         self.rendered_status_message = None;
+        // A message that reappears after dismissal is a new event; log it
+        // again.
+        self.logged_status_message = None;
     }
 
     pub(crate) fn present_status_message(&mut self, rect: Rect, text: String) {
@@ -14794,11 +14838,18 @@ impl App {
                 self.drag = None;
             }
         }
+        // Every visible status message passes through here; persist each new
+        // one so warnings survive the session in the client log.
+        if self.logged_status_message.as_deref() != Some(text.as_str()) {
+            crate::client_log::error("status", &text);
+            self.logged_status_message = Some(text.clone());
+        }
         self.rendered_status_message = Some(RenderedStatusMessage { rect, text });
     }
 
     pub(crate) fn hide_status_message(&mut self) {
         self.rendered_status_message = None;
+        self.logged_status_message = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
             self.drag = None;
@@ -20081,6 +20132,7 @@ impl App {
     }
 
     fn show_toast(&mut self, text: String) {
+        crate::client_log::info("toast", &text);
         self.toast = Some(Toast { text, deadline: Instant::now() + Duration::from_millis(1500) });
     }
 
@@ -39826,6 +39878,7 @@ mod tests {
             selection_generation: 0,
             status_selection: None,
             rendered_status_message: None,
+            logged_status_message: None,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),

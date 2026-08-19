@@ -398,3 +398,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   }
 }
 ```
+
+## Client log
+
+The client appends every user-visible warning (bottom-bar status messages, provider notices, toasts) and its own stderr diagnostics to a rolling log so problems seen in the TUI can be diagnosed after the session. While the TUI owns the terminal, process stderr (including panics) is routed into the same file instead of corrupting the raw-mode screen, and is restored on exit.
+
+The file lives at the cmux-tui state root: `~/Library/Application Support/cmux-tui/client.log` on macOS, `$XDG_STATE_HOME/cmux-tui/client.log` (or `~/.local/state/cmux-tui/client.log`) on Linux, `%LOCALAPPDATA%\cmux-tui\client.log` on Windows. `CMUX_TUI_LOG_FILE` overrides the path. The active file rolls to `client.log.1` at 2 MiB and one rollover is kept, so the log never grows past roughly 4 MiB.

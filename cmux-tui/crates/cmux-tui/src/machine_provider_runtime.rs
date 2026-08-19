@@ -331,13 +331,14 @@ impl ProviderMachineController {
         // Open the candidate first. Failed SSH or socket authentication leaves
         // the current provider/local session untouched.
         self.register_local(key)?;
-        let session = self.local_connections.connect(key)?;
+        let (session, reused) = self.local_connections.connect_tracked(key)?;
         let label = self.local.name(key).unwrap_or("machine").to_string();
         self.provider.stage_connection(None, None)?;
         self.pending_active_local = Some(Some(key));
         let ui = self.provider.ui_state_for_open_connection();
         let mut result =
-            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label);
+            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label)
+                .with_reused_session(reused);
         result.restart_updates = true;
         Ok(result)
     }
@@ -660,7 +661,7 @@ impl ProviderMachineRuntime {
                             return Err(error);
                         }
                     };
-                let (session, label, open) = match self.open_selected_candidate() {
+                let (session, label, open, reused) = match self.open_selected_candidate() {
                     Ok(candidate) => candidate,
                     Err(error) => {
                         self.restore_selection(rollback);
@@ -671,7 +672,8 @@ impl ProviderMachineRuntime {
                 self.stage_connection(open, Some(rollback))?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
-                let mut result = MachineActionResult::replace(ui, session, label);
+                let mut result = MachineActionResult::replace(ui, session, label)
+                    .with_reused_session(reused && session_available);
                 result.restart_updates = true;
                 Ok(result)
             }
@@ -1448,7 +1450,9 @@ impl ProviderMachineRuntime {
         Ok(())
     }
 
-    fn open_selected_candidate(&self) -> anyhow::Result<(Session, String, Option<OpenConnection>)> {
+    fn open_selected_candidate(
+        &self,
+    ) -> anyhow::Result<(Session, String, Option<OpenConnection>, bool)> {
         let selected = self
             .snapshot
             .selected_machine_id
@@ -1456,7 +1460,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None));
+            return Ok((placeholder_session(), "machines".to_string(), None, false));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1465,7 +1469,7 @@ impl ProviderMachineRuntime {
             anyhow::anyhow!(localization::catalog().sidebar.machine_not_ready_to_connect)
         })?;
         self.sync_connection_hub();
-        let session = self.connections.connect(key)?;
+        let (session, reused) = self.connections.connect_tracked(key)?;
         let open = self
             .connection_registry
             .lock()
@@ -1477,7 +1481,7 @@ impl ProviderMachineRuntime {
             .ok_or_else(|| {
                 anyhow::anyhow!(localization::catalog().sidebar.machine_not_ready_to_connect)
             })?;
-        Ok((session, machine.display_name, Some(open)))
+        Ok((session, machine.display_name, Some(open), reused))
     }
 
     fn create_workspace(
@@ -1579,6 +1583,7 @@ impl ProviderMachineRuntime {
                 session: placeholder_session(),
                 label,
                 machine,
+                reused: false,
             });
             result.restart_updates = true;
         }

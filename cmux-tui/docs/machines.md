@@ -30,7 +30,9 @@ ssh -T [-p PORT] -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=n
 
 The remote `binary` defaults to `~/.local/bin/cmux-tui` and must be a shell-safe path. Packaged releases can install their pinned npm build there when the probe reports a missing or recognized incompatible binary. A legacy binary that cannot answer `remote-probe` requires an explicit `cmux-tui ssh HOST --upgrade`. Development and other source builds cannot replace the remote automatically; install the exact matching build at `binary` instead.
 
-The client never prompts for a password or new host key inside the TUI. The target must already be trusted in local `known_hosts`, and a key or SSH agent must authenticate it. Agent forwarding, X11 forwarding, and all port forwarding are disabled. Switching machines drops the old local connection lease after the replacement commits. The remote mux stays available for later attachment. `cmux-tui relay` remains a low-level direct protocol diagnostic and is not the rail connection path.
+The client never prompts for a password or new host key inside the TUI. The target must already be trusted in local `known_hosts`, and a key or SSH agent must authenticate it. Agent forwarding, X11 forwarding, and all port forwarding are disabled. The remote mux stays available for later attachment. `cmux-tui relay` remains a low-level direct protocol diagnostic and is not the rail connection path.
+
+Connections stay warm in a bounded pool after a switch, so returning to a recently used machine is instant: the client reuses the open connection, skips re-preparation, and keeps painting the current machine instead of a connecting interstitial. The pool keeps the most recently used connections, 5 by default; `CMUX_TUI_WARM_MACHINES` (minimum 2) changes the bound. The least recently used connection beyond the bound is shut down and reconnects normally when selected again. A machine that leaves the catalog or whose provider reports the connection closed is dropped from the pool regardless of recency.
 
 See [Configuration](configuration.md#machines) for the full schema and examples.
 
