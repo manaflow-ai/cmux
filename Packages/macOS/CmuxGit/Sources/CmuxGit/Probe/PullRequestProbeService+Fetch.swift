@@ -250,6 +250,10 @@ extension PullRequestProbeService {
             return .transientFailure
         }
 
+        if response.statusCode == 200 {
+            await recordAuthHeaderSuccess(ifMatching: authHeader)
+        }
+
         if response.statusCode == 401 {
             // A 401 means the credential itself is no longer accepted. Drop
             // only the credential used by this request, resolve a replacement,

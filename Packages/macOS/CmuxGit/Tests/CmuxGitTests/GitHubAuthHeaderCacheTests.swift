@@ -62,6 +62,35 @@ struct GitHubAuthHeaderCacheTests {
         #expect(await cache.header { await resolver.next() } == "Bearer second")
         #expect(await resolver.count == 2)
     }
+
+    @Test func authenticationFailuresBackOffAcrossCredentialRefreshes() async {
+        let clock = MutableDateClock(initial: Date(timeIntervalSince1970: 1_800_000_000))
+        let cache = GitHubAuthHeaderCache(
+            failureBackoffBase: 60,
+            failureBackoffMaximum: 15 * 60,
+            now: { clock.now }
+        )
+        let resolver = HeaderResolutionCounter(
+            values: ["Bearer first", "Bearer second", "Bearer third", "Bearer fourth"]
+        )
+
+        #expect(await cache.header { await resolver.next() } == "Bearer first")
+        await cache.invalidate(ifMatching: "Bearer first")
+        #expect(await cache.header { await resolver.next() } == "Bearer second")
+        await cache.recordFailure(ifMatching: "Bearer second")
+
+        clock.advance(by: 60)
+        #expect(await cache.header { await resolver.next() } == "Bearer third")
+        await cache.recordFailure(ifMatching: "Bearer third")
+
+        // The second rejected credential advances the backoff to two minutes.
+        clock.advance(by: 119)
+        #expect(await cache.header { await resolver.next() } == nil)
+        #expect(await resolver.count == 3)
+        clock.advance(by: 1)
+        #expect(await cache.header { await resolver.next() } == "Bearer fourth")
+        #expect(await resolver.count == 4)
+    }
 }
 
 /// A test-only clock whose synchronous read can safely cross the cache actor.

@@ -45,4 +45,9 @@ extension PullRequestProbeService {
     nonisolated func recordAuthHeaderFailure(ifMatching header: String) async {
         await authHeaderCache.recordFailure(ifMatching: header)
     }
+
+    /// Clears an auth-failure streak after GitHub accepts the credential.
+    nonisolated func recordAuthHeaderSuccess(ifMatching header: String) async {
+        await authHeaderCache.recordSuccess(ifMatching: header)
+    }
 }

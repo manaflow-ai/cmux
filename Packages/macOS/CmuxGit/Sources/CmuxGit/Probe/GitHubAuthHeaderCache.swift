@@ -8,6 +8,7 @@ actor GitHubAuthHeaderCache {
     private var cachedHeader: String?
     private var retryAt: Date?
     private var consecutiveFailureCount = 0
+    private var preservesFailureCountAcrossResolution = false
     private var cacheGeneration = 0
     private var inFlightResolution: (id: UUID, task: Task<String?, Never>)?
 
@@ -61,7 +62,10 @@ actor GitHubAuthHeaderCache {
         if let header, !header.isEmpty {
             cachedHeader = header
             retryAt = nil
-            consecutiveFailureCount = 0
+            if !preservesFailureCountAcrossResolution {
+                consecutiveFailureCount = 0
+            }
+            preservesFailureCountAcrossResolution = false
         } else {
             consecutiveFailureCount += 1
             retryAt = now().addingTimeInterval(failureDelay)
@@ -79,7 +83,7 @@ actor GitHubAuthHeaderCache {
         cacheGeneration += 1
         cachedHeader = nil
         retryAt = nil
-        consecutiveFailureCount = 0
+        preservesFailureCountAcrossResolution = true
     }
 
     /// Records a failed authenticated request and applies the same backoff as
@@ -92,7 +96,16 @@ actor GitHubAuthHeaderCache {
         cacheGeneration += 1
         cachedHeader = nil
         consecutiveFailureCount += 1
+        preservesFailureCountAcrossResolution = true
         retryAt = now().addingTimeInterval(failureDelay)
+    }
+
+    /// Clears an authentication-failure streak after a request succeeds.
+    func recordSuccess(ifMatching expectedHeader: String) {
+        guard cachedHeader == expectedHeader else { return }
+        consecutiveFailureCount = 0
+        preservesFailureCountAcrossResolution = false
+        retryAt = nil
     }
 
     private var failureDelay: TimeInterval {
