@@ -100,6 +100,74 @@ struct WindowDockLifecycleTests {
         try body(appDelegate)
     }
 
+    @Test("Dock toolbar creation claims keyboard focus for the owning window")
+    @MainActor
+    func dockToolbarCreationClaimsKeyboardFocus() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            dock.newInFocusedPane(kind: .terminal)
+
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) === dock,
+                "Creating a surface from the Dock toolbar must make the Dock the next keyboard target"
+            )
+        }
+    }
+
+    @Test("Dock pane selection claims keyboard focus for the owning window")
+    @MainActor
+    func dockPaneSelectionClaimsKeyboardFocus() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            let panelId = try #require(
+                dock.newSurface(kind: .terminal, inPane: pane, focus: false)
+            )
+            dock.focusPanel(panelId)
+
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) === dock,
+                "Selecting a Dock pane must move keyboard ownership with the visual selection"
+            )
+        }
+    }
+
+    @Test("Plain Dock surface creation remains keyboard-focus neutral")
+    @MainActor
+    func plainDockSurfaceCreationRemainsKeyboardFocusNeutral() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            _ = dock.newSurface(kind: .terminal, inPane: pane, focus: true)
+
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) == nil,
+                "Low-level surface creation must not steal keyboard routing from its caller"
+            )
+        }
+    }
+
     @Test("Each window gets its own independent Dock store")
     @MainActor
     func windowDocksAreIndependentPerWindow() {
