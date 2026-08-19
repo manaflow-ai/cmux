@@ -45,7 +45,8 @@ export type PushDeliveryPayload = PushPayload & {
 
 export interface PushDeliveryInput {
   readonly userId: string;
-  readonly targetBundleId: string;
+  /** Bundle to deliver to, or null for the legacy account-wide fan-out. */
+  readonly targetBundleId: string | null;
   readonly correlationId: string;
   readonly payloadFingerprint: string;
   readonly startedAt: Date;
