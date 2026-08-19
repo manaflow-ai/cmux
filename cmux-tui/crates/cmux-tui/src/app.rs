@@ -6682,6 +6682,11 @@ pub struct App {
     pub(crate) rendered_pane_content_generations: HashMap<SurfaceId, PaneContentGeneration>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
+    /// Host mouse-capture state this client last asserted. Full-TUI clients
+    /// always capture; a scoped attach client mirrors the inner terminal's
+    /// mouse-tracking state so the host owns clicks and selection whenever
+    /// the inner application did not request mouse input.
+    host_mouse_capture_applied: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
@@ -8730,13 +8735,8 @@ fn run_with_machine_updates_inner(
             &mut stdout,
             terminal_restore.host_keyboard_protocol_mut(),
         )?;
-        stdout.execute(EnableMouseCapture)?;
-        // Ask the host terminal to report Shift-modified mouse events so
-        // Shift remains cmux's selection/context-menu escape while the inner
-        // application owns ordinary mouse input.
-        write!(stdout, "\x1b[>1s")?;
-        stdout.execute(EnableFocusChange)?;
-        stdout.execute(EnableBracketedPaste)?;
+        stdout.write_all(host_startup_input_modes(surface_only.is_some()).as_bytes())?;
+        stdout.flush()?;
         Ok(())
     })() {
         return Err(terminal_restore.restore_after_error(e));
@@ -8890,7 +8890,8 @@ fn run_with_machine_updates_inner(
         rendered_terminal_pointer_semantics: HashMap::new(),
         rendered_pane_content_generations: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
-        applied_outer_cursor: None,
+        applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
+        host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
@@ -12617,7 +12618,25 @@ impl App {
             stdout.flush()?;
             self.applied_outer_cursor = Some(self.desired_outer_cursor);
         }
+        let desired_mouse_capture = self.desired_host_mouse_capture();
+        if let Some(sequence) = host_mouse_capture_escape_if_changed(
+            self.host_mouse_capture_applied,
+            desired_mouse_capture,
+        ) {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(sequence.as_bytes())?;
+            stdout.flush()?;
+            self.host_mouse_capture_applied = Some(desired_mouse_capture);
+        }
         Ok(())
+    }
+
+    /// Full-TUI clients always capture host mouse input. A scoped attach
+    /// client mirrors the inner terminal's mouse-tracking state instead, so
+    /// the host terminal keeps native click and selection handling whenever
+    /// the inner application did not request mouse input.
+    fn desired_host_mouse_capture(&self) -> bool {
+        true
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -22569,6 +22588,57 @@ fn outer_cursor_escape_if_changed(
     (applied != Some(desired)).then(|| outer_cursor_escape(desired))
 }
 
+/// Host input modes asserted at client startup, before any inner-terminal
+/// state is known. A scoped single-terminal attach (`attach --terminal`) is a
+/// transparent passthrough: it must not assert mouse capture or the
+/// shift-bypass report on the host, because the host terminal owns clicks and
+/// selection until the inner application requests mouse tracking. Focus
+/// reporting and bracketed paste stay enabled in both modes: the client
+/// consumes those events itself and re-encodes paste for the inner terminal
+/// according to the mode the inner application actually requested, so they
+/// are transparent to the user.
+fn host_startup_input_modes(_surface_only: bool) -> String {
+    let mut out = String::new();
+    out.push_str(&host_mouse_capture_sequence(true));
+    let _ = crossterm::Command::write_ansi(&EnableFocusChange, &mut out);
+    let _ = crossterm::Command::write_ansi(&EnableBracketedPaste, &mut out);
+    out
+}
+
+fn host_mouse_capture_sequence(enable: bool) -> String {
+    let mut out = String::new();
+    if enable {
+        let _ = crossterm::Command::write_ansi(&EnableMouseCapture, &mut out);
+        // Ask the host terminal to report Shift-modified mouse events so
+        // Shift remains cmux's selection/context-menu escape while the inner
+        // application owns ordinary mouse input.
+        out.push_str("\x1b[>1s");
+    } else {
+        // Restore the conventional behavior where Shift bypasses capture.
+        out.push_str("\x1b[>0s");
+        let _ = crossterm::Command::write_ansi(&DisableMouseCapture, &mut out);
+    }
+    out
+}
+
+fn host_mouse_capture_escape_if_changed(applied: Option<bool>, desired: bool) -> Option<String> {
+    (applied != Some(desired)).then(|| host_mouse_capture_sequence(desired))
+}
+
+/// Initial host-cursor bookkeeping. A full TUI starts with unknown applied
+/// state, so its first frame restores host cursor globals to defaults. A
+/// scoped attach starts from an applied Reset so it emits no cursor escapes
+/// until the inner application authors a cursor style.
+fn initial_applied_outer_cursor(_surface_only: bool) -> Option<OuterCursorSpec> {
+    None
+}
+
+/// Startup already asserted capture for full-TUI clients and asserted
+/// nothing for scoped attach clients.
+fn initial_host_mouse_capture(_surface_only: bool) -> Option<bool> {
+    Some(true)
+}
+
 fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
     match spec {
         OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
@@ -22890,7 +22960,8 @@ mod tests {
         prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
         record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
-        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
@@ -28791,6 +28862,105 @@ mod tests {
             outer_cursor_escape_if_changed(Some(OuterCursorSpec::Reset), OuterCursorSpec::Reset)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn scoped_attach_startup_asserts_no_unrequested_host_modes() {
+        // attach --terminal is a transparent passthrough. Before the inner
+        // terminal requests anything, the client must not put the host into
+        // any mouse-tracking mode or change the shift-bypass report; the
+        // host terminal owns clicks and selection. Focus reporting and
+        // bracketed paste stay on because the client consumes them and
+        // re-encodes for the inner terminal per its actual modes.
+        let scoped = host_startup_input_modes(true);
+        for mode in ["1000", "1002", "1003", "1006", "1015", "9"] {
+            assert!(
+                !scoped.contains(&format!("\x1b[?{mode}h")),
+                "scoped attach asserted unrequested host mouse mode {mode}: {scoped:?}"
+            );
+        }
+        assert!(!scoped.contains("\x1b[>1s"), "scoped attach changed shift-bypass: {scoped:?}");
+        assert!(!scoped.contains(" q"), "scoped attach wrote DECSCUSR at startup: {scoped:?}");
+        assert!(scoped.contains("\x1b[?1004h"), "focus reporting is client-consumed and stays");
+        assert!(scoped.contains("\x1b[?2004h"), "bracketed paste is client-normalized and stays");
+
+        let full = host_startup_input_modes(false);
+        assert!(full.contains("\x1b[?1000h") && full.contains("\x1b[?1006h"));
+        assert!(full.contains("\x1b[>1s"));
+    }
+
+    #[test]
+    fn host_mouse_capture_transitions_mirror_inner_tracking() {
+        let enable = host_mouse_capture_escape_if_changed(Some(false), true)
+            .expect("enabling capture must emit");
+        assert!(enable.contains("\x1b[?1000h"));
+        assert!(enable.contains("\x1b[?1006h"));
+        assert!(enable.contains("\x1b[>1s"));
+
+        let disable = host_mouse_capture_escape_if_changed(Some(true), false)
+            .expect("disabling capture must emit");
+        assert!(disable.contains("\x1b[?1000l"));
+        assert!(disable.contains("\x1b[>0s"), "shift-bypass must be restored with capture");
+
+        assert!(host_mouse_capture_escape_if_changed(Some(true), true).is_none());
+        assert!(host_mouse_capture_escape_if_changed(Some(false), false).is_none());
+    }
+
+    #[test]
+    fn scoped_attach_initial_cursor_state_emits_nothing() {
+        // The scoped client starts from an applied Reset, so the first frame
+        // emits no OSC 12 / OSC 112 / DECSCUSR unless the inner application
+        // authored a cursor style; the full TUI keeps restoring defaults.
+        assert_eq!(initial_applied_outer_cursor(true), Some(OuterCursorSpec::Reset));
+        assert!(
+            outer_cursor_escape_if_changed(
+                initial_applied_outer_cursor(true),
+                OuterCursorSpec::Reset
+            )
+            .is_none(),
+            "scoped attach must not write host cursor state at startup"
+        );
+        assert_eq!(initial_applied_outer_cursor(false), None);
+        assert!(
+            outer_cursor_escape_if_changed(
+                initial_applied_outer_cursor(false),
+                OuterCursorSpec::Reset
+            )
+            .is_some()
+        );
+        assert_eq!(initial_host_mouse_capture(true), Some(false));
+        assert_eq!(initial_host_mouse_capture(false), Some(true));
+    }
+
+    #[test]
+    fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
+        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
+
+        app.surface_only = Some(surface.id);
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "scoped attach must not capture before the inner terminal requests mouse"
+        );
+
+        let semantics = |mouse_tracking| ghostty_vt::TerminalPointerSemanticSnapshot {
+            terminal_instance_id: 1,
+            mouse_mode_revision: 1,
+            mouse_tracking,
+            active_screen: Screen::Primary,
+            cols: 20,
+            rows: 8,
+        };
+        app.rendered_terminal_pointer_semantics.insert(surface.id, semantics(true));
+        assert!(app.desired_host_mouse_capture(), "scoped attach mirrors inner mouse tracking on");
+        app.rendered_terminal_pointer_semantics.insert(surface.id, semantics(false));
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "scoped attach mirrors inner mouse tracking off"
+        );
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -41499,6 +41669,7 @@ mod tests {
             rendered_pane_content_generations: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
+            host_mouse_capture_applied: Some(true),
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,
