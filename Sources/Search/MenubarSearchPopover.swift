@@ -4,7 +4,6 @@ import SwiftUI
 
 @MainActor
 final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
-    private unowned let coordinator: GlobalSearchCoordinator
     private let popover = NSPopover()
     private let model: GlobalSearchPaletteModel
     private var keyMonitor: Any?
@@ -14,7 +13,6 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     init(coordinator: GlobalSearchCoordinator) {
-        self.coordinator = coordinator
         self.model = GlobalSearchPaletteModel(client: .init(
             refreshLiveIndex: { [unowned coordinator] in await coordinator.refreshLiveIndex() },
             search: { [unowned coordinator] query in await coordinator.search(query: query) },
@@ -29,11 +27,7 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
         popover.contentSize = NSSize(width: 720, height: 460)
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: GlobalSearchPaletteView(
-                model: model,
-                onOpen: { [weak self] in self?.prepareModelForOpen() },
-                onClose: { [weak self] in self?.handleModelDidClose() }
-            )
+            rootView: GlobalSearchPaletteView(model: model)
         )
     }
 
@@ -52,6 +46,11 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
         }
         dismissalHandler = onDismiss
+        // The hosting controller retains its content view across shows, so
+        // SwiftUI onAppear only fires for the first open. Drive the per-open
+        // lifecycle (state reset, live re-index, key monitor) from here (#7445).
+        model.prepareForOpen()
+        installKeyMonitorIfNeeded()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
@@ -60,19 +59,11 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        removeKeyMonitor()
+        model.handleDidClose()
         let handler = dismissalHandler
         dismissalHandler = nil
         handler?()
-    }
-
-    func prepareModelForOpen() {
-        model.prepareForOpen()
-        installKeyMonitorIfNeeded()
-    }
-
-    func handleModelDidClose() {
-        removeKeyMonitor()
-        model.handleDidClose()
     }
 
     private func installKeyMonitorIfNeeded() {
@@ -108,8 +99,6 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
 
 private struct GlobalSearchPaletteView: View {
     @ObservedObject var model: GlobalSearchPaletteModel
-    let onOpen: () -> Void
-    let onClose: () -> Void
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
@@ -168,10 +157,6 @@ private struct GlobalSearchPaletteView: View {
         .background(.regularMaterial)
         .onAppear {
             searchFieldFocused = true
-            onOpen()
-        }
-        .onDisappear {
-            onClose()
         }
         .onChange(of: model.openGeneration) { _, _ in
             searchFieldFocused = true
