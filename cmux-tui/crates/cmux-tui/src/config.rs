@@ -2580,15 +2580,17 @@ impl Keys {
 
     /// Bind one user-command chord, stealing the chord from any action or
     /// earlier command that held it. The prefix chord stays reserved.
-    fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) {
+    /// Returns whether the chord was bound.
+    fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) -> bool {
         if chord == self.prefix {
             eprintln!(
                 "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
             );
-            return;
+            return false;
         }
         self.bindings.retain(|(existing, _)| existing != &chord);
         self.bindings.push((chord, action));
+        true
     }
 
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
@@ -3414,8 +3416,11 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
                     );
                     continue;
                 };
-                keys.bind_user_command_chord(&id, action, chord);
-                bound += 1;
+                // Only a successful bind consumes the limit; rejected
+                // chords leave room for the valid ones after them.
+                if keys.bind_user_command_chord(&id, action, chord) {
+                    bound += 1;
+                }
             }
         }
         let name = command

@@ -7026,15 +7026,23 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
     loop {
         // Drain what is available, keeping only the bounded tail so the
         // final line survives even when a command writes more than the cap.
+        // Each poll pass reads a bounded amount, so a command that writes
+        // continuously cannot keep this loop away from the stop, timeout,
+        // and exit checks below.
         if let Some(pipe) = stdout.as_mut() {
             let mut chunk = [0u8; 4096];
+            let mut drained = 0usize;
             loop {
+                if drained >= MAX_STATUS_OUTPUT_BYTES {
+                    break;
+                }
                 match pipe.read(&mut chunk) {
                     Ok(0) => {
                         stdout = None;
                         break;
                     }
                     Ok(read) => {
+                        drained += read;
                         captured.extend_from_slice(&chunk[..read]);
                         if captured.len() > MAX_STATUS_OUTPUT_BYTES {
                             let excess = captured.len() - MAX_STATUS_OUTPUT_BYTES;
@@ -7094,13 +7102,37 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(file))
         .stderr(std::process::Stdio::null());
+    // Start suspended so the job assignment below covers the process
+    // before it can spawn any descendant; resume only after assignment.
+    {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+        command.creation_flags(CREATE_SUSPENDED);
+    }
     let Ok(mut child) = command.spawn() else {
         let _ = std::fs::remove_file(&path);
         return Vec::new();
     };
     // The job's kill-on-close limit terminates the whole descendant tree
     // when this function returns, mirroring the Unix process-group kill.
-    let job = StatusCommandJob::assign(&child);
+    // Fail closed: without a job there is no tree-kill guarantee, so the
+    // suspended child is discarded before it ever runs.
+    let job = match StatusCommandJob::assign(&child) {
+        Ok(job) => job,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&path);
+            return Vec::new();
+        }
+    };
+    if resume_suspended_status_child(&child).is_err() {
+        job.terminate();
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&path);
+        return Vec::new();
+    }
     let deadline = Instant::now() + timeout;
     loop {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -7112,9 +7144,7 @@ fn capture_status_output(argv: &[String], timeout: Duration, stop: &AtomicBool) 
         let oversized = std::fs::metadata(&path)
             .is_ok_and(|metadata| metadata.len() > MAX_STATUS_OUTPUT_BYTES as u64);
         if oversized || stop.load(Ordering::Acquire) || Instant::now() >= deadline {
-            if let Ok(job) = job.as_ref() {
-                job.terminate();
-            }
+            job.terminate();
             kill_status_command_group(&mut child);
             break;
         }
@@ -7213,6 +7243,57 @@ impl Drop for StatusCommandJob {
             CloseHandle(self.handle);
         }
     }
+}
+
+/// Resume the suspended status command after its job assignment, same
+/// pattern as the journal hook runner in cmux-tui-core.
+#[cfg(windows)]
+fn resume_suspended_status_child(child: &std::process::Child) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut thread_entry = THREADENTRY32 {
+            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+                .expect("Windows thread entry size fits in u32"),
+            ..THREADENTRY32::default()
+        };
+        if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        loop {
+            if thread_entry.th32OwnerProcessID == child.id() {
+                let thread =
+                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
+                if thread.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let resume_result = unsafe { ResumeThread(thread) };
+                let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                unsafe {
+                    CloseHandle(thread);
+                }
+                return resume_error.map_or(Ok(()), Err);
+            }
+            if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "suspended status command has no thread to resume",
+                ));
+            }
+        }
+    })();
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    result
 }
 
 /// Kill a status command and, on Unix, its whole process group so every
