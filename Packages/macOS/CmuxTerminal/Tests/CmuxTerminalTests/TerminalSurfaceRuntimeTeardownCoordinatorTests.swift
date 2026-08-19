@@ -107,6 +107,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         let recorder = FreedSurfaceRecorder()
         let fenceStarted = AsyncStream<Void>.makeStream()
         let releaseFence = AsyncStream<Void>.makeStream()
+        let freeStarted = OSAllocatedUnfairLock(initialState: false)
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer {
             surface.deallocate()
@@ -126,6 +127,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 _ = await iterator.next()
             },
             freeSurface: { pointer in
+                freeStarted.withLock { $0 = true }
                 Task {
                     await recorder.record(UInt(bitPattern: pointer))
                 }
@@ -135,6 +137,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         var fenceIterator = fenceStarted.stream.makeAsyncIterator()
         _ = await fenceIterator.next()
         #expect(await ticket.wait(timeout: .zero) == false)
+        #expect(freeStarted.withLock { $0 } == false)
 
         releaseFence.continuation.yield(())
         await recorder.waitForFreeCount(1)
