@@ -184,6 +184,16 @@ struct KimiCodeHookConfigTests {
         ]
         let crlfExisting = "model = \"kimi-k2\"\r\ntelemetry = false\r\n"
 
+        // Isolates the line-count half of the bug, independent of marker
+        // matching: normalizing CRLF content with no cmux block at all must
+        // not gain a trailing blank line. `content.hasSuffix("\n")` is false
+        // for CRLF-terminated content (Swift treats "\r\n" as one Character),
+        // so the naive fix leaves the split's trailing empty element in place.
+        #expect(
+            KimiCodeHookConfig.uninstalling(from: crlfExisting)
+                == "model = \"kimi-k2\"\ntelemetry = false\n"
+        )
+
         let installed = KimiCodeHookConfig.installing(events: eventsV1, in: crlfExisting)
         #expect(KimiCodeHookConfig.containsCmuxBlock(in: installed))
 
