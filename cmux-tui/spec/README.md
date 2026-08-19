@@ -47,6 +47,7 @@ documented for cmux frontends and compatibility adapters:
 | [`programmability.md`](programmability.md) | Implementation inventory and ownership |
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
 | [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
+| [`gui-frontend-migration.md`](gui-frontend-migration.md) | Swift GUI migration onto the daemon: decisions, state ownership, build graph |
 
 Private protocol-v12 compatibility does not imply `cmux.protocol/2`
 compatibility. High-level SDK packages expose it only through a path named
