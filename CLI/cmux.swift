@@ -13527,8 +13527,8 @@ struct CMUXCLI {
                     from: Data(outputBuffer.prefix(count)),
                     suppressingReplay: suppressReplay
                 )
-                reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 if !output.isEmpty {
+                    reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                     cliWriteStdout(output)
                 }
                 if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
