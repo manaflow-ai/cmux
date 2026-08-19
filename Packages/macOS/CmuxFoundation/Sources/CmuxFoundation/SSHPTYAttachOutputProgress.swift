@@ -125,12 +125,16 @@ public struct SSHPTYAttachOutputProgress: Sendable {
                 // replaced), so none of the new snapshot can be proven
                 // duplicate.
                 validatedReplayOutput = candidate
+                receivedLiveOutput = true
             }
             let replayRemainder = Data(
                 data.dropFirst(candidateBytes)
                     .prefix(max(0, replayChunkBytes - candidateBytes))
             )
             appendValidatedReplayBytes(replayRemainder)
+            if !replayRemainder.isEmpty {
+                receivedLiveOutput = true
+            }
             return flushValidatedReplayIfComplete(from: data, replayChunkBytes: replayChunkBytes)
         }
 
@@ -138,6 +142,9 @@ public struct SSHPTYAttachOutputProgress: Sendable {
            expectedReplayFingerprint != nil,
            bufferingValidatedReplay {
             appendValidatedReplayBytes(Data(data.prefix(replayChunkBytes)))
+            if replayChunkBytes > 0 {
+                receivedLiveOutput = true
+            }
             return flushValidatedReplayIfComplete(
                 from: data,
                 replayChunkBytes: replayChunkBytes
