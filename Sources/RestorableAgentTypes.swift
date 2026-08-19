@@ -19,6 +19,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case factory
     case qoder
     case kimi
+    case cortex
     case ollama
     case custom(String)
 
@@ -40,6 +41,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
+        .cortex,
         // Kimi and Ollama are registry-owned like Pi/Grok/Antigravity: leaving them
         // out keeps their ids available to pre-existing custom Vault registrations
         // while direct native values still encode.
@@ -65,6 +67,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "factory": self = .factory
         case "qoder": self = .qoder
         case "kimi": self = .kimi
+        case "cortex": self = .cortex
         case "ollama": self = .ollama
         default:
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
@@ -102,6 +105,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .factory: return "factory"
         case .qoder: return "qoder"
         case .kimi: return "kimi"
+        case .cortex: return "cortex"
         case .ollama: return "ollama"
         case .custom(let id): return id
         }
@@ -132,6 +136,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "CodeBuddy"
         case .factory: return "Factory"
         case .qoder: return "Qoder"
+        case .cortex: return "Cortex Code"
         case .kimi:
             return String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code")
         case .ollama:

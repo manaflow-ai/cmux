@@ -243,6 +243,50 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves Cortex Code connection and sandbox selection while dropping session selectors")
+    func preservesCortexConnectionAndSandboxSelection() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "cortex",
+                    "--connection",
+                    "PROD",
+                    "--model",
+                    "claude-opus-5",
+                    "--cloud",
+                    "DB.SCHEMA.STAGE",
+                    "--resume",
+                    "old-session",
+                    "--session-name",
+                    "old run",
+                    "--goal",
+                    "ship the thing",
+                ],
+                launcher: "cortex",
+                fallbackKind: "cortex"
+            ) == [
+                "cortex",
+                "--connection",
+                "PROD",
+                "--model",
+                "claude-opus-5",
+                "--cloud",
+                "DB.SCHEMA.STAGE",
+            ]
+        )
+    }
+
+    @Test("Rejects headless Cortex Code launches")
+    func rejectsHeadlessCortexLaunches() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["cortex", "--print", "summarize the repo"],
+                launcher: "cortex",
+                fallbackKind: "cortex"
+            ) == nil
+        )
+    }
+
     @Test("Drops Antigravity conversation selectors without replaying prompts")
     func dropsAntigravityConversationSelectorsWithoutReplayingPrompts() {
         #expect(

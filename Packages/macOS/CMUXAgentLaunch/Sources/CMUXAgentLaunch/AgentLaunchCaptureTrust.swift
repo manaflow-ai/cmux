@@ -25,6 +25,7 @@ public enum AgentLaunchCaptureTrust {
         "codex": ["codex"],
         "codebuddy": ["codebuddy"],
         "copilot": ["copilot"],
+        "cortex": ["cortex", "coco"],
         "cursor": ["cursor-agent", "cursor"],
         "factory": ["droid", "factory"],
         "gemini": ["gemini"],

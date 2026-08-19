@@ -1,6 +1,6 @@
 # Notifications
 
-cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
+cmux provides a notification panel for AI agents like Claude Code, Codex, Cortex Code, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
 
 > For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux hooks setup` installs the Feed bridge alongside the notification hooks covered below.
 
