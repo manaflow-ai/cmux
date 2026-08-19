@@ -134,11 +134,13 @@ public struct StackAuthClient: AuthClient {
         let email = await user.primaryEmail
         let name = await user.displayName
         let profileImageURL = await user.profileImageUrl
+        let emailVerified = await user.primaryEmailVerified
         return CMUXAuthUser(
             id: id,
             primaryEmail: email,
             displayName: name,
-            profileImageURL: profileImageURL
+            profileImageURL: profileImageURL,
+            primaryEmailVerified: emailVerified
         )
     }
 }
