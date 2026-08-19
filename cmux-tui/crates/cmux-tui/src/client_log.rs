@@ -13,7 +13,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -47,7 +47,7 @@ fn open_sink() -> Option<Mutex<Sink>> {
     Some(Mutex::new(Sink { file, path, written }))
 }
 
-fn rollover_path(path: &PathBuf) -> PathBuf {
+fn rollover_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".1");
     path.with_file_name(name)

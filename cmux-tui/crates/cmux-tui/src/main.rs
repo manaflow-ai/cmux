@@ -56,7 +56,8 @@ mod remote_cli {
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
-        crate::client_log::stderr_log!("startup", 
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
         );
@@ -1382,18 +1383,25 @@ fn main() {
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
-            crate::client_log::stderr_log!("startup", "cmux-tui: cannot protect machine-provider credentials: {error}");
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: cannot protect machine-provider credentials: {error}"
+            );
             std::process::exit(1);
         }
         discard_provider_secret_environment();
         std::process::exit(config::run_ghostty_config_helper());
     }
     if let Err(error) = harden_provider_secret_process() {
-        crate::client_log::stderr_log!("startup", "cmux-tui: cannot protect machine-provider credentials: {error}");
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: cannot protect machine-provider credentials: {error}"
+        );
         std::process::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
-        crate::client_log::stderr_log!("startup", 
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
@@ -1426,7 +1434,11 @@ fn main() {
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
             if error.show_help() {
-                crate::client_log::stderr_log!("startup", "{}", localization::catalog().machine_agent.help);
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "{}",
+                    localization::catalog().machine_agent.help
+                );
             }
             std::process::exit(1);
         }
@@ -1939,7 +1951,8 @@ fn run_server(
                 return Err(error);
             }
         };
-        crate::client_log::stderr_log!("startup", 
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
             runtime.info().link_socket.display(),
@@ -1980,7 +1993,11 @@ fn run_server(
         }
     };
     if let Some(server) = &websocket_server {
-        crate::client_log::stderr_log!("startup", "cmux-tui: WebSocket control at ws://{}", server.local_addr());
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: WebSocket control at ws://{}",
+            server.local_addr()
+        );
     }
     let served_socket = pending_server.into_bound_path();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2445,7 +2462,11 @@ fn run_headless<F>(
 where
     F: Fn() -> bool,
 {
-    crate::client_log::stderr_log!("startup", "cmux-tui: headless, control socket at {}", socket_path.display());
+    crate::client_log::stderr_log!(
+        "startup",
+        "cmux-tui: headless, control socket at {}",
+        socket_path.display()
+    );
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();

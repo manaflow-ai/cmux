@@ -13,7 +13,7 @@ use std::thread::JoinHandle;
 
 use crate::session::Session;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MachineKey(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

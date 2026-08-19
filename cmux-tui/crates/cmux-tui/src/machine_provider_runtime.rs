@@ -611,7 +611,7 @@ impl ProviderMachineRuntime {
     }
 
     pub(crate) fn open_selected(&mut self) -> anyhow::Result<(Session, String, MachineUiState)> {
-        let (session, label, open) = self.open_selected_candidate()?;
+        let (session, label, open, _reused) = self.open_selected_candidate()?;
         let session_available = open.is_some();
         self.open = open;
         let mut ui = self.ui_state(session_available);
@@ -803,12 +803,14 @@ impl ProviderMachineRuntime {
                     |runtime| {
                         runtime.refresh()?;
                         if deletes_open_session {
-                            let (session, label, open) = runtime.open_selected_candidate()?;
+                            let (session, label, open, reused) =
+                                runtime.open_selected_candidate()?;
                             let session_available = open.is_some();
                             runtime.stage_mandatory_replacement(open);
                             let mut ui = runtime.ui_state(session_available);
                             ui.notice = runtime.take_notice();
-                            return Ok(MachineActionResult::replace(ui, session, label));
+                            return Ok(MachineActionResult::replace(ui, session, label)
+                                .with_reused_session(reused && session_available));
                         }
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
@@ -1368,12 +1370,13 @@ impl ProviderMachineRuntime {
         self.reconnect_control()?;
 
         match self.open_selected_candidate() {
-            Ok((session, label, open)) => {
+            Ok((session, label, open, reused)) => {
                 let session_available = open.is_some();
                 self.stage_connection(open, None)?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
-                let mut result = MachineActionResult::replace(ui, session, label);
+                let mut result = MachineActionResult::replace(ui, session, label)
+                    .with_reused_session(reused && session_available);
                 result.restart_updates = true;
                 Ok(result)
             }
