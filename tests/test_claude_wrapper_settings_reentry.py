@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import socket
 import subprocess
 import tempfile
@@ -85,11 +86,21 @@ def collect_hook_commands(settings: dict) -> list[str]:
 
 
 class ReentryRun:
-    def __init__(self, returncode: int, stderr: str, passes: list[list[str]], real_argv: list[str]) -> None:
+    def __init__(
+        self,
+        returncode: int,
+        stderr: str,
+        passes: list[list[str]],
+        real_argv: list[str],
+        state_entries: list[tuple[str, str]],
+    ) -> None:
         self.returncode = returncode
         self.stderr = stderr
         self.passes = passes
         self.real_argv = real_argv
+        # (name, kind) of what is left in the wrapper's state directory, sampled
+        # before the fixture's temporary tree goes away.
+        self.state_entries = state_entries
 
 
 def run_reentry(
@@ -100,6 +111,7 @@ def run_reentry(
     scrub_state_file: bool = False,
     reserialize_settings: bool = False,
     hostile_state_dir: Path | None = None,
+    occupy_state_path: bool = False,
     timeout: float = 30.0,
 ) -> ReentryRun:
     """Launch cmux's shim `claude` with a re-entrant custom Claude Binary Path.
@@ -117,7 +129,9 @@ def run_reentry(
     hooks object behind any large user-owned key that sorts before it.
     `hostile_state_dir` plants a symlink where the re-entry state directory
     belongs, pointing at that directory, the way a squatter in a shared /tmp
-    would.
+    would. `occupy_state_path` puts a fifo where the state file belongs, inside
+    the wrapper's own verified directory, so the paths that write, read and
+    delete it meet something that is not a regular file.
     """
 
     with tempfile.TemporaryDirectory(prefix="cmux-claude-reentry-") as td:
@@ -158,16 +172,18 @@ open({str(real_argv_log)!r}, "w").write(json.dumps(sys.argv[1:]))
         # `execvp` do in a user launcher, which is what finds cmux's shim.
         break_after_literal = "None" if break_after is None else str(break_after)
         victim_literal = "None" if hostile_state_dir is None else repr(str(hostile_state_dir))
+        occupy_literal = "True" if occupy_state_path else "False"
         scrub_literal = "True" if scrub_env_marker else "False"
         scrub_state_literal = "True" if scrub_state_file else "False"
         reserialize_literal = "True" if reserialize_settings else "False"
         make_executable(
             launcher_dir / "claude-launcher",
             f"""#!/usr/bin/env python3
-import glob, json, os, shutil, sys
+import glob, json, os, shutil, stat, sys
 
 pass_dir = {str(pass_dir)!r}
 victim_dir = {victim_literal}
+occupy_state_path = {occupy_literal}
 break_after = {break_after_literal}
 scrub_env_marker = {scrub_literal}
 scrub_state_file = {scrub_state_literal}
@@ -180,6 +196,14 @@ if victim_dir is not None:
     if not os.path.exists(decoy):
         with open(decoy, "w") as handle:
             handle.write("decoy")
+if occupy_state_path:
+    state_dir = os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-claude-hook-reentry-%d" % os.getuid())
+    os.makedirs(state_dir, mode=0o700, exist_ok=True)
+    state_path = os.path.join(state_dir, str(os.getpid()))
+    if not os.path.exists(state_path) or not stat.S_ISFIFO(os.stat(state_path).st_mode):
+        if os.path.exists(state_path):
+            os.unlink(state_path)
+        os.mkfifo(state_path)
 if scrub_env_marker:
     for key in ("CMUX_CLAUDE_WRAPPER_HOOKS_INJECTED", "cmux_claude_wrapper_reexec_guard", "cmux_claude_wrapper_reexec_targets"):
         os.environ.pop(key, None)
@@ -258,7 +282,21 @@ exec {launcher_dir / "claude-launcher"} claude "$@"
 
         passes = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(pass_dir.iterdir())]
         real_argv = json.loads(real_argv_log.read_text(encoding="utf-8")) if real_argv_log.exists() else []
-        return ReentryRun(returncode, stderr, passes, real_argv)
+        state_dir = wrapper_tmpdir / f"cmux-claude-hook-reentry-{os.getuid()}"
+        state_entries: list[tuple[str, str]] = []
+        if state_dir.is_dir():
+            for entry in sorted(state_dir.iterdir()):
+                mode = entry.lstat().st_mode
+                if stat.S_ISLNK(mode):
+                    kind = "link"
+                elif stat.S_ISFIFO(mode):
+                    kind = "fifo"
+                elif stat.S_ISDIR(mode):
+                    kind = "dir"
+                else:
+                    kind = "file"
+                state_entries.append((entry.name, kind))
+        return ReentryRun(returncode, stderr, passes, real_argv, state_entries)
 
 
 def test_reentry_does_not_duplicate_injected_hooks(failures: list[str]) -> None:
@@ -497,6 +535,29 @@ def test_hostile_state_directory_survives_the_guard_trip(failures: list[str]) ->
             failures.append(f"wrapper wrote through the planted symlink: {decoys[0].read_text(encoding='utf-8')!r}")
 
 
+def test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures: list[str]) -> None:
+    """Only a regular file cmux owns is written, read or deleted at that path.
+
+    The launcher replaces the wrapper's state file with a fifo inside the
+    wrapper's own verified directory. Writing to it would block the launch
+    forever and deleting it would destroy something cmux did not create, so the
+    wrapper has to leave it alone and still stop the loop on the env-side count.
+    """
+
+    run = run_reentry(argv=[], break_after=None, occupy_state_path=True, timeout=30.0)
+
+    if run.returncode == -1:
+        failures.append(f"a fifo at the state path stalled or unbounded the launch: {run.stderr!r}")
+        return
+    if run.returncode == 0:
+        failures.append(f"expected a non-zero exit from the re-entry guard, got 0: {run.stderr!r}")
+    if "Claude Binary Path" not in run.stderr:
+        failures.append(f"expected the error to name Claude Binary Path, got: {run.stderr!r}")
+    kinds = [kind for _, kind in run.state_entries]
+    if kinds != ["fifo"]:
+        failures.append(f"wrapper did not leave the fifo at its state path alone: {run.state_entries!r}")
+
+
 def test_env_scrubbed_reentry_loop_is_stopped(failures: list[str]) -> None:
     """A launcher that rebuilds the environment must not unbound the loop.
 
@@ -586,6 +647,7 @@ def main() -> int:
     test_merge_converges_without_the_env_marker(failures)
     test_unbounded_reentry_loop_is_stopped(failures)
     test_env_scrubbed_reentry_loop_is_stopped(failures)
+    test_state_path_occupied_by_a_non_regular_file_is_left_alone(failures)
     test_hostile_state_directory_is_not_written_through(failures)
     test_hostile_state_directory_survives_the_guard_trip(failures)
     test_reentry_guard_survives_a_reserializing_launcher(failures)

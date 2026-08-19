@@ -158,12 +158,22 @@ cmux_claude_wrapper_hook_reentry_state_dir_is_ours() {
     [[ -d "$1" && ! -L "$1" && -O "$1" ]]
 }
 
+# Absent is fine for the write path; present must mean a regular file this user
+# owns, so a link, a fifo or a directory planted at the path is never written
+# through, read from, or deleted.
+cmux_claude_wrapper_hook_reentry_state_file_is_ours() {
+    [[ ! -L "$1" ]] || return 1
+    [[ -e "$1" ]] || return 0
+    [[ -f "$1" && -O "$1" ]]
+}
+
 cmux_claude_wrapper_read_hook_reentry_state() {
     local dir file
     dir="$(cmux_claude_wrapper_hook_reentry_state_dir)"
     cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 1
     file="$dir/$$"
-    [[ -f "$file" && ! -L "$file" && -O "$file" ]] || return 1
+    [[ -e "$file" ]] || return 1
+    cmux_claude_wrapper_hook_reentry_state_file_is_ours "$file" || return 1
     # The bounce spins in milliseconds, so anything older belongs to a dead
     # process whose pid was recycled. Drop it rather than counting it.
     if [[ -n "$(find "$file" -mmin +5 2>/dev/null)" ]]; then
@@ -182,7 +192,7 @@ cmux_claude_wrapper_write_hook_reentry_state() {
     [[ -e "$dir" ]] || mkdir -m 0700 -p "$dir" 2>/dev/null || return 0
     cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 0
     file="$dir/$$"
-    [[ ! -L "$file" ]] || return 0
+    cmux_claude_wrapper_hook_reentry_state_file_is_ours "$file" || return 0
     printf '%s\n' "$1" > "$file" 2>/dev/null || true
     # Housekeeping, since a launch that reaches Claude leaves its file behind:
     # yesterday's entries cannot belong to a live pid this wrapper cares about.
@@ -196,7 +206,8 @@ cmux_claude_wrapper_clear_hook_reentry_state() {
     # else's link is their file removed, not ours.
     cmux_claude_wrapper_hook_reentry_state_dir_is_ours "$dir" || return 0
     file="$dir/$$"
-    [[ ! -L "$file" ]] || return 0
+    [[ -e "$file" ]] || return 0
+    cmux_claude_wrapper_hook_reentry_state_file_is_ours "$file" || return 0
     rm -f "$file" 2>/dev/null || true
 }
 
