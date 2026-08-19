@@ -211,6 +211,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputConsumerRestartDelays.count
         private static let outputConsumerStabilityDuration: Duration = .seconds(2)
         private static let outputStartViewportTimeout: Duration = .seconds(1)
+        private static let maximumOutputStartViewportTimeouts = 3
         /// The first viewport report gates the initial stream registration so
         /// the Mac is never asked to replay before the surface has a valid
         /// grid. A consumer restart on the same mounted surface may reuse that
@@ -219,6 +220,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var outputStartReady = false
         var terminalPresentationIsActive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
+        var outputStartViewportTimeouts = 0
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
@@ -344,6 +346,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // screen while the shell repeatedly reset the replay ack.
             verifiedReplayState.prepareForMount()
             pendingReplayViewportAnchor = nil
+            outputStartViewportTimeouts = 0
             MobileDebugLog.anchormux(
                 "verified_replay.mount_ready surface=\(surfaceID)"
             )
@@ -423,10 +426,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 }
                 if let outputStartSignal {
                     guard let self else { return }
-                    _ = await self.waitForOutputStart(
+                    guard await self.waitForOutputStart(
                         signal: outputStartSignal,
                         generation: taskGeneration
-                    )
+                    ) else { return }
                 }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
@@ -635,52 +638,70 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             )
         }
 
-        /// The first geometry callback normally opens the output gate. A
-        /// transiently lost callback must not leave a mounted terminal waiting
-        /// forever, so the stream falls back to its best-known viewport after
-        /// one cancellable deadline and asks the surface to re-arm geometry.
+        /// The first geometry callback opens the output gate. A transiently lost
+        /// callback retries the report, but never admits replay without a
+        /// validated viewport. After bounded retries the existing recovery
+        /// alert gives the user an explicit lifecycle boundary.
         private func waitForOutputStart(
             signal: AsyncStream<Void>,
             generation: UInt64
         ) async -> Bool {
             let clock = outputConsumerRestartClock
-            let timedOut = await withTaskGroup(of: Bool.self) { group in
-                group.addTask {
-                    for await _ in signal {
+            while !Task.isCancelled,
+                  outputTaskGeneration == generation,
+                  !outputStartReady {
+                let timedOut = await withTaskGroup(of: Bool.self) { group in
+                    group.addTask {
+                        for await _ in signal {
+                            return false
+                        }
                         return false
                     }
+                    group.addTask {
+                        do {
+                            try await clock.sleep(
+                                for: Self.outputStartViewportTimeout,
+                                tolerance: nil
+                            )
+                            return true
+                        } catch {
+                            return false
+                        }
+                    }
+                    let result = await group.next() ?? false
+                    group.cancelAll()
+                    return result
+                }
+                guard !Task.isCancelled,
+                      outputTaskGeneration == generation else {
                     return false
                 }
-                group.addTask {
-                    do {
-                        try await clock.sleep(
-                            for: Self.outputStartViewportTimeout,
-                            tolerance: nil
-                        )
-                        return true
-                    } catch {
-                        return false
-                    }
+                guard timedOut else {
+                    return outputStartReady
                 }
-                let result = await group.next() ?? false
-                group.cancelAll()
-                return result
+                guard !outputStartReady else { return true }
+
+                outputStartViewportTimeouts += 1
+                surfaceView?.retryViewportReport()
+                surfaceView?.requestViewportReportForMount()
+                MobileDebugLog.anchormux(
+                    "terminal.output.start_viewport_timeout surface=\(surfaceID) "
+                        + "attempt=\(outputStartViewportTimeouts)/\(Self.maximumOutputStartViewportTimeouts)"
+                )
+                guard outputStartViewportTimeouts < Self.maximumOutputStartViewportTimeouts else {
+                    outputConsumerRestartBlocked = true
+                    outputStartContinuation?.finish()
+                    outputStartContinuation = nil
+                    if let surfaceView {
+                        ghosttySurfaceViewDidExhaustOutputConsumerRecovery(surfaceView)
+                    }
+                    MobileDebugLog.anchormux(
+                        "terminal.output.start_viewport_blocked surface=\(surfaceID)"
+                    )
+                    return false
+                }
             }
-            guard timedOut,
-                  !Task.isCancelled,
-                  outputTaskGeneration == generation,
-                  !outputStartReady else {
-                return timedOut
-            }
-            outputStartReady = true
-            outputStartContinuation?.finish()
-            outputStartContinuation = nil
-            surfaceView?.retryViewportReport()
-            surfaceView?.requestViewportReportForMount()
-            MobileDebugLog.anchormux(
-                "terminal.output.start_viewport_timeout surface=\(surfaceID)"
-            )
-            return true
+            return outputStartReady
         }
 
         /// Resets the restart budget only after a replacement consumer has
@@ -778,6 +799,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             let releasesViewport = outputTask != nil || viewportReportScheduler != nil
             outputTaskGeneration &+= 1
             outputStartReady = false
+            outputStartViewportTimeouts = 0
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
