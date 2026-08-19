@@ -47,7 +47,8 @@ struct SSHPTYAttachExitCodeTests {
             "cmux_ssh_attach_foreground_auth() { printf x >> \"$CMUX_TEST_AUTH_ATTEMPTS\"; }",
         ] + SSHPTYAttachRetryScriptBuilder().lines(
             command: Self.shellQuote(attach.path),
-            reauthenticates: true
+            reauthenticates: true,
+            initialAuthentication: false
         )).joined(separator: "\n")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

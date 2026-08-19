@@ -176,7 +176,8 @@ public enum SSHPTYAttachExitCode: Int32 {
     public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
         SSHPTYAttachRetryScriptBuilder().lines(
             command: command,
-            reauthenticates: reauthenticates
+            reauthenticates: reauthenticates,
+            initialAuthentication: false
         )
     }
 

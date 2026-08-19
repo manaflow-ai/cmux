@@ -10,6 +10,7 @@ extension CMUXCLI {
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
         retryPTYAttachStatus: Bool = false,
+        retryOnFailure: Bool = true,
         reconnectLimitDefault: Int = 20
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
@@ -21,6 +22,7 @@ extension CMUXCLI {
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
             oneTimeCommand: nil,
             retryPTYAttachStatus: retryPTYAttachStatus,
+            retryOnFailure: retryOnFailure,
             reconnectLimitDefault: reconnectLimitDefault
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
@@ -35,6 +37,7 @@ extension CMUXCLI {
         controlPathPreflightShellFunction: String? = nil,
         oneTimeCommand: String? = nil,
         retryPTYAttachStatus: Bool = false,
+        retryOnFailure: Bool = true,
         reconnectLimitDefault: Int = 20
     ) -> String {
         // Reusable commands are persisted in workspace metadata and can be emitted over the socket API.
@@ -48,6 +51,7 @@ extension CMUXCLI {
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
             oneTimeCommand: oneTimeCommand,
             retryPTYAttachStatus: retryPTYAttachStatus,
+            retryOnFailure: retryOnFailure,
             reconnectLimitDefault: reconnectLimitDefault
         )
         return reusableShellStartupCommand(
@@ -283,6 +287,7 @@ extension CMUXCLI {
         controlPathPreflightShellFunction: String?,
         oneTimeCommand: String?,
         retryPTYAttachStatus: Bool,
+        retryOnFailure: Bool,
         reconnectLimitDefault: Int
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -389,6 +394,35 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
+        ]
+
+        if !retryOnFailure {
+            scriptLines += [
+                "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            ]
+            if isShellSnippet {
+                scriptLines += [
+                    "(",
+                    "  \(sshCommand)",
+                    ") <&0 &",
+                ]
+            } else {
+                scriptLines.append("command \(sshCommand) <&0 &")
+            }
+            scriptLines += [
+                "CMUX_SSH_CHILD_PID=$!",
+                "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+                "wait \"$CMUX_SSH_CHILD_PID\"",
+                "cmux_ssh_status=$?",
+                "CMUX_SSH_CHILD_PID=",
+                "trap - EXIT HUP INT TERM",
+                "cmux_ssh_session_end",
+                "exit \"$cmux_ssh_status\"",
+            ]
+            return scriptLines.joined(separator: "\n")
+        }
+
+        scriptLines += [
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]

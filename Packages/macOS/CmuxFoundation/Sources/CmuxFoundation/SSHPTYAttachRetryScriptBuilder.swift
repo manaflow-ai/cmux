@@ -18,8 +18,15 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// - Parameters:
     ///   - command: Shell command that performs one PTY attachment attempt.
     ///   - reauthenticates: Whether status 255 requires foreground authentication before reattaching.
+    ///   - initialAuthentication: Whether the wrapper owns the initial foreground authentication
+    ///     phase before its first attach. Compatibility callers that authenticate outside the
+    ///     generated loop can disable this while retaining reauthentication after a later loss.
     /// - Returns: macOS `/bin/sh` lines implementing the shared retry state machine.
-    public func lines(command: String, reauthenticates: Bool) -> [String] {
+    public func lines(
+        command: String,
+        reauthenticates: Bool,
+        initialAuthentication: Bool = true
+    ) -> [String] {
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
         let authPolicy = SSHForegroundAuthenticationRetryPolicy()
         let authenticationResult = authPolicy.persistentAuthenticationResultShellLine(
@@ -27,7 +34,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             terminalFailureCommand: "exit \"$cmux_ssh_attach_status\""
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
-        let initialReauthentication = reauthenticates ? 1 : 0
+        let initialReauthentication = reauthenticates && initialAuthentication ? 1 : 0
         let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
         let retryStatusFormat = String(
             localized: "cli.sshPtyAttach.retryStatus",
@@ -85,6 +92,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_auth_succeeded=0",
             "cmux_ssh_attach_reauth_required=\(initialReauthentication)",
             "cmux_ssh_attach_auth_launching=0",
+            "CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1",
+            "export CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT",
         ])
         lines.append(contentsOf: backoffBuilder.stateInitializationLines)
         // Host/daemon phases defer foreground auth after a known successful
