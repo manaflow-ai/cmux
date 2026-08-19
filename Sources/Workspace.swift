@@ -1551,9 +1551,11 @@ extension Workspace {
                 } else {
                     nil
                 }
-            let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
+            // A daemon reattach redraws its own scrollback; replaying the
+            // persisted copy on top would duplicate it.
+            let shouldReplayScrollback = tuiAttachCommand == nil && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
-                tmuxStartCommand: tuiAttachCommand ?? restoredTmuxStartCommand,
+                tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
