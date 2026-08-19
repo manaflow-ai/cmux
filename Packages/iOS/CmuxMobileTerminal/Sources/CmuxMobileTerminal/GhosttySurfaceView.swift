@@ -79,7 +79,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
     var bridge = GhosttySurfaceBridge()
-    private let prefersSnapshotFallbackRendering = false
     /// Enables both terminal artifact taps and the coalesced visible-frame count.
     public var artifactFilesEnabled: Bool {
         get { inputProxy.artifactFilesEnabled }
@@ -4840,18 +4839,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
 
-        // Existing IOSurface contents may belong to the previous model while a
-        // newer output batch is waiting behind the presentation gate. They are
-        // not evidence that the newer model is visible, so never use them to
-        // hide the fallback before the matching token callback.
-        let rendererHasContents = !hasAppliedOutput &&
-            !prefersSnapshotFallbackRendering &&
-            (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
-        if rendererHasContents {
-            snapshotFallbackView.isHidden = true
-            return
-        }
-
         let snapshot = renderedTextForTesting() ?? ""
         guard !snapshot.isEmpty else {
             lastSnapshotFallbackHTML = nil
@@ -4945,10 +4932,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         return 0
-    }
-
-    private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
-        isGhosttyRendererLayer(layer) && layer.contents != nil
     }
 
     nonisolated private static func handleWrite(
