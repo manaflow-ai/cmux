@@ -41,9 +41,12 @@ public struct BrowserSection: View {
     @State private var httpAllowlistLoaded: Bool = false
 
     /// Whether an MDM configuration profile disables the embedded browser.
-    /// Resolved once per section construction; the toggle is then read-only.
-    private let browserManagedByPolicy =
+    /// Computed so every render re-reads the authoritative resolver — a
+    /// profile pushed while the Settings window stays open takes effect on
+    /// the next render instead of sticking to a construction-time snapshot.
+    private var browserManagedByPolicy: Bool {
         ManagedDevicePolicy().isEnforced(.disableEmbeddedBrowser)
+    }
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,

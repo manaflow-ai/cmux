@@ -853,7 +853,7 @@ struct EmptyPanelView: View {
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
@@ -861,7 +861,7 @@ struct EmptyPanelView: View {
 
                 if browserAvailable {
                     emptyPaneActionButton(
-                        title: "Browser",
+                        title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
                         systemImage: "globe",
                         shortcut: openBrowserShortcut,
                         action: createBrowser

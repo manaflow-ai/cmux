@@ -3371,24 +3371,19 @@ struct CMUXCLI {
     private static let managedBrowserPolicyKey = "DisableEmbeddedBrowser"
 
     /// Whether MDM locks browser availability for `domain`: the dedicated
-    /// policy key is enforced (here or in the release payload domain), or an
-    /// administrator forces the user-level key directly.
+    /// policy key is enforced — forced `true`, matching
+    /// `ManagedDevicePolicy.isEnforced(_:)` semantics (a key forced `false`
+    /// or to a non-Boolean does not lock the user toggle, whose writes go to
+    /// a different key) — or an administrator forces the user-level key
+    /// directly, in which case a write would fight the forced value.
     private static func browserAvailabilityManagedByProfile(
         defaults: UserDefaults,
         domain: String
     ) -> Bool {
-        if defaults.objectIsForced(forKey: managedBrowserPolicyKey) {
+        if browserDisabledByManagedPolicy(defaults: defaults, domain: domain) {
             return true
         }
-        if defaults.objectIsForced(forKey: browserDisabledDefaultsKey) {
-            return true
-        }
-        if domain != defaultBrowserSettingsDomain,
-           let releaseDefaults = UserDefaults(suiteName: defaultBrowserSettingsDomain),
-           releaseDefaults.objectIsForced(forKey: managedBrowserPolicyKey) {
-            return true
-        }
-        return false
+        return defaults.objectIsForced(forKey: browserDisabledDefaultsKey)
     }
 
     /// Whether the `DisableEmbeddedBrowser` policy is enforced (forced true)
@@ -3398,12 +3393,12 @@ struct CMUXCLI {
         domain: String
     ) -> Bool {
         if defaults.objectIsForced(forKey: managedBrowserPolicyKey) {
-            return defaults.bool(forKey: managedBrowserPolicyKey)
+            return (defaults.object(forKey: managedBrowserPolicyKey) as? Bool) == true
         }
         if domain != defaultBrowserSettingsDomain,
            let releaseDefaults = UserDefaults(suiteName: defaultBrowserSettingsDomain),
            releaseDefaults.objectIsForced(forKey: managedBrowserPolicyKey) {
-            return releaseDefaults.bool(forKey: managedBrowserPolicyKey)
+            return (releaseDefaults.object(forKey: managedBrowserPolicyKey) as? Bool) == true
         }
         return false
     }

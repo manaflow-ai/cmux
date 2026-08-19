@@ -119,13 +119,13 @@ export default async function ManagedPoliciesPage({
         <tbody>
           <tr>
             <td><code>DisableEmbeddedBrowser</code></td>
-            <td>Boolean</td>
+            <td>{t("booleanType")}</td>
             <td><code>false</code></td>
             <td>{t("browserKeyDesc")}</td>
           </tr>
           <tr>
             <td><code>DisableRemoteControl</code></td>
-            <td>Boolean</td>
+            <td>{t("booleanType")}</td>
             <td><code>false</code></td>
             <td>{t("remoteKeyDesc")}</td>
           </tr>

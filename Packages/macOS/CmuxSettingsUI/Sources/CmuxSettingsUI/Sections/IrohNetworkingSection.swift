@@ -11,10 +11,12 @@ public struct IrohNetworkingSection: View {
     @State private var pendingCustomRemovalID: String?
 
     /// Whether an MDM configuration profile disables iOS remote control,
-    /// which this networking stack exists to serve. Resolved once per
-    /// section construction; the section is then read-only.
-    private let remoteControlManagedByPolicy =
+    /// which this networking stack exists to serve. Computed so every render
+    /// re-reads the authoritative resolver instead of a construction-time
+    /// snapshot.
+    private var remoteControlManagedByPolicy: Bool {
         ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+    }
 
     public init(hostActions: SettingsHostActions) {
         _model = State(initialValue: IrohSettingsModel(controller: hostActions.irohSettingsController()))

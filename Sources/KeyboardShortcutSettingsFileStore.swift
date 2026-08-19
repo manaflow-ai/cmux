@@ -1178,6 +1178,15 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
+            // While an MDM profile forces the key, restoring is impossible
+            // (writes cannot change the effective value), so retain the
+            // backup instead of dropping it: when the profile is later
+            // removed, a subsequent apply pass restores the user's original
+            // value rather than leaving the last imported one behind.
+            if identifier != Self.socketPasswordBackupIdentifier,
+               isUserDefaultsKeyForcedByProfile(identifier) {
+                continue
+            }
             sideEffects.merge(
                 restoreBackup(
                     backup,

@@ -83,4 +83,91 @@ struct ManagedPolicySettingsImportTests {
             #expect(defaults.object(forKey: key) == nil)
         }
     }
+
+    /// A key managed by cmux.json before MDM forces it, then removed from the
+    /// file while forced: the user's original backup must be retained (not
+    /// restored-and-dropped, which is impossible under the forced value) and
+    /// restored once the profile is removed.
+    @Test func backupSurvivesForcedWindowAndRestoresAfterProfileRemoval() throws {
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().warnBeforeQuit.userDefaultsKey
+        let companionKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
+        let preservedKeys = [key, companionKey, Self.backupsKey, Self.importedManagedDefaultsKey]
+        let previousValues = preservedKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (preservedKey, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: preservedKey)
+                } else {
+                    defaults.removeObject(forKey: preservedKey)
+                }
+            }
+        }
+        preservedKeys.forEach { defaults.removeObject(forKey: $0) }
+
+        // The user's original choice, captured as the backup on first import.
+        defaults.set(false, forKey: key)
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManagedPolicySettingsImportTests.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let withKey = """
+        {
+          "app": {
+            "warnBeforeQuit": true,
+            "confirmQuit": "dirty-only"
+          }
+        }
+        """
+        let withoutKey = """
+        {
+          "app": {
+            "confirmQuit": "dirty-only"
+          }
+        }
+        """
+        try Data(withKey.utf8).write(to: settingsFileURL)
+
+        final class ForcedKeys {
+            var keys: Set<String> = []
+        }
+        let forcedKeys = ForcedKeys()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { forcedKeys.keys.contains($0) }
+        )
+
+        try withExtendedLifetime(store) {
+            // Unforced import applied the file value over the user value.
+            #expect(defaults.object(forKey: key) as? Bool == true)
+
+            // MDM now forces the key, and the file stops managing it.
+            forcedKeys.keys.insert(key)
+            try Data(withoutKey.utf8).write(to: settingsFileURL)
+            store.reload()
+            // No restore write happened under the forced key, and the backup
+            // of the user's original value survived.
+            let backupsData = try #require(defaults.data(forKey: Self.backupsKey))
+            let decodedBackups = try #require(
+                try JSONSerialization.jsonObject(with: backupsData) as? [String: Any]
+            )
+            #expect(decodedBackups[key] != nil)
+
+            // The profile is removed: the next apply pass restores the
+            // user's original value and drops the backup.
+            forcedKeys.keys.remove(key)
+            store.reload()
+            #expect(defaults.object(forKey: key) as? Bool == false)
+            if let remainingData = defaults.data(forKey: Self.backupsKey),
+               let remaining = try? JSONSerialization.jsonObject(with: remainingData) as? [String: Any] {
+                #expect(remaining[key] == nil)
+            }
+        }
+    }
 }

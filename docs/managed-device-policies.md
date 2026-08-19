@@ -13,7 +13,7 @@ matching commands, and the `cmux` CLI refuses with a managed-policy error.
 
 Target the preference domain:
 
-```
+```text
 com.cmuxterm.app
 ```
 
