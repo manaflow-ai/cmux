@@ -445,7 +445,10 @@ extension GhosttySurfaceView {
     @discardableResult
     func handleVerifiedReplayRenderPresented(token: UInt64) -> Bool {
         guard var pending = pendingVerifiedReplayPresentation else { return true }
-        guard token == pending.fence.expectedToken else { return false }
+        // A replay can be queued behind an ordinary frame. Let that frame's
+        // callback use the normal gate-release path; `finishRenderSubmission`
+        // still rejects genuinely stale tokens by identity.
+        guard token == pending.fence.expectedToken else { return true }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let modelGeometry = verifiedReplayPresentationGeometry(
