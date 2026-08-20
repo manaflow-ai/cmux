@@ -494,7 +494,17 @@ final class ClaudeHookSessionStore {
             let existingTurnStackDepth = activePromptTurnStack(from: record).count
             record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
-            return (staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
+            // Depth is still recorded for the durable session record, but it is
+            // NOT evidence of nesting here. Without a turn id the counter has no
+            // balance guarantee: agents whose submit and stop events are not 1:1
+            // (cursor fires prompt-submit per shell command and never decrements;
+            // rovodev fires it per tool permission) drift upward every turn, and
+            // nothing ever resynchronizes it. Once drifted, reporting `nested`
+            // suppresses the lane's only `.idle` write forever, which is how a
+            // pane latches on "working". Real nesting is still caught by the PID
+            // ancestry walk in `nestedAgentSessionDetected`, and by the turn
+            // stack above for agents that do emit a turn id.
+            return (staleTerminalTurn: false, nested: false)
         }
     }
 
@@ -643,7 +653,10 @@ final class ClaudeHookSessionStore {
                 }
             }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            // See `recordPromptSubmit`: the unbalanced depth counter is not
+            // evidence of nesting for payloads without a turn id. Reporting it
+            // here is what suppresses the stop lane's only `.idle` write.
+            return false
         }
     }
 

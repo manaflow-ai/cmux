@@ -25,6 +25,57 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         )
     }
 
+
+    // MARK: - Stale `.running` safety net
+
+    @Test func staleRunningDowngradesToUnknownNotIdle() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let panelId = UUID()
+        model.setAgentLifecycleStatesByPanelId([panelId: ["grok": .running]])
+
+        let timeout = WorkspaceSidebarAgentRuntimeObservationModel.staleRunningTimeout
+        let start = Date().timeIntervalSince1970
+
+        #expect(model.downgradeStaleRunning(now: start + timeout - 1).isEmpty)
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .running)
+
+        let retired = model.downgradeStaleRunning(now: start + timeout + 1)
+        #expect(retired.count == 1)
+        // `.unknown`, never `.idle`: only `.idle` satisfies allowsHibernation,
+        // so downgrading to it could tear down a pane whose agent is alive.
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .unknown)
+        #expect(AgentHibernationLifecycleState.unknown.allowsHibernation == false)
+    }
+
+    @Test func staleSweepLeavesNeedsInputAndIdleAlone() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let panelId = UUID()
+        model.setAgentLifecycleStatesByPanelId([
+            panelId: ["grok": .needsInput, "kimi": .idle],
+        ])
+
+        let far = Date().timeIntervalSince1970 + 10 * WorkspaceSidebarAgentRuntimeObservationModel.staleRunningTimeout
+        #expect(model.downgradeStaleRunning(now: far).isEmpty)
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .needsInput)
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["kimi"] == .idle)
+    }
+
+    @Test func reenteringRunningRestartsTheStaleClock() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let panelId = UUID()
+        let timeout = WorkspaceSidebarAgentRuntimeObservationModel.staleRunningTimeout
+
+        model.setAgentLifecycleStatesByPanelId([panelId: ["grok": .running]])
+        // A real state change (running -> idle -> running) must reset the age,
+        // otherwise a busy pane would be retired on its original stamp.
+        model.setAgentLifecycleStatesByPanelId([panelId: ["grok": .idle]])
+        model.setAgentLifecycleStatesByPanelId([panelId: ["grok": .running]])
+
+        let start = Date().timeIntervalSince1970
+        #expect(model.downgradeStaleRunning(now: start + timeout - 1).isEmpty)
+        #expect(model.agentLifecycleStatesByPanelId[panelId]?["grok"] == .running)
+    }
+
     @Test func processTitlePublicationPrunesTerminatedObservationBurst() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(

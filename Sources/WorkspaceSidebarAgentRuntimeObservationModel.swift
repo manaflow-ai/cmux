@@ -60,7 +60,91 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        refreshRunningSince(now: Date().timeIntervalSince1970)
         notifyChanged()
+    }
+
+    // MARK: - Stale `.running` safety net
+
+    /// How long a `.running` may sit without any lifecycle change before it is
+    /// treated as untrustworthy and downgraded to `.unknown`.
+    ///
+    /// An agent CLI reports `.running` once per turn and `.idle` once per turn.
+    /// When the idle report is lost — a killed Stop hook, a hook that never
+    /// fires, an agent that dies mid-turn — nothing else can retire the
+    /// `.running`: the app's only automatic clear runs when the agent *process*
+    /// dies, and these agents sit alive at their own prompt. This bounds that.
+    ///
+    /// `.unknown` is the deliberate target rather than `.idle`: it renders as
+    /// "no agent state" everywhere, and unlike `.idle` it does not satisfy
+    /// `AgentHibernationLifecycleState.allowsHibernation`, so a downgrade can
+    /// never cause a pane to be torn down.
+    ///
+    /// ponytail: a flat timeout, not a real quiescence signal. The app has no
+    /// per-pane last-output timestamp today; if one is added, gate the
+    /// downgrade on it instead of raising this constant.
+    static let staleRunningTimeout: TimeInterval = 30 * 60
+    private static let staleRunningSweepInterval: Duration = .seconds(120)
+
+    /// When each still-`.running` (panel, key) pair last changed state.
+    @ObservationIgnored
+    private var runningSinceByPanelId: [UUID: [String: TimeInterval]] = [:]
+    @ObservationIgnored
+    private var staleRunningSweep: Task<Void, Never>?
+
+    /// Re-stamps newly-running keys and forgets keys that left `.running`.
+    /// A key that stays `.running` keeps its original stamp, so the age
+    /// measured is "time since this pane last changed state at all".
+    private func refreshRunningSince(now: TimeInterval) {
+        var updated: [UUID: [String: TimeInterval]] = [:]
+        for (panelId, states) in agentLifecycleStatesByPanelId {
+            var stamps: [String: TimeInterval] = [:]
+            for (key, state) in states where state == .running {
+                stamps[key] = runningSinceByPanelId[panelId]?[key] ?? now
+            }
+            if !stamps.isEmpty {
+                updated[panelId] = stamps
+            }
+        }
+        runningSinceByPanelId = updated
+        updated.isEmpty ? cancelStaleRunningSweep() : startStaleRunningSweepIfNeeded()
+    }
+
+    private func startStaleRunningSweepIfNeeded() {
+        guard staleRunningSweep == nil else { return }
+        staleRunningSweep = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.staleRunningSweepInterval)
+                guard !Task.isCancelled, let self else { return }
+                self.downgradeStaleRunning(now: Date().timeIntervalSince1970)
+            }
+        }
+    }
+
+    private func cancelStaleRunningSweep() {
+        staleRunningSweep?.cancel()
+        staleRunningSweep = nil
+    }
+
+    /// Downgrades every `.running` older than `staleRunningTimeout` to
+    /// `.unknown`. Returns the keys it retired, for tests.
+    @discardableResult
+    func downgradeStaleRunning(
+        now: TimeInterval,
+        timeout: TimeInterval = staleRunningTimeout
+    ) -> [(panelId: UUID, key: String)] {
+        var retired: [(panelId: UUID, key: String)] = []
+        var states = agentLifecycleStatesByPanelId
+        for (panelId, stamps) in runningSinceByPanelId {
+            for (key, since) in stamps where now - since >= timeout {
+                guard states[panelId]?[key] == .running else { continue }
+                states[panelId]?[key] = .unknown
+                retired.append((panelId: panelId, key: key))
+            }
+        }
+        guard !retired.isEmpty else { return [] }
+        setAgentLifecycleStatesByPanelId(states)
+        return retired
     }
 
     private func notifyChanged() {
