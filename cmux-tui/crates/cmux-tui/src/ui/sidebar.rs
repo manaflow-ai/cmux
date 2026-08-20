@@ -97,6 +97,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let provider = machine_ui.provider.clone();
     let rail_selection = machine_ui.rail_selection;
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
+    let metrics = rail::RailMetrics::for_app(app);
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
     let header = rail::header(frame, area, messages.machines, palette);
@@ -119,7 +120,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     if machines.is_empty() {
         body_rows += 1;
     } else {
-        body_rows += machines.len() * rail::ENTRY_STRIDE;
+        body_rows += machines.len() * metrics.stride;
     }
     let create_footer = capabilities.create.then_some(0);
     let connect_footer = capabilities.connect.then_some(usize::from(capabilities.create));
@@ -129,8 +130,8 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             MachineRailSelection::Scope => scope_row.map(|row| rail::RowSpan::new(row, 1)),
             MachineRailSelection::Actions => actions_row.map(|row| rail::RowSpan::new(row, 1)),
             MachineRailSelection::Machine => (!machines.is_empty()).then_some(rail::RowSpan::new(
-                machine_start + selection * rail::ENTRY_STRIDE,
-                rail::ENTRY_HEIGHT,
+                machine_start + selection * metrics.stride,
+                metrics.height,
             )),
             MachineRailSelection::NewVm | MachineRailSelection::ConnectMachine => None,
         }
@@ -209,8 +210,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         );
     }
     for (index, machine) in machines.iter().enumerate() {
-        let span =
-            rail::RowSpan::new(machine_start + index * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
+        let span = rail::RowSpan::new(machine_start + index * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let is_active = Some(machine.key) == active;
         let focused = app.machine_sidebar_focused()
@@ -276,9 +276,12 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                 dimmed: recoverable,
             },
             palette,
+            metrics,
         );
         hits.push((rail::row(area, y), Hit::Machine { index, key: machine.key }));
-        hits.push((rail::row(area, y + 1), Hit::Machine { index, key: machine.key }));
+        if metrics.height >= 2 {
+            hits.push((rail::row(area, y + 1), Hit::Machine { index, key: machine.key }));
+        }
     }
 
     if let Some(y) = create_footer.and_then(|row| viewport.footer_y(rail::RowSpan::new(row, 1))) {
@@ -314,17 +317,16 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
     let targets = app.sidebar_tab_targets();
     app.tabs_rail_selection = app.tabs_rail_selection.min(targets.len().saturating_sub(1));
     let palette = rail::RailPalette::for_app(app, app.tabs_sidebar_focused());
+    let metrics = rail::RailMetrics::for_app(app);
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
     let header = rail::header(frame, area, messages.tabs, palette);
 
-    let body_rows = if targets.is_empty() { 1 } else { targets.len() * rail::ENTRY_STRIDE };
-    let selected =
-        (!targets.is_empty() && app.tabs_sidebar_focused() && app.tabs_rail_follow_selection)
-            .then_some(rail::RowSpan::new(
-                app.tabs_rail_selection * rail::ENTRY_STRIDE,
-                rail::ENTRY_HEIGHT,
-            ));
+    let body_rows = if targets.is_empty() { 1 } else { targets.len() * metrics.stride };
+    let selected = (!targets.is_empty()
+        && app.tabs_sidebar_focused()
+        && app.tabs_rail_follow_selection)
+        .then_some(rail::RowSpan::new(app.tabs_rail_selection * metrics.stride, metrics.height));
     let viewport = rail::viewport(
         area,
         body_rows,
@@ -341,7 +343,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     } else {
         for (target_index, target) in targets.iter().enumerate() {
-            let span = rail::RowSpan::new(target_index * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
+            let span = rail::RowSpan::new(target_index * metrics.stride, metrics.height);
             let Some(y) = viewport.body_y(span) else { continue };
             let selected = app.tabs_sidebar_focused()
                 && app.tabs_rail_selection == target_index
@@ -359,6 +361,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
                     dimmed: false,
                 },
                 palette,
+                metrics,
             );
             let hit = Hit::SidebarTab {
                 workspace: target.workspace,
@@ -368,7 +371,9 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
                 surface: target.surface,
             };
             app.hits.push((rail::row(area, y), hit));
-            app.hits.push((rail::row(area, y + 1), hit));
+            if metrics.height >= 2 {
+                app.hits.push((rail::row(area, y + 1), hit));
+            }
         }
     }
     app.hits.push((header, Hit::RailHeader(RailKind::Tabs)));
@@ -544,6 +549,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
 fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.workspace_sidebar_area(frame.area().height) else { return };
     let palette = rail::RailPalette::for_app(app, app.workspace_sidebar_focused());
+    let metrics = rail::RailMetrics::for_app(app);
     let workspace_drag = app.workspace_drag();
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
@@ -556,15 +562,15 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .as_ref()
         .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    let body_rows = (app.tree.workspaces.len() + recoverable.len()) * rail::ENTRY_STRIDE;
+    let body_rows = (app.tree.workspaces.len() + recoverable.len()) * metrics.stride;
     let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
         .then(|| match app.workspace_rail_selection {
             WorkspaceRailSelection::Workspace
                 if app.sidebar_workspace_selection < app.tree.workspaces.len() =>
             {
                 Some(rail::RowSpan::new(
-                    app.sidebar_workspace_selection * rail::ENTRY_STRIDE,
-                    rail::ENTRY_HEIGHT,
+                    app.sidebar_workspace_selection * metrics.stride,
+                    metrics.height,
                 ))
             }
             WorkspaceRailSelection::Recoverable
@@ -572,8 +578,8 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             {
                 Some(rail::RowSpan::new(
                     (app.tree.workspaces.len() + app.sidebar_recoverable_workspace_selection)
-                        * rail::ENTRY_STRIDE,
-                    rail::ENTRY_HEIGHT,
+                        * metrics.stride,
+                    metrics.height,
                 ))
             }
             _ => None,
@@ -588,7 +594,8 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     } else {
         None
     };
-    let viewport = rail::viewport(
+    let actions_position = app.workspace_actions_position();
+    let viewport = rail::viewport_positioned(
         area,
         body_rows,
         actions.len(),
@@ -596,6 +603,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         &mut app.workspace_footer_scroll,
         selected_body,
         selected_footer,
+        actions_position,
     );
     let mut hits = Vec::new();
     let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
@@ -619,7 +627,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         ));
     }
     for (i, ws) in app.tree.workspaces.iter().enumerate() {
-        let span = rail::RowSpan::new(i * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
+        let span = rail::RowSpan::new(i * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let active = i == app.tree.active_workspace;
         let focused_selection = app.workspace_sidebar_focused()
@@ -635,12 +643,13 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         } else {
             title.to_string()
         };
+        let label = app.workspace_button_label(i, &ws.name);
         rail::entry(
             frame,
             area,
             y,
             rail::Entry {
-                name: &ws.name,
+                name: &label,
                 subtitle: &subtitle,
                 highlighted,
                 active,
@@ -648,14 +657,17 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
                 dimmed: workspace_drag.is_some_and(|(id, _)| id == ws.id),
             },
             palette,
+            metrics,
         );
         hits.push((rail::row(area, y), Hit::Workspace { index: i, id: ws.id }));
-        hits.push((rail::row(area, y + 1), Hit::Workspace { index: i, id: ws.id }));
+        if metrics.height >= 2 {
+            hits.push((rail::row(area, y + 1), Hit::Workspace { index: i, id: ws.id }));
+        }
     }
 
     for (index, workspace) in recoverable.iter().enumerate() {
         let row = app.tree.workspaces.len() + index;
-        let span = rail::RowSpan::new(row * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
+        let span = rail::RowSpan::new(row * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let selected = app.workspace_sidebar_focused()
             && app.workspace_rail_selection == WorkspaceRailSelection::Recoverable
@@ -677,13 +689,16 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
                 dimmed: true,
             },
             palette,
+            metrics,
         );
         hits.push((rail::row(area, y), Hit::RecoverableWorkspace { index }));
-        hits.push((rail::row(area, y + 1), Hit::RecoverableWorkspace { index }));
+        if metrics.height >= 2 {
+            hits.push((rail::row(area, y + 1), Hit::RecoverableWorkspace { index }));
+        }
     }
 
     if let Some((_, Some(index))) = workspace_drag {
-        let marker_row = index.saturating_mul(rail::ENTRY_STRIDE).saturating_sub(1);
+        let marker_row = index.saturating_mul(metrics.stride).saturating_sub(1);
         if let Some(marker_y) = viewport.body_y(rail::RowSpan::new(marker_row, 1)) {
             let buf = frame.buffer_mut();
             for x in area.x..area.x + area.width.saturating_sub(1) {

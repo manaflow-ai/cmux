@@ -4124,15 +4124,32 @@ pub enum MenuAction {
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
-    TogglePaneZoom { pane: PaneId, zoomed: bool },
-    ToggleSidebar { visible: bool },
-    ToggleSidebarCompact { compact: bool },
+    TogglePaneZoom {
+        pane: PaneId,
+        zoomed: bool,
+    },
+    ToggleSidebar {
+        visible: bool,
+    },
+    ToggleSidebarCompact {
+        compact: bool,
+    },
     FocusSidebar,
     ActivateSidebarProfile(usize),
-    SetSidebarViewVisible { view: usize, visible: bool },
+    SetSidebarViewVisible {
+        view: usize,
+        visible: bool,
+    },
     ShowShortcuts,
-    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
-    UseClientSize { surface: SurfaceId, client: u64 },
+    SetClientSizing {
+        surface: SurfaceId,
+        client: u64,
+        enabled: bool,
+    },
+    UseClientSize {
+        surface: SurfaceId,
+        client: u64,
+    },
     RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
     SelectProviderScope(usize),
@@ -4140,12 +4157,23 @@ pub enum MenuAction {
     CreateMachineFrom(usize),
     ConnectMachineTarget(usize),
     ConnectOtherMachine,
+    /// A configured action from a customizable menu (for example a `+`
+    /// button's right-click menu), targeting an optional pane.
+    RunConfigured {
+        action: Action,
+        pane: Option<PaneId>,
+    },
 }
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
         let menu = &localization::catalog().menu;
         match self {
+            // Menus always wrap this variant in a labeled item; the catalog
+            // label is the keyboard-help fallback only.
+            MenuAction::RunConfigured { action, .. } => {
+                localization::catalog().action_label(*action)
+            }
             MenuAction::RenameClientMachine(_) | MenuAction::RenameManagedMachine(_) => {
                 localization::catalog().sidebar.rename_machine
             }
@@ -9528,15 +9556,21 @@ impl App {
         let messages = &localization::catalog().sidebar;
         spec.actions
             .iter()
-            .copied()
-            .flat_map(|action| {
+            .flat_map(|action_spec| {
+                let action = action_spec.action;
+                let label_override = action_spec.label.as_deref();
                 if action == Action::NewWorkspace {
                     return self
                         .workspace_creation_modes()
                         .into_iter()
                         .map(|mode| SidebarActionRow {
                             label: match mode {
-                                None => messages.new_workspace.to_string(),
+                                // A configured label renames the plain
+                                // button; the provider-specific isolated and
+                                // shared variants keep their catalog labels.
+                                None => {
+                                    label_override.unwrap_or(messages.new_workspace).to_string()
+                                }
                                 Some(WorkspaceCreationMode::Isolated) => {
                                     messages.new_isolated_workspace.to_string()
                                 }
@@ -9550,13 +9584,58 @@ impl App {
                 }
                 self.action_available(action)
                     .then(|| SidebarActionRow {
-                        label: localization::catalog().action_label(action).to_string(),
+                        label: label_override
+                            .map(str::to_string)
+                            .unwrap_or_else(|| self.action_display_label(action).to_string()),
                         target: SidebarActionTarget::Run(action),
                     })
                     .into_iter()
                     .collect()
             })
             .collect()
+    }
+
+    /// Menu items for a configurable `+` button's right-click menu.
+    fn plus_menu_items(
+        &self,
+        plus: &crate::config::PlusButton,
+        pane: Option<PaneId>,
+    ) -> Vec<MenuItem> {
+        plus.menu
+            .iter()
+            .filter(|spec| self.action_available(spec.action))
+            .map(|spec| MenuItem::LabeledAction {
+                label: spec
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| self.action_display_label(spec.action).to_string()),
+                action: MenuAction::RunConfigured { action: spec.action, pane },
+            })
+            .collect()
+    }
+
+    /// Where the workspace rail's pinned action buttons render.
+    pub(crate) fn workspace_actions_position(&self) -> crate::config::ActionsPosition {
+        self.view_index_for_rail(RailKind::Workspace)
+            .and_then(|index| self.config.sidebar.views.get(index))
+            .map(|spec| spec.actions_position)
+            .unwrap_or_default()
+    }
+
+    /// Expand the configured workspace row label template. The default
+    /// template borrows the name, so ordinary draws do not allocate.
+    pub(crate) fn workspace_button_label<'a>(
+        &self,
+        index: usize,
+        name: &'a str,
+    ) -> std::borrow::Cow<'a, str> {
+        let template = &self.config.sidebar.workspace_label;
+        if template == "{name}" {
+            return std::borrow::Cow::Borrowed(name);
+        }
+        std::borrow::Cow::Owned(
+            template.replace("{index}", &index.to_string()).replace("{name}", name),
+        )
     }
 
     pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {
@@ -18390,6 +18469,9 @@ impl App {
                     self.begin_machine_connection(target, MachineConnectRoute::Local);
                 }
             }
+            MenuAction::RunConfigured { action, pane } => {
+                self.run_action_for_pane(action, pane.or_else(|| self.active_pane()))?;
+            }
             MenuAction::ConnectOtherMachine => {
                 let prompt = self.connect_machine_prompt();
                 self.prompt = Some(prompt);
@@ -20471,7 +20553,12 @@ impl App {
                 Hit::CopyStatusMessage => self.copy_status_message(),
                 Hit::NewScreen => {
                     self.focus = FocusTarget::Pane;
-                    self.new_screen(None)?;
+                    if let Some(action) = self.config.status_bar.screens_plus.action {
+                        let pane = self.active_pane();
+                        self.run_action_for_pane(action, pane)?;
+                    } else {
+                        self.new_screen(None)?;
+                    }
                 }
                 Hit::Tab { pane, index } => {
                     if let Some(surface) = self
@@ -20485,7 +20572,9 @@ impl App {
                 }
                 Hit::NewTab { pane } => {
                     self.focus_pane_after_input(pane);
-                    if self.prepare_pty_input_before_mutation() {
+                    if let Some(action) = self.config.tabs.plus.action {
+                        self.run_action_for_pane(action, Some(pane))?;
+                    } else if self.prepare_pty_input_before_mutation() {
                         self.session
                             .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
@@ -21539,6 +21628,25 @@ impl App {
                 vec![self.menu_group([MenuAction::CopyStatusMessage]), self.global_menu_items()],
             ));
             return;
+        }
+        // Configurable `+` buttons: a right click opens their configured
+        // menu when one exists; without one the generic paths below apply.
+        if let Some(Hit::NewTab { pane }) = hit {
+            let items = self.plus_menu_items(&self.config.tabs.plus, Some(pane));
+            if !items.is_empty() {
+                self.menu =
+                    Some(ContextMenu::with_groups(x, y, vec![items, self.global_menu_items()]));
+                return;
+            }
+        }
+        if matches!(hit, Some(Hit::NewScreen)) {
+            let items =
+                self.plus_menu_items(&self.config.status_bar.screens_plus, self.active_pane());
+            if !items.is_empty() {
+                self.menu =
+                    Some(ContextMenu::with_groups(x, y, vec![items, self.global_menu_items()]));
+                return;
+            }
         }
         if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
             let mut groups = Vec::new();
@@ -24826,7 +24934,8 @@ mod tests {
         let focused = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 30,
             max_width: 0,
             collapse_priority: 30,
@@ -38512,6 +38621,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38589,6 +38699,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38623,6 +38734,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38660,6 +38772,7 @@ mod tests {
             id: "agents".into(),
             levels: vec![SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38809,7 +38922,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38908,7 +39022,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,

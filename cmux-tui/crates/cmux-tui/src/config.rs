@@ -148,6 +148,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -224,6 +225,10 @@ struct RawStatusBar {
     show_session: Option<bool>,
     left: Option<Vec<RawStatusSegment>>,
     right: Option<Vec<RawStatusSegment>>,
+    left_separator: Option<String>,
+    right_separator: Option<String>,
+    screens_style: Option<ChipStyle>,
+    screens_plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -294,6 +299,8 @@ struct RawTheme {
     border_style: Option<BorderStyle>,
     status_bg: Option<ColorValue>,
     status_fg: Option<ColorValue>,
+    sidebar_fg: Option<ColorValue>,
+    sidebar_selected_fg: Option<ColorValue>,
     dim_inactive: Option<bool>,
 }
 
@@ -495,6 +502,8 @@ struct RawTabs {
     solid_background: Option<bool>,
     show_titles: Option<bool>,
     agents: Option<Vec<String>>,
+    style: Option<ChipStyle>,
+    plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -509,6 +518,15 @@ struct RawSidebar {
     views: Option<Vec<RawSidebarView>>,
     columns: Option<Vec<RawSidebarColumn>>,
     plugin: Option<RawSidebarPlugin>,
+    /// Rows per rail entry: 2 (default) keeps the subtitle line, 1 is a
+    /// dense name-only list.
+    row_height: Option<u16>,
+    /// Blank rows between rail entries: 1 (default) or 0 for no padding.
+    row_gap: Option<u16>,
+    /// Accent glyph on active rail rows; `"none"` removes it.
+    rail_glyph: Option<String>,
+    /// Workspace row label template with `{index}` and `{name}`.
+    workspace_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -524,10 +542,56 @@ struct RawSidebarProfile {
 struct RawSidebarView {
     id: String,
     levels: Vec<String>,
-    actions: Option<Vec<String>>,
+    actions: Option<Vec<RawSidebarAction>>,
+    actions_position: Option<ActionsPosition>,
     width: Option<u16>,
     max_width: Option<u16>,
     collapse_priority: Option<u16>,
+}
+
+/// One pinned action: an action name, or an object that also renames its
+/// button. `"command:<id>"` references a user command from `commands`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawSidebarAction {
+    Name(String),
+    Detailed { action: String, label: Option<String> },
+}
+
+impl RawSidebarAction {
+    fn action(&self) -> &str {
+        match self {
+            RawSidebarAction::Name(name) => name,
+            RawSidebarAction::Detailed { action, .. } => action,
+        }
+    }
+
+    fn label(&self) -> Option<&str> {
+        match self {
+            RawSidebarAction::Name(_) => None,
+            RawSidebarAction::Detailed { label, .. } => label.as_deref(),
+        }
+    }
+}
+
+/// Raw form of a configurable `+` button.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPlusButton {
+    label: Option<String>,
+    /// Left-click action override; action name or `command:<id>`.
+    action: Option<String>,
+    /// Right-click menu entries; same grammar as sidebar view actions.
+    menu: Option<Vec<RawSidebarAction>>,
+}
+
+/// Where a view's pinned action buttons render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ActionsPosition {
+    Top,
+    #[default]
+    Bottom,
 }
 
 #[derive(Debug, Deserialize)]
@@ -756,6 +820,30 @@ pub enum BorderStyle {
     None,
 }
 
+/// Chip cap style for tab labels and the active screen chip: `pill` wraps
+/// solid chips in rounded caps, `slant` in angled caps, `block` (default)
+/// keeps the flat rectangle. Cap glyphs come from the Nerd Font powerline
+/// range, the same glyphs tmux and zellij themes use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChipStyle {
+    #[default]
+    Block,
+    Pill,
+    Slant,
+}
+
+impl ChipStyle {
+    /// Left and right cap glyphs, or `None` for the flat block style.
+    pub fn caps(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            ChipStyle::Block => None,
+            ChipStyle::Pill => Some(("\u{e0b6}", "\u{e0b4}")),
+            ChipStyle::Slant => Some(("\u{e0be}", "\u{e0b8}")),
+        }
+    }
+}
+
 /// The six glyphs a pane box is drawn with.
 #[derive(Debug, Clone, Copy)]
 pub struct BorderGlyphs {
@@ -835,6 +923,9 @@ pub struct Theme {
     /// Status bar background/foreground; `None` follows the chrome theme.
     pub status_bg: Option<Color>,
     pub status_fg: Option<Color>,
+    /// Sidebar row foregrounds; `None` follows terminal/chrome defaults.
+    pub sidebar_fg: Option<Color>,
+    pub sidebar_selected_fg: Option<Color>,
     /// Render unfocused terminal panes with the DIM attribute.
     pub dim_inactive: bool,
 }
@@ -858,6 +949,8 @@ impl Default for Theme {
             border_style: BorderStyle::Single,
             status_bg: None,
             status_fg: None,
+            sidebar_fg: None,
+            sidebar_selected_fg: None,
             dim_inactive: false,
         }
     }
@@ -876,6 +969,10 @@ pub struct Tabs {
     /// Program names worth surfacing in the tab label even when
     /// `show_titles` is off (matched as words in the reported title).
     pub agents: Vec<String>,
+    /// Cap style for solid tab chips.
+    pub style: ChipStyle,
+    /// The tab bar's `+` button: label, click override, right-click menu.
+    pub plus: PlusButton,
 }
 
 impl Default for Tabs {
@@ -885,6 +982,8 @@ impl Default for Tabs {
             solid_background: true,
             show_titles: false,
             agents: ["claude", "codex", "opencode", "pi"].map(String::from).to_vec(),
+            style: ChipStyle::Block,
+            plus: PlusButton::default(),
         }
     }
 }
@@ -910,6 +1009,14 @@ pub struct Sidebar {
     pub profiles: Vec<SidebarProfileSpec>,
     pub active_profile: String,
     pub plugin: Option<SidebarPluginOptions>,
+    /// Rows per rail entry: 2 keeps the subtitle line, 1 is name-only.
+    pub row_height: u16,
+    /// Blank rows between rail entries.
+    pub row_gap: u16,
+    /// Accent glyph on active rail rows; empty removes it.
+    pub rail_glyph: String,
+    /// Workspace row label template with `{index}` and `{name}`.
+    pub workspace_label: String,
 }
 
 impl Default for Sidebar {
@@ -937,6 +1044,10 @@ impl Default for Sidebar {
             }],
             active_profile: "default".to_string(),
             plugin: None,
+            row_height: 2,
+            row_gap: 1,
+            rail_glyph: "\u{258e}".to_string(),
+            workspace_label: "{name}".to_string(),
         }
     }
 }
@@ -975,12 +1086,80 @@ pub enum SidebarResourceKind {
 pub struct SidebarViewSpec {
     pub id: String,
     pub levels: Vec<SidebarResourceKind>,
-    /// Canonical native commands pinned below this view's resource rows.
-    pub actions: Vec<Action>,
+    /// Canonical native commands pinned to this view, with optional
+    /// user-facing button labels.
+    pub actions: Vec<SidebarActionSpec>,
+    /// Whether the pinned actions render above or below the resource rows.
+    pub actions_position: ActionsPosition,
     pub width: u16,
     pub max_width: u16,
     /// Lower values collapse first when pane space becomes constrained.
     pub collapse_priority: u16,
+}
+
+/// One pinned sidebar action and its optional label override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarActionSpec {
+    pub action: Action,
+    pub label: Option<String>,
+}
+
+impl SidebarActionSpec {
+    pub fn plain(action: Action) -> Self {
+        Self { action, label: None }
+    }
+}
+
+/// A configurable `+` button: its rendered label, an optional left-click
+/// action override, and an optional right-click menu of actions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlusButton {
+    pub label: String,
+    pub action: Option<Action>,
+    pub menu: Vec<SidebarActionSpec>,
+}
+
+impl Default for PlusButton {
+    fn default() -> Self {
+        Self { label: " + ".to_string(), action: None, menu: Vec::new() }
+    }
+}
+
+fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) -> PlusButton {
+    let mut plus = PlusButton::default();
+    if let Some(label) = raw.label {
+        // Keep at least one visible cell so the button stays clickable.
+        if !label.trim().is_empty() {
+            plus.label = label;
+        }
+    }
+    if let Some(action) = raw.action.as_deref() {
+        match parse_sidebar_action(action.trim(), command_ids) {
+            Ok(action) => plus.action = Some(action),
+            Err(warning) => eprintln!("{warning} in {owner} plus button"),
+        }
+    }
+    if let Some(menu) = raw.menu {
+        let mut seen = HashSet::new();
+        for raw_action in &menu {
+            match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                Ok(action) if seen.insert(action) => plus.menu.push(SidebarActionSpec {
+                    action,
+                    label: raw_action
+                        .label()
+                        .map(str::trim)
+                        .filter(|label| !label.is_empty())
+                        .map(str::to_string),
+                }),
+                Ok(_) => eprintln!(
+                    "cmux-tui: ignoring duplicate {owner} plus menu action {:?}",
+                    raw_action.action().trim()
+                ),
+                Err(warning) => eprintln!("{warning} in {owner} plus menu"),
+            }
+        }
+    }
+    plus
 }
 
 impl SidebarViewSpec {
@@ -992,7 +1171,15 @@ impl SidebarViewSpec {
         };
         let levels = vec![level];
         let actions = default_sidebar_actions(&levels);
-        Self { id: id.to_string(), levels, actions, width, max_width, collapse_priority }
+        Self {
+            id: id.to_string(),
+            levels,
+            actions,
+            actions_position: ActionsPosition::Bottom,
+            width,
+            max_width,
+            collapse_priority,
+        }
     }
 
     pub fn legacy_kind(&self) -> Option<SidebarColumnKind> {
@@ -1177,15 +1364,26 @@ fn default_sidebar_collapse_priority(levels: &[SidebarResourceKind]) -> u16 {
     }
 }
 
-fn default_sidebar_actions(levels: &[SidebarResourceKind]) -> Vec<Action> {
+fn default_sidebar_actions(levels: &[SidebarResourceKind]) -> Vec<SidebarActionSpec> {
     if levels.first() == Some(&SidebarResourceKind::Workspaces) {
-        vec![Action::NewWorkspace]
+        vec![SidebarActionSpec::plain(Action::NewWorkspace)]
     } else {
         Vec::new()
     }
 }
 
-fn parse_sidebar_action(value: &str) -> Result<Action, String> {
+/// Parse one pinned action name: an action catalog key, or `command:<id>`
+/// referencing a user command from the top-level `commands` section.
+fn parse_sidebar_action(value: &str, command_ids: &[String]) -> Result<Action, String> {
+    if let Some(command_id) = value.strip_prefix("command:") {
+        return command_ids
+            .iter()
+            .position(|id| id == command_id)
+            .and_then(Action::user_command)
+            .ok_or_else(|| {
+                format!("cmux-tui: ignoring sidebar action for unknown command {command_id:?}")
+            });
+    }
     action_definitions()
         .iter()
         .find(|definition| definition.config_key == value)
@@ -1200,6 +1398,7 @@ fn resolve_sidebar_view_specs(
     workspace_width: u16,
     workspace_max_width: u16,
     owner: &str,
+    command_ids: &[String],
 ) -> Vec<SidebarViewSpec> {
     let mut ids = HashSet::new();
     let mut legacy_kinds = HashSet::new();
@@ -1233,6 +1432,7 @@ fn resolve_sidebar_view_specs(
             id: id.to_string(),
             levels: levels.clone(),
             actions: Vec::new(),
+            actions_position: ActionsPosition::Bottom,
             width: 0,
             max_width: 0,
             collapse_priority: 0,
@@ -1261,18 +1461,27 @@ fn resolve_sidebar_view_specs(
             let mut seen = HashSet::new();
             raw_actions
                 .iter()
-                .filter_map(|raw_action| match parse_sidebar_action(raw_action.trim()) {
-                    Ok(action) if seen.insert(action) => Some(action),
-                    Ok(_) => {
-                        eprintln!(
-                            "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
-                            raw_action.trim()
-                        );
-                        None
-                    }
-                    Err(warning) => {
-                        eprintln!("{warning} in {owner} view {id:?}");
-                        None
+                .filter_map(|raw_action| {
+                    match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                        Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
+                            action,
+                            label: raw_action
+                                .label()
+                                .map(str::trim)
+                                .filter(|label| !label.is_empty())
+                                .map(str::to_string),
+                        }),
+                        Ok(_) => {
+                            eprintln!(
+                                "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                                raw_action.action().trim()
+                            );
+                            None
+                        }
+                        Err(warning) => {
+                            eprintln!("{warning} in {owner} view {id:?}");
+                            None
+                        }
                     }
                 })
                 .collect()
@@ -1286,6 +1495,7 @@ fn resolve_sidebar_view_specs(
                 .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
             levels,
             actions,
+            actions_position: view.actions_position.unwrap_or_default(),
             width: view.width.unwrap_or(default_width).clamp(10, 60),
             max_width: view.max_width.unwrap_or(default_max_width),
         });
@@ -2785,6 +2995,16 @@ pub struct StatusBarOptions {
     pub left: Vec<StatusSegment>,
     /// Segments right-aligned before the session label.
     pub right: Vec<StatusSegment>,
+    /// Powerline-style separator drawn between left segments and after the
+    /// last one; its foreground takes the previous segment's background and
+    /// its background the next segment's, tmux `status-left` style.
+    pub left_separator: Option<String>,
+    /// Mirror of `left_separator` for the right-aligned segments.
+    pub right_separator: Option<String>,
+    /// Cap style for the active screen chip in the screens strip.
+    pub screens_style: ChipStyle,
+    /// The screens strip's `+` button.
+    pub screens_plus: PlusButton,
 }
 
 impl Default for StatusBarOptions {
@@ -2795,6 +3015,10 @@ impl Default for StatusBarOptions {
             show_session: true,
             left: Vec::new(),
             right: Vec::new(),
+            left_separator: None,
+            right_separator: None,
+            screens_style: ChipStyle::Block,
+            screens_plus: PlusButton::default(),
         }
     }
 }
@@ -3005,6 +3229,9 @@ pub fn load() -> Config {
     if let Some(agents) = raw.tabs.agents {
         config.tabs.agents = agents.into_iter().map(|a| a.to_lowercase()).collect();
     }
+    if let Some(style) = raw.tabs.style {
+        config.tabs.style = style;
+    }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
@@ -3020,6 +3247,30 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
+    }
+    if let Some(height) = raw.sidebar.row_height {
+        config.sidebar.row_height = height.clamp(1, 2);
+    }
+    if let Some(gap) = raw.sidebar.row_gap {
+        config.sidebar.row_gap = gap.min(2);
+    }
+    if let Some(glyph) = raw.sidebar.rail_glyph {
+        if glyph.eq_ignore_ascii_case("none") {
+            config.sidebar.rail_glyph = String::new();
+        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+            // The renderer reserves exactly one cell for the glyph.
+            config.sidebar.rail_glyph = glyph;
+        } else {
+            eprintln!(
+                "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
+            );
+        }
+    }
+    if let Some(template) = raw.sidebar.workspace_label {
+        let template = template.trim().to_string();
+        if !template.is_empty() {
+            config.sidebar.workspace_label = template;
+        }
     }
     if let Some(plugin) = raw.sidebar.plugin {
         let command = plugin
@@ -3121,6 +3372,16 @@ pub fn load() -> Config {
         .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
         .collect();
     config.sidebar.views_explicit = config.sidebar.columns_explicit;
+    // User commands resolve before sidebar views so pinned buttons can
+    // reference them as `command:<id>`; their chords bind after `keys`.
+    let (user_commands, user_command_keys) = resolve_user_command_specs(raw.commands);
+    let command_ids: Vec<String> = user_commands.iter().map(|command| command.id.clone()).collect();
+    if let Some(plus) = raw.tabs.plus {
+        config.tabs.plus = resolve_plus_button(plus, &command_ids, "tabs");
+    }
+    if let Some(plus) = raw.status_bar.screens_plus {
+        config.status_bar.screens_plus = resolve_plus_button(plus, &command_ids, "status_bar");
+    }
     if let Some(views) = raw.sidebar.views.as_ref() {
         if raw.sidebar.columns.is_some() {
             eprintln!("cmux-tui: sidebar.views overrides sidebar.columns");
@@ -3132,6 +3393,7 @@ pub fn load() -> Config {
             config.sidebar.width,
             config.sidebar.max_width,
             "sidebar",
+            &command_ids,
         );
         if resolved.is_empty() {
             eprintln!("cmux-tui: sidebar.views had no usable entries; keeping defaults");
@@ -3172,6 +3434,7 @@ pub fn load() -> Config {
                 config.sidebar.width,
                 config.sidebar.max_width,
                 &owner,
+                &command_ids,
             );
             if views.is_empty() {
                 eprintln!("cmux-tui: ignoring sidebar profile {id:?} with no usable views");
@@ -3334,6 +3597,12 @@ pub fn load() -> Config {
     if let Some(c) = raw.theme.status_fg.as_ref().and_then(ColorValue::to_color) {
         config.theme.status_fg = Some(c);
     }
+    if let Some(c) = raw.theme.sidebar_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_fg = Some(c);
+    }
+    if let Some(c) = raw.theme.sidebar_selected_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_selected_fg = Some(c);
+    }
     if let Some(dim) = raw.theme.dim_inactive {
         config.theme.dim_inactive = dim;
     }
@@ -3355,22 +3624,32 @@ pub fn load() -> Config {
     if let Some(right) = raw.status_bar.right {
         config.status_bar.right = resolve_status_segments(right, "right");
     }
+    config.status_bar.left_separator =
+        raw.status_bar.left_separator.filter(|separator| !separator.is_empty());
+    config.status_bar.right_separator =
+        raw.status_bar.right_separator.filter(|separator| !separator.is_empty());
+    if let Some(style) = raw.status_bar.screens_style {
+        config.status_bar.screens_style = style;
+    }
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
-    config.commands = resolve_user_commands(raw.commands, &mut config.keys);
+    bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
+    config.commands = user_commands;
     config
 }
 
-/// Validate the raw `commands` section and bind each command's chords.
-/// Command chords are bound after `keys` overrides, so an explicit command
-/// chord replaces whatever action previously held that chord, matching the
-/// last-write-wins behavior of the `keys` section itself.
-fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserCommandConfig> {
+/// Validate the raw `commands` section into resolved specs plus each
+/// command's raw chord values. Chords bind later, after the `keys` section
+/// applied its overrides, so command chords keep last-write-wins order.
+fn resolve_user_command_specs(
+    raw: Vec<RawUserCommand>,
+) -> (Vec<UserCommandConfig>, Vec<Option<Value>>) {
     let mut commands = Vec::new();
+    let mut key_values = Vec::new();
     let mut ids = HashSet::new();
     for command in raw {
         let id = command.id.as_deref().unwrap_or("").trim().to_string();
@@ -3389,40 +3668,15 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
             eprintln!("cmux-tui: ignoring command {id:?} without a run program");
             continue;
         }
-        let Some(action) = Action::user_command(commands.len()) else {
+        if Action::user_command(commands.len()).is_none() {
             eprintln!(
                 "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
             );
             continue;
-        };
+        }
         // The id is reserved only after validation, so an ignored invalid
         // entry never blocks a later valid entry with the same id.
         ids.insert(id.clone());
-        if let Some(value) = command.keys.as_ref() {
-            let mut bound = 0usize;
-            for raw_chord in key_values(value) {
-                if raw_chord.eq_ignore_ascii_case("none") {
-                    continue;
-                }
-                if bound >= MAX_USER_COMMAND_CHORDS {
-                    eprintln!(
-                        "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
-                    );
-                    break;
-                }
-                let Some(chord) = parse_chord(raw_chord) else {
-                    eprintln!(
-                        "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
-                    );
-                    continue;
-                };
-                // Only a successful bind consumes the limit; rejected
-                // chords leave room for the valid ones after them.
-                if keys.bind_user_command_chord(&id, action, chord) {
-                    bound += 1;
-                }
-            }
-        }
         let name = command
             .name
             .map(|name| name.trim().to_string())
@@ -3430,8 +3684,43 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
             .unwrap_or_else(|| id.clone());
         let cwd = command.cwd.map(|cwd| cwd.trim().to_string()).filter(|cwd| !cwd.is_empty());
         commands.push(UserCommandConfig { id, name, run, cwd });
+        key_values.push(command.keys);
     }
-    commands
+    (commands, key_values)
+}
+
+/// Bind every command's chords after `keys` overrides applied.
+fn bind_user_command_chords(
+    keys: &mut Keys,
+    commands: &[UserCommandConfig],
+    chord_values: &[Option<Value>],
+) {
+    for (index, (command, value)) in commands.iter().zip(chord_values).enumerate() {
+        let Some(action) = Action::user_command(index) else { break };
+        let Some(value) = value.as_ref() else { continue };
+        let id = &command.id;
+        let mut bound = 0usize;
+        for raw_chord in key_values(value) {
+            if raw_chord.eq_ignore_ascii_case("none") {
+                continue;
+            }
+            if bound >= MAX_USER_COMMAND_CHORDS {
+                eprintln!(
+                    "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
+                );
+                break;
+            }
+            let Some(chord) = parse_chord(raw_chord) else {
+                eprintln!("cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}");
+                continue;
+            };
+            // Only a successful bind consumes the limit; rejected chords
+            // leave room for the valid ones after them.
+            if keys.bind_user_command_chord(id, action, chord) {
+                bound += 1;
+            }
+        }
+    }
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
@@ -7107,7 +7396,13 @@ mod tests {
             vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]
         );
         assert_eq!(config.sidebar.views[1].collapse_priority, 20);
-        assert_eq!(config.sidebar.views[1].actions, vec![Action::NewWorkspace, Action::NewTab]);
+        assert_eq!(
+            config.sidebar.views[1].actions,
+            vec![
+                SidebarActionSpec::plain(Action::NewWorkspace),
+                SidebarActionSpec::plain(Action::NewTab)
+            ]
+        );
         assert_eq!(
             config.sidebar.views[2].levels,
             vec![
@@ -7181,7 +7476,7 @@ mod tests {
     fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
         let sidebar = Sidebar::default();
         assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
-        assert_eq!(sidebar.views[1].actions, vec![Action::NewWorkspace]);
+        assert_eq!(sidebar.views[1].actions, vec![SidebarActionSpec::plain(Action::NewWorkspace)]);
     }
 
     #[test]
@@ -7712,6 +8007,122 @@ mod tests {
     }
 
     #[test]
+    fn chip_styles_and_separators_parse() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"style": "pill"},
+            "status_bar": {
+                "left_separator": "\u{e0b0}",
+                "right_separator": "\u{e0b2}",
+                "screens_style": "slant"
+            }
+        }))
+        .unwrap();
+        assert_eq!(raw.tabs.style, Some(ChipStyle::Pill));
+        assert_eq!(raw.status_bar.screens_style, Some(ChipStyle::Slant));
+        assert_eq!(raw.status_bar.left_separator.as_deref(), Some("\u{e0b0}"));
+        assert!(ChipStyle::Block.caps().is_none());
+        let (left, right) = ChipStyle::Pill.caps().unwrap();
+        assert!(!left.is_empty() && !right.is_empty());
+    }
+
+    #[test]
+    fn sidebar_buttons_accept_labels_positions_and_command_references() {
+        let views = vec![RawSidebarView {
+            id: "ws".to_string(),
+            levels: vec!["workspaces".to_string()],
+            actions: Some(vec![
+                RawSidebarAction::Detailed {
+                    action: "new-workspace".to_string(),
+                    label: Some("new".to_string()),
+                },
+                RawSidebarAction::Name("command:lazygit".to_string()),
+                RawSidebarAction::Name("command:unknown".to_string()),
+                RawSidebarAction::Name("new-tab".to_string()),
+            ]),
+            actions_position: Some(ActionsPosition::Top),
+            width: None,
+            max_width: None,
+            collapse_priority: None,
+        }];
+        let command_ids = vec!["lazygit".to_string()];
+        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].actions_position, ActionsPosition::Top);
+        assert_eq!(
+            resolved[0].actions,
+            vec![
+                SidebarActionSpec { action: Action::NewWorkspace, label: Some("new".to_string()) },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+                SidebarActionSpec::plain(Action::NewTab),
+            ],
+            "unknown command references drop, known ones bind by id"
+        );
+    }
+
+    #[test]
+    fn sidebar_row_metrics_glyph_and_label_template_parse() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "row_height": 1,
+                "row_gap": 0,
+                "rail_glyph": "none",
+                "workspace_label": "{index} · {name}"
+            }
+        }))
+        .unwrap();
+        assert_eq!(raw.sidebar.row_height, Some(1));
+        assert_eq!(raw.sidebar.row_gap, Some(0));
+        assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
+        assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    fn plus_buttons_parse_labels_actions_and_menus() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"plus": {
+                "label": " new ",
+                "action": "command:top",
+                "menu": [
+                    "new-tab",
+                    {"action": "new-browser-tab", "label": "browser"},
+                    "command:top",
+                    "command:unknown"
+                ]
+            }},
+            "status_bar": {"screens_plus": {"label": " ⊕ "}}
+        }))
+        .unwrap();
+        let command_ids = vec!["top".to_string()];
+        let plus = resolve_plus_button(raw.tabs.plus.unwrap(), &command_ids, "tabs");
+        assert_eq!(plus.label, " new ");
+        assert_eq!(plus.action, Action::user_command(0));
+        assert_eq!(
+            plus.menu,
+            vec![
+                SidebarActionSpec::plain(Action::NewTab),
+                SidebarActionSpec {
+                    action: Action::NewBrowserTab,
+                    label: Some("browser".to_string()),
+                },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+            ],
+            "unknown command references drop from plus menus"
+        );
+        let screens =
+            resolve_plus_button(raw.status_bar.screens_plus.unwrap(), &command_ids, "status_bar");
+        assert_eq!(screens.label, " ⊕ ");
+        assert_eq!(screens.action, None);
+        assert!(screens.menu.is_empty());
+        // A blank label keeps the clickable default.
+        let blank = resolve_plus_button(
+            RawPlusButton { label: Some("   ".to_string()), action: None, menu: None },
+            &command_ids,
+            "tabs",
+        );
+        assert_eq!(blank.label, " + ");
+    }
+
+    #[test]
     fn raw_config_accepts_commands_section() {
         let raw: RawConfig = serde_json::from_value(json!({
             "commands": [
@@ -7764,7 +8175,8 @@ mod tests {
                 cwd: None,
             },
         ];
-        let commands = resolve_user_commands(raw, &mut keys);
+        let (commands, key_values) = resolve_user_command_specs(raw);
+        bind_user_command_chords(&mut keys, &commands, &key_values);
         assert_eq!(commands.len(), 2);
         assert_eq!(commands[0].id, "lazygit");
         // An ignored invalid entry does not reserve its id: a later valid
@@ -7786,7 +8198,8 @@ mod tests {
                 cwd: Some("   ".to_string()),
             },
         ];
-        let retried = resolve_user_commands(retry, &mut keys_retry);
+        let (retried, retried_keys) = resolve_user_command_specs(retry);
+        bind_user_command_chords(&mut keys_retry, &retried, &retried_keys);
         assert_eq!(retried.len(), 1);
         assert_eq!(retried[0].id, "retry");
         assert_eq!(retried[0].cwd, None, "blank cwd is treated as absent");
@@ -7834,7 +8247,8 @@ mod tests {
                 cwd: None,
             })
             .collect();
-        let commands = resolve_user_commands(raw, &mut keys);
+        let (commands, key_values) = resolve_user_command_specs(raw);
+        bind_user_command_chords(&mut keys, &commands, &key_values);
         assert_eq!(commands.len(), MAX_USER_COMMANDS);
         assert!(Action::user_command(MAX_USER_COMMANDS).is_none());
     }
