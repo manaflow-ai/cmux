@@ -26,6 +26,7 @@ struct TitleUpdateAmplificationRegressionTests {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let scheduler = ManualTitleCoalescerScheduler()
         let manager = TabManager(
+            autoWelcomeIfNeeded: false,
             panelTitleUpdateCoalescer: NotificationBurstCoalescer(
                 schedule: scheduler.schedule(delay:action:)
             ),
