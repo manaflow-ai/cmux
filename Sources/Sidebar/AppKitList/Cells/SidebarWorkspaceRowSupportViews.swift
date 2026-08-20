@@ -404,12 +404,17 @@ final class SidebarRowIconTextLine: NSView {
             default: color = palette.secondary(0.9)
             }
         } else {
+            // On a custom-tinted row the fixed status hues fail contrast against
+            // the vivid card, so route them through `legibleOnTint` (a no-op on
+            // untinted rows). `semantic(...)` resolves the system color to a
+            // concrete sRGB value first, matching the row's cmux scheme and
+            // keeping the contrast math off a catalog color.
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = .systemBlue
-            case .success: color = .systemGreen
-            case .warning: color = .systemOrange
-            case .error: color = .systemRed
+            case .progress: color = palette.legibleOnTint(palette.semantic(.systemBlue))
+            case .success: color = palette.legibleOnTint(palette.semantic(.systemGreen))
+            case .warning: color = palette.legibleOnTint(palette.semantic(.systemOrange))
+            case .error: color = palette.legibleOnTint(palette.semantic(.systemRed))
             }
         }
         iconView.isHidden = false

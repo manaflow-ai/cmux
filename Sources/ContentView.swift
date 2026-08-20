@@ -15772,7 +15772,11 @@ struct TabItemView: View, Equatable {
         let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
         let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
-        let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
+        let spinnerColor: NSColor = usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: 0.55)
+            : (tintedTextBackgroundNSColor.map {
+                cmuxReadableForegroundNSColor(on: $0, meeting: 4.5, preferredOpacity: 0.6)
+            } ?? .secondaryLabelColor)
         let rowView = VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
 
@@ -16312,7 +16316,26 @@ struct TabItemView: View, Equatable {
     }
 
     private var pullRequestForegroundColor: Color {
-        isActive ? activeSecondaryColor(0.75) : .secondary
+        // `activeSecondaryColor` already routes an inactive, custom-tinted
+        // `solidFill` row through the readable-foreground derivation, so the PR
+        // status text stays legible on a bright card instead of using a fixed
+        // `.secondary` that fails contrast.
+        activeSecondaryColor(0.75)
+    }
+
+    /// Keeps an explicit status hue (e.g. the blue "Running"/progress color)
+    /// when it already reads on an inactive tinted row, else derives a readable
+    /// foreground against the tint. Returns `untinted` unchanged on any row that
+    /// draws on the sidebar's own surface. Mirrors the AppKit
+    /// `SidebarRowPalette.legibleOnTint`.
+    private func legibleStatusColor(_ system: NSColor, untinted: Color) -> Color {
+        guard let background = tintedTextBackgroundNSColor else { return untinted }
+        let resolved = SidebarAppearanceColorResolver().resolvedColor(system, for: colorScheme)
+        return Color(nsColor: cmuxReadableForegroundNSColor(
+            preferred: resolved,
+            on: background,
+            minimumContrast: 4.5
+        ))
     }
 
     private func openPullRequestLink(_ url: URL) {
@@ -16357,11 +16380,11 @@ struct TabItemView: View, Equatable {
             }
         }
         switch level {
-        case .info: return .secondary
-        case .progress: return .blue
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
+        case .info: return activeSecondaryColor(0.5)
+        case .progress: return legibleStatusColor(.systemBlue, untinted: .blue)
+        case .success: return legibleStatusColor(.systemGreen, untinted: .green)
+        case .warning: return legibleStatusColor(.systemOrange, untinted: .orange)
+        case .error: return legibleStatusColor(.systemRed, untinted: .red)
         }
     }
 

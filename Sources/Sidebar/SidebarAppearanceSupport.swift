@@ -198,8 +198,10 @@ func cmuxReadableForegroundNSColor(
 
 /// Approximate surface the sidebar paints behind a workspace row: the window
 /// shows through the sidebar material, so a near-window neutral is a faithful
-/// enough base for the tinted-row contrast math. Only the ~30% not covered by
-/// the tint comes from here, so small errors do not flip the readable choice.
+/// enough base for the tinted-row contrast math. The tint dominates the
+/// composite (0.7 drawn opacity for a plain inactive row, 0.35 when
+/// multi-selected), so a small error in this base rarely flips the readable
+/// white/black choice — most influential for the multi-selected case.
 func sidebarRowTintBaseBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
     colorScheme == .dark
         ? NSColor(srgbRed: 0.12, green: 0.12, blue: 0.13, alpha: 1)

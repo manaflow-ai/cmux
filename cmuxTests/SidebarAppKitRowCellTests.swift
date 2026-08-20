@@ -156,6 +156,14 @@ struct SidebarAppKitRowCellTests {
 
         #expect(contrastOnRow(palette.primaryText) >= 4.5)
         #expect(contrastOnRow(palette.secondary()) >= 4.5)
+
+        // The explicit status hue (the fixed accent blue used for "Running")
+        // is unreadable on the bright card and must be adapted by legibleOnTint
+        // — the shared path the metadata status text and log-level icons route
+        // through.
+        let statusAccent = cmuxAccentNSColor(for: .dark)
+        #expect(contrastOnRow(statusAccent) < 4.5)
+        #expect(contrastOnRow(palette.legibleOnTint(statusAccent)) >= 4.5)
     }
 
     private static func makeSwiftUIRow(
