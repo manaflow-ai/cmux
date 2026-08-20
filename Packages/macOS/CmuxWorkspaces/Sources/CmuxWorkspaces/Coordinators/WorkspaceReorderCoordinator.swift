@@ -64,6 +64,36 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         canMoveTabs(tabIds, to: .bottom)
     }
 
+    /// Returns each workspace's tier-relative move availability in one pass.
+    ///
+    /// Group members share their group's top-level row availability, so a
+    /// sidebar can project boundary action state without evaluating each row
+    /// against the complete workspace model.
+    public func tierMoveAvailabilityByTabId() -> [UUID: WorkspaceTierMoveAvailability] {
+        guard !model.tabs.isEmpty else { return [:] }
+
+        if model.workspaceGroups.isEmpty {
+            return tierMoveAvailability(
+                ids: model.tabs.map(\.id),
+                pinnedIds: Set(model.tabs.filter(\.isPinned).map(\.id))
+            )
+        }
+
+        let topLevelIds = model.sidebarTopLevelWorkspaceIds()
+        let availabilityByTopLevelId = tierMoveAvailability(
+            ids: topLevelIds,
+            pinnedIds: model.sidebarTopLevelPinnedWorkspaceIds()
+        )
+        let groupsById = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map { ($0.id, $0) })
+        return Dictionary(uniqueKeysWithValues: model.tabs.map { tab in
+            let topLevelId = tab.groupId.flatMap { groupsById[$0]?.anchorWorkspaceId } ?? tab.id
+            return (tab.id, availabilityByTopLevelId[topLevelId] ?? WorkspaceTierMoveAvailability(
+                canMoveToTop: false,
+                canMoveToBottom: false
+            ))
+        })
+    }
+
     /// Determines whether a tier-relative move would change the top-level order.
     private func canMoveTabs(_ tabIds: Set<UUID>, to placement: TierPlacement) -> Bool {
         guard !tabIds.isEmpty else { return false }
@@ -142,6 +172,29 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         case .bottom:
             return remainingPinned + selectedPinned + remainingUnpinned + selectedUnpinned
         }
+    }
+
+    /// Computes each id's top and bottom availability within its pin tier.
+    private func tierMoveAvailability(
+        ids: [UUID],
+        pinnedIds: Set<UUID>
+    ) -> [UUID: WorkspaceTierMoveAvailability] {
+        let pinnedIdsInOrder = ids.filter { pinnedIds.contains($0) }
+        let unpinnedIdsInOrder = ids.filter { !pinnedIds.contains($0) }
+        var availabilityById: [UUID: WorkspaceTierMoveAvailability] = [:]
+        availabilityById.reserveCapacity(ids.count)
+
+        for tierIds in [pinnedIdsInOrder, unpinnedIdsInOrder] where !tierIds.isEmpty {
+            let firstId = tierIds[0]
+            let lastId = tierIds[tierIds.count - 1]
+            for id in tierIds {
+                availabilityById[id] = WorkspaceTierMoveAvailability(
+                    canMoveToTop: id != firstId,
+                    canMoveToBottom: id != lastId
+                )
+            }
+        }
+        return availabilityById
     }
 
     /// Moves a workspace to the top of the unpinned tier for a notification

@@ -1724,6 +1724,10 @@ class TabManager: ObservableObject {
         workspaceReordering.canMoveTabsToBottom(tabIds)
     }
 
+    func tierMoveAvailabilityByTabId() -> [UUID: WorkspaceTierMoveAvailability] {
+        workspaceReordering.tierMoveAvailabilityByTabId()
+    }
+
     func moveTabToTopForNotification(_ tabId: UUID) {
         workspaceReordering.moveTabToTopForNotification(tabId)
     }

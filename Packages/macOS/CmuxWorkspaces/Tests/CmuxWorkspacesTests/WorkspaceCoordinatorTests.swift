@@ -162,6 +162,12 @@ struct WorkspaceCoordinatorTests {
         let plainB = CoordinatorStubTab()
         model.tabs = [pinnedA, pinnedB, plainA, plainB]
 
+        let availabilityByTabId = reorder.tierMoveAvailabilityByTabId()
+        #expect(availabilityByTabId[pinnedA.id] == .init(canMoveToTop: false, canMoveToBottom: true))
+        #expect(availabilityByTabId[pinnedB.id] == .init(canMoveToTop: true, canMoveToBottom: false))
+        #expect(availabilityByTabId[plainA.id] == .init(canMoveToTop: false, canMoveToBottom: true))
+        #expect(availabilityByTabId[plainB.id] == .init(canMoveToTop: true, canMoveToBottom: false))
+
         #expect(!reorder.canMoveTabsToTop([pinnedA.id]))
         #expect(!reorder.canMoveTabsToTop([plainA.id]))
         #expect(reorder.canMoveTabsToTop([pinnedB.id]))
@@ -198,6 +204,10 @@ struct WorkspaceCoordinatorTests {
         #expect(!reorder.canMoveTabsToBottom([groupedSecond.id]))
         #expect(reorder.canMoveTabsToTop([groupedSecond.id]))
         #expect(!reorder.canMoveTabsToBottom([groupedFirst.id]))
+        #expect(reorder.tierMoveAvailabilityByTabId()[groupedFirst.id]
+            == .init(canMoveToTop: true, canMoveToBottom: false))
+        #expect(reorder.tierMoveAvailabilityByTabId()[groupedSecond.id]
+            == .init(canMoveToTop: true, canMoveToBottom: false))
 
         let orderAtBottom = model.tabs.map(\.id)
         let notificationsAtBottom = host.orderChanges

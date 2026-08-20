@@ -11930,6 +11930,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // root row construction independent from notification publications.
         let unreadSnapshot = SidebarUnreadSnapshot()
         let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
+        let tierMoveAvailabilityByTabId = tabManager.tierMoveAvailabilityByTabId()
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
         )
@@ -11939,7 +11940,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 workspaceRowInput(
                     workspace,
                     renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    tierMoveAvailabilityByTabId: tierMoveAvailabilityByTabId
                 )
             )
         })
@@ -13606,6 +13608,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // Shared notification/selection projections are built once here; full
         // row trees and row-specific closure binding remain lazy.
         let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
+        let tierMoveAvailabilityByTabId = tabManager.tierMoveAvailabilityByTabId()
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
         )
@@ -13615,7 +13618,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 workspaceRowInput(
                     workspace,
                     renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    tierMoveAvailabilityByTabId: tierMoveAvailabilityByTabId
                 )
             )
         })
@@ -14316,7 +14320,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceRowInput(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
-        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
+        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
+        tierMoveAvailabilityByTabId: [UUID: WorkspaceTierMoveAvailability]
     ) -> SidebarWorkspaceRowInput {
 #if DEBUG
         sidebarLazyContractProbe.workspaceRowInputProjection?()
@@ -14336,6 +14341,7 @@ struct VerticalTabsSidebar: View, Equatable {
             in: renderContext.pinResolutionContext,
             target: contextMenuPinTarget
         )
+        let tierMoveAvailability = tierMoveAvailabilityByTabId[tab.id]
         let unreadSummary = unreadSummariesByWorkspaceId[tab.id]
             ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
         let liveLatestNotificationText: String? = renderContext.tabItemSettings.showsNotificationMessage
@@ -14439,8 +14445,8 @@ struct VerticalTabsSidebar: View, Equatable {
             checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
             isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
             isRemoteContextMenuEligible: tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace,
-            canMoveToTop: tabManager.canMoveTabsToTop([tab.id]),
-            canMoveToBottom: tabManager.canMoveTabsToBottom([tab.id]),
+            canMoveToTop: tierMoveAvailability?.canMoveToTop ?? false,
+            canMoveToBottom: tierMoveAvailability?.canMoveToBottom ?? false,
             remoteConnectionState: tab.remoteConnectionState,
             contextMenuPinState: contextMenuPinState,
             inferredTaskStatus: tab.inferredTaskStatus,
