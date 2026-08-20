@@ -9,7 +9,20 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
-    await router.enqueueReplayTexts(["cold-replay", "fallback-replay"])
+    await router.enqueueReplayPayload(
+        text: "cold-replay",
+        sequence: nil,
+        activeScreen: .primary,
+        columns: 16,
+        rows: 4
+    )
+    await router.enqueueReplayPayload(
+        text: "fallback-replay",
+        sequence: nil,
+        activeScreen: .alternate,
+        columns: 16,
+        rows: 4
+    )
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
@@ -45,6 +58,7 @@ import Testing
         collector.lines.contains { $0.contains("fallback-replay") }
     }
     #expect(fallbackReplayDelivered)
+    #expect(collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4))
     #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil)
 
     await transport.deliver(try terminalBytesEventFrame(

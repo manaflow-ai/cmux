@@ -318,13 +318,14 @@ extension MobileShellComposite {
         _ bytes: Data,
         surfaceID: String,
         endSequence: UInt64? = nil,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = .natural,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 bytes: bytes,
                 replaceable: false,
-                viewportPolicy: .natural,
+                viewportPolicy: viewportPolicy,
                 endSequence: endSequence
             ),
             surfaceID: surfaceID,
@@ -443,7 +444,8 @@ extension MobileShellComposite {
             )
             requestAuthoritativeTerminalResync(
                 surfaceID: surfaceID,
-                reason: "output_queue_overload"
+                reason: "output_queue_overload",
+                forceReplacementReplay: true
             )
             return false
         }

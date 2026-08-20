@@ -222,7 +222,12 @@ import Testing
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
 
-    await router.enqueueReplayTexts(["cold-replay", "retry-replay"])
+    await router.enqueueReplayPayload(text: "cold-replay", sequence: nil)
+    await router.enqueueReplayRenderGrid(try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: 20,
+        text: "retry-replay"
+    ))
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
@@ -248,7 +253,8 @@ import Testing
     #expect(store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID))
 
     let retryReplayChunk = try #require(await iterator.next())
-    #expect(String(data: retryReplayChunk.data, encoding: .utf8) == "retry-replay")
+    #expect(String(decoding: retryReplayChunk.data, as: UTF8.self).contains("retry-replay"))
+    #expect(retryReplayChunk.sourceRenderGridFrame?.full == true)
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
     #expect(!store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID))

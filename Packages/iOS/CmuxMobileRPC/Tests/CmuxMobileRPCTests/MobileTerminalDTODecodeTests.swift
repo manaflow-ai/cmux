@@ -216,11 +216,15 @@ import Testing
 
     @Test func replayResponseDecodesRawTailAndSeq() throws {
         let base64 = Data("hello".utf8).base64EncodedString()
-        let json = "{\"data_b64\":\"\(base64)\",\"seq\":99}"
+        let json = "{\"data_b64\":\"\(base64)\",\"seq\":99,\"active_screen\":\"alternate\",\"anchor\":\"screen\",\"columns\":80,\"rows\":24}"
         let response = try MobileTerminalReplayResponse.decode(Data(json.utf8))
         #expect(response.dataBase64 == base64)
         #expect(response.sequence == 99)
         #expect(response.renderGrid == nil)
+        #expect(response.activeScreen == .alternate)
+        #expect(response.anchor == .screen)
+        #expect(response.columns == 80)
+        #expect(response.rows == 24)
     }
 
     @Test func replayResponseDecodesNestedRenderGrid() throws {

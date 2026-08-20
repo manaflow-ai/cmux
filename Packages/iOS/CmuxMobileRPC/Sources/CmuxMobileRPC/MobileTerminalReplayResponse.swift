@@ -21,6 +21,13 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     public let columns: Int?
     /// The host grid row count (debug diagnostics only).
     public let rows: Int?
+    /// The host's last-known active screen when a byte fallback is returned.
+    /// Render-grid payloads carry this in ``renderGrid``; the field keeps
+    /// compatibility fallbacks from silently switching an alternate-screen
+    /// TUI back to the natural primary-screen viewport.
+    public let activeScreen: MobileTerminalRenderGridFrame.Screen?
+    /// The viewport anchor used to capture a compatibility fallback.
+    public let anchor: MobileTerminalRenderGridFrame.Anchor?
 
     private enum CodingKeys: String, CodingKey {
         case dataBase64 = "data_b64"
@@ -29,6 +36,8 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         case sequence = "seq"
         case columns
         case rows
+        case activeScreen = "active_screen"
+        case anchor
     }
 
     public init(from decoder: any Decoder) throws {
@@ -41,6 +50,14 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
+        activeScreen = try container.decodeIfPresent(
+            MobileTerminalRenderGridFrame.Screen.self,
+            forKey: .activeScreen
+        )
+        anchor = try container.decodeIfPresent(
+            MobileTerminalRenderGridFrame.Anchor.self,
+            forKey: .anchor
+        )
     }
 
     /// Decode a replay response from raw JSON data.

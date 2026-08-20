@@ -12677,10 +12677,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputAckResubscribeRetrySurfaceID = nil
     }
 
-    private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
+    private static func terminalSnapshotReplacementBytes(
+        _ snapshotBytes: Data,
+        activeScreen: MobileTerminalRenderGridFrame.Screen?
+    ) -> Data {
         var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
+        if activeScreen == .alternate {
+            // Ghostty's active VT export contains rows and styles, but not the
+            // DEC screen switch that owns a TUI's state. Re-enter the
+            // alternate screen after RIS so the fallback is painted into the
+            // same viewport and subsequent primary bytes stay suppressed.
+            bytes.append(Data("\u{1B}[?1049h".utf8))
+        }
         bytes.append(snapshotBytes)
         return bytes
+    }
+
+    private func terminalReplayFallbackScreen(
+        payload: MobileTerminalReplayResponse?,
+        surfaceID: String
+    ) -> MobileTerminalRenderGridFrame.Screen? {
+        payload?.activeScreen ?? terminalActiveScreenBySurfaceID[surfaceID]
+    }
+
+    private func terminalReplayFallbackViewportPolicy(
+        payload: MobileTerminalReplayResponse?,
+        surfaceID: String
+    ) -> MobileTerminalOutputViewportPolicy {
+        guard terminalReplayFallbackScreen(payload: payload, surfaceID: surfaceID) == .alternate else {
+            return .natural
+        }
+        guard let columns = payload?.columns,
+              let rows = payload?.rows,
+              columns > 0,
+              rows > 0 else {
+            // Preserve the current contract when an older host omits grid
+            // dimensions; the alternate-screen discriminator still remains
+            // tracked so raw primary bytes cannot paint over the TUI.
+            return .natural
+        }
+        return .remoteGrid(columns: columns, rows: rows)
     }
 
     @discardableResult
@@ -12964,6 +13000,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ? MobileTerminalScrollbackPreference.resolve()
                         : 0
                 }
+                // Compatibility byte fallbacks do not carry the render-grid
+                // screen discriminator. Send the last screen that this
+                // surface actually delivered so the Mac can preserve an
+                // alternate-screen TUI's viewport when its grid capture is
+                // temporarily unavailable. This is advisory only; a full
+                // render-grid replay remains the authoritative replacement.
+                if let self,
+                   let activeScreen = self.terminalActiveScreenBySurfaceID[surfaceID] {
+                    params["known_active_screen"] = activeScreen.rawValue
+                }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
                     params: params
@@ -13021,6 +13067,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         return
                     }
                 }
+                let replacementRequiresAuthoritativeGrid =
+                    replayBarrierTokenForRequest != nil
+                        && self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
+                let replayHasAuthoritativeGrid = renderGrid?.full == true
+                if replacementRequiresAuthoritativeGrid && !replayHasAuthoritativeGrid {
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY non_authoritative_fallback surface=\(surfaceID) " +
+                            "snapshot=\(snapshotBytes?.isEmpty == false) raw=\(bytes?.isEmpty == false)"
+                    )
+                    transferredInFlightToRetry = self.retryTerminalReplayAfterNonAuthoritativeFallback(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: replayBarrierTokenForRequest,
+                        replayRequestID: replayRequestID,
+                        coveredReplayBarrierDroppedOutputCount:
+                            coveredReplayBarrierDroppedOutputCountForRequest
+                    )
+                    if !transferredInFlightToRetry {
+                        self.recordAppEvent(
+                            .terminalReplayFailed,
+                            correlationID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            failure: .protocolViolation
+                        )
+                    }
+                    return
+                }
                 #if DEBUG
                 let seq = replaySeq ?? 0
                 let cols = payload?.columns ?? -1
@@ -13058,11 +13130,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 }
                 let deliverBytes: Data?
+                let fallbackScreen = self.terminalReplayFallbackScreen(
+                    payload: payload,
+                    surfaceID: surfaceID
+                )
+                let fallbackViewportPolicy = self.terminalReplayFallbackViewportPolicy(
+                    payload: payload,
+                    surfaceID: surfaceID
+                )
                 if let renderGrid {
                     deliverBytes = nil
                     MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
-                    deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
+                    deliverBytes = Self.terminalSnapshotReplacementBytes(
+                        snapshotBytes,
+                        activeScreen: fallbackScreen
+                    )
                     MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
                 } else {
                     deliverBytes = bytes
@@ -13155,6 +13238,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     deliverBytes,
                     surfaceID: surfaceID,
                     endSequence: replaySeq,
+                    viewportPolicy: fallbackViewportPolicy,
                     bypassReplayBarrier: replayBarrierTokenForRequest != nil
                 )
                 if accepted,

@@ -104,26 +104,90 @@ extension MobileShellComposite {
 
     /// Begin a fresh authoritative-replay generation while carrying forward
     /// any output or replay work that the new generation supersedes.
-    func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
-        let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
+    func beginTerminalReplayBarrierCarryingReplacedWork(
+        surfaceID: String,
+        forceReplacementReplay: Bool = false
+    ) -> UUID {
+        let owesReplacementReplay = forceReplacementReplay
+            || !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
             || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         if owesReplacementReplay {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            // A forced replacement (notably an output-queue overload) has
+            // already discarded work before this barrier was created. Keep a
+            // non-zero floor so a compatibility replay fallback cannot be
+            // mistaken for covering zero dropped chunks.
+            if forceReplacementReplay {
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = max(
+                    terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0,
+                    1
+                )
+            }
         }
         return replayBarrierToken
     }
 
     /// Supersede every older replay and output acknowledgement for a surface,
     /// then request one authoritative replacement owned by the new barrier.
-    func requestAuthoritativeTerminalResync(surfaceID: String, reason: String) {
+    func requestAuthoritativeTerminalResync(
+        surfaceID: String,
+        reason: String,
+        forceReplacementReplay: Bool = false
+    ) {
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
-        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(
+            surfaceID: surfaceID,
+            forceReplacementReplay: forceReplacementReplay
+        )
         MobileDebugLog.anchormux(
             "CMUX_REPLAY authoritative_resync reason=\(reason) surface=\(surfaceID)"
         )
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    }
+
+    /// Retry a replay whose payload cannot replace output discarded by a
+    /// recovery barrier. Raw byte tails and VT text snapshots are useful for a
+    /// blank/legacy cold attach, but neither carries the complete render-grid
+    /// state required to replace a live TUI after overload.
+    ///
+    /// - Returns: `true` when the current request's in-flight ownership was
+    ///   transferred to a replacement request.
+    @discardableResult
+    func retryTerminalReplayAfterNonAuthoritativeFallback(
+        surfaceID: String,
+        replayBarrierToken: UUID?,
+        replayRequestID: UUID,
+        coveredReplayBarrierDroppedOutputCount: UInt64?
+    ) -> Bool {
+        guard let replayBarrierToken,
+              terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
+            return false
+        }
+        guard let retryToken = prepareTerminalReplayFailureRetry(
+            surfaceID: surfaceID,
+            replayBarrierToken: replayBarrierToken
+        ) else {
+            // `prepareTerminalReplayFailureRetry` fails the barrier open when
+            // the bounded retry budget is exhausted. The old local frame is
+            // preserved and live output can re-establish it without a manual
+            // disconnect/reconnect.
+            return false
+        }
+        clearTerminalReplayInFlightIfCurrent(
+            surfaceID: surfaceID,
+            requestID: replayRequestID
+        )
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            replayBarrierToken: retryToken,
+            coveredReplayBarrierDroppedOutputCount:
+                coveredReplayBarrierDroppedOutputCount
+                    ?? terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+        )
+        return true
     }
 
     func requestColdAttachTerminalReplay(surfaceID: String) {
