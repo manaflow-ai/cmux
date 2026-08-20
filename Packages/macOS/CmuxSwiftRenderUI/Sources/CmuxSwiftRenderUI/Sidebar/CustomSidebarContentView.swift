@@ -64,8 +64,11 @@ public struct CustomSidebarContentView: View {
                 }
             }
             .background {
-                if let material = sceneMaterial(surfaceStyle) {
-                    Rectangle().fill(material).ignoresSafeArea()
+                if sceneMaterial(surfaceStyle) != nil {
+                    // Behind-window vibrancy: the blurred desktop shows
+                    // through, which is what makes the surface read as glass
+                    // (an in-window material over the flat backdrop does not).
+                    SidebarGlassBackdrop().ignoresSafeArea()
                 }
             }
     }
