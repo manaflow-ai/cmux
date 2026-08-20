@@ -7,6 +7,7 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+mod cursor_provenance;
 mod remote;
 pub(crate) mod tree;
 
@@ -1768,6 +1769,19 @@ impl Session {
 impl SurfaceHandle {
     pub fn is_remote(&self) -> bool {
         matches!(self, SurfaceHandle::Remote(_, _))
+    }
+
+    /// Whether the terminal application authored its cursor style (DECSCUSR)
+    /// rather than inheriting a session or frontend default. A scoped attach
+    /// client mirrors the cursor to the host terminal only when this is true.
+    /// Local surfaces render inside a full TUI that owns the host cursor, so
+    /// they always report true.
+    pub fn cursor_style_authored(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(_, _) => true,
+            SurfaceHandle::Remote(surface, _) => surface.cursor_style_authored(),
+            SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
     }
 
     pub fn kind(&self) -> SurfaceKind {

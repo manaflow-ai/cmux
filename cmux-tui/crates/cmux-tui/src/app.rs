@@ -6610,6 +6610,11 @@ pub struct App {
     pub(crate) rendered_pane_content_generations: HashMap<SurfaceId, PaneContentGeneration>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
+    /// Host mouse-capture state this client last asserted. Full-TUI clients
+    /// always capture; a scoped attach client mirrors the inner terminal's
+    /// mouse-tracking state so the host owns clicks and selection whenever
+    /// the inner application did not request mouse input.
+    host_mouse_capture_applied: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
@@ -7926,13 +7931,16 @@ fn run_with_machine_updates_inner(
             &mut stdout,
             terminal_restore.host_keyboard_protocol_mut(),
         )?;
-        stdout.execute(EnableMouseCapture)?;
-        // Ask the host terminal to report Shift-modified mouse events so
-        // Shift remains cmux's selection/context-menu escape while the inner
-        // application owns ordinary mouse input.
-        write!(stdout, "\x1b[>1s")?;
-        stdout.execute(EnableFocusChange)?;
-        stdout.execute(EnableBracketedPaste)?;
+        let startup_modes = host_startup_input_modes(surface_only.is_some());
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "startup.modes surface_only={} bytes={:?}",
+                surface_only.is_some(),
+                startup_modes
+            ));
+        }
+        stdout.write_all(startup_modes.as_bytes())?;
+        stdout.flush()?;
         Ok(())
     })() {
         return Err(terminal_restore.restore_after_error(e));
@@ -7944,6 +7952,9 @@ fn run_with_machine_updates_inner(
     let input = host_input.producer(tx.clone());
     if let Err(error) = std::thread::Builder::new().name("input".into()).spawn(move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!("host.event.startup {event:?}"));
+            }
             if !input.send(event) {
                 return;
             }
@@ -7975,6 +7986,9 @@ fn run_with_machine_updates_inner(
                 }
             };
             for event in events {
+                if crate::debug_tap::enabled() {
+                    crate::debug_tap::line(format!("host.event {event:?}"));
+                }
                 if !input.send(event) {
                     break 'input;
                 }
@@ -8086,7 +8100,8 @@ fn run_with_machine_updates_inner(
         rendered_terminal_pointer_semantics: HashMap::new(),
         rendered_pane_content_generations: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
-        applied_outer_cursor: None,
+        applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
+        host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
@@ -8483,6 +8498,12 @@ fn with_panic_stdout_lock(stdout_lock: &Arc<StdoutLock>, restore: impl FnOnce())
 fn restore_terminal_unlocked(
     host_keyboard_protocol: &HostKeyboardProtocolOwnership,
 ) -> anyhow::Result<()> {
+    if crate::debug_tap::enabled() {
+        crate::debug_tap::line(format!(
+            "restore_terminal_unlocked (writes DisableMouseCapture) backtrace={}",
+            std::backtrace::Backtrace::force_capture()
+        ));
+    }
     let mut stdout = std::io::stdout();
     // A canceled or failed graphics write may have ended inside a Kitty APC.
     // CAN returns the outer parser to ground before any restoration sequence.
@@ -11566,7 +11587,103 @@ impl App {
             stdout.flush()?;
             self.applied_outer_cursor = Some(self.desired_outer_cursor);
         }
+        let desired_mouse_capture = self.desired_host_mouse_capture();
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::changed(
+                "capture.state",
+                format!(
+                    "applied={:?} desired={} probe={}",
+                    self.host_mouse_capture_applied,
+                    desired_mouse_capture,
+                    self.debug_pointer_probe_description()
+                ),
+            );
+        }
+        if let Some(sequence) = host_mouse_capture_escape_if_changed(
+            self.host_mouse_capture_applied,
+            desired_mouse_capture,
+        ) {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "capture.write applied={:?} -> {} bytes={:?}",
+                    self.host_mouse_capture_applied, desired_mouse_capture, sequence
+                ));
+            }
+            let mut stdout = std::io::stdout();
+            stdout.write_all(sequence.as_bytes())?;
+            stdout.flush()?;
+            self.host_mouse_capture_applied = Some(desired_mouse_capture);
+        }
         Ok(())
+    }
+
+    /// Debug-tap only: a re-probe of the scoped surface's pointer semantics
+    /// for logging. Can differ from the probe `desired_host_mouse_capture`
+    /// just took under contention.
+    fn debug_pointer_probe_description(&self) -> String {
+        let Some(surface_id) = self.surface_only else { return "full-tui".to_string() };
+        match self.session.surface(surface_id).map(|surface| surface.try_pointer_semantics()) {
+            None => "surface-missing".to_string(),
+            Some(None) => "no-probe".to_string(),
+            Some(Some(PointerSemanticProbe::Contended)) => "contended".to_string(),
+            Some(Some(PointerSemanticProbe::Ready(semantics))) => {
+                format!("ready(mouse_tracking={})", semantics.mouse_tracking)
+            }
+        }
+    }
+
+    /// Full-TUI clients always capture host mouse input. A scoped attach
+    /// client mirrors the inner terminal's mouse-tracking state instead, so
+    /// the host terminal keeps native click and selection handling whenever
+    /// the inner application did not request mouse input.
+    ///
+    /// The state is read from the scoped surface's terminal itself (the
+    /// mirror a daemon replay restores and live output keeps current), never
+    /// from the rendered-frame projection: `draw_content` removes a
+    /// surface's rendered semantics at the start of every draw and restores
+    /// them only after a successful render, so a frame whose pane render
+    /// failed or was skipped (renderer error while daemon output is applied,
+    /// zero-sized pane during layout churn) must not release capture the
+    /// inner application still holds. When the state is momentarily
+    /// unknowable (terminal lock contended, surface gone during teardown)
+    /// the client keeps the capture it last applied instead of toggling the
+    /// host.
+    fn desired_host_mouse_capture(&self) -> bool {
+        let Some(surface_id) = self.surface_only else { return true };
+        let canonical = self
+            .session
+            .surface(surface_id)
+            .and_then(|surface| surface.try_pointer_semantics())
+            .and_then(|probe| match probe {
+                PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
+                PointerSemanticProbe::Contended => None,
+            });
+        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
+    }
+
+    /// A scoped attach client mirrors the inner terminal's input modes onto
+    /// the host terminal, but the host can silently drop those modes without
+    /// the client ever seeing it: app-side session restore can write a reset
+    /// into the Ghostty surface after the client's capture-on burst, or the
+    /// host can re-initialize the surface on relaunch. The per-frame capture
+    /// (and cursor) sync is edge-triggered on the last applied state, so a
+    /// dropped mode is never re-asserted and the bridge tab loses mouse input
+    /// until the inner application happens to toggle modes (btop never does).
+    ///
+    /// Focus-in and resize are the two host-visible signals that the host may
+    /// have re-initialized: Ghostty emits a focus-in report on every window
+    /// re-activation and app reopen, and the reattached surface is resized to
+    /// the new window's geometry. Clearing the applied host bookkeeping on
+    /// those events forces the next frame to re-derive the canonical inner
+    /// state and re-emit it, recovering any mode the host silently dropped.
+    /// Scoped clients only: a full TUI owns the whole host surface and
+    /// re-emits its modes through its own lifecycle.
+    fn reassert_scoped_host_terminal_state(&mut self) {
+        if self.surface_only.is_none() {
+            return;
+        }
+        self.host_mouse_capture_applied = None;
+        self.applied_outer_cursor = None;
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -13629,6 +13746,7 @@ impl App {
             TerminalInput::FocusGained => {
                 self.advance_pointer_focus_generation();
                 self.reassert_visible_surface_sizes();
+                self.reassert_scoped_host_terminal_state();
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
@@ -13643,6 +13761,7 @@ impl App {
                 self.refresh_cell_pixels();
                 self.render_states.clear();
                 self.sidebar_plugin_surface = None;
+                self.reassert_scoped_host_terminal_state();
                 Ok(RenderAction::Draw)
             }
         }
@@ -17953,6 +18072,17 @@ impl App {
         replay_sequence: Option<u64>,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "mouse.handle kind={:?} at=({},{}) mods={:?} replay={:?} admission={}",
+                mouse.kind,
+                mouse.column,
+                mouse.row,
+                mouse.modifiers,
+                replay_sequence,
+                terminal_admission.is_some()
+            ));
+        }
         // A live physical sample supersedes retained motion. Replayed input
         // only supersedes motion that was retained earlier in the same
         // sequence, preserving newer samples until their chronological turn.
@@ -18165,21 +18295,49 @@ impl App {
             || self.prompt.is_some()
             || self.drag.is_some()
         {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=guard shift={} menu={} prompt={} drag={}",
+                    modifiers.contains(KeyModifiers::SHIFT),
+                    self.menu.is_some(),
+                    self.prompt.is_some(),
+                    self.drag.is_some()
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         }
         let Some(area) = self.pane_area_at(x, y).copied() else {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=no-pane-area at=({x},{y})"
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         };
         if !area.content.contains(x, y) || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
         {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=outside-content-or-not-pty at=({x},{y}) kind={:?}",
+                    self.surface_kind(area.surface)
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         }
         let content = self.canonical_pty_content(area.surface, area.logical_content_rect());
         let (logical_x, logical_y) = area.logical_content_point(x, y);
         if !content.contains(logical_x, logical_y) {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=outside-canonical-content logical=({logical_x},{logical_y}) content={content:?}"
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         }
         let Some(handle) = self.session.surface(area.surface) else {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line("mouse.press.consumed reason=surface-gone");
+            }
             return PtyMousePressResult::Consumed;
         };
         let semantics = terminal_admission.as_ref().map(|admission| admission.semantics).or_else(
@@ -18196,6 +18354,19 @@ impl App {
             modifiers,
             terminal_admission,
         );
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "mouse.press.prepared surface={:?} semantics={semantics:?} release={} owned={} accepted={}",
+                area.surface,
+                match &release_capture {
+                    PtyMouseReleaseCapture::Bytes(_) => "bytes",
+                    PtyMouseReleaseCapture::NotReported => "not-reported",
+                    PtyMouseReleaseCapture::Failed => "failed",
+                },
+                forwarded.owned,
+                forwarded.accepted
+            ));
+        }
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             self.active_pointer_buttons.remove(&button);
             return PtyMousePressResult::Consumed;
@@ -18859,6 +19030,12 @@ impl App {
             self.status_message =
                 Some(localization::catalog().terminal.pty_input_exited.to_string());
             return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        }
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "pty.enqueue surface={surface_id:?} kind={kind:?} bytes={}",
+                crate::debug_tap::hex_string(&bytes, 128)
+            ));
         }
         let (result, reservation_id) = self
             .pty_input
@@ -21150,6 +21327,59 @@ fn outer_cursor_escape_if_changed(
     (applied != Some(desired)).then(|| outer_cursor_escape(desired))
 }
 
+/// Host input modes asserted at client startup, before any inner-terminal
+/// state is known. A scoped single-terminal attach (`attach --terminal`) is a
+/// transparent passthrough: it must not assert mouse capture or the
+/// shift-bypass report on the host, because the host terminal owns clicks and
+/// selection until the inner application requests mouse tracking. Focus
+/// reporting and bracketed paste stay enabled in both modes: the client
+/// consumes those events itself and re-encodes paste for the inner terminal
+/// according to the mode the inner application actually requested, so they
+/// are transparent to the user.
+fn host_startup_input_modes(surface_only: bool) -> String {
+    let mut out = String::new();
+    if !surface_only {
+        out.push_str(&host_mouse_capture_sequence(true));
+    }
+    let _ = crossterm::Command::write_ansi(&EnableFocusChange, &mut out);
+    let _ = crossterm::Command::write_ansi(&EnableBracketedPaste, &mut out);
+    out
+}
+
+fn host_mouse_capture_sequence(enable: bool) -> String {
+    let mut out = String::new();
+    if enable {
+        let _ = crossterm::Command::write_ansi(&EnableMouseCapture, &mut out);
+        // Ask the host terminal to report Shift-modified mouse events so
+        // Shift remains cmux's selection/context-menu escape while the inner
+        // application owns ordinary mouse input.
+        out.push_str("\x1b[>1s");
+    } else {
+        // Restore the conventional behavior where Shift bypasses capture.
+        out.push_str("\x1b[>0s");
+        let _ = crossterm::Command::write_ansi(&DisableMouseCapture, &mut out);
+    }
+    out
+}
+
+fn host_mouse_capture_escape_if_changed(applied: Option<bool>, desired: bool) -> Option<String> {
+    (applied != Some(desired)).then(|| host_mouse_capture_sequence(desired))
+}
+
+/// Initial host-cursor bookkeeping. A full TUI starts with unknown applied
+/// state, so its first frame restores host cursor globals to defaults. A
+/// scoped attach starts from an applied Reset so it emits no cursor escapes
+/// until the inner application authors a cursor style.
+fn initial_applied_outer_cursor(surface_only: bool) -> Option<OuterCursorSpec> {
+    surface_only.then_some(OuterCursorSpec::Reset)
+}
+
+/// Startup already asserted capture for full-TUI clients and asserted
+/// nothing for scoped attach clients.
+fn initial_host_mouse_capture(surface_only: bool) -> Option<bool> {
+    Some(!surface_only)
+}
+
 fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
     match spec {
         OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
@@ -21464,11 +21694,12 @@ mod tests {
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
         client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
         enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
-        keyboard_protocol_accepts, layout_undo_error_completion,
-        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
-        record_surface_resize_dispatch_result, report_after_unwind,
+        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
+        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
@@ -27080,6 +27311,266 @@ mod tests {
         assert!(
             outer_cursor_escape_if_changed(Some(OuterCursorSpec::Reset), OuterCursorSpec::Reset)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn scoped_attach_startup_asserts_no_unrequested_host_modes() {
+        // attach --terminal is a transparent passthrough. Before the inner
+        // terminal requests anything, the client must not put the host into
+        // any mouse-tracking mode or change the shift-bypass report; the
+        // host terminal owns clicks and selection. Focus reporting and
+        // bracketed paste stay on because the client consumes them and
+        // re-encodes for the inner terminal per its actual modes.
+        let scoped = host_startup_input_modes(true);
+        for mode in ["1000", "1002", "1003", "1006", "1015", "9"] {
+            assert!(
+                !scoped.contains(&format!("\x1b[?{mode}h")),
+                "scoped attach asserted unrequested host mouse mode {mode}: {scoped:?}"
+            );
+        }
+        assert!(!scoped.contains("\x1b[>1s"), "scoped attach changed shift-bypass: {scoped:?}");
+        assert!(!scoped.contains(" q"), "scoped attach wrote DECSCUSR at startup: {scoped:?}");
+        assert!(scoped.contains("\x1b[?1004h"), "focus reporting is client-consumed and stays");
+        assert!(scoped.contains("\x1b[?2004h"), "bracketed paste is client-normalized and stays");
+
+        let full = host_startup_input_modes(false);
+        assert!(full.contains("\x1b[?1000h") && full.contains("\x1b[?1006h"));
+        assert!(full.contains("\x1b[>1s"));
+    }
+
+    #[test]
+    fn host_mouse_capture_transitions_mirror_inner_tracking() {
+        let enable = host_mouse_capture_escape_if_changed(Some(false), true)
+            .expect("enabling capture must emit");
+        assert!(enable.contains("\x1b[?1000h"));
+        assert!(enable.contains("\x1b[?1006h"));
+        assert!(enable.contains("\x1b[>1s"));
+
+        let disable = host_mouse_capture_escape_if_changed(Some(true), false)
+            .expect("disabling capture must emit");
+        assert!(disable.contains("\x1b[?1000l"));
+        assert!(disable.contains("\x1b[>0s"), "shift-bypass must be restored with capture");
+
+        assert!(host_mouse_capture_escape_if_changed(Some(true), true).is_none());
+        assert!(host_mouse_capture_escape_if_changed(Some(false), false).is_none());
+    }
+
+    #[test]
+    fn scoped_attach_initial_cursor_state_emits_nothing() {
+        // The scoped client starts from an applied Reset, so the first frame
+        // emits no OSC 12 / OSC 112 / DECSCUSR unless the inner application
+        // authored a cursor style; the full TUI keeps restoring defaults.
+        assert_eq!(initial_applied_outer_cursor(true), Some(OuterCursorSpec::Reset));
+        assert!(
+            outer_cursor_escape_if_changed(
+                initial_applied_outer_cursor(true),
+                OuterCursorSpec::Reset
+            )
+            .is_none(),
+            "scoped attach must not write host cursor state at startup"
+        );
+        assert_eq!(initial_applied_outer_cursor(false), None);
+        assert!(
+            outer_cursor_escape_if_changed(
+                initial_applied_outer_cursor(false),
+                OuterCursorSpec::Reset
+            )
+            .is_some()
+        );
+        assert_eq!(initial_host_mouse_capture(true), Some(false));
+        assert_eq!(initial_host_mouse_capture(false), Some(true));
+    }
+
+    #[test]
+    fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
+        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
+
+        app.surface_only = Some(surface.id);
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "scoped attach must not capture before the inner terminal requests mouse"
+        );
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h"));
+        assert!(app.desired_host_mouse_capture(), "scoped attach mirrors inner mouse tracking on");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l"));
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "scoped attach mirrors inner mouse tracking off"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A reattach restores the inner terminal's mouse modes through the
+    /// daemon replay before any frame renders, and a later frame whose pane
+    /// render fails or is skipped (contended terminal lock while the network
+    /// thread applies output, zero-sized pane during layout churn) leaves no
+    /// rendered pointer semantics either. Host mouse capture must follow the
+    /// terminal's canonical mode state in both situations; deriving it from
+    /// the rendered projection writes capture-off to the host exactly when
+    /// the inner application still owns the mouse.
+    #[test]
+    fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
+        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        assert!(
+            app.rendered_terminal_pointer_semantics.is_empty(),
+            "precondition: no frame has rendered this surface"
+        );
+        assert!(
+            app.desired_host_mouse_capture(),
+            "host capture must follow the inner terminal's canonical mouse-tracking \
+             state, not the rendered-frame projection"
+        );
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "capture releases when the inner application disables tracking"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// When the canonical state is momentarily unknowable (the scoped surface
+    /// is gone from the session during attach teardown or handoff), the client
+    /// must keep the capture it last applied instead of toggling the host.
+    #[test]
+    fn scoped_host_mouse_capture_keeps_last_applied_when_state_is_unknowable() {
+        let mux = Mux::new("scoped-capture-unknowable-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let missing: SurfaceId = surface.id + 1000;
+        app.surface_only = Some(missing);
+
+        app.host_mouse_capture_applied = Some(true);
+        assert!(
+            app.desired_host_mouse_capture(),
+            "an unknowable surface must not release capture the client already applied"
+        );
+        app.host_mouse_capture_applied = Some(false);
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "an unknowable surface must not assert capture the client never applied"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// Round-5 dogfood: btop in a reattached bridge tab renders but loses all
+    /// mouse after Keep-quit + reopen. The client correctly asserts capture on
+    /// reattach (proven byte-level against the real app), so the only way the
+    /// tab can end up dead is a host-side loss the client cannot observe: the
+    /// Ghostty surface silently drops the mouse-tracking modes (a reset written
+    /// into it by app-side session restore, or the host re-initializing on
+    /// relaunch) after the client's capture-on burst. The per-frame capture
+    /// sync is edge-triggered on `host_mouse_capture_applied`, so once the
+    /// client believes capture is applied it never re-emits, and btop never
+    /// toggles modes to trigger a change. A focus-in (Ghostty sends `\e[I` on
+    /// every window re-activation and app reopen, observed in the real path)
+    /// must force the client to re-derive and re-assert the canonical host
+    /// state so the dropped modes come back.
+    #[test]
+    fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset() {
+        let mux = Mux::new("scoped-focus-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        // The inner application (btop) holds mouse tracking, and the client has
+        // already asserted capture-on to the host once.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        app.host_mouse_capture_applied = Some(true);
+
+        // The host silently dropped the modes. The client cannot see host
+        // state: applied still says true and desired is true, so the per-frame
+        // sync emits nothing and clicks stay dead. This is the latch.
+        assert_eq!(
+            host_mouse_capture_escape_if_changed(
+                app.host_mouse_capture_applied,
+                app.desired_host_mouse_capture(),
+            ),
+            None,
+            "precondition: with stale applied state the per-frame sync re-emits nothing"
+        );
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+
+        // Focus-in must clear the applied bookkeeping so the next frame
+        // re-derives the canonical state and re-emits capture.
+        assert_eq!(
+            app.host_mouse_capture_applied, None,
+            "focus-in must reset the applied host-capture bookkeeping so the next frame re-asserts"
+        );
+        let reasserted = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        )
+        .expect("the re-derived frame must re-emit host mouse capture");
+        assert!(
+            reasserted.contains("\x1b[?1002h"),
+            "the re-asserted host state must re-enable mouse capture the inner app still holds"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A resize is the other moment a host can re-initialize the surface and
+    /// drop the client's asserted input modes (window geometry changes across
+    /// a quit+reopen, so the reattached surface is resized). The scoped client
+    /// must re-assert host mouse capture on resize for the same reason it does
+    /// on focus-in.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_after_invisible_host_reset() {
+        let mux = Mux::new("scoped-resize-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        app.host_mouse_capture_applied = Some(true);
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+
+        assert_eq!(
+            app.host_mouse_capture_applied, None,
+            "resize must reset the applied host-capture bookkeeping so the next frame re-asserts"
+        );
+        let reasserted = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        )
+        .expect("the re-derived frame must re-emit host mouse capture");
+        assert!(reasserted.contains("\x1b[?1002h"));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A full TUI owns the entire host surface and re-emits its input modes
+    /// through its normal lifecycle; the focus-in re-assert is scoped-only, so
+    /// it must not disturb a full-TUI client's capture bookkeeping.
+    #[test]
+    fn full_tui_focus_gained_does_not_reset_host_capture_bookkeeping() {
+        let mux = Mux::new("full-tui-focus-reassert-test", SurfaceOptions::default());
+        let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.surface_only = None;
+        app.host_mouse_capture_applied = Some(true);
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+
+        assert_eq!(
+            app.host_mouse_capture_applied,
+            Some(true),
+            "full-TUI focus-in must not touch host-capture bookkeeping"
         );
     }
 
@@ -39536,6 +40027,7 @@ mod tests {
             rendered_pane_content_generations: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
+            host_mouse_capture_applied: Some(true),
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,

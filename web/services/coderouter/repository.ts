@@ -151,22 +151,56 @@ export async function deleteAccount(input: {
 export async function listAccounts(
   teamId: string,
 ): Promise<readonly CodeRouterAccountSummary[]> {
-  return await cloudDb()
-    .select({
-      id: coderouterAccounts.id,
-      provider: coderouterAccounts.provider,
-      providerAccountId: coderouterAccounts.providerAccountId,
-      label: coderouterAccounts.label,
-      state: coderouterAccounts.state,
-      credentialExpiresAt: coderouterAccounts.credentialExpiresAt,
-      lastFailureCode: coderouterAccounts.lastFailureCode,
-    })
-    .from(coderouterAccounts)
-    .where(eq(coderouterAccounts.teamId, teamId))
-    .then((rows) => rows.map((row) => ({
-      ...row,
-      credentialExpiresAt: row.credentialExpiresAt?.toISOString() ?? null,
-    })));
+  const [rows, sessionCounts] = await Promise.all([
+    cloudDb()
+      .select({
+        id: coderouterAccounts.id,
+        provider: coderouterAccounts.provider,
+        providerAccountId: coderouterAccounts.providerAccountId,
+        label: coderouterAccounts.label,
+        state: coderouterAccounts.state,
+        credentialExpiresAt: coderouterAccounts.credentialExpiresAt,
+        lastFailureCode: coderouterAccounts.lastFailureCode,
+        cooldownUntil: coderouterAccounts.cooldownUntil,
+      })
+      .from(coderouterAccounts)
+      .where(eq(coderouterAccounts.teamId, teamId)),
+    countActiveSessionsByAccount(teamId),
+  ]);
+  return rows.map((row) => ({
+    ...row,
+    credentialExpiresAt: row.credentialExpiresAt?.toISOString() ?? null,
+    cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
+    activeSessions: sessionCounts.get(row.id) ?? 0,
+  }));
+}
+
+/**
+ * Sessions bound per account with traffic inside the load window. Display
+ * only: a failure here must never take the status endpoint down.
+ */
+async function countActiveSessionsByAccount(
+  teamId: string,
+): Promise<ReadonlyMap<string, number>> {
+  try {
+    const rows = await cloudDb()
+      .select({
+        accountId: coderouterSessionAccounts.accountId,
+        sessions: sql<number>`count(*)::int`,
+      })
+      .from(coderouterSessionAccounts)
+      .where(and(
+        eq(coderouterSessionAccounts.teamId, teamId),
+        gt(
+          coderouterSessionAccounts.lastSeenAt,
+          sql`now() - interval '${sql.raw(SESSION_BINDING_LOAD_WINDOW)}'`,
+        ),
+      ))
+      .groupBy(coderouterSessionAccounts.accountId);
+    return new Map(rows.map((row) => [row.accountId, Number(row.sessions)]));
+  } catch {
+    return new Map();
+  }
 }
 
 export async function listCoderouterTeamIds(): Promise<readonly string[]> {
@@ -385,6 +419,19 @@ export async function upsertAccountMetadata(input: {
         updatedAt: new Date(),
       },
     });
+}
+
+/**
+ * Counts every provider account the team has connected, in any state.
+ * Broken and cooling-down accounts still occupy a slot: the team controls
+ * them and can remove them; only removal frees the slot.
+ */
+export async function countAccountsForTeam(teamId: string): Promise<number> {
+  const [row] = await cloudDb()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(coderouterAccounts)
+    .where(eq(coderouterAccounts.teamId, teamId));
+  return Number(row?.count ?? 0);
 }
 
 export async function findAccountByProviderIdentity(
