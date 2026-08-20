@@ -21,6 +21,7 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
 - `CLISocketSentryPolicy`: trusted Codex sandbox provenance for CLI socket `EPERM` filtering.
+- `CmuxCodexConfigEditor` — pure install and uninstall transforms for cmux's Codex `config.toml` hooks.
 - `MainActorDeferredActionScheduler` — replaceable clock-driven main-actor work
   whose queued actions cannot retain prior scheduled actions.
 - `MainActorCoalescingDeadlineTimer` — one persistent timer handle for hot,
@@ -66,6 +67,14 @@ let profile = WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "agen
 let remoteArguments = profile?.remoteCommandArguments
 ```
 
+Codex hook edits are pure transforms; callers own the file read/write boundary:
+
+```swift
+let editor = CmuxCodexConfigEditor()
+let result = editor.installingHooks(in: configContents, trustEntries: trustEntries)
+try result.content.write(to: configURL, atomically: true, encoding: .utf8)
+```
+
 CLI telemetry may suppress socket-connect `EPERM` only when the process
 environment contains a known restricted `CODEX_SANDBOX` value:
 
@@ -92,6 +101,18 @@ import CmuxFoundation
 @Test func plainStringIsQuoted() {
     #expect("hello".javaScriptStringLiteral == "\"hello\"")
 }
+```
+
+The Codex editor takes fixture strings, so its install/reinstall/uninstall behavior is
+covered without an app host or a user-owned `~/.codex` directory:
+
+```swift
+let editor = CmuxCodexConfigEditor()
+let installed = editor.installingHooks(in: fixture, trustEntries: entries)
+let restored = editor.uninstallingHooks(
+    from: installed.content,
+    removingHookTrustEntries: entries
+)
 ```
 
 Deferred-action tests inject a controllable `Clock<Duration>` and advance it
