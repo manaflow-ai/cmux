@@ -341,11 +341,15 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
             // Only options whose shape is known are skipped; anything else ends the search. Guessing
             // is what turns an option's value into a "launcher": `npx --package <pkg> wrapper` would
             // otherwise attribute the session to `<pkg>`.
+            // `--opt=value` carries its value in the same word, so the program is one word closer
+            // than the spaced form: `env --chdir=/tmp wrapper` versus `env --chdir /tmp wrapper`.
+            let optionName = word.firstIndex(of: "=").map { String(word[word.startIndex..<$0]) } ?? word
+            let carriesJoinedValue = optionName != word
             if forwardingCommand == "env" {
-                if environmentCommandFlagOptions.contains(word) {
+                if environmentCommandFlagOptions.contains(optionName) {
                     cursor += 1
-                } else if environmentCommandValueOptions.contains(word) {
-                    cursor += 2
+                } else if environmentCommandValueOptions.contains(optionName) {
+                    cursor += carriesJoinedValue ? 1 : 2
                 } else {
                     return argv.count
                 }
@@ -355,7 +359,7 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
             if interpreterCommands.contains(forwardingCommand) {
                 return argv.count
             }
-            guard packageRunnerFlagOptions.contains(word) else { return argv.count }
+            guard packageRunnerFlagOptions.contains(optionName) else { return argv.count }
             cursor += 1
         }
         return cursor

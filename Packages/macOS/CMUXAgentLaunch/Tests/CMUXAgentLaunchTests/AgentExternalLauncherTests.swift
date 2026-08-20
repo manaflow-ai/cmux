@@ -273,6 +273,10 @@ import Testing
         // `--` ends env's own options; the program follows it.
         ["env", "--", "llm-gateway", "exec"],
         ["env", "-i", "VAR=1", "--", "/opt/bin/llm-gateway", "exec"],
+        // A joined `--opt=value` carries its value in the same word.
+        ["env", "--chdir=/tmp", "llm-gateway", "exec"],
+        ["env", "--unset=NODE_OPTIONS", "VAR=1", "llm-gateway", "exec"],
+        ["npx", "--yes=true", "llm-gateway", "exec"],
     ])
     func forwardingCommandsDoNotHideTheLauncher(argv: [String]) throws {
         let gateway = AgentExternalLauncher(
