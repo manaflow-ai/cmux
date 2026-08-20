@@ -779,11 +779,13 @@ import Testing
     /// invocation.
     @Test func launcherPrefixSurvivesWorkingDirectorySanitizing() throws {
         let workingDirectory = "/tmp/work"
+        // `--cwd` is one of the options the working-directory sanitizer strips, so this pins the
+        // ordering rather than merely passing by accident.
         let pinnedLauncher = AgentExternalLauncher(
             id: "teamclaude",
             kinds: ["claude"],
             argvExecutables: ["teamclaude"],
-            resumeArgvPrefix: ["teamclaude", "run", "--state-dir", workingDirectory, "--"]
+            resumeArgvPrefix: ["teamclaude", "run", "--cwd", workingDirectory, "--"]
         )
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
@@ -816,7 +818,7 @@ import Testing
 
         #expect(
             Array(invocation.arguments.prefix(5))
-                == ["teamclaude", "run", "--state-dir", workingDirectory, "--"]
+                == ["teamclaude", "run", "--cwd", workingDirectory, "--"]
         )
         // The prefix is intact as one contiguous run, and the agent's resume argv follows it.
         #expect(invocation.arguments.dropFirst(5).contains("--resume"))
