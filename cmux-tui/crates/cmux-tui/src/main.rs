@@ -13,6 +13,7 @@ mod app;
 mod browser_input;
 mod cli;
 mod config;
+mod debug_tap;
 mod host_colors;
 mod keys;
 mod layout_undo;
