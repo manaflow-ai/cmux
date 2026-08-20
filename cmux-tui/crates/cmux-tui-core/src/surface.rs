@@ -1080,6 +1080,14 @@ impl TerminalHostReconnectBackoff {
         Some((Duration::from_millis(25) * multiplier).min(TERMINAL_HOST_RECONNECT_MAX_DELAY))
     }
 
+    /// Re-arm an exhausted budget at the maximum delay. Used when the host's
+    /// liveness lock is still held: an unreachable-but-alive host must be
+    /// watched indefinitely (it can resume or die later) instead of being
+    /// silently abandoned after a fixed number of failures.
+    fn rearm_at_max_delay(&mut self) {
+        self.failures = TERMINAL_HOST_RECONNECT_MAX_FAILURES - 1;
+    }
+
     fn wait_or_fail(&mut self, pty: &PtySurface) -> bool {
         let Some(delay) = self.next_delay() else {
             pty.host_connection_state
@@ -1104,6 +1112,80 @@ fn wait_for_reconnect_after_geometry_failure(
 ) -> bool {
     drop(geometry);
     retry.wait_or_fail(pty)
+}
+
+#[cfg(unix)]
+fn unix_now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default()
+}
+
+/// Log one hosted-terminal connection lifecycle event to the daemon's stderr.
+/// Unexpected host deaths previously left no trace anywhere; every abnormal
+/// transition must be reconstructable from the daemon log afterwards.
+#[cfg(unix)]
+fn log_hosted_connection_event(
+    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
+    message: &str,
+) {
+    eprintln!(
+        "cmux-tui: terminal {} host connection: {message} (at_ms={})",
+        identity.terminal_id,
+        unix_now_ms()
+    );
+}
+
+/// How a reader thread abandons a hosted terminal it can no longer serve.
+#[cfg(unix)]
+enum ReconnectGiveUp<'a> {
+    /// The host cannot be proven alive and its admin endpoint is gone:
+    /// commit the durable exit latch so the terminal is listed as exited,
+    /// clients receive surface-exited, and the journal records the reason.
+    CommitExit,
+    /// The host was demonstrably reachable, so death must not be invented;
+    /// mark the connection failed and tell clients why the terminal stalled.
+    LeaveDetached { mux: &'a Weak<Mux> },
+}
+
+/// Terminal reader threads must never end silently: a bare `return` leaves a
+/// zombie terminal that stays listed, keeps its attach mirrors frozen on the
+/// last frame, and swallows input and resizes forever (observed for six hours
+/// in production). Every permanent give-up funnels through here.
+#[cfg(unix)]
+fn give_up_hosted_reconnect(
+    surface: &Arc<Surface>,
+    mux: &Weak<Mux>,
+    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
+    reason: &str,
+    action: ReconnectGiveUp<'_>,
+) {
+    log_hosted_connection_event(identity, reason);
+    let Some(pty) = surface.as_pty() else { return };
+    match action {
+        ReconnectGiveUp::CommitExit => {
+            *pty.exit.lock().unwrap() = Some(TerminalExit::unknown(reason));
+            mark_hosted_runtime_exited(pty, identity);
+            pty.host_connection_state
+                .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+            pty.stream_progress.notify();
+            if let Some(mux) = mux.upgrade() {
+                mux.surface_exited(surface.id);
+            }
+        }
+        ReconnectGiveUp::LeaveDetached { mux } => {
+            pty.host_connection_state
+                .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
+            pty.stream_progress.notify();
+            if let Some(mux) = mux.upgrade() {
+                mux.emit(MuxEvent::Status(format!(
+                    "terminal {} is detached from its host: {reason}",
+                    identity.terminal_id
+                )));
+            }
+        }
+    }
 }
 
 impl SurfaceKind {
@@ -3265,14 +3347,26 @@ impl Surface {
                                 Ordering::AcqRel,
                             )
                             != TerminalHostConnectionState::Reconnecting as u8;
+                    if first_loss {
+                        log_hosted_connection_event(
+                            &identity,
+                            "host stream ended without an exit receipt; probing and reconnecting",
+                        );
+                    }
                     if first_loss
                         && let Some(mux) = mux.upgrade()
                         && !mux.terminal_host_connection_lost(surface.id, &identity)
                     {
+                        log_hosted_connection_event(
+                            &identity,
+                            "reconnect stopped: terminal lifecycle moved on or its \
+                             reconnect state could not be persisted",
+                        );
                         return;
                     }
 
                     let mut retry = TerminalHostReconnectBackoff::default();
+                    let mut warned_live_unreachable = false;
                     loop {
                         if pty.owner_detaching.load(Ordering::Acquire) {
                             return;
@@ -3285,10 +3379,16 @@ impl Surface {
                             }
                         };
                         let Some((record, record_path)) = discovery else { return };
-                        match crate::terminal_host_runtime::terminal_host_record_liveness(
-                            &record_path,
-                            &record,
-                        ) {
+                        let liveness_probe =
+                            crate::terminal_host_runtime::terminal_host_record_liveness(
+                                &record_path,
+                                &record,
+                            );
+                        let host_may_be_alive = matches!(
+                            liveness_probe,
+                            Ok(crate::terminal_host_runtime::TerminalHostLiveness::Live)
+                        );
+                        match liveness_probe {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
                                 let exit = crate::terminal_host_runtime::terminal_host_exit_record(
                                     &record_path,
@@ -3305,6 +3405,10 @@ impl Surface {
                                         "terminal host ended without a durable exit sidecar",
                                     )
                                 });
+                                log_hosted_connection_event(
+                                    &identity,
+                                    "host proven dead; committing durable terminal exit",
+                                );
                                 *pty.exit.lock().unwrap() = Some(exit);
                                 mark_hosted_runtime_exited(pty, &identity);
                                 pty.host_connection_state.store(
@@ -3328,6 +3432,14 @@ impl Surface {
                         let Ok(kitty_limits) =
                             reconnect_mux.kitty_image_limits_for_reconnect(&surface)
                         else {
+                            give_up_hosted_reconnect(
+                                &surface,
+                                &mux,
+                                &identity,
+                                "reconnect could not restore kitty graphics limits; terminal \
+                                 is detached until the daemon restarts",
+                                ReconnectGiveUp::LeaveDetached { mux: &mux },
+                            );
                             return;
                         };
                         let replacement = match crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
@@ -3338,6 +3450,41 @@ impl Surface {
                             Ok(replacement) if replacement.identity() == identity => replacement,
                             Ok(_) | Err(_) => {
                                 if !retry.wait_or_fail(pty) {
+                                    if host_may_be_alive {
+                                        // The liveness lock is still held, so
+                                        // the host may only be stopped or
+                                        // wedged. Death must not be invented,
+                                        // but the wait cannot be silent.
+                                        if !warned_live_unreachable {
+                                            warned_live_unreachable = true;
+                                            log_hosted_connection_event(
+                                                &identity,
+                                                "host is unreachable but its liveness lock is \
+                                                 still held; waiting for it to recover or die",
+                                            );
+                                            if let Some(mux) = mux.upgrade() {
+                                                mux.emit(MuxEvent::Status(format!(
+                                                    "terminal {} host is unresponsive; waiting \
+                                                     for it to recover",
+                                                    identity.terminal_id
+                                                )));
+                                            }
+                                        }
+                                        pty.host_connection_state.store(
+                                            TerminalHostConnectionState::Reconnecting as u8,
+                                            Ordering::Release,
+                                        );
+                                        retry.rearm_at_max_delay();
+                                        continue;
+                                    }
+                                    give_up_hosted_reconnect(
+                                        &surface,
+                                        &mux,
+                                        &identity,
+                                        "terminal host was unreachable after repeated \
+                                         reconnect attempts and could not be proven alive",
+                                        ReconnectGiveUp::CommitExit,
+                                    );
                                     return;
                                 }
                                 continue;
@@ -3386,6 +3533,13 @@ impl Surface {
                         };
                         if !installed {
                             if !retry.wait_or_fail(pty) {
+                                give_up_hosted_reconnect(
+                                    &surface,
+                                    &mux,
+                                    &identity,
+                                    "reconnected host rejected its initial sizing handshake repeatedly; terminal is detached until the daemon restarts",
+                                    ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                );
                                 return;
                             }
                             continue;
@@ -3402,6 +3556,13 @@ impl Surface {
                         };
                         let Some(replacement_reader) = replacement_reader else {
                             if !retry.wait_or_fail(pty) {
+                                give_up_hosted_reconnect(
+                                    &surface,
+                                    &mux,
+                                    &identity,
+                                    "reconnected host produced no readable stream repeatedly; terminal is detached until the daemon restarts",
+                                    ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                );
                                 return;
                             }
                             continue;
@@ -3426,6 +3587,14 @@ impl Surface {
                         ) else {
                             if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
                             {
+                                give_up_hosted_reconnect(
+                                    &surface,
+                                    &mux,
+                                    &identity,
+                                    "reconnect replay could not be applied repeatedly; \
+                                     terminal is detached until the daemon restarts",
+                                    ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                );
                                 return;
                             }
                             continue;
@@ -3441,6 +3610,14 @@ impl Surface {
                         {
                             if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
                             {
+                                give_up_hosted_reconnect(
+                                    &surface,
+                                    &mux,
+                                    &identity,
+                                    "reconnect replay could not be applied repeatedly; \
+                                     terminal is detached until the daemon restarts",
+                                    ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                );
                                 return;
                             }
                             continue;
@@ -3462,6 +3639,14 @@ impl Surface {
                         {
                             if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
                             {
+                                give_up_hosted_reconnect(
+                                    &surface,
+                                    &mux,
+                                    &identity,
+                                    "reconnect replay could not be applied repeatedly; \
+                                     terminal is detached until the daemon restarts",
+                                    ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                );
                                 return;
                             }
                             continue;
@@ -3519,9 +3704,23 @@ impl Surface {
                                     TerminalHostConnectionState::Failed as u8,
                                     Ordering::Release,
                                 );
+                                log_hosted_connection_event(
+                                    &identity,
+                                    "reconnect stopped after completion failure: terminal \
+                                     lifecycle moved on or its reconnect state could not be \
+                                     persisted",
+                                );
                                 return;
                             }
                             if !retry.wait_or_fail(pty) {
+                                give_up_hosted_reconnect(
+                                    &surface,
+                                    &mux,
+                                    &identity,
+                                    "reconnect completion failed repeatedly; terminal is \
+                                     detached until the daemon restarts",
+                                    ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                );
                                 return;
                             }
                             continue;
@@ -3556,9 +3755,23 @@ impl Surface {
                                 if !reconnect_mux
                                     .terminal_host_connection_lost(surface.id, &identity)
                                 {
+                                    log_hosted_connection_event(
+                                        &identity,
+                                        "reconnect stopped after checkpoint failure: terminal \
+                                         lifecycle moved on or its reconnect state could not \
+                                         be persisted",
+                                    );
                                     return;
                                 }
                                 if !retry.wait_or_fail(pty) {
+                                    give_up_hosted_reconnect(
+                                        &surface,
+                                        &mux,
+                                        &identity,
+                                        "reconnect checkpoints failed repeatedly; terminal is \
+                                         detached until the daemon restarts",
+                                        ReconnectGiveUp::LeaveDetached { mux: &mux },
+                                    );
                                     return;
                                 }
                                 continue;
