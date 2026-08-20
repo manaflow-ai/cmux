@@ -9528,15 +9528,21 @@ impl App {
         let messages = &localization::catalog().sidebar;
         spec.actions
             .iter()
-            .copied()
-            .flat_map(|action| {
+            .flat_map(|action_spec| {
+                let action = action_spec.action;
+                let label_override = action_spec.label.as_deref();
                 if action == Action::NewWorkspace {
                     return self
                         .workspace_creation_modes()
                         .into_iter()
                         .map(|mode| SidebarActionRow {
                             label: match mode {
-                                None => messages.new_workspace.to_string(),
+                                // A configured label renames the plain
+                                // button; the provider-specific isolated and
+                                // shared variants keep their catalog labels.
+                                None => {
+                                    label_override.unwrap_or(messages.new_workspace).to_string()
+                                }
                                 Some(WorkspaceCreationMode::Isolated) => {
                                     messages.new_isolated_workspace.to_string()
                                 }
@@ -9550,13 +9556,32 @@ impl App {
                 }
                 self.action_available(action)
                     .then(|| SidebarActionRow {
-                        label: localization::catalog().action_label(action).to_string(),
+                        label: label_override
+                            .map(str::to_string)
+                            .unwrap_or_else(|| self.action_display_label(action).to_string()),
                         target: SidebarActionTarget::Run(action),
                     })
                     .into_iter()
                     .collect()
             })
             .collect()
+    }
+
+    /// Where the workspace rail's pinned action buttons render.
+    pub(crate) fn workspace_actions_position(&self) -> crate::config::ActionsPosition {
+        self.view_index_for_rail(RailKind::Workspace)
+            .and_then(|index| self.config.sidebar.views.get(index))
+            .map(|spec| spec.actions_position)
+            .unwrap_or_default()
+    }
+
+    /// Expand the configured workspace row label template.
+    pub(crate) fn workspace_button_label(&self, index: usize, name: &str) -> String {
+        let template = &self.config.sidebar.workspace_label;
+        if template == "{name}" {
+            return name.to_string();
+        }
+        template.replace("{index}", &index.to_string()).replace("{name}", name)
     }
 
     pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {
@@ -24826,7 +24851,8 @@ mod tests {
         let focused = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 30,
             max_width: 0,
             collapse_priority: 30,
@@ -38512,6 +38538,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38589,6 +38616,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38623,6 +38651,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38660,6 +38689,7 @@ mod tests {
             id: "agents".into(),
             levels: vec![SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38809,7 +38839,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38908,7 +38939,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,

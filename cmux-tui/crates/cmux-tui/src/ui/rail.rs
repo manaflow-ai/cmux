@@ -6,9 +6,22 @@ use ratatui::style::{Color, Modifier, Style};
 
 use super::truncate;
 use crate::app::App;
+use crate::config::ActionsPosition;
 
-pub const ENTRY_HEIGHT: usize = 2;
-pub const ENTRY_STRIDE: usize = 3;
+/// Configurable rail row geometry: `height` rows of content per entry and
+/// `stride` rows from one entry's start to the next (height plus gap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RailMetrics {
+    pub height: usize,
+    pub stride: usize,
+}
+
+impl RailMetrics {
+    pub fn for_app(app: &App) -> Self {
+        let height = app.config.sidebar.row_height.max(1) as usize;
+        Self { height, stride: height + app.config.sidebar.row_gap as usize }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowSpan {
@@ -52,17 +65,46 @@ pub fn viewport(
     selected_body: Option<RowSpan>,
     selected_footer: Option<RowSpan>,
 ) -> Viewport {
+    viewport_positioned(
+        area,
+        body_rows,
+        footer_rows,
+        body_offset,
+        footer_offset,
+        selected_body,
+        selected_footer,
+        ActionsPosition::Bottom,
+    )
+}
+
+/// `viewport` with a configurable action-row position: `Bottom` pins the
+/// action rows to the rail's bottom edge, `Top` mounts them directly under
+/// the header with the scrollable body below.
+#[allow(clippy::too_many_arguments)]
+pub fn viewport_positioned(
+    area: Rect,
+    body_rows: usize,
+    footer_rows: usize,
+    body_offset: &mut usize,
+    footer_offset: &mut usize,
+    selected_body: Option<RowSpan>,
+    selected_footer: Option<RowSpan>,
+    position: ActionsPosition,
+) -> Viewport {
     let available = area.height.saturating_sub(2);
     let footer_height = footer_rows.min(available as usize) as u16;
     let body_height = available.saturating_sub(footer_height);
-    let body =
-        Rect { x: area.x, y: area.y.saturating_add(2), width: area.width, height: body_height };
-    let footer = Rect {
-        x: area.x,
-        y: area.y.saturating_add(area.height).saturating_sub(footer_height),
-        width: area.width,
-        height: footer_height,
+    let (body_y, footer_y) = match position {
+        ActionsPosition::Bottom => (
+            area.y.saturating_add(2),
+            area.y.saturating_add(area.height).saturating_sub(footer_height),
+        ),
+        ActionsPosition::Top => {
+            (area.y.saturating_add(2).saturating_add(footer_height), area.y.saturating_add(2))
+        }
     };
+    let body = Rect { x: area.x, y: body_y, width: area.width, height: body_height };
+    let footer = Rect { x: area.x, y: footer_y, width: area.width, height: footer_height };
     reveal(body_rows, body_height as usize, body_offset, selected_body);
     reveal(footer_rows, footer_height as usize, footer_offset, selected_footer);
     Viewport { body, footer, body_offset: *body_offset, footer_offset: *footer_offset }
@@ -102,6 +144,9 @@ pub struct RailPalette {
     pub border: Style,
     pub border_symbol: &'static str,
     pub rail: Color,
+    /// Accent glyph on active rows; `None` draws none. A single character
+    /// keeps the palette `Copy`, so drawing never borrows the app config.
+    pub rail_glyph: Option<char>,
 }
 
 impl RailPalette {
@@ -112,14 +157,16 @@ impl RailPalette {
         } else {
             chrome.sidebar_selected_bg
         };
-        let base = Style::default();
+        let selected_fg =
+            app.config.theme.sidebar_selected_fg.unwrap_or(chrome.sidebar_selected_fg);
+        let base = match app.config.theme.sidebar_fg {
+            Some(fg) => Style::default().fg(fg),
+            None => Style::default(),
+        };
         Self {
             base,
             dim: base.fg(chrome.sidebar_dim_fg),
-            active: Style::default()
-                .bg(selected_bg)
-                .fg(chrome.sidebar_selected_fg)
-                .add_modifier(Modifier::BOLD),
+            active: Style::default().bg(selected_bg).fg(selected_fg).add_modifier(Modifier::BOLD),
             header: if focused {
                 Style::default()
                     .bg(chrome.status_active_bg)
@@ -133,6 +180,7 @@ impl RailPalette {
                 .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
             border_symbol: if focused { "┃" } else { "│" },
             rail: app.config.theme.sidebar_rail,
+            rail_glyph: app.config.sidebar.rail_glyph.chars().next(),
         }
     }
 }
@@ -179,8 +227,16 @@ pub struct Entry<'a> {
     pub dimmed: bool,
 }
 
-pub fn entry(frame: &mut Frame, area: Rect, y: u16, entry: Entry<'_>, palette: RailPalette) {
-    if area.width < 3 || y + 1 >= area.y + area.height {
+pub fn entry(
+    frame: &mut Frame,
+    area: Rect,
+    y: u16,
+    entry: Entry<'_>,
+    palette: RailPalette,
+    metrics: RailMetrics,
+) {
+    let rows = metrics.height.max(1) as u16;
+    if area.width < 3 || y + rows > area.y + area.height {
         return;
     }
     let content_width = area.width.saturating_sub(1);
@@ -193,14 +249,20 @@ pub fn entry(frame: &mut Frame, area: Rect, y: u16, entry: Entry<'_>, palette: R
         if entry.highlighted { palette.active.add_modifier(Modifier::DIM) } else { palette.dim };
     let buf = frame.buffer_mut();
     if entry.highlighted {
-        for x in area.x..area.x + content_width {
-            buf[(x, y)].set_style(palette.active);
-            buf[(x, y + 1)].set_style(palette.active);
+        for row in 0..rows {
+            for x in area.x..area.x + content_width {
+                buf[(x, y + row)].set_style(palette.active);
+            }
         }
-        if entry.active {
+        if entry.active
+            && let Some(glyph) = palette.rail_glyph
+        {
+            let mut encoded = [0u8; 4];
+            let symbol: &str = glyph.encode_utf8(&mut encoded);
             let rail_style = palette.active.fg(palette.rail);
-            buf[(area.x, y)].set_symbol("▎").set_style(rail_style);
-            buf[(area.x, y + 1)].set_symbol("▎").set_style(rail_style);
+            for row in 0..rows {
+                buf[(area.x, y + row)].set_symbol(symbol).set_style(rail_style);
+            }
         }
     }
     let indicator = entry.indicator.filter(|_| content_w > 3);
@@ -219,7 +281,7 @@ pub fn entry(frame: &mut Frame, area: Rect, y: u16, entry: Entry<'_>, palette: R
             style,
         );
     }
-    if content_w > 1 {
+    if rows >= 2 && content_w > 1 {
         buf.set_stringn(
             area.x + 1,
             y + 1,
@@ -306,8 +368,11 @@ pub fn tree_row(
             buf[(x, y)].set_symbol(" ").set_style(style);
         }
     }
-    if active {
-        buf[(area.x, y)].set_symbol("▎").set_style(style.fg(palette.rail));
+    if active && let Some(glyph) = palette.rail_glyph {
+        let mut encoded = [0u8; 4];
+        buf[(area.x, y)]
+            .set_symbol(glyph.encode_utf8(&mut encoded))
+            .set_style(style.fg(palette.rail));
     }
     let disclosure_x = area
         .x
@@ -352,6 +417,7 @@ mod tests {
             border: Style::default(),
             border_symbol: "│",
             rail: Color::Cyan,
+            rail_glyph: Some('▎'),
         };
         terminal
             .draw(|frame| {
@@ -368,6 +434,7 @@ mod tests {
                         dimmed: false,
                     },
                     palette,
+                    RailMetrics { height: 2, stride: 3 },
                 );
             })
             .unwrap();
@@ -406,7 +473,7 @@ mod tests {
     fn resizing_clamps_scroll_without_forgetting_a_visible_selection() {
         let mut body_offset = 12;
         let mut footer_offset = 0;
-        let selected = RowSpan::new(15, ENTRY_HEIGHT);
+        let selected = RowSpan::new(15, 2);
         let small = viewport(
             Rect { x: 0, y: 0, width: 20, height: 8 },
             30,

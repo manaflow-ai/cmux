@@ -309,7 +309,11 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
         })
         .collect();
-    let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16).collect();
+    // Pill and slant chips wrap solid tabs in cap glyphs, one cell on each
+    // side; the caps take part in layout, scrolling, and hit rects.
+    let chip_caps = tab_cfg.solid_background.then(|| tab_cfg.style.caps()).flatten();
+    let cap_cells: u16 = if chip_caps.is_some() { 2 } else { 0 };
+    let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16 + cap_cells).collect();
     let inner_w = full_width.saturating_sub(2); // between the corners
     let plus_w: u16 = 3; // " + "
     let arrow_w: u16 = 1;
@@ -360,9 +364,25 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
         }
-        buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
-        if tab_cfg.solid_background && is_active {
-            buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+        if let Some((cap_left, cap_right)) = chip_caps {
+            // Caps take the chip's background as their foreground and float
+            // over the border row, so every chip reads as a pill or slant.
+            let chip_bg = style.bg.unwrap_or(theme.tab_bg);
+            let cap_style = Style::default().fg(chip_bg);
+            buf.set_stringn(origin_x + x, origin_y, cap_left, 1, cap_style);
+            buf.set_stringn(
+                origin_x + x + 1,
+                origin_y,
+                label,
+                w.saturating_sub(cap_cells) as usize,
+                style,
+            );
+            buf.set_stringn(origin_x + x + w.saturating_sub(1), origin_y, cap_right, 1, cap_style);
+        } else {
+            buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
+            if tab_cfg.solid_background && is_active {
+                buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+            }
         }
         if drop_index == Some(i) && x < max_x {
             buf[(origin_x + x, origin_y)]
