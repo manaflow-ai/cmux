@@ -4417,6 +4417,72 @@ mod tests {
         );
     }
 
+    /// Encode a left press, its release, and a wheel-up through encoders
+    /// synced from `terminal`, exactly like a scoped attach client forwarding
+    /// host clicks to the inner PTY.
+    fn synced_mouse_bytes(terminal: &Terminal) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        use crate::key::Mods;
+        use crate::mouse::{MouseAction, MouseButton, MouseEncoders, MouseInput};
+
+        let input = |action, button, any_button_pressed| MouseInput {
+            action,
+            button,
+            mods: Mods::default(),
+            position: (36.5, 20.5),
+            screen_size: (80, 24),
+            cell_size: (1, 1),
+            any_button_pressed,
+        };
+        let mut encoders = MouseEncoders::new().unwrap();
+        encoders.sync_from_terminal(terminal);
+        let (mut press, mut release, mut wheel) = (Vec::new(), Vec::new(), Vec::new());
+        encoders
+            .encode_press_pair(
+                input(MouseAction::Press, Some(MouseButton::Left), true),
+                input(MouseAction::Release, Some(MouseButton::Left), false),
+                &mut press,
+                &mut release,
+            )
+            .unwrap();
+        encoders
+            .encode(input(MouseAction::Press, Some(MouseButton::WheelUp), false), &mut wheel)
+            .unwrap();
+        (press, release, wheel)
+    }
+
+    fn replayed_mirror(inner_mode_bytes: &[u8]) -> Terminal {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(inner_mode_bytes);
+        let replay = host.vt_replay().unwrap();
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&replay).unwrap();
+        mirror
+    }
+
+    /// btop enables 1002h, 1015h, 1006h in that order: SGR is set last, so
+    /// last-set-wins makes SGR the active extended-coordinate encoding.
+    /// Replay must reproduce that semantic, not a numeric flag dump that
+    /// re-enables urxvt (1015) after SGR (1006) and flips the active encoding.
+    #[test]
+    fn replay_preserves_sgr_mouse_encoding_when_sgr_is_set_last() {
+        let mirror = replayed_mirror(b"\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        let (press, release, wheel) = synced_mouse_bytes(&mirror);
+        assert_eq!(press, b"\x1b[<0;37;21M", "press must stay SGR after replay");
+        assert_eq!(release, b"\x1b[<0;37;21m", "release must stay SGR after replay");
+        assert_eq!(wheel, b"\x1b[<64;37;21M", "wheel must stay SGR after replay");
+    }
+
+    /// The mirror case: an application that deliberately sets urxvt last must
+    /// keep urxvt across replay.
+    #[test]
+    fn replay_preserves_urxvt_mouse_encoding_when_urxvt_is_set_last() {
+        let mirror = replayed_mirror(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let (press, release, wheel) = synced_mouse_bytes(&mirror);
+        assert_eq!(press, b"\x1b[32;37;21M", "press must stay urxvt after replay");
+        assert_eq!(release, b"\x1b[35;37;21M", "release must stay urxvt after replay");
+        assert_eq!(wheel, b"\x1b[96;37;21M", "wheel must stay urxvt after replay");
+    }
+
     #[test]
     fn mouse_mode_detector_keeps_controls_inside_escape_and_csi() {
         let mut detector = MouseModeChangeDetector::default();
