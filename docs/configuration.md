@@ -50,9 +50,9 @@ row read as the same signal.
 
 | Color | Sidebar | State |
 | --- | --- | --- |
-| Amber `#EFA237` | INPUT | The agent is blocked waiting on your input. |
-| Blue `#4385F8` | WORKING | The agent is working. |
-| Green `#6DCE63` | READY | The agent finished its turn. |
+| Orange `#FF9F0A` | INPUT | The agent is blocked waiting on your input. |
+| Blue `#0A84FF` | WORKING | The agent is working. |
+| Green `#30D158` | READY | The agent finished its turn. |
 
 Panes with no agent reporting a state stay unbordered, and a pane whose agent
 reports an unknown state is treated as having no agent. When several agents

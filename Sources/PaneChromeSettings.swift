@@ -72,11 +72,11 @@ enum AgentPaneStateBorder {
     // emit, which the sidebar does not display verbatim.
 
     /// Hex color for a pane whose agent is blocked on the user (sidebar INPUT).
-    static let needsInputHex = "#EFA237"
+    static let needsInputHex = "#FF9F0A"
     /// Hex color for a pane whose agent is working (sidebar WORKING).
-    static let runningHex = "#4385F8"
+    static let runningHex = "#0A84FF"
     /// Hex color for a pane whose agent finished its turn (sidebar READY).
-    static let idleHex = "#6DCE63"
+    static let idleHex = "#30D158"
 
     /// Collapses every agent reporting under `panelId` into the one state that
     /// should drive the border.
