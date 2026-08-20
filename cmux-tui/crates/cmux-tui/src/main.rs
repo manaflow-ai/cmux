@@ -24,6 +24,7 @@ mod machine_key;
 mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
+mod machine_registry;
 mod machine_runtime;
 mod plugin_manager;
 mod process_diagnostics;

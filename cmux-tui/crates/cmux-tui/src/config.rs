@@ -51,6 +51,16 @@
 //!     "max_width": 0,
 //!     "create_sources": []
 //!   },
+//!   "machine_providers": [
+//!     {"id": "ssh", "kind": "builtin-ssh", "name": "SSH"},
+//!     {
+//!       "id": "e2b",
+//!       "kind": "command",
+//!       "name": "E2B",
+//!       "command": ["cmux-provider-e2b"],
+//!       "env_passthrough": ["E2B_API_KEY"]
+//!     }
+//!   ],
 //!   "machine_provider": {
 //!     "cloud": {
 //!       "enabled": false,
@@ -176,6 +186,8 @@ struct RawConfig {
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
     machine_provider: RawMachineProvider,
+    #[serde(default)]
+    machine_providers: Vec<crate::machine_registry::RawMachineProviderEntry>,
     #[serde(default)]
     machines: Vec<RawMachine>,
     #[serde(default)]
@@ -2535,6 +2547,9 @@ pub struct Config {
     pub sidebar: Sidebar,
     pub machine_sidebar: MachineSidebar,
     pub machine_provider: MachineProviderConfig,
+    /// Ordered providers behind the machines column. Registry position
+    /// assigns the provider slot of every machine key.
+    pub machine_providers: Vec<crate::machine_registry::MachineProviderEntry>,
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
@@ -2903,6 +2918,10 @@ pub fn load() -> Config {
         .map(|path| path.trim().to_string())
         .filter(|path| !path.is_empty())
         .map(PathBuf::from);
+    // Resolve the registry after the cloud block, because an enabled cloud
+    // desugars into one of its entries.
+    config.machine_providers =
+        crate::machine_registry::resolve(raw.machine_providers, &config.machine_provider.cloud);
     let mut machine_ids = HashSet::new();
     for machine in raw.machines {
         let id = machine.id.trim().to_string();
