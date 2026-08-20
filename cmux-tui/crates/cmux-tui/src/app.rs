@@ -6737,6 +6737,9 @@ pub struct App {
     /// The last status message written to the client log, so a message that
     /// stays on screen across frames is recorded once.
     logged_status_message: Option<String>,
+    /// The most recent informational provider notice routed through the
+    /// status line, so the client log records it as INFO, not ERROR.
+    status_notice_text: Option<String>,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -7961,6 +7964,9 @@ fn run_with_machine_updates_inner(
     // The TUI owns the terminal now: stray stderr writes (panics, libraries)
     // would corrupt the raw-mode screen, so route fd 2 into the client log.
     crate::client_log::redirect_stderr_into_log();
+    // One line per launch, so every stretch of the log names the build that
+    // produced it.
+    crate::client_log::info("startup", &crate::version_string());
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
@@ -8239,6 +8245,7 @@ fn run_with_machine_updates_inner(
         status_selection: None,
         rendered_status_message: None,
         logged_status_message: None,
+        status_notice_text: None,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -10072,6 +10079,7 @@ impl App {
         if let Some(error) = guard_error {
             self.status_message = Some(error);
         } else if let Some(notice) = notice {
+            self.status_notice_text = Some(notice.clone());
             self.status_message = Some(notice);
         }
         RenderAction::Draw
@@ -14921,7 +14929,13 @@ impl App {
         // Every visible status message passes through here; persist each new
         // one so warnings survive the session in the client log.
         if self.logged_status_message.as_deref() != Some(text.as_str()) {
-            crate::client_log::error("status", &text);
+            // Provider notices ("VM created") share the status line but are
+            // not errors.
+            if self.status_notice_text.as_deref() == Some(text.as_str()) {
+                crate::client_log::info("status", &text);
+            } else {
+                crate::client_log::error("status", &text);
+            }
             self.logged_status_message = Some(text.clone());
         }
         self.rendered_status_message = Some(RenderedStatusMessage { rect, text });
@@ -40049,6 +40063,7 @@ mod tests {
             status_selection: None,
             rendered_status_message: None,
             logged_status_message: None,
+            status_notice_text: None,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),
