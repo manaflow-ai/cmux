@@ -1316,6 +1316,9 @@ struct ContentView: View {
                     sidebarColumnDragStartWidth = nil
                     sidebarState.persistedLeadingColumnWidth = sidebarLayout.leadingColumnWidth
                     sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
+                    // Absorption moved the workspaces width as well.
+                    sidebarState.persistedWidth = sidebarLayout.width
+                    sidebarState.persistedPrimaryColumnMode = sidebarLayout.primaryColumnMode
                 }
             )
         case .explorerDivider:
@@ -1419,8 +1422,19 @@ struct ContentView: View {
         }
     }
 
+    /// Finder redistributes an inner-divider drag between the two adjacent
+    /// columns: the machines column's delta comes out of the workspaces
+    /// column, so the terminal edge stays still. Falls back to moving the
+    /// region edge only when the workspaces column is an icon rail or hits
+    /// its width bounds.
+    private func absorbSidebarLeadingDelta(_ delta: CGFloat) {
+        guard delta != 0, sidebarLayout.primaryColumnMode == .regular else { return }
+        let profile = sidebarPrimaryColumnProfile()
+        sidebarLayout.width = profile.clampedRegularWidth(sidebarLayout.width - delta)
+    }
+
     /// Live divider drag for the machines column (same contract as
-    /// `applySidebarPrimaryColumnDrag`).
+    /// `applySidebarPrimaryColumnDrag`), region-constant where possible.
     private func applySidebarLeadingColumnDrag(_ rawWidth: CGFloat) {
         beginSidebarColumnResize()
         let resolution = SidebarColumnDisplayPolicy.resolve(
@@ -1430,28 +1444,48 @@ struct ContentView: View {
         )
         if resolution.didChangeMode {
             animateSidebarColumnModeChange {
+                let oldEffective = self.sidebarLayout.effectiveLeadingColumnWidth
                 self.sidebarLayout.leadingColumnMode = resolution.mode
                 if let regularWidth = resolution.regularWidth {
                     self.sidebarLayout.leadingColumnWidth = regularWidth
                 }
+                self.absorbSidebarLeadingDelta(
+                    self.sidebarLayout.effectiveLeadingColumnWidth - oldEffective
+                )
             }
             sidebarState.persistedLeadingColumnMode = resolution.mode
         } else if let regularWidth = resolution.regularWidth {
             withTransaction(Transaction(animation: nil)) {
+                let oldEffective = sidebarLayout.effectiveLeadingColumnWidth
                 sidebarLayout.leadingColumnWidth = regularWidth
+                absorbSidebarLeadingDelta(
+                    sidebarLayout.effectiveLeadingColumnWidth - oldEffective
+                )
             }
         }
+    }
+
+    /// Shared machines-column mode setter (double-click, RPC, restore
+    /// bridges): animated, region-constant.
+    private func setSidebarLeadingColumnMode(_ mode: SidebarColumnDisplayMode) {
+        guard sidebarLayout.leadingColumnMode != mode else { return }
+        animateSidebarColumnModeChange {
+            let oldEffective = self.sidebarLayout.effectiveLeadingColumnWidth
+            self.sidebarLayout.leadingColumnMode = mode
+            self.absorbSidebarLeadingDelta(
+                self.sidebarLayout.effectiveLeadingColumnWidth - oldEffective
+            )
+        }
+        sidebarState.persistedLeadingColumnMode = mode
     }
 
     /// Double-click on the machines divider: toggle between the icon rail and
     /// the remembered regular width. Terminal PTY resizes are deferred for
     /// the duration of the animation, matching interactive drags.
     private func toggleSidebarLeadingColumnMode() {
-        animateSidebarColumnModeChange {
-            self.sidebarLayout.leadingColumnMode =
-                self.sidebarLayout.leadingColumnMode == .icons ? .regular : .icons
-        }
-        sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
+        setSidebarLeadingColumnMode(
+            sidebarLayout.leadingColumnMode == .icons ? .regular : .icons
+        )
     }
 
     private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
@@ -3705,10 +3739,8 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedLeadingColumnMode) { newValue in
-            guard !isResizerDragging, sidebarLayout.leadingColumnMode != newValue else { return }
-            animateSidebarColumnModeChange {
-                sidebarLayout.leadingColumnMode = newValue
-            }
+            guard !isResizerDragging else { return }
+            setSidebarLeadingColumnMode(newValue)
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedPrimaryColumnMode) { newValue in
@@ -11285,6 +11317,11 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
     @State private var appKitRowSnapshotCache = SidebarRowSnapshotCache()
+    /// Last display mode this view actually applied to the AppKit table.
+    /// Reference box (not SwiftUI state): mutated from body like the row
+    /// snapshot cache, read to let mode flips pierce the drag-time
+    /// preserve-applied-rows guard.
+    @State private var appKitLastAppliedDisplayModeBox = SidebarDisplayModeBox()
     /// Bumped once per interactive-resize end: an apply during the drag
     /// is deferred by the AppKit controller. The bump projects one final
     /// authoritative snapshot after mouse-up so state that changed mid-drag
@@ -12145,9 +12182,15 @@ struct VerticalTabsSidebar: View, Equatable {
         let _ = appKitPostResizeRefreshToken
         let _ = appKitTableApplyRequestToken
         let contentUpdate: SidebarWorkspaceTableView.ContentUpdate
+        // Width ticks preserve applied rows, but a display-mode flip must
+        // apply DURING the drag: the icon/regular cell swap has to happen at
+        // spring start (cells then glide with the width animation) instead of
+        // popping at mouse-up.
+        let modeChangedSinceLastApply =
+            appKitLastAppliedDisplayModeBox.value != workspaceColumnDisplayMode
         let isDividerDragActive = isPresented
             && TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: observedWindow)
-        if !isPresented || isDividerDragActive {
+        if !isPresented || (isDividerDragActive && !modeChangedSinceLastApply) {
             // The AppKit controller remains the authoritative owner of its
             // applied rows. A payload-free update avoids constructing transient
             // row/action closure graphs while SwiftUI repeatedly lays out.
@@ -12158,6 +12201,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 actions: workspaceTableActions(renderContext: renderContext)
             )
             appKitRowSnapshotCache.prune(keeping: Set(renderContext.workspaceIds))
+            appKitLastAppliedDisplayModeBox.value = workspaceColumnDisplayMode
         }
         let selectedWorkspaceId = isPresented ? tabManager.selectedTabId : nil
         let selectedScrollTargetWorkspaceId: UUID? = selectedWorkspaceId.map { selectedId in

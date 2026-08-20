@@ -143,3 +143,11 @@ enum SidebarColumnDisplayPolicy {
         }
     }
 }
+
+/// Reference box for body-called caches (same pattern as the sidebar row
+/// snapshot cache): tracks the display mode last applied to the AppKit
+/// table without registering a SwiftUI dependency.
+@MainActor
+final class SidebarDisplayModeBox {
+    var value: SidebarColumnDisplayMode = .regular
+}
