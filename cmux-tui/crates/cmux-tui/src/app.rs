@@ -29271,7 +29271,7 @@ mod tests {
     fn full_tui_focus_gained_does_not_reset_host_capture_bookkeeping() {
         let mux = Mux::new("full-tui-focus-reassert-test", SurfaceOptions::default());
         let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.surface_only = None;
         app.host_mouse_capture_applied = Some(true);
 
