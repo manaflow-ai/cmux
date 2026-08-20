@@ -69,6 +69,15 @@ struct DeviceTreeView: View {
     var body: some View {
         NavigationStack {
             List {
+                // The same Connection Method control as Settings, up top where
+                // the Active section it drives is visible while switching.
+                if let connectionMethodStore {
+                    MobileConnectionMethodSection(
+                        store: connectionMethodStore,
+                        hasUsableTailscaleAuthorization: store.hasUsableTailscaleAuthorization,
+                        startPairingScanner: nil
+                    )
+                }
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {

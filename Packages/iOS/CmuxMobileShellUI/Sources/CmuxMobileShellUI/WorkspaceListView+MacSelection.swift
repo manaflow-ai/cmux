@@ -16,7 +16,13 @@ enum WorkspaceMacSelection: Hashable {
 extension WorkspaceListView {
     var displayPairedMacsForPicker: [MobilePairedMac] {
         if let store {
-            return store.displayPairedMacs
+            // The picker offers only computers reachable under the selected
+            // connection method: those are the routes the app will attempt.
+            let selectedKind: CmxAttachTransportKind =
+                connectionMethodStore?.method == .tailscale ? .tailscale : .iroh
+            return store.displayPairedMacs.filter { mac in
+                mac.routes.contains { $0.kind == selectedKind }
+            }
         }
         #if canImport(UIKit) && DEBUG
         if UITestConfig.workspaceListLayoutPreviewEnabled {

@@ -130,6 +130,10 @@ struct WorkspaceListView: View {
     /// workspace refreshes cannot recreate the native search presentation.
     var searchText = ""
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
+    /// Scopes the Mac picker to computers reachable under the user's selected
+    /// connection method (see ``displayPairedMacsForPicker``).
+    @Environment(MobileConnectionMethodStore.self) var connectionMethodStore:
+        MobileConnectionMethodStore?
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     /// Presents the view-options card (sort tiles + filter rows).
