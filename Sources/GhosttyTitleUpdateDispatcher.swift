@@ -23,6 +23,9 @@ actor GhosttyTitleUpdateDispatcher {
     private var activeAttachmentGeneration: UInt64?
     private var state = GhosttyTitleUpdateSurfaceState()
     private var cancelScheduledFlush: Cancellation?
+    /// Invalidates timer callbacks that raced with retirement or an explicit
+    /// flush and then scheduled a newer deadline.
+    private var scheduledFlushGeneration: UInt64 = 0
 
     init(
         // Terminal titles are presentation metadata, not control-plane state.
@@ -66,6 +69,7 @@ actor GhosttyTitleUpdateDispatcher {
     }
 
     func flushNow() async {
+        scheduledFlushGeneration &+= 1
         cancelScheduledFlush?()
         cancelScheduledFlush = nil
         await flush()
@@ -80,12 +84,15 @@ actor GhosttyTitleUpdateDispatcher {
 
     private func scheduleFlushIfNeeded() {
         guard cancelScheduledFlush == nil else { return }
+        scheduledFlushGeneration &+= 1
+        let generation = scheduledFlushGeneration
         cancelScheduledFlush = schedule(coalescingInterval) { [weak self] in
-            await self?.scheduledFlushDidFire()
+            await self?.scheduledFlushDidFire(generation: generation)
         }
     }
 
-    private func scheduledFlushDidFire() async {
+    private func scheduledFlushDidFire(generation: UInt64) async {
+        guard generation == scheduledFlushGeneration else { return }
         cancelScheduledFlush = nil
         await flush()
     }
@@ -103,6 +110,7 @@ actor GhosttyTitleUpdateDispatcher {
         for surfaceKey: GhosttyTitleUpdateSurfaceKey?,
         attachmentGeneration: UInt64?
     ) {
+        scheduledFlushGeneration &+= 1
         cancelScheduledFlush?()
         cancelScheduledFlush = nil
         activeSurfaceKey = surfaceKey
