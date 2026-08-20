@@ -38098,6 +38098,74 @@
         }
       }
     },
+    "cli.error.sshSessionAttachSessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: no persisted SSH PTY session with id '%@'. Run 'cmux ssh-session-list --all-workspaces' to see valid session ids."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: ID '%@' の永続 SSH PTY セッションが見つかりません。有効なセッション ID を確認するには 'cmux ssh-session-list --all-workspaces' を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachStateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: persisted SSH PTY session state is unavailable. Run 'cmux ssh-session-list --all-workspaces' and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: 永続 SSH PTY セッションの状態を利用できません。'cmux ssh-session-list --all-workspaces' を実行してから再試行してください。"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' belongs to workspace %2$@, but --workspace requested a different workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' はワークスペース %2$@ に属していますが、--workspace では別のワークスペースが指定されました"
+          }
+        }
+      }
+    },
+    "cli.error.sshSessionAttachWorkspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: session '%1$@' exists in multiple workspaces (%2$@). Pass --workspace <workspace> to choose one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-session-attach: セッション '%1$@' は複数のワークスペース (%2$@) に存在します。--workspace <workspace> で指定してください。"
+          }
+        }
+      }
+    },
     "cli.error.workspaceLoadingInvalidId": {
       "extractionState": "manual",
       "localizations": {
@@ -43102,40 +43170,6 @@
         }
       }
     },
-    "cli.hooks.kimi.legacyCleanupWarning": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "警告: cmux hooks は %@ で有効ですが、従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行してクリーンアップを完了してください。"
-          }
-        }
-      }
-    },
-    "cli.hooks.kimi.legacyUninstallWarning": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "警告: 従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
-          }
-        }
-      }
-    },
     "cli.hooks.kimi.noneFound": {
       "extractionState": "manual",
       "localizations": {
@@ -43489,6 +43523,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "Removed 0 cmux hook(s) from %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.secondaryRefreshWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: تم تثبيت خطافات cmux في %@، لكن تعذّر على cmux تحديث كتلة الخطافات الموجودة في %@. تحقّق من هذا المسار وأعد تشغيل `cmux hooks setup kimi` لإكمال التحديث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozorenje: cmux hookovi su instalirani u %@, ali cmux nije mogao osvježiti postojeći blok hookova u %@. Provjerite tu putanju i ponovo pokrenite `cmux hooks setup kimi` da dovršite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux-hooks er installeret i %@, men cmux kunne ikke opdatere sin eksisterende hook-blok i %@. Tjek den sti, og kør `cmux hooks setup kimi` igen for at fuldføre opdateringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: cmux-Hooks sind in %@ installiert, aber cmux konnte den vorhandenen Hook-Block in %@ nicht aktualisieren. Prüfe diesen Pfad und führe `cmux hooks setup kimi` erneut aus, um die Aktualisierung abzuschließen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux hooks are installed at %@, but cmux could not refresh its existing hook block in %@. Check that path and re-run `cmux hooks setup kimi` to finish the update."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertencia: los hooks de cmux están instalados en %@, pero cmux no pudo actualizar su bloque de hooks existente en %@. Revisa esa ruta y vuelve a ejecutar `cmux hooks setup kimi` para completar la actualización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertissement : les hooks cmux sont installés dans %@, mais cmux n'a pas pu actualiser son bloc de hooks existant dans %@. Vérifiez ce chemin et relancez `cmux hooks setup kimi` pour terminer la mise à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso: gli hook di cmux sono installati in %@, ma cmux non è riuscito ad aggiornare il blocco di hook esistente in %@. Controlla quel percorso ed esegui di nuovo `cmux hooks setup kimi` per completare l'aggiornamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: cmux hooks は %@ にインストールされましたが、%@ にある既存の hook ブロックを更新できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行して更新を完了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមាន៖ cmux hooks ត្រូវបានដំឡើងនៅ %@ ប៉ុន្តែ cmux មិនអាចធ្វើបច្ចុប្បន្នភាពប្លុក hook ដែលមានស្រាប់នៅក្នុង %@ បានទេ។ សូមពិនិត្យផ្លូវនោះ រួចដំណើរការ `cmux hooks setup kimi` ម្ដងទៀត ដើម្បីបញ្ចប់ការធ្វើបច្ចុប្បន្នភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: cmux hooks가 %@에 설치되었지만 %@에 있는 기존 hook 블록을 갱신하지 못했습니다. 해당 경로를 확인한 뒤 `cmux hooks setup kimi`를 다시 실행해 업데이트를 완료하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux-hooks er installert i %@, men cmux kunne ikke oppdatere den eksisterende hook-blokken i %@. Sjekk den banen og kjør `cmux hooks setup kimi` på nytt for å fullføre oppdateringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzeżenie: hooki cmux są zainstalowane w %@, ale cmux nie mógł odświeżyć istniejącego bloku hooków w %@. Sprawdź tę ścieżkę i uruchom ponownie `cmux hooks setup kimi`, aby dokończyć aktualizację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso: os hooks do cmux estão instalados em %@, mas o cmux não conseguiu atualizar o bloco de hooks existente em %@. Verifique esse caminho e execute `cmux hooks setup kimi` novamente para concluir a atualização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждение: хуки cmux установлены в %@, но cmux не смог обновить существующий блок хуков в %@. Проверьте этот путь и запустите `cmux hooks setup kimi` ещё раз, чтобы завершить обновление."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเตือน: ติดตั้ง cmux hooks ไว้ที่ %@ แล้ว แต่ cmux ไม่สามารถอัปเดตบล็อก hook ที่มีอยู่ใน %@ ได้ ตรวจสอบพาธนั้นแล้วรัน `cmux hooks setup kimi` อีกครั้งเพื่อทำการอัปเดตให้เสร็จสมบูรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uyarı: cmux hook'ları %@ konumuna kuruldu ancak cmux, %@ içindeki mevcut hook bloğunu güncelleyemedi. Bu yolu kontrol edin ve güncellemeyi tamamlamak için `cmux hooks setup kimi` komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередження: хуки cmux встановлено в %@, але cmux не зміг оновити наявний блок хуків у %@. Перевірте цей шлях і запустіть `cmux hooks setup kimi` ще раз, щоб завершити оновлення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux hooks 已安装到 %@，但 cmux 无法刷新 %@ 中已有的 hook 块。请检查该路径，然后重新运行 `cmux hooks setup kimi` 以完成更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux hooks 已安裝到 %@，但 cmux 無法更新 %@ 中既有的 hook 區塊。請檢查該路徑，然後重新執行 `cmux hooks setup kimi` 以完成更新。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.secondaryUninstallWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: تعذّر على cmux إزالة كتلة الخطافات من %@. تحقّق من هذا المسار وأعد تشغيل `cmux hooks uninstall kimi` لإكمال التنظيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozorenje: cmux nije mogao ukloniti svoj blok hookova iz %@. Provjerite tu putanju i ponovo pokrenite `cmux hooks uninstall kimi` da dovršite čišćenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux kunne ikke fjerne sin hook-blok fra %@. Tjek den sti, og kør `cmux hooks uninstall kimi` igen for at fuldføre oprydningen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: cmux konnte seinen Hook-Block nicht aus %@ entfernen. Prüfe diesen Pfad und führe `cmux hooks uninstall kimi` erneut aus, um die Bereinigung abzuschließen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux could not remove its hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertencia: cmux no pudo eliminar su bloque de hooks de %@. Revisa esa ruta y vuelve a ejecutar `cmux hooks uninstall kimi` para completar la limpieza."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertissement : cmux n'a pas pu supprimer son bloc de hooks de %@. Vérifiez ce chemin et relancez `cmux hooks uninstall kimi` pour terminer le nettoyage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso: cmux non è riuscito a rimuovere il proprio blocco di hook da %@. Controlla quel percorso ed esegui di nuovo `cmux hooks uninstall kimi` per completare la pulizia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមាន៖ cmux មិនអាចលុបប្លុក hook របស់ខ្លួនចេញពី %@ បានទេ។ សូមពិនិត្យផ្លូវនោះ រួចដំណើរការ `cmux hooks uninstall kimi` ម្ដងទៀត ដើម្បីបញ្ចប់ការសម្អាត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: %@에서 hook 블록을 제거하지 못했습니다. 해당 경로를 확인한 뒤 `cmux hooks uninstall kimi`를 다시 실행해 정리를 완료하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel: cmux kunne ikke fjerne hook-blokken sin fra %@. Sjekk den banen og kjør `cmux hooks uninstall kimi` på nytt for å fullføre oppryddingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzeżenie: cmux nie mógł usunąć swojego bloku hooków z %@. Sprawdź tę ścieżkę i uruchom ponownie `cmux hooks uninstall kimi`, aby dokończyć czyszczenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso: o cmux não conseguiu remover seu bloco de hooks de %@. Verifique esse caminho e execute `cmux hooks uninstall kimi` novamente para concluir a limpeza."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждение: cmux не смог удалить свой блок хуков из %@. Проверьте этот путь и запустите `cmux hooks uninstall kimi` ещё раз, чтобы завершить очистку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเตือน: cmux ไม่สามารถลบบล็อก hook ออกจาก %@ ได้ ตรวจสอบพาธนั้นแล้วรัน `cmux hooks uninstall kimi` อีกครั้งเพื่อทำความสะอาดให้เสร็จสมบูรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uyarı: cmux, hook bloğunu %@ konumundan kaldıramadı. Bu yolu kontrol edin ve temizliği tamamlamak için `cmux hooks uninstall kimi` komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередження: cmux не зміг видалити свій блок хуків із %@. Перевірте цей шлях і запустіть `cmux hooks uninstall kimi` ще раз, щоб завершити очищення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux 无法从 %@ 中移除其 hook 块。请检查该路径，然后重新运行 `cmux hooks uninstall kimi` 以完成清理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：cmux 無法從 %@ 移除其 hook 區塊。請檢查該路徑，然後重新執行 `cmux hooks uninstall kimi` 以完成清理。"
           }
         }
       }
@@ -85386,13 +85670,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No user theme or terminal colors, so cmux applies its managed default colors."
+            "value": "No user Ghostty settings, so cmux applies its managed default colors."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーのテーマやターミナル色がないため、cmux の管理されたデフォルト色を適用します。"
+            "value": "ユーザーの Ghostty 設定がないため、cmux の管理するデフォルト色を適用します。"
           }
         }
       }
@@ -112439,6 +112723,20 @@
         }
       }
     },
+    "emptyPanel.action.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "emptyPanel.action.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
     "emptyPanel.title": {
       "extractionState": "manual",
       "localizations": {
@@ -138943,6 +139241,108 @@
         }
       }
     },
+    "mobile.pairing.target.appStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        }
+      }
+    },
+    "mobile.pairing.target.beta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux BETA"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux BETA"
+          }
+        }
+      }
+    },
+    "mobile.pairing.target.demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEMO"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEMO"
+          }
+        }
+      }
+    },
+    "mobile.pairing.target.dev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEV %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEV %@"
+          }
+        }
+      }
+    },
+    "mobile.pairing.target.internal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux INTERNAL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux INTERNAL"
+          }
+        }
+      }
+    },
+    "mobile.pairing.targetApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open with"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開くアプリ"
+          }
+        }
+      }
+    },
     "mobile.pairing.waiting": {
       "extractionState": "manual",
       "localizations": {
@@ -146017,6 +146417,23 @@
           "stringUnit": {
             "state": "new",
             "value": "persistent SSH PTY session is no longer running"
+          }
+        }
+      }
+    },
+    "remoteRelay.commandDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote relay command denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートリレーコマンドが拒否されました"
           }
         }
       }
@@ -176146,6 +176563,13 @@
         }
       }
     },
+    "settings.managedByOrganization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Managed by your organization" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織によって管理されています" } }
+      }
+    },
     "settings.material.contentBackground": {
       "extractionState": "manual",
       "localizations": {
@@ -177912,6 +178336,13 @@
             "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
           }
         }
+      }
+    },
+    "settings.mobile.managedByOrganization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote control from the iOS app is disabled by your organization." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOS アプリからのリモート操作は組織によって無効化されています。" } }
       }
     },
     "settings.mobile.phonePush.forwarding": {
@@ -195123,6 +195554,23 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.adaptive-default-theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.adaptiveDefaultTheme 適応 デフォルト テーマ 外観 ライト ダーク パレット Ghostty 管理 色 空 未設定 設定 保持"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -200770,6 +201218,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "非使用中"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapt Default Theme to Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトテーマを外観に合わせる"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 設定が空の場合は、固定された組み込みパレットを使用します。ライト／ダークのテーマペアを含む既存の Ghostty 設定は常に保持します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.adaptiveDefaultTheme.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
           }
         }
       }

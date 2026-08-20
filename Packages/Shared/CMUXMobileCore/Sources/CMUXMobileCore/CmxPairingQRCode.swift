@@ -77,8 +77,13 @@ public struct CmxPairingQRCode: Sendable {
     /// route is dropped, never written into a scannable code.
     public func encode(
         _ ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
     ) -> String? {
+        guard let scheme = pairingURLScheme?.rawValue else {
+            return nil
+        }
         let items: [String]
         switch routeDisclosureMode {
         case .irohIdentityOnly:
@@ -119,7 +124,7 @@ public struct CmxPairingQRCode: Sendable {
         // Mac's QR opens the dev iOS build, a release Mac's QR opens the
         // release build, and the system camera can no longer hand a beta/prod
         // code to a dev build that also claimed the scheme.
-        return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
+        return "\(scheme)://attach?" + items.joined(separator: "&")
     }
 
     /// Whether `ticket` is expressible in the selected minimal grammar.
@@ -224,7 +229,7 @@ public struct CmxPairingQRCode: Sendable {
     /// the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
         guard let url = URL(string: rawValue),
-              CmxPairingURLScheme.isPairingScheme(url.scheme),
+              CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return false

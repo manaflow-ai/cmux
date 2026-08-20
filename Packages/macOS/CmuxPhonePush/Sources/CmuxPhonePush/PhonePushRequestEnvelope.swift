@@ -27,6 +27,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     public let expectedAccountID: String?
     /// The authentication generation that owned the request when it was created.
     public let expectedSessionGeneration: UInt64?
+    /// Exact iOS bundle identifier selected when this event was queued.
+    public let targetBundleIdentifier: String?
 
     /// Restores an already encoded request from durable storage.
     public init(
@@ -35,7 +37,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         body: Data,
         coalescingID: String? = nil,
         expectedAccountID: String? = nil,
-        expectedSessionGeneration: UInt64? = nil
+        expectedSessionGeneration: UInt64? = nil,
+        targetBundleIdentifier: String? = nil
     ) {
         self.correlationID = correlationID.lowercased()
         self.expirationEpochSeconds = expirationEpochSeconds
@@ -43,6 +46,7 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         self.coalescingID = coalescingID
         self.expectedAccountID = expectedAccountID
         self.expectedSessionGeneration = expectedSessionGeneration
+        self.targetBundleIdentifier = targetBundleIdentifier
     }
 
     /// Validates and encodes a request payload for delivery.
@@ -51,7 +55,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         correlationID: UUID = UUID(),
         expirationEpochSeconds: Int,
         expectedAccountID: String? = nil,
-        expectedSessionGeneration: UInt64? = nil
+        expectedSessionGeneration: UInt64? = nil,
+        targetBundleIdentifier: String? = nil
     ) throws {
         let canonicalCorrelation = correlationID.uuidString.lowercased()
         let normalizedNotificationID = payload.kind == .notify
@@ -125,7 +130,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             body: encoded,
             coalescingID: normalizedNotificationID,
             expectedAccountID: expectedAccountID,
-            expectedSessionGeneration: expectedSessionGeneration
+            expectedSessionGeneration: expectedSessionGeneration,
+            targetBundleIdentifier: targetBundleIdentifier
         )
     }
 
@@ -148,7 +154,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             body: body,
             coalescingID: coalescingID,
             expectedAccountID: accountID,
-            expectedSessionGeneration: generation
+            expectedSessionGeneration: generation,
+            targetBundleIdentifier: targetBundleIdentifier
         )
     }
 

@@ -19,6 +19,11 @@ extension MobileHostIrohRuntime {
             throw CmxIrohHostRuntimeError.inactive
         }
         let tag = Self.currentTag()
+        guard let clientNamespace = CmxIrohMacBundleNamespace(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ) else {
+            throw CmxIrohHostRuntimeError.invalidLocalBinding
+        }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
@@ -38,6 +43,7 @@ extension MobileHostIrohRuntime {
         let bindingMatches = cachedBinding.map {
             $0.deviceID == deviceID
                 && $0.appInstanceID == appInstanceID
+                && $0.clientNamespace == clientNamespace.rawValue
                 && $0.tag == tag
                 && $0.platform == .mac
                 && derivedEndpointID == $0.endpointID
@@ -71,10 +77,14 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace.rawValue,
             tag: tag,
             endpointID: derivedEndpointID,
             identityGeneration: identity.generation,
-            pairingEnabled: true,
+            // Under a managed remote-control disable the runtime should never
+            // activate at all; reporting pairingEnabled=false is defense in
+            // depth so the trust broker also refuses to mint pair grants.
+            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities
         )
         let cachedHostPolicy: CmxIrohCachedHostPolicy?
@@ -142,6 +152,7 @@ extension MobileHostIrohRuntime {
                     _ = try await auth.forceRefreshAccessToken()
                 }
             ),
+            clientNamespace: clientNamespace.rawValue,
             discoveryScope: try CmxConnectivityDiscoveryScope(
                 deviceID: deviceID,
                 appInstanceID: appInstanceID,
@@ -245,10 +256,14 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace,
             tag: tag,
             displayName: MobileHostIdentity.instanceDisplayName(),
             identity: identity,
-            pairingEnabled: true,
+            // Under a managed remote-control disable the runtime should never
+            // activate at all; reporting pairingEnabled=false is defense in
+            // depth so the trust broker also refuses to mint pair grants.
+            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities,
             bindPolicy: .preferred(
                 try CmxIrohBindAddress(
