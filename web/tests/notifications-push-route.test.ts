@@ -231,7 +231,8 @@ describe("notifications push route", () => {
         user_id, device_token, platform, bundle_id, environment
       ) values
         ('user-1', ${"a".repeat(64)}, 'ios', 'com.cmux.app', 'production'),
-        ('user-1', ${"b".repeat(64)}, 'ios', 'dev.cmux.app.beta', 'production')
+        ('user-1', ${"b".repeat(64)}, 'ios', 'dev.cmux.app.beta', 'production'),
+        ('user-1', ${"c".repeat(64)}, 'ios', 'dev.cmux.ios.tsgate', 'sandbox')
     `;
 
     const response = await pushRoute.sendPushWithTransport(
@@ -259,14 +260,41 @@ describe("notifications push route", () => {
       }).mock.calls[0]?.[1] as Array<{
         deviceToken: string;
         bundleId: string;
+        environment: string;
       }>
     );
     // Pre-namespace reach: every token the account registered, each keeping
-    // its own bundle topic, exactly like delivery before the namespace header.
-    expect(targets).toHaveLength(2);
-    expect(new Set(targets.map((target) => target.bundleId))).toEqual(
-      new Set(["com.cmux.app", "dev.cmux.app.beta"]),
+    // its own bundle topic AND environment, exactly like delivery before the
+    // namespace header existed.
+    expect(targets).toHaveLength(3);
+    expect(
+      new Set(targets.map((target) => `${target.bundleId}|${target.environment}`)),
+    ).toEqual(new Set([
+      "com.cmux.app|production",
+      "dev.cmux.app.beta|production",
+      "dev.cmux.ios.tsgate|sandbox",
+    ]));
+  });
+
+  test("an explicitly empty target namespace is rejected, not legacy", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    const response = await pushRoute.POST(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-ios-target-namespace": "",
+        },
+        body: JSON.stringify({ title: "Agent", body: "Done" }),
+      }),
     );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_target_namespace",
+    });
+    expect(cloudDb).not.toHaveBeenCalled();
   });
 
   dbTest("delivers to BETA without selecting INTERNAL tokens", async () => {

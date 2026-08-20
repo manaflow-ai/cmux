@@ -140,7 +140,7 @@ async function sendPush(
   // allowed to omit the routing hint, new builds must send a valid one.
   const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
   let targetNamespace: ReturnType<typeof normalizeApnsBundle> = null;
-  if (requestedNamespace) {
+  if (requestedNamespace !== null) {
     targetNamespace = normalizeApnsBundle(requestedNamespace);
     if (!targetNamespace) {
       return jsonResponse({ error: "invalid_target_namespace" }, 400);
