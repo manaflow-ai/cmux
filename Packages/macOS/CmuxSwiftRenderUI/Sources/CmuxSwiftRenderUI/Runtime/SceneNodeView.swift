@@ -129,6 +129,8 @@ private struct SceneNodeContent: View {
             }
         case "contextMenu":
             children
+        case "textfield":
+            SceneTextFieldView(node: node, sink: sink)
         case "reorderable":
             ReorderableColumnView(node: node)
         default:
@@ -185,10 +187,19 @@ private struct SceneNodeContent: View {
                 node.double("layoutPriority")
                     ?? (node.type == "text" && node.props["lineLimit"] != nil ? 1 : 0)
             )
-        if node.bool("tappable") {
+        let doubleTappable = node.bool("doubleTappable")
+        let tappable = node.bool("tappable")
+        if doubleTappable || tappable {
             base
                 .contentShape(Rectangle())
-                .onTapGesture { sink.send(node.id, "tap", [:]) }
+                // count:2 registered first so a double-click fires it instead
+                // of two single taps.
+                .onTapGesture(count: 2) {
+                    if doubleTappable { sink.send(node.id, "doubletap", [:]) }
+                }
+                .onTapGesture {
+                    if tappable { sink.send(node.id, "tap", [:]) }
+                }
         } else {
             base
         }
@@ -211,6 +222,35 @@ private struct SceneNodeContent: View {
             return dslFontSpec(named: "body", size: nil, weight: weight)
         }
         return nil
+    }
+}
+
+/// Editable one-line text field: focuses itself on appear, Return submits
+/// the current text as a "submit" event, Escape sends "cancel".
+private struct SceneTextFieldView: View {
+    let node: SceneNode
+    let sink: SceneEventSink
+    @State private var text = ""
+    @State private var seeded = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(node.string("placeholder") ?? "", text: $text)
+            .textFieldStyle(.plain)
+            .focused($focused)
+            .onAppear {
+                if !seeded {
+                    seeded = true
+                    text = node.string("text") ?? ""
+                }
+                focused = true
+            }
+            .onSubmit {
+                sink.send(node.id, "submit", ["text": text])
+            }
+            .onExitCommand {
+                sink.send(node.id, "cancel", [:])
+            }
     }
 }
 

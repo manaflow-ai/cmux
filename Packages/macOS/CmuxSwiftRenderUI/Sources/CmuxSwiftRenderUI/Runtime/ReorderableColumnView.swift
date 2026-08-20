@@ -402,6 +402,21 @@ private struct ReorderableRowView: View {
         let moves = isDragged || (model.isBlockDrag && draggedId != nil && model.blockRows.contains(childId))
         let lifted = isDragged && !model.isSettling
         SceneNodeView(nodeId: childId)
+            // A moving row gets a material backdrop so it stays readable
+            // while passing over other rows (and blurs them glass-style);
+            // at rest rows stay transparent so the surface shows through.
+            // The shape matches the row's own box (its corner radius, inset
+            // by its leading margin).
+            .background {
+                if moves {
+                    RoundedRectangle(
+                        cornerRadius: CGFloat(store?.node(childId)?.double("cornerRadius") ?? 8),
+                        style: .continuous
+                    )
+                    .fill(.ultraThinMaterial)
+                    .padding(.leading, CGFloat(store?.node(childId)?.double("marginLeading") ?? 0))
+                }
+            }
             // Nesting preview: a leading-PADDING delta, not a translation, so
             // the dragged row's box narrows from the left with its right edge
             // fixed — exactly the geometry of a row whose marginLeading is the

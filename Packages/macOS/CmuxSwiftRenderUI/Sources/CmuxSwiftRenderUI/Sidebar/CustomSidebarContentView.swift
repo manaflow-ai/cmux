@@ -110,7 +110,9 @@ public struct CustomSidebarContentView: View {
         ScrollView {
             view
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 12)
+                // Narrow gutter so rows run nearly edge to edge (the native
+                // sidebar look); authors add their own inner padding.
+                .padding(.horizontal, 6)
                 .padding(.top, 8)
                 .padding(.bottom, 16)
         }

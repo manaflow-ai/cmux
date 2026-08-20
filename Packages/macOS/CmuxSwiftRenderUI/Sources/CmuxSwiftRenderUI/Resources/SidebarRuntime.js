@@ -196,6 +196,15 @@
       setProp(id, "tappable", true);
       return handle;
     };
+    // Double-click (e.g. rename affordance). Coexists with onTap: the host
+    // registers the two-click recognizer first, so a double fires this and
+    // not two taps.
+    handle.onDoubleTap = (fn) => {
+      handlers[id] = handlers[id] || {};
+      handlers[id].doubletap = fn;
+      setProp(id, "doubleTappable", true);
+      return handle;
+    };
     // Right-click menu: the items (Button / Menu / Divider / Text) become a
     // contextMenu child node; the host renders it as the view's context menu
     // instead of inline content.
@@ -283,6 +292,19 @@
   g.Menu = (title, children) => {
     const node = makeNode("menu", {}, children);
     setProp(node.__nodeId, "text", title);
+    return node;
+  };
+
+  // Editable one-line text field. `value` is the initial text (string or
+  // binding); opts: placeholder, onSubmit(text), onCancel(). The host
+  // focuses it on appear; Return submits, Escape cancels.
+  g.TextField = (value, opts) => {
+    const node = makeNode("textfield", {});
+    setProp(node.__nodeId, "text", value);
+    if (opts && opts.placeholder) setProp(node.__nodeId, "placeholder", opts.placeholder);
+    handlers[node.__nodeId] = handlers[node.__nodeId] || {};
+    if (opts && opts.onSubmit) handlers[node.__nodeId].submit = opts.onSubmit;
+    if (opts && opts.onCancel) handlers[node.__nodeId].cancel = opts.onCancel;
     return node;
   };
 
@@ -422,6 +444,9 @@
     const payload = json ? JSON.parse(json) : null;
     if (event === "tap" && nodeHandlers.tap) nodeHandlers.tap(payload);
     if (event === "move" && nodeHandlers.move) nodeHandlers.move(payload.id, payload.index, payload);
+    if (event === "doubletap" && nodeHandlers.doubletap) nodeHandlers.doubletap(payload);
+    if (event === "submit" && nodeHandlers.submit) nodeHandlers.submit(payload ? payload.text : "");
+    if (event === "cancel" && nodeHandlers.cancel) nodeHandlers.cancel(payload);
     runPending();
   };
 

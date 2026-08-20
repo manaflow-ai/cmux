@@ -13,6 +13,12 @@
 // Install:  cp Examples/CustomSidebars/workspaces.js ~/.config/cmux/sidebars/
 // Open:     cmux sidebar open workspaces
 
+// --- inline rename -----------------------------------------------------------
+// Double-click a row/header (or its Rename menu item) to edit in place.
+// Editing swaps the entry's key, so the keyed reconciler remounts the row as
+// an editor; Return commits through workspace(.group).rename, Escape cancels.
+const [editingId, setEditingId] = signal(null);
+
 // --- optimistic collapse -----------------------------------------------------
 const collapseOverride = new Map();
 const [collapseTick, setCollapseTick] = signal(0);
@@ -50,19 +56,32 @@ const flatEntries = computed(() => {
   const groups = new Map((data.groups() ?? []).map((g) => [g.id, g]));
   const out = [];
   const seen = new Set();
+  const editing = editingId();
+  const wsEntry = (w, groupId) => ({
+    kind: "ws",
+    id: w.id + (editing === w.id ? ":edit" : ""),
+    wsId: w.id,
+    editing: editing === w.id,
+    groupId,
+  });
   for (const w of ws) {
     if (w.group && groups.has(w.group)) {
       if (seen.has(w.group)) continue;
       seen.add(w.group);
       const g = groups.get(w.group);
-      out.push({ kind: "header", id: "h:" + g.id, groupId: g.id });
+      out.push({
+        kind: "header",
+        id: "h:" + g.id + (editing === "h:" + g.id ? ":edit" : ""),
+        groupId: g.id,
+        editing: editing === "h:" + g.id,
+      });
       if (!isCollapsed(g)) {
         for (const m of memberRowsOf(g.id)) {
-          out.push({ kind: "ws", id: m.id, groupId: g.id });
+          out.push(wsEntry(m, g.id));
         }
       }
     } else if (!w.group) {
-      out.push({ kind: "ws", id: w.id, groupId: null });
+      out.push(wsEntry(w, null));
     }
   }
   return out;
@@ -82,7 +101,7 @@ function handleMove(id, index, extra) {
     const memberCount = membersOf(gid).length;
     const entries = flatEntries().filter((e) => e.id !== id && e.groupId !== gid);
     const nextEntry = entries.slice(index).find((e) => e.kind === "ws");
-    const nextWorkspace = nextEntry ? ws.find((w) => w.id === nextEntry.id) : null;
+    const nextWorkspace = nextEntry ? ws.find((w) => w.id === (nextEntry.wsId ?? nextEntry.id)) : null;
     const anchor = ws.find((w) => w.id === (groupById(gid)?.anchorId));
     let to;
     if (nextWorkspace) {
@@ -101,7 +120,7 @@ function handleMove(id, index, extra) {
   const prev = index > 0 ? entries[index - 1] : null;
   const nextEntry = entries.slice(index).find((e) => e.kind === "ws");
   const nextAny = index < entries.length ? entries[index] : null;
-  const nextWorkspace = nextEntry ? ws.find((w) => w.id === nextEntry.id) : null;
+  const nextWorkspace = nextEntry ? ws.find((w) => w.id === (nextEntry.wsId ?? nextEntry.id)) : null;
 
   let container;
   if (extra && extra.side === "below") {
@@ -142,6 +161,7 @@ function workspaceMenu(w) {
     Button(() => (groupById(g.id)?.name ?? ""), () =>
       cmux("workspace.group.add", { group_id: g.id, workspace_id: w().id })));
   return [
+    Button("Rename", () => setEditingId(w().id)),
     Button(() => (w()?.pinned ? "Unpin" : "Pin"), () =>
       cmux("workspace.action", { action: w()?.pinned ? "unpin" : "pin", workspace_id: w().id })),
     Button(() => (w()?.unread > 0 ? "Mark as Read" : "Mark as Unread"), () =>
@@ -183,7 +203,30 @@ function workspaceRow(w, entry) {
     .frame({ maxWidth: "infinity" })
     .block(() => (entry().groupId ? "h:" + entry().groupId : null))
     .onTap(() => cmux("workspace.select", { workspace_id: w().id }))
+    .onDoubleTap(() => setEditingId(w().id))
     .contextMenu(workspaceMenu(w));
+}
+
+// In-place editor row (same box as a workspace row).
+function workspaceEditRow(w, entry) {
+  return HStack({ spacing: 8 }, [
+    TextField(() => w()?.title ?? "", {
+      placeholder: "Workspace name",
+      onSubmit: (t) => {
+        const title = (t ?? "").trim();
+        if (title) cmux("workspace.action", { action: "rename", workspace_id: w().id, title });
+        else cmux("workspace.action", { action: "clear_name", workspace_id: w().id });
+        setEditingId(null);
+      },
+      onCancel: () => setEditingId(null),
+    }).font(13),
+  ])
+    .paddingHorizontal(10)
+    .paddingVertical(6)
+    .cornerRadius(8)
+    .background("#7f7f7f3d")
+    .marginLeading(() => (entry().groupId ? 14 : 0))
+    .frame({ maxWidth: "infinity" });
 }
 
 function groupHeader(groupId) {
@@ -221,7 +264,9 @@ function groupHeader(groupId) {
       const a = anchor();
       if (a) cmux("workspace.select", { workspace_id: a.id });
     })
+    .onDoubleTap(() => setEditingId("h:" + groupId))
     .contextMenu([
+      Button("Rename Group", () => setEditingId("h:" + groupId)),
       Button(() => (isCollapsed(g()) ? "Expand" : "Collapse"), () => toggleCollapse(g())),
       Button(() => (g().pinned ? "Unpin Group" : "Pin Group"), () =>
         cmux("workspace.group.action", { group_id: groupId, action: g().pinned ? "unpin" : "pin" })),
@@ -229,6 +274,28 @@ function groupHeader(groupId) {
       Button("Ungroup", groupAct("ungroup")),
       Button("Delete Group", groupAct("delete")).destructive(),
     ]);
+}
+
+function groupEditRow(groupId) {
+  const g = () => groupById(groupId);
+  return HStack({ spacing: 6 }, [
+    TextField(() => g()?.name ?? "", {
+      placeholder: "Group name",
+      onSubmit: (t) => {
+        const name = (t ?? "").trim();
+        if (name) cmux("workspace.group.rename", { group_id: groupId, name });
+        setEditingId(null);
+      },
+      onCancel: () => setEditingId(null),
+    }).font(12).weight("semibold"),
+  ])
+    .paddingLeading(24)
+    .paddingTrailing(10)
+    .paddingVertical(5)
+    .cornerRadius(8)
+    .background("#7f7f7f3d")
+    .frame({ maxWidth: "infinity" })
+    .fixed();
 }
 
 // --- root ------------------------------------------------------------------------
@@ -241,12 +308,12 @@ sidebar(() =>
       onMove: handleMove,
     },
     (e, key) => {
-      const entry = e(); // kind and ids are stable per key
+      const entry = e(); // kind, ids, and editing are stable per key
       if (entry.kind === "header") {
-        return groupHeader(entry.groupId);
+        return entry.editing ? groupEditRow(entry.groupId) : groupHeader(entry.groupId);
       }
-      const w = () => (data.workspaces() ?? []).find((x) => x.id === key);
-      return workspaceRow(w, e);
+      const w = () => (data.workspaces() ?? []).find((x) => x.id === entry.wsId);
+      return entry.editing ? workspaceEditRow(w, e) : workspaceRow(w, e);
     }
   ),
   { surface: "glass" }
