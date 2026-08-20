@@ -591,21 +591,16 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   terminalPresentationIsActive,
                   surfaceView.window != nil,
                   outputConsumerRecoveryAlert == nil else { return }
-            guard let presenter = presentingController(for: surfaceView),
-                  !(presenter is UIAlertController),
-                  presenter.viewIfLoaded?.window != nil else {
+            outputConsumerRecoveryAlertPending = true
+            guard presentOutputConsumerRecoveryAlertIfPossible(on: surfaceView) else {
                 queueOutputConsumerRecoveryAlert(surfaceView: surfaceView)
                 return
             }
-
-            presentOutputConsumerRecoveryAlert(
-                on: surfaceView,
-                from: presenter
-            )
         }
 
         private func queueOutputConsumerRecoveryAlert(surfaceView: GhosttySurfaceView) {
-            guard outputConsumerRecoveryPresentationTask == nil else { return }
+            guard outputConsumerRecoveryAlertPending,
+                  outputConsumerRecoveryPresentationTask == nil else { return }
             let clock = outputConsumerRecoveryClock
             outputConsumerRecoveryPresentationTask = Task { @MainActor [weak self, weak surfaceView] in
                 defer {
@@ -661,6 +656,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   terminalPresentationIsActive,
                   surfaceView.window != nil,
                   outputConsumerRestartBlocked,
+                  outputConsumerRecoveryAlertPending,
                   outputConsumerRecoveryAlert == nil else { return true }
             guard let presenter = presentingController(for: surfaceView),
                   !(presenter is UIAlertController),
@@ -672,6 +668,16 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 from: presenter
             )
             return true
+        }
+
+        /// Gives a deferred recovery alert another chance when SwiftUI/UIKit
+        /// completes a presentation or window transition. This is deliberately
+        /// a synchronous probe: the bounded queue owns transition retries, and
+        /// this hook owns later lifecycle retries without a permanent task.
+        func attemptPendingOutputConsumerRecoveryPresentation() {
+            guard outputConsumerRecoveryAlertPending,
+                  let surfaceView else { return }
+            _ = presentOutputConsumerRecoveryAlertIfPossible(on: surfaceView)
         }
 
         private func presentOutputConsumerRecoveryAlert(
@@ -718,6 +724,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             ))
             alert.view.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
             outputConsumerRecoveryAlert = alert
+            outputConsumerRecoveryAlertPending = false
             presenter.present(alert, animated: true)
         }
 

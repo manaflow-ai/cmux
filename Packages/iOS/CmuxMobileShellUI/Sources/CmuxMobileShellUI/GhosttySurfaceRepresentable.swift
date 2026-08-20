@@ -124,6 +124,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
+        context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
@@ -201,6 +202,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// alert is the explicit user action that clears a persistent stream
         /// failure while the view remains in the window.
         weak var outputConsumerRecoveryAlert: UIAlertController?
+        /// Set when recovery is blocked but UIKit did not have a presenter at
+        /// the time the bounded presentation queue expired. Lifecycle updates
+        /// retry this synchronously without creating an unbounded timer loop.
+        var outputConsumerRecoveryAlertPending = false
         var outputConsumerRecoveryPresentationTask: Task<Void, Never>?
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
@@ -341,6 +346,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             if resetRestartFailure {
                 outputConsumerRestartBlocked = false
                 outputConsumerRestartAttempts = 0
+                outputConsumerRecoveryAlertPending = false
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
@@ -635,6 +641,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                   terminalPresentationIsActive,
                   surfaceView.window != nil else { return }
             outputConsumerRecoveryAlert = nil
+            outputConsumerRecoveryAlertPending = false
             startMountedTasks(
                 surfaceView: surfaceView,
                 resetRestartFailure: true
@@ -888,12 +895,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView: surfaceView,
                     resetRestartFailure: true
                 )
+                attemptPendingOutputConsumerRecoveryPresentation()
             } else {
+                outputConsumerRecoveryAlertPending = false
                 stopMountedTasks()
             }
         }
 
         func detach() {
+            outputConsumerRecoveryAlertPending = false
             stopMountedTasks()
             surfaceView = nil
             themeApplicationScheduler.cancel()
@@ -914,7 +924,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView: surfaceView,
                     resetRestartFailure: true
                 )
+                attemptPendingOutputConsumerRecoveryPresentation()
             } else {
+                outputConsumerRecoveryAlertPending = false
                 stopMountedTasks()
             }
         }
