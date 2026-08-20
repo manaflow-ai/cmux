@@ -369,3 +369,60 @@ struct CampfireHookNotificationTests {
         ])
     }
 }
+
+
+/// Lives in this file (rather than its own suite) because the generic agent
+/// hook harness above -- makeHookContext / runAgentHook / the mock socket
+/// server -- is `private` to this type.
+extension CampfireHookNotificationTests {
+    /// cursor maps `beforeShellExecution` to prompt-submit and never emits a
+    /// matching decrement, so a turn running two shell commands leaves the
+    /// no-turn-id depth counter at +1 for good. Reporting that counter as
+    /// "nested" used to suppress the stop lane's only `.idle` write, latching
+    /// the pane on WORKING for the rest of the session.
+    @Test func unbalancedPromptDepthStillReportsIdleOnStop() throws {
+        let context = try makeHookContext(name: "generic-unbalanced-depth-idle")
+        defer { context.cleanup() }
+
+        let sessionId = "cursor-unbalanced-depth-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "cursor",
+            executable: "/usr/local/bin/cursor-agent"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        // Two prompt-submits, no intervening stop: depth drifts to 2.
+        for index in 0..<2 {
+            let submit = runAgentHook(
+                context: context,
+                agent: "cursor",
+                subcommand: "prompt-submit",
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"step \#(index)"}"#,
+                extraEnvironment: launchEnvironment
+            )
+            #expect(submit.timedOut == false, Comment(rawValue: submit.stderr))
+            #expect(submit.status == 0, Comment(rawValue: submit.stderr))
+        }
+
+        let stopStart = context.state.snapshot().count
+        let stop = runAgentHook(
+            context: context,
+            agent: "cursor",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        #expect(stop.timedOut == false, Comment(rawValue: stop.stderr))
+        #expect(stop.status == 0, Comment(rawValue: stop.stderr))
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(stopStart))
+        #expect(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle cursor idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "A drifted prompt-depth counter must not suppress the stop lane's idle write, saw \(stopCommands)"
+        )
+    }
+}
