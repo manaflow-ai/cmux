@@ -179,6 +179,15 @@ extension RemoteCLIRelayServer {
                 sendFailureAndClose()
                 return
             }
+            // The legacy space-delimited CLI surface contains mutating
+            // workspace/window/surface commands with no request envelope that
+            // can carry the relay's owner proof.  Keep only the harmless
+            // health probe on that lane; all JSON requests continue through
+            // the app-side HMAC/allow-list gate.
+            guard Self.isAllowedLegacyRelayCommand(commandLine) || Self.looksLikeJSONRequest(commandLine) else {
+                sendCommandDeniedAndClose()
+                return
+            }
             phase = .forwarding
             let forwardedCommandLine = commandRewriter(commandLine)
             DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
@@ -200,6 +209,17 @@ extension RemoteCLIRelayServer {
                     }
                 }
             }
+        }
+
+        private func sendCommandDeniedAndClose() {
+            phase = .closed
+            let response = Data("ERROR: Remote relay command denied\n".utf8)
+            connection.send(content: response, completion: .contentProcessed { [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    self.close()
+                }
+            })
         }
 
         private func sendFailureAndClose() {
@@ -277,6 +297,17 @@ extension RemoteCLIRelayServer {
                 cursor = next
             }
             return data
+        }
+
+        private static func looksLikeJSONRequest(_ commandLine: Data) -> Bool {
+            guard let line = String(data: commandLine, encoding: .utf8) else { return false }
+            return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+        }
+
+        private static func isAllowedLegacyRelayCommand(_ commandLine: Data) -> Bool {
+            guard let line = String(data: commandLine, encoding: .utf8) else { return false }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed == "ping"
         }
 
         private static func randomHex(byteCount: Int) -> String {

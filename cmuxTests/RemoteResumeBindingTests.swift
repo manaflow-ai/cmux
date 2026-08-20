@@ -280,10 +280,21 @@ struct RemoteResumeBindingTests {
                 workspaceAliases: [:],
                 surfaceAliases: [:]
             )
-            #expect(unrelatedResult == original)
-            let unrelatedParams = try #require(try jsonRequest(unrelatedResult)["params"] as? [String: Any])
-            #expect(unrelatedParams["_cmux_remote_workspace_id"] == nil)
+            let unrelatedRequest = try jsonRequest(unrelatedResult)
+            let unrelatedParams = try #require(unrelatedRequest["params"] as? [String: Any])
+            #expect(unrelatedRequest["method"] as? String == method)
+            #expect(unrelatedParams["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
             #expect(unrelatedParams["_cmux_remote_relay_authentication_code"] == nil)
+            let genericCode = try #require(
+                unrelatedParams["_cmux_remote_relay_request_authentication_code"] as? String
+            )
+            #expect(genericCode.count == 64)
+            #expect(WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteRelayRequest(
+                id: unrelatedRequest["id"],
+                method: method,
+                params: unrelatedParams,
+                remoteRelayTokenHex: relayToken
+            ))
         }
     }
 
@@ -323,6 +334,91 @@ struct RemoteResumeBindingTests {
         #expect(genericCode != "forged")
         #expect(genericCode.count == 64)
         #expect(params["_cmux_remote_relay_authentication_code"] == nil)
+    }
+
+    @Test
+    func authenticatedRemoteRelayRequestsStayWithinOwnerAllowlist() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
+        let rewriter = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: workspace.id,
+            remoteRelayTokenHex: relayToken
+        )
+
+        let ping = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-ping",
+                "method": "system.ping",
+                "params": [:],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let pingEnvelope = try v2Envelope(requestData: ping)
+        #expect(pingEnvelope["ok"] as? Bool == true, "\(pingEnvelope)")
+
+        let forbidden = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-forbidden",
+                "method": "surface.send_text",
+                "params": [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": surfaceID.uuidString,
+                    "text": "echo denied",
+                ],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let forbiddenEnvelope = try v2Envelope(requestData: forbidden)
+        #expect(forbiddenEnvelope["ok"] as? Bool == false, "\(forbiddenEnvelope)")
+        let forbiddenError = try #require(forbiddenEnvelope["error"] as? [String: Any])
+        #expect(forbiddenError["code"] as? String == "remote_relay_method_denied")
+
+        let nestedOnly = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-nested-selector",
+                "method": "notification.create_for_target",
+                "params": [
+                    "title": "denied",
+                    "metadata": [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": surfaceID.uuidString,
+                    ],
+                ],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let nestedEnvelope = try v2Envelope(requestData: nestedOnly)
+        #expect(nestedEnvelope["ok"] as? Bool == false, "\(nestedEnvelope)")
+        let nestedError = try #require(nestedEnvelope["error"] as? [String: Any])
+        #expect(nestedError["code"] as? String == "remote_relay_workspace_denied")
     }
 
     @Test

@@ -217,12 +217,15 @@ struct RemoteCLIRelayServerTests {
             String(decoding: data, as: UTF8.self).contains("\"ok\":true")
         })
 
-        // Forward one command; response comes from the fake unix socket.
-        client.send(Data("workspace.list {}\n".utf8))
+        // Forward one authenticated JSON command; response comes from the
+        // fake unix socket. Legacy mutating commands are intentionally blocked
+        // before this point.
+        let request = #"{"id":"relay-test","method":"system.ping","params":{}}"#
+        client.send(Data((request + "\n").utf8))
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
-        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:workspace.list {}\n")
+        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:" + request + "\n")
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
