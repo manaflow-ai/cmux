@@ -27438,6 +27438,115 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    /// Round-5 dogfood: btop in a reattached bridge tab renders but loses all
+    /// mouse after Keep-quit + reopen. The client correctly asserts capture on
+    /// reattach (proven byte-level against the real app), so the only way the
+    /// tab can end up dead is a host-side loss the client cannot observe: the
+    /// Ghostty surface silently drops the mouse-tracking modes (a reset written
+    /// into it by app-side session restore, or the host re-initializing on
+    /// relaunch) after the client's capture-on burst. The per-frame capture
+    /// sync is edge-triggered on `host_mouse_capture_applied`, so once the
+    /// client believes capture is applied it never re-emits, and btop never
+    /// toggles modes to trigger a change. A focus-in (Ghostty sends `\e[I` on
+    /// every window re-activation and app reopen, observed in the real path)
+    /// must force the client to re-derive and re-assert the canonical host
+    /// state so the dropped modes come back.
+    #[test]
+    fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset() {
+        let mux = Mux::new("scoped-focus-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        // The inner application (btop) holds mouse tracking, and the client has
+        // already asserted capture-on to the host once.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        app.host_mouse_capture_applied = Some(true);
+
+        // The host silently dropped the modes. The client cannot see host
+        // state: applied still says true and desired is true, so the per-frame
+        // sync emits nothing and clicks stay dead. This is the latch.
+        assert_eq!(
+            host_mouse_capture_escape_if_changed(
+                app.host_mouse_capture_applied,
+                app.desired_host_mouse_capture(),
+            ),
+            None,
+            "precondition: with stale applied state the per-frame sync re-emits nothing"
+        );
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+
+        // Focus-in must clear the applied bookkeeping so the next frame
+        // re-derives the canonical state and re-emits capture.
+        assert_eq!(
+            app.host_mouse_capture_applied, None,
+            "focus-in must reset the applied host-capture bookkeeping so the next frame re-asserts"
+        );
+        let reasserted = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        )
+        .expect("the re-derived frame must re-emit host mouse capture");
+        assert!(
+            reasserted.contains("\x1b[?1002h"),
+            "the re-asserted host state must re-enable mouse capture the inner app still holds"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A resize is the other moment a host can re-initialize the surface and
+    /// drop the client's asserted input modes (window geometry changes across
+    /// a quit+reopen, so the reattached surface is resized). The scoped client
+    /// must re-assert host mouse capture on resize for the same reason it does
+    /// on focus-in.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_after_invisible_host_reset() {
+        let mux = Mux::new("scoped-resize-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        app.host_mouse_capture_applied = Some(true);
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+
+        assert_eq!(
+            app.host_mouse_capture_applied, None,
+            "resize must reset the applied host-capture bookkeeping so the next frame re-asserts"
+        );
+        let reasserted = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        )
+        .expect("the re-derived frame must re-emit host mouse capture");
+        assert!(reasserted.contains("\x1b[?1002h"));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A full TUI owns the entire host surface and re-emits its input modes
+    /// through its normal lifecycle; the focus-in re-assert is scoped-only, so
+    /// it must not disturb a full-TUI client's capture bookkeeping.
+    #[test]
+    fn full_tui_focus_gained_does_not_reset_host_capture_bookkeeping() {
+        let mux = Mux::new("full-tui-focus-reassert-test", SurfaceOptions::default());
+        let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = None;
+        app.host_mouse_capture_applied = Some(true);
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+
+        assert_eq!(
+            app.host_mouse_capture_applied,
+            Some(true),
+            "full-TUI focus-in must not touch host-capture bookkeeping"
+        );
+    }
+
     #[test]
     fn pointer_motion_does_not_wait_for_terminal_parsing() {
         let mux = Mux::new(
