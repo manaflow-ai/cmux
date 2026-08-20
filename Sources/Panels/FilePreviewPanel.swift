@@ -1037,7 +1037,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.fileContentChangeCoordinator =
-            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
+            fileContentChangeCoordinator ?? .shared
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver

@@ -77,6 +77,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     private var fileContentChangeCoordinator: FileContentChangeCoordinator
     private var fileContentObservationID: UUID?
+    private var lastObservedFileState: FilePreviewFileState?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
@@ -118,7 +119,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
         self.fileContentChangeCoordinator =
-            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
+            fileContentChangeCoordinator ?? .shared
 
         loadFileContent()
         startWatching()
@@ -386,6 +387,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - File I/O
 
     private func loadFileContent(replacingDirtyContent: Bool = true) {
+        lastObservedFileState = .capture(path: filePath)
         switch Self.loadMarkdownFile(at: filePath) {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
@@ -471,9 +473,21 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         fileContentObservationID = fileContentChangeCoordinator.observe(
             path: filePath
         ) { [weak self] in
-            guard let self, !self.isClosed, !self.isSaving else { return }
-            self.loadFileContent(replacingDirtyContent: false)
+            guard let self, !self.isClosed else { return }
+            self.handleObservedFileChange()
         }
+    }
+
+    /// Reloads only when the on-disk fingerprint moved past the last load, so
+    /// the coordinator's registration-time reconciliation callback is free
+    /// (`loadFileContent` already ran) and unchanged-file retargets skip the
+    /// redundant read. A change observed mid-save is deferred to the save
+    /// task's trailing reconciliation load.
+    private func handleObservedFileChange() {
+        let state = FilePreviewFileState.capture(path: filePath)
+        guard state != lastObservedFileState else { return }
+        guard !isSaving else { return }
+        loadFileContent(replacingDirtyContent: false)
     }
 
     private func stopWatching() {

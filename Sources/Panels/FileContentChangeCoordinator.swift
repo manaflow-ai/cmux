@@ -24,13 +24,21 @@ final class FileContentChangeCoordinator {
         var observers: [UUID: ChangeHandler]
     }
 
+    /// The app-wide pipeline. A commit signal must reach every panel showing
+    /// the path — across workspaces, windows, and window Docks — so production
+    /// containers default to this instance; per-instance construction exists
+    /// for tests.
+    static let shared = FileContentChangeCoordinator()
+
     private let makeFileWatcher: FileWatcherFactory
     private var entriesByPath: [String: Entry] = [:]
     private var pathsByObservationID: [UUID: String] = [:]
 
     init(
         makeFileWatcher: @escaping FileWatcherFactory = { path in
-            FileWatcher(path: path)
+            // The throttle bounds reload storms from external write bursts;
+            // in-app saves bypass it via `fileWriteCompleted`.
+            FileWatcher(path: path, throttle: .milliseconds(300))
         }
     ) {
         self.makeFileWatcher = makeFileWatcher
