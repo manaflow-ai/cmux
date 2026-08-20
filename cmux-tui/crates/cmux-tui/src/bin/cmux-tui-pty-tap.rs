@@ -133,10 +133,8 @@ mod unix {
                     }
                     ScanState::Csi => {
                         self.buf.push(byte);
-                        if (0x40..=0x7e).contains(&byte) {
-                            emit(&self.buf);
-                            self.state = ScanState::Ground;
-                        } else if self.buf.len() > 256 {
+                        // Final byte, or an oversized buffer flushed defensively.
+                        if (0x40..=0x7e).contains(&byte) || self.buf.len() > 256 {
                             emit(&self.buf);
                             self.state = ScanState::Ground;
                         }
