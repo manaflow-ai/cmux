@@ -231,6 +231,34 @@ import Testing
         #expect(authorization.first?.stackAccessToken == "test-stack-token")
     }
 
+    @Test func taskComposerEntrypointStaysAvailableWithNoConnectedMac() {
+        let store = MobileShellComposite.preview()
+        // With no Mac connected there is no capability snapshot to consult, so
+        // the New Task entrypoint must stay visible; the composer itself warns
+        // that no Mac is connected. Hiding here made the button vanish whenever
+        // the phone was offline or between reconnects.
+        #expect(store.supportsTaskComposer)
+    }
+
+    @Test func taskComposerEntrypointFollowsConnectedMacCapability() async throws {
+        let capable = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.task_create.v1",
+        ])
+        #expect(capable.store.supportsTaskComposer)
+
+        // A connected Mac that does not advertise task creation (remote flag
+        // off or an older build) is authoritative: the entrypoint hides.
+        let incapable = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+        ])
+        #expect(!incapable.store.supportsTaskComposer)
+    }
+
     @Test func macScopedMutationsSurviveTicketExpiryOnAccountAuthHosts() async throws {
         let connected = try await connectedStore(
             capabilities: [
