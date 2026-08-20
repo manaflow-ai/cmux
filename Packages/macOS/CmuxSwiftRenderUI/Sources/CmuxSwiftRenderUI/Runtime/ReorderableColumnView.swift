@@ -78,7 +78,7 @@ struct ReorderableColumnView: View {
     }
 
     private static let gapSpring = Animation.spring(response: 0.25, dampingFraction: 0.78)
-    private static let accordionSpring = Animation.spring(response: 0.28, dampingFraction: 0.85)
+    private static let accordionSpring = Animation.spring(response: 0.32, dampingFraction: 0.9)
     private static let liftSpring = Animation.spring(response: 0.2, dampingFraction: 0.8)
     private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.76)
 
@@ -110,8 +110,10 @@ struct ReorderableColumnView: View {
                     including: rowIsGrabbable(childId) ? .all : .subviews
                 )
                 // Accordion feel: rows appearing/disappearing (group
-                // collapse/expand) fade and slide from under the row above.
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                // collapse/expand) fade while the slot masks them (see the
+                // fixedSize + clipped pair in ReorderableRowView, which keeps
+                // each row's own height constant through the animation).
+                .transition(.opacity)
             }
         }
         // Animate DATA-driven structural changes (collapse/expand, external
@@ -402,6 +404,14 @@ private struct ReorderableRowView: View {
         let moves = isDragged || (model.isBlockDrag && draggedId != nil && model.blockRows.contains(childId))
         let lifted = isDragged && !model.isSettling
         SceneNodeView(nodeId: childId)
+            // Accordion mask: during collapse/expand the row's SLOT height
+            // animates, but the row itself must not squish. fixedSize keeps
+            // the row at intrinsic height; the top-aligned frame + clipped
+            // masks it against the animating slot, so it slides under the
+            // row above instead of compressing.
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .clipped()
             // X and Y are SEPARATE offset modifiers on purpose: Y updates
             // un-animated on every pointer frame, and a combined offset(x:y:)
             // is one animatable value, so each Y write would cancel the X
