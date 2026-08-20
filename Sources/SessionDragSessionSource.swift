@@ -48,6 +48,9 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         )
 #endif
         finishDrag()
+        // Residual transfer types on the system drag pasteboard keep
+        // drop-capture hit-testing armed after the session ends.
+        transferRegistration.clearResidualCapability(from: NSPasteboard(name: .drag))
     }
 
     func finishDrag() {
