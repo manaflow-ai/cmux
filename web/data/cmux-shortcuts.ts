@@ -352,7 +352,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
-      { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
+      { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom. With Leader Key enabled, press ⌃ B then Z.", ja: "ペインズームを切り替えます。Leader Key を有効にすると、⌃ B の後に Z を押します。" } },
       { id: "increaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "="]], description: { en: "Increase font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを大きくする" } },
       { id: "decreaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "-"]], description: { en: "Decrease font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを小さくする" } },
       { id: "resetWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "0"]], description: { en: "Reset font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズをリセットする" } },
