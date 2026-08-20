@@ -5645,6 +5645,73 @@ mod tests {
         );
     }
 
+    /// A daemon too old to report revision metadata cannot enforce the
+    /// bootstrap guard, so the client must not send an unguarded create at
+    /// all: the writer refuses `create-terminal`, and attach must still
+    /// succeed with the session left bare, exactly as before the bootstrap
+    /// existed.
+    struct UnguardableTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for UnguardableTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => json!({"workspaces": [
+                    {"id": 5, "key": "ws-active", "active": true, "screens": []},
+                ]}),
+                Some("list-agents") => json!({"agents": []}),
+                command => {
+                    return Err(io::Error::other(format!(
+                        "an unguardable daemon must not receive {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn bootstrap_stays_home_when_the_daemon_cannot_enforce_its_guard() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote =
+            test_session(Box::new(UnguardableTreeWriter { session: session_slot.clone() }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert!(
+            session.tree().workspaces.iter().all(|workspace| workspace.screens.is_empty()),
+            "an unguarded create must never run"
+        );
+    }
+
     #[test]
     fn ensure_initial_creates_a_shell_when_every_restored_workspace_is_bare() {
         let session_slot = Arc::new(Mutex::new(None));

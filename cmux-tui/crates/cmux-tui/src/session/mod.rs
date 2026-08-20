@@ -612,44 +612,56 @@ impl Session {
                                         .is_none_or(|screens| screens.is_empty())
                                 })
                         });
-                        let create_result = if bare {
-                            let workspaces = workspaces.expect("bareness implies an array");
-                            let target = workspaces
-                                .iter()
-                                .find(|workspace| workspace["active"].as_bool() == Some(true))
-                                .unwrap_or(&workspaces[0]);
-                            let mut request = json!({
-                                "cmd": "create-terminal",
-                                "origin": "attach-bare-session-bootstrap",
-                                "mutation_id": bootstrap_mutation_id()?,
-                            });
-                            match target["key"].as_str() {
-                                Some(key) if !key.is_empty() => request["key"] = json!(key),
-                                _ => request["workspace"] = target["id"].clone(),
-                            }
-                            if let Some(generation) = snapshot["generation"].as_str() {
-                                request["expected_generation"] = json!(generation);
-                            }
-                            if let Some(revision) = snapshot["terminal_revision"].as_u64() {
-                                request["expected_revision"] = json!(revision);
-                            }
-                            remote.request(with_size(request, size)).map(|_| ())
-                        } else {
-                            Ok(())
+                        // Fail closed: without the revision metadata the
+                        // create cannot carry its guard, and an unguarded
+                        // create from two concurrent attaches would add two
+                        // shells. A daemon old enough to omit the metadata
+                        // keeps its old behavior (the session stays bare).
+                        let guard = match (
+                            snapshot["generation"].as_str(),
+                            snapshot["terminal_revision"].as_u64(),
+                        ) {
+                            (Some(generation), Some(revision)) => Some((generation, revision)),
+                            _ => None,
                         };
-                        let bootstrapped = remote
-                            .refresh_tree()?
-                            .workspaces
-                            .iter()
-                            .any(|workspace| !workspace.screens.is_empty());
-                        if !bootstrapped {
-                            return Err(match create_result {
-                                Err(error) => error
-                                    .context("bare-session bootstrap could not create its shell"),
-                                Ok(()) => anyhow::anyhow!(
-                                    "remote session did not expose the shell it created in its bare workspace"
-                                ),
-                            });
+                        let create_result = match (bare, guard) {
+                            (true, Some((generation, revision))) => {
+                                let workspaces = workspaces.expect("bareness implies an array");
+                                let target = workspaces
+                                    .iter()
+                                    .find(|workspace| workspace["active"].as_bool() == Some(true))
+                                    .unwrap_or(&workspaces[0]);
+                                let mut request = json!({
+                                    "cmd": "create-terminal",
+                                    "origin": "attach-bare-session-bootstrap",
+                                    "mutation_id": bootstrap_mutation_id()?,
+                                    "expected_generation": generation,
+                                    "expected_revision": revision,
+                                });
+                                match target["key"].as_str() {
+                                    Some(key) if !key.is_empty() => request["key"] = json!(key),
+                                    _ => request["workspace"] = target["id"].clone(),
+                                }
+                                Some(remote.request(with_size(request, size)).map(|_| ()))
+                            }
+                            _ => None,
+                        };
+                        if let Some(create_result) = create_result {
+                            let bootstrapped = remote
+                                .refresh_tree()?
+                                .workspaces
+                                .iter()
+                                .any(|workspace| !workspace.screens.is_empty());
+                            if !bootstrapped {
+                                return Err(match create_result {
+                                    Err(error) => error.context(
+                                        "bare-session bootstrap could not create its shell",
+                                    ),
+                                    Ok(()) => anyhow::anyhow!(
+                                        "remote session did not expose the shell it created in its bare workspace"
+                                    ),
+                                });
+                            }
                         }
                     }
                     InitialBootstrap::LayoutIntact => {}
