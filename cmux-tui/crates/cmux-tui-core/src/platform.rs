@@ -138,7 +138,7 @@ pub mod transport {
 /// `std::env::current_exe()` resolves to "<path> (deleted)" after the file
 /// is replaced and exec then fails, which broke every new tab on a
 /// long-lived daemon. Elsewhere it is the resolved executable path.
-pub fn self_exe_for_spawn() -> std::io::Result<PathBuf> {
+pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         Ok(PathBuf::from("/proc/self/exe"))
