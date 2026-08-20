@@ -207,6 +207,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// retry this synchronously without creating an unbounded timer loop.
         var outputConsumerRecoveryAlertPending = false
         var outputConsumerRecoveryPresentationTask: Task<Void, Never>?
+        /// In-surface recovery affordance kept visible when UIKit cannot present
+        /// the alert (for example while another modal is transitioning).
+        var outputConsumerRecoveryOverlay: UIView?
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -642,6 +645,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                   surfaceView.window != nil else { return }
             outputConsumerRecoveryAlert = nil
             outputConsumerRecoveryAlertPending = false
+            removeOutputConsumerRecoveryOverlay()
             startMountedTasks(
                 surfaceView: surfaceView,
                 resetRestartFailure: true
@@ -860,6 +864,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             outputConsumerRecoveryAlert?.dismiss(animated: false)
             outputConsumerRecoveryAlert = nil
+            removeOutputConsumerRecoveryOverlay()
             outputConsumerRecoveryPresentationTask?.cancel()
             outputConsumerRecoveryPresentationTask = nil
             outputConsumerRestartTask?.cancel()

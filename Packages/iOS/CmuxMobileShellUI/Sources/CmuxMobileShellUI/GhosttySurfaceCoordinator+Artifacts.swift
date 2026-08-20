@@ -658,6 +658,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   outputConsumerRestartBlocked,
                   outputConsumerRecoveryAlertPending,
                   outputConsumerRecoveryAlert == nil else { return true }
+            // Keep a local retry action visible for the whole pending period.
+            // UIKit presentation is best-effort and can be rejected while a
+            // sheet or another alert owns the presenter; the fallback prevents
+            // that transition from stranding a blocked terminal.
+            showOutputConsumerRecoveryOverlay(on: surfaceView)
             guard let presenter = presentingController(for: surfaceView),
                   !(presenter is UIAlertController),
                   presenter.viewIfLoaded?.window != nil else {
@@ -678,6 +683,92 @@ extension GhosttySurfaceRepresentable.Coordinator {
             guard outputConsumerRecoveryAlertPending,
                   let surfaceView else { return }
             _ = presentOutputConsumerRecoveryAlertIfPossible(on: surfaceView)
+        }
+
+        private func showOutputConsumerRecoveryOverlay(on surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView else { return }
+            if let overlay = outputConsumerRecoveryOverlay {
+                if overlay.superview !== surfaceView {
+                    overlay.removeFromSuperview()
+                    outputConsumerRecoveryOverlay = nil
+                } else {
+                    return
+                }
+            }
+
+            let overlay = UIView()
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            overlay.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.96)
+            overlay.layer.cornerRadius = 14
+            overlay.layer.borderColor = UIColor.separator.cgColor
+            overlay.layer.borderWidth = 1
+            overlay.layer.zPosition = 1_000
+            overlay.accessibilityIdentifier = "MobileTerminalOutputRecoveryOverlay"
+
+            let titleLabel = UILabel()
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            titleLabel.text = L10n.string(
+                "mobile.terminal.outputRecovery.title",
+                defaultValue: "Terminal paused"
+            )
+            titleLabel.font = .preferredFont(forTextStyle: .headline)
+            titleLabel.textColor = .label
+            titleLabel.numberOfLines = 0
+
+            let messageLabel = UILabel()
+            messageLabel.translatesAutoresizingMaskIntoConstraints = false
+            messageLabel.text = L10n.string(
+                "mobile.terminal.outputRecovery.message",
+                defaultValue: "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+            )
+            messageLabel.font = .preferredFont(forTextStyle: .subheadline)
+            messageLabel.textColor = .secondaryLabel
+            messageLabel.numberOfLines = 0
+
+            let retryButton = UIButton(type: .system)
+            retryButton.translatesAutoresizingMaskIntoConstraints = false
+            retryButton.setTitle(
+                L10n.string(
+                    "mobile.terminal.outputRecovery.retry",
+                    defaultValue: "Retry"
+                ),
+                for: .normal
+            )
+            retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+            retryButton.accessibilityIdentifier = "MobileTerminalOutputRecoveryOverlayRetry"
+            retryButton.addAction(UIAction { [weak self, weak surfaceView] _ in
+                guard let self, let surfaceView else { return }
+                self.retryMountedOutputConsumer(surfaceView: surfaceView)
+            }, for: .touchUpInside)
+
+            let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel, retryButton])
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.axis = .vertical
+            stack.spacing = 10
+            stack.alignment = .fill
+
+            surfaceView.addSubview(overlay)
+            overlay.addSubview(stack)
+            NSLayoutConstraint.activate([
+                overlay.centerXAnchor.constraint(equalTo: surfaceView.centerXAnchor),
+                overlay.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
+                overlay.leadingAnchor.constraint(greaterThanOrEqualTo: surfaceView.leadingAnchor, constant: 24),
+                overlay.trailingAnchor.constraint(lessThanOrEqualTo: surfaceView.trailingAnchor, constant: -24),
+                overlay.topAnchor.constraint(greaterThanOrEqualTo: surfaceView.topAnchor, constant: 24),
+                overlay.bottomAnchor.constraint(lessThanOrEqualTo: surfaceView.bottomAnchor, constant: -24),
+                overlay.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+                stack.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 18),
+                stack.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -18),
+                stack.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 16),
+                stack.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -16),
+                retryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            ])
+            outputConsumerRecoveryOverlay = overlay
+        }
+
+        private func removeOutputConsumerRecoveryOverlay() {
+            outputConsumerRecoveryOverlay?.removeFromSuperview()
+            outputConsumerRecoveryOverlay = nil
         }
 
         private func presentOutputConsumerRecoveryAlert(
@@ -724,8 +815,21 @@ extension GhosttySurfaceRepresentable.Coordinator {
             ))
             alert.view.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
             outputConsumerRecoveryAlert = alert
-            outputConsumerRecoveryAlertPending = false
-            presenter.present(alert, animated: true)
+            presenter.present(alert, animated: true) { [weak self, weak surfaceView, weak alert] in
+                guard let self, let surfaceView, let alert,
+                      self.surfaceView === surfaceView,
+                      self.outputConsumerRecoveryAlert === alert else { return }
+                if alert.presentingViewController != nil {
+                    self.outputConsumerRecoveryAlertPending = false
+                    self.removeOutputConsumerRecoveryOverlay()
+                } else {
+                    // UIKit rejected the presentation after the preflight. Keep
+                    // the pending state and the in-surface Retry action alive.
+                    self.outputConsumerRecoveryAlert = nil
+                    self.outputConsumerRecoveryAlertPending = true
+                    self.showOutputConsumerRecoveryOverlay(on: surfaceView)
+                }
+            }
         }
 
         /// Walk up from `view` to the nearest owning `UIViewController`, then to
