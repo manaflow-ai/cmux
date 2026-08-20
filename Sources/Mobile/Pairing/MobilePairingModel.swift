@@ -284,6 +284,9 @@ final class MobilePairingModel {
     /// Tailscale address changes while the window sits open, the Refresh Code
     /// button re-mints on demand.
     func stopObserving() {
+        // Invalidate any pending generation-guarded work (e.g. the observer's
+        // spawned re-mint) so nothing revives the pairing host after close.
+        refreshGeneration &+= 1
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
     }
@@ -324,7 +327,11 @@ final class MobilePairingModel {
                 if case .needsReachableTransport = self.state,
                    PairingRoutePlan.make(routes: status.routes) != nil {
                     Task { @MainActor [weak self] in
-                        await self?.refresh()
+                        // Re-check the generation at execution time: a window
+                        // close (stopObserving) or a newer refresh must not
+                        // let this pending re-mint revive the pairing host.
+                        guard let self, generation == self.refreshGeneration else { return }
+                        await self.refresh()
                     }
                     return
                 }
