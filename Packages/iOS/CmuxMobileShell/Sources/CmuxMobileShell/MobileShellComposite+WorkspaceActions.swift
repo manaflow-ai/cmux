@@ -822,6 +822,42 @@ extension MobileShellComposite {
         recordAppEvent(.workspaceComputerOrderChanged, count: computerIDs.count)
     }
 
+    /// Upgrade pre-build-scoped computer-order entries after paired Macs load.
+    /// A legacy bare device id expands to every currently stored pairing for
+    /// that physical device, preserving the user's order across Stable,
+    /// Nightly, and untagged rows without making the bare id a new wildcard.
+    func migrateLegacyWorkspaceComputerPriority(loadedMacs: [MobilePairedMac]) {
+        guard !workspaceComputerPriority.isEmpty else { return }
+        var migrated: [String] = []
+        for computerID in workspaceComputerPriority {
+            let identity = CmxMacAppInstanceIdentity(id: computerID)
+            guard identity.instanceTag == nil else {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            let matches = loadedMacs.filter {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).macDeviceID == identity.macDeviceID
+            }
+            if matches.isEmpty {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            for mac in matches {
+                let pairingID = CmxMacAppInstanceIdentity(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ).id
+                if !migrated.contains(pairingID) { migrated.append(pairingID) }
+            }
+        }
+        guard migrated != workspaceComputerPriority else { return }
+        workspaceSortStore.setComputerPriority(migrated)
+        workspaceComputerPriority = migrated
+    }
+
     /// The stored computer order expanded with each app instance's stored
     /// device aliases, so a per-Mac state that reports an alias id still ranks
     /// with its computer. The instance tag stays attached to every alias;

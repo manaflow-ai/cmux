@@ -718,22 +718,18 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 : nil
             let current = existing ?? claimable
             if routeWriteCondition == .unclaimed {
-                let hasClaimedSibling = try fetchAllMacs(
+                guard !(try hasClaimedSibling(
+                    macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
-                ).contains {
-                    $0.macDeviceID == macDeviceID && $0.instanceTag != nil
-                }
-                guard !hasClaimedSibling else { return }
+                )) else { return }
             }
             if onlyIfOlder, instanceTag == nil {
-                let hasClaimedSibling = try fetchAllMacs(
+                guard !(try hasClaimedSibling(
+                    macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
-                ).contains {
-                    $0.macDeviceID == macDeviceID && $0.instanceTag != nil
-                }
-                guard !hasClaimedSibling else { return }
+                )) else { return }
             }
             if onlyIfOlder, instanceTag == nil, current?.instanceTag != nil {
                 // An authority-less backup cannot identify the process that

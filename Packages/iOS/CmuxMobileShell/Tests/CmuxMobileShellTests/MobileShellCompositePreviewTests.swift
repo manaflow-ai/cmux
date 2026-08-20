@@ -847,6 +847,48 @@ import Testing
         ))
     }
 
+    @Test func legacyComputerPriorityMigratesToBuildScopedPairings() async throws {
+        let suiteName = "computer-priority-migration-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var sortStore = MobileWorkspaceSortStore(defaults: defaults)
+        sortStore.setComputerPriority(["mac-a"])
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    MobilePairedMac(
+                        macDeviceID: "mac-a", displayName: "Mac A", routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 2), isActive: false,
+                        stackUserID: "user-1", teamID: "team-a", instanceTag: "stable"
+                    ),
+                    MobilePairedMac(
+                        macDeviceID: "mac-a", displayName: "Mac A", routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 3), isActive: false,
+                        stackUserID: "user-1", teamID: "team-a", instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            workspaceSortStore: sortStore
+        )
+
+        await store.loadPairedMacs()
+
+        #expect(store.workspaceComputerPriority == [
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
+        ])
+        #expect(MobileWorkspaceSortStore(defaults: defaults).computerPriority == store.workspaceComputerPriority)
+    }
+
     @Test func secondaryUnavailableDowngradeKeepsRowsVisibleButInactive() {
         let store = MobileShellComposite.preview()
         store.signIn()

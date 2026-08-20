@@ -3586,6 +3586,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
+        migrateLegacyWorkspaceComputerPriority(loadedMacs: loaded)
         let storedHiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         let hiddenIDs = await migrateLegacyHiddenMacMarkers(
             loadedMacs: loaded,
