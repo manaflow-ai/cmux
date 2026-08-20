@@ -29,6 +29,9 @@ struct MacComputerDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.irohSettingsController) private var irohSettingsController
     @State private var showsPrivatePathEditor = false
+    /// Optimistic method selection: moves the picker the moment the user taps
+    /// while the persist + store reload reconcile the authoritative value.
+    @State private var pendingConnectionMethod: MobileConnectionMethod?
 
     /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
     /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
@@ -128,6 +131,9 @@ struct MacComputerDetailView: View {
         pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
     }
 
+    /// The Settings connection-method UI, moved here verbatim (same picker
+    /// style, labels, and per-method footers) now that the choice is per
+    /// Computer. Private addresses live in their own section below.
     @ViewBuilder
     private var connectionMethodSection: some View {
         Section {
@@ -137,18 +143,30 @@ struct MacComputerDetailView: View {
                     defaultValue: "Connection Method"
                 ),
                 selection: Binding(
-                    get: { selectedMethod },
+                    get: { pendingConnectionMethod ?? selectedMethod },
                     set: { applyConnectionMethod($0) }
                 )
             ) {
-                Text(MobileConnectionMethod.automatic.mobileConnectionMethodName)
-                    .tag(MobileConnectionMethod.automatic)
-                Text(MobileConnectionMethod.tailscale.mobileConnectionMethodName)
-                    .tag(MobileConnectionMethod.tailscale)
+                Text(L10n.string(
+                    "mobile.settings.connectionMethod.automatic",
+                    defaultValue: "Iroh"
+                ))
+                .tag(MobileConnectionMethod.automatic)
+                .accessibilityIdentifier("MobileComputerConnectionMethodIroh")
+                Text(L10n.string(
+                    "mobile.settings.connectionMethod.tailscale",
+                    defaultValue: "Tailscale Only"
+                ))
+                .tag(MobileConnectionMethod.tailscale)
+                .accessibilityIdentifier("MobileComputerConnectionMethodTailscale")
             }
-            .pickerStyle(.segmented)
             .accessibilityIdentifier("MobileComputerConnectionMethod")
-            if irohSettingsController != nil {
+        } footer: {
+            Text(connectionMethodFooterText)
+        }
+
+        if irohSettingsController != nil {
+            Section {
                 Button {
                     showsPrivatePathEditor = true
                 } label: {
@@ -161,25 +179,45 @@ struct MacComputerDetailView: View {
                     )
                 }
                 .accessibilityIdentifier("MobileComputerPrivateAddresses")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.connections.privateAddressesFooter",
+                    defaultValue: "Extra addresses this iPhone may use to reach this computer directly."
+                ))
             }
-        } header: {
-            Text(L10n.string(
-                "mobile.connections.section.configuration",
-                defaultValue: "Connection"
-            ))
-        } footer: {
-            Text(L10n.string(
-                "mobile.connections.methodFooter",
-                defaultValue: "Applies to this computer on this iPhone only. Tailscale requires entering the pairing code shown on the Mac once."
-            ))
         }
     }
 
-    /// Persist the per-Computer method; choosing Tailscale without a usable
-    /// grant opens the pairing-code scanner so the switch can actually dial.
+    private var connectionMethodFooterText: String {
+        switch pendingConnectionMethod ?? selectedMethod {
+        case .automatic:
+            L10n.string(
+                "mobile.settings.connectionMethod.automaticFooter",
+                defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
+            )
+        case .tailscale:
+            L10n.string(
+                "mobile.settings.connectionMethod.tailscaleFooter",
+                defaultValue: """
+                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
+                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
+                authorization exists.
+                """
+            )
+        }
+    }
+
+    /// Persist the per-Computer method. The pending value moves the picker
+    /// immediately; the store reload reconciles it. Choosing Tailscale without
+    /// a usable grant opens the pairing-code scanner so the switch can dial.
     private func applyConnectionMethod(_ method: MobileConnectionMethod) {
+        guard method != (pendingConnectionMethod ?? selectedMethod) else { return }
+        pendingConnectionMethod = method
         let needsScanner = method == .tailscale && !store.hasUsableTailscaleAuthorization
-        Task { await store.setConnectionMethod(method, macDeviceID: macDeviceID, instanceTag: instanceTag) }
+        Task {
+            await store.setConnectionMethod(method, macDeviceID: macDeviceID, instanceTag: instanceTag)
+            pendingConnectionMethod = nil
+        }
         if needsScanner { showPairingScanner?() }
     }
 

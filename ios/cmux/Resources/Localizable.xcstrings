@@ -4863,23 +4863,6 @@
         }
       }
     },
-    "mobile.settings.connectionMethod.scanCode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scan Pairing Code"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリングコードをスキャン"
-          }
-        }
-      }
-    },
     "mobile.settings.connectionMethod.tailscale": {
       "extractionState": "manual",
       "localizations": {
@@ -19554,9 +19537,8 @@
     "mobile.connections.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."}},"ja":{"stringUnit":{"state":"translated","value":"各コンピュータは、それぞれの設定で選んだ接続方法で接続します。コンピュータをオフにすると、そのワークスペースがこのiPhoneで非表示になります。コンピュータはアカウントにサインインしたままです。"}}}},
     "mobile.connections.method.debug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Debug"}},"ja":{"stringUnit":{"state":"translated","value":"デバッグ"}}}},
     "mobile.connections.method.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh"}}}},
-    "mobile.connections.methodFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Applies to this computer on this iPhone only. Tailscale requires entering the pairing code shown on the Mac once."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhone上のこのコンピュータにのみ適用されます。Tailscaleを使うには、Macに表示されるペアリングコードを一度入力する必要があります。"}}}},
     "mobile.connections.privateAddresses": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Private Network Addresses"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートネットワークアドレス"}}}},
-    "mobile.connections.section.configuration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続"}}}},
+    "mobile.connections.privateAddressesFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Extra addresses this iPhone may use to reach this computer directly."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneがこのコンピュータに直接到達するために使用できる追加アドレスです。"}}}},
     "mobile.connections.method.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale"}}}},
     "mobile.connections.method.websocket": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"WebSocket"}},"ja":{"stringUnit":{"state":"translated","value":"WebSocket"}}}},
     "mobile.connections.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computers"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ"}}}},

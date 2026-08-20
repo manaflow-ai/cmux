@@ -43,14 +43,18 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async {
-        guard let pairedMacStore else { return }
+        // Same scope resolution as updateMacCustomization: the stored row's
+        // owner key embeds user + team, so a nil scope would update nothing.
+        guard let pairedMacStore, let scope = await currentScopeSnapshot() else { return }
         let canonical = cmxCanonicalDeviceID(macDeviceID)
+        let targetInstanceTag = instanceTag
+            ?? displayPairedMacs.first(where: { $0.macDeviceID == canonical })?.instanceTag
         try? await pairedMacStore.setConnectionMethod(
             macDeviceID: canonical,
-            instanceTag: instanceTag,
+            instanceTag: targetInstanceTag,
             rawValue: method?.rawValue,
-            stackUserID: nil,
-            teamID: nil
+            stackUserID: scope.userID,
+            teamID: scope.teamID
         )
         await loadPairedMacs()
         if connectedMacDeviceID == canonical {
