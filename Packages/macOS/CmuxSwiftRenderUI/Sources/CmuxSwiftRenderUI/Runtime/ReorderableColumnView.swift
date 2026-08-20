@@ -78,6 +78,7 @@ struct ReorderableColumnView: View {
     }
 
     private static let gapSpring = Animation.spring(response: 0.25, dampingFraction: 0.78)
+    private static let accordionSpring = Animation.spring(response: 0.28, dampingFraction: 0.85)
     private static let liftSpring = Animation.spring(response: 0.2, dampingFraction: 0.8)
     private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.76)
 
@@ -108,8 +109,16 @@ struct ReorderableColumnView: View {
                     dragGesture(childId: childId),
                     including: rowIsGrabbable(childId) ? .all : .subviews
                 )
+                // Accordion feel: rows appearing/disappearing (group
+                // collapse/expand) fade and slide from under the row above.
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        // Animate DATA-driven structural changes (collapse/expand, external
+        // reorders) so the accordion unfolds instead of popping. Never during
+        // a drag: the drop commit relies on an unanimated transaction, and
+        // draggedId stays set through the settle.
+        .animation(model.draggedId == nil ? Self.accordionSpring : nil, value: displayOrder)
         // The authoritative order arriving (the reorder round-tripped through
         // the host command) supersedes the optimistic local copy.
         .onChange(of: node.children) { _, _ in
