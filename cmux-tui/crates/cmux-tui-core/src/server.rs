@@ -468,9 +468,32 @@ pub(crate) fn decode_terminal_host_clear_history(
     fallback_key.map(KeyInput::try_from).transpose()
 }
 
+/// Validate the component used to identify a local session.
+///
+/// Session names become socket file names. Keep legacy names that are still a
+/// single path component, but reject values that can escape the socket root or
+/// carry control and line-separator characters.
+pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
+    let invalid = session.is_empty()
+        || matches!(session, "." | "..")
+        || session.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        });
+    anyhow::ensure!(
+        !invalid,
+        "session name must be a non-empty path component without separators or control characters"
+    );
+    Ok(())
+}
+
 /// Default socket path for a session.
-pub fn default_socket_path(session: &str) -> PathBuf {
-    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+pub fn default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -4675,7 +4698,11 @@ impl Drop for PendingServer {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
+    validate_session_name(&mux.session)?;
+    let path = match path {
+        Some(path) => path,
+        None => default_socket_path(&mux.session)?,
+    };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
         platform::restrict_directory(dir)?;
@@ -12931,6 +12958,29 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[test]
+    fn session_name_validation_rejects_path_components_and_control_characters() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+            "bad\u{2028}name",
+            "bad\u{2029}name",
+        ] {
+            assert!(validate_session_name(session).is_err(), "accepted {session:?}");
+        }
+        assert!(validate_session_name("main").is_ok());
+        for session in ["legacy name", "名前", "_legacy", "-legacy", "legacy:colon"] {
+            assert!(validate_session_name(session).is_ok(), "rejected {session:?}");
+        }
+        assert!(validate_session_name(&format!("legacy-{}", "x".repeat(200))).is_ok());
     }
 
     #[test]

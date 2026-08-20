@@ -18,8 +18,43 @@ import {
   utf8ByteLength,
 } from "./transport-limits.js";
 
+/**
+ * Validates the session component used by the default Unix socket path.
+ *
+ * Session names may contain legacy spaces, Unicode, punctuation, and long
+ * text. They must remain one non-empty path component and cannot contain
+ * separators, NUL, control characters, or Unicode line separators.
+ */
+export function validateSessionName(session: string): void {
+  const invalid =
+    session.length === 0
+    || session === "."
+    || session === ".."
+    || [...session].some((character) => {
+      const codePoint = character.codePointAt(0)!;
+      return (
+        character === "/"
+        || character === "\\"
+        || character === "\u0000"
+        || codePoint <= 0x1f
+        || (codePoint >= 0x7f && codePoint <= 0x9f)
+        || codePoint === 0x85
+        || codePoint === 0x2028
+        || codePoint === 0x2029
+        || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      );
+    });
+  if (invalid) {
+    throw new TypeError(
+      "session name must be a non-empty path component "
+      + "without separators or control characters",
+    );
+  }
+}
+
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
+  validateSessionName(session);
   const base = process.env.TMPDIR || os.tmpdir();
   return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
 }

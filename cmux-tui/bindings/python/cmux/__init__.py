@@ -1,7 +1,7 @@
 """Dependency-free Python SDK for the cmux resource API."""
 
 from . import aio
-from .client_defaults import default_socket_path, env_socket_path
+from .client_defaults import default_socket_path, env_socket_path, validate_session_name
 from .errors import (
     CancelledError,
     CmuxConnectionError,
@@ -77,6 +77,7 @@ __all__ = list(
             "aio",
             "default_socket_path",
             "env_socket_path",
+            "validate_session_name",
             *_id_all,
             *_model_all,
             *_option_all,

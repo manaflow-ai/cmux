@@ -11,6 +11,11 @@ on:
         description: "Successful cmux-tui release run containing verified packages"
         required: true
         type: string
+      confirm_tui_cmux:
+        description: "Set true only for the coordinated cmux TUI registry publish"
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -39,9 +44,14 @@ jobs:
         id: release
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
+          CONFIRM_TUI_CMUX: ${{ inputs.confirm_tui_cmux }}
         run: |
           set -euo pipefail
-          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          if [[ "$CONFIRM_TUI_CMUX" != "true" ]]; then
+            echo "PyPI publishing requires confirm_tui_cmux=true." >&2
+            exit 1
+          fi
+          [[ "$DISPATCH_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "workflow_dispatch version must match X.Y.Z" >&2
             exit 1
           }
@@ -137,6 +147,17 @@ jobs:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - name: Require PyPI cmux confirmation
+        if: inputs.confirm_tui_cmux != true
+        run: |
+          echo "Refusing to publish PyPI package cmux for the TUI without confirm_tui_cmux=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate-version.outputs.release_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -144,6 +165,18 @@ jobs:
           path: dist
           run-id: ${{ inputs.artifact_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Revalidate PyPI wheel contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "${{ inputs.version }}"
+
+      - name: Prepare exact PyPI retry set
+        id: pypi_upload
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash cmux-tui/scripts/prepare-pypi-tui-upload.sh dist upload "$VERSION"
 
       - name: Trusted publisher setup note
         run: |
@@ -155,8 +188,29 @@ jobs:
           - Environment: pypi-tui
           EOF
 
+      - name: Verify independent environment approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: pypi-tui
+        run: |
+          set -euo pipefail
+          environment_json="$RUNNER_TEMP/tui-release-environment.json"
+          if ! gh api \
+            --hostname github.com \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$GITHUB_REPOSITORY/environments/$RELEASE_ENVIRONMENT" \
+            > "$environment_json" 2>/dev/null; then
+            echo "Unable to verify the release environment protection policy; refusing to publish." >&2
+            exit 1
+          fi
+          python3 cmux-tui/bindings/verify_release_environment_policy.py \
+            --environment "$RELEASE_ENVIRONMENT" \
+            --environment-json "$environment_json"
+
       - name: Publish package distributions to PyPI
+        if: steps.pypi_upload.outputs.has_new == 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: dist
+          packages-dir: upload
           attestations: true

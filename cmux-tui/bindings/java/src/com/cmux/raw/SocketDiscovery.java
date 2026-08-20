@@ -6,12 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Pattern;
 
 /** Normative Unix socket discovery shared by the client and tests. */
 public final class SocketDiscovery {
-    private static final Pattern SESSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
-
     private SocketDiscovery() {}
 
     public static Path resolve(Path explicitSocket, String session) {
@@ -56,13 +53,29 @@ public final class SocketDiscovery {
 
     public static void validateSession(String session) {
         Objects.requireNonNull(session, "session");
-        if (!SESSION.matcher(session).matches()
-                || session.equals(".")
-                || session.equals("..")) {
-            throw new IllegalArgumentException(
-                "session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63} and not be . or .."
-            );
+        if (session.isEmpty() || session.equals(".") || session.equals("..")) {
+            throw invalidSession();
         }
+        for (int offset = 0; offset < session.length();) {
+            int codePoint = session.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (codePoint == '/' || codePoint == '\\' || codePoint == 0
+                    || Character.isISOControl(codePoint)
+                    || codePoint == 0x0085
+                    || codePoint == 0x2028
+                    || codePoint == 0x2029
+                    || (codePoint >= Character.MIN_SURROGATE
+                        && codePoint <= Character.MAX_SURROGATE)) {
+                throw invalidSession();
+            }
+        }
+    }
+
+    private static IllegalArgumentException invalidSession() {
+        return new IllegalArgumentException(
+            "session name must be a non-empty path component "
+                + "without separators or control characters"
+        );
     }
 
     static boolean fitsUnixSocket(Path path) {

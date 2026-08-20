@@ -51,6 +51,8 @@ PYPI_VERSION = re.compile(
 )
 PYPI_BOOTSTRAP_VERSION = "0.0.0a0"
 CRATES_BOOTSTRAP_VERSION = "0.0.0-bootstrap.0"
+NPM_BOOTSTRAP_PACKAGE = "cmux-sdk"
+NPM_BOOTSTRAP_VERSION = "0.0.0-bootstrap.0"
 PUBLISH_POLL_SECONDS = 0.25
 PUBLISH_STOP_SECONDS = 5
 PUBLISH_TIMEOUT_EXIT = 124
@@ -410,20 +412,38 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
         )
         latest = dist_tags.get("latest")
         if latest is not None:
-            if not isinstance(latest, str):
+            if (
+                package == NPM_BOOTSTRAP_PACKAGE
+                and latest == NPM_BOOTSTRAP_VERSION
+            ):
+                bootstrap_release = versions.get(NPM_BOOTSTRAP_VERSION)
+                if (
+                    not isinstance(bootstrap_release, dict)
+                    or dist_tags.get("bootstrap") != NPM_BOOTSTRAP_VERSION
+                ):
+                    raise RegistryError(
+                        "npm bootstrap metadata is incomplete for cmux-sdk"
+                    )
+                # The one-time SDK bootstrap intentionally reserves the npm
+                # name by putting its prerelease on `latest`. The stable
+                # release path below still requires `latest == version` once
+                # the immutable stable archive exists.
+                pass
+            elif not isinstance(latest, str):
                 raise RegistryError(
                     f"npm dist-tag latest is malformed for {package}: {latest!r}"
                 )
-            latest_version = _stable_version(latest)
-            if latest_version is None:
-                raise ReleaseStateMismatch(
-                    f"npm dist-tag latest is not a stable X.Y.Z version: {latest!r}"
-                )
-            if latest_version >= candidate:
-                raise ReleaseStateMismatch(
-                    f"npm dist-tag latest points to {latest!r}, which is not older "
-                    f"than requested {version!r}"
-                )
+            else:
+                latest_version = _stable_version(latest)
+                if latest_version is None:
+                    raise ReleaseStateMismatch(
+                        f"npm dist-tag latest is not a stable X.Y.Z version: {latest!r}"
+                    )
+                if latest_version >= candidate:
+                    raise ReleaseStateMismatch(
+                        f"npm dist-tag latest points to {latest!r}, which is not older "
+                        f"than requested {version!r}"
+                    )
         return MISSING
     if not isinstance(release, dict):
         raise RegistryError(f"npm metadata is malformed for {package}@{version}")

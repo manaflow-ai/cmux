@@ -7,7 +7,9 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -23,12 +25,24 @@ on:
       - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
+      - "tests/test_tui_installer_workflow.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
+      - "tests/test_tui_runtime_coverage.py"
+      - "web/app/tui/install.ps1/route.ts"
+      - "web/app/tui/install.sh/route.ts"
+      - "web/public/tui/install-static.ps1"
+      - "web/public/tui/install-static.sh"
+      - "web/tests/install-analytics.test.tsx"
   pull_request:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -44,7 +58,17 @@ on:
       - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
+      - "tests/test_tui_installer_workflow.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
+      - "tests/test_tui_runtime_coverage.py"
+      - "web/app/tui/install.ps1/route.ts"
+      - "web/app/tui/install.sh/route.ts"
+      - "web/public/tui/install-static.ps1"
+      - "web/public/tui/install-static.sh"
+      - "web/tests/install-analytics.test.tsx"
   workflow_dispatch:
 
 concurrency:
@@ -73,10 +97,30 @@ jobs:
         run: |
           python3 -m pip install \
             --disable-pip-version-check \
-            "PyYAML==6.0.3"
+            "PyYAML==6.0.3" \
+            "pytest==8.4.1"
 
       - name: Test protocol inventory
         run: python3 cmux-tui/scripts/test_check_spec_inventory.py
+
+      - name: Test published artifact manifest verifier
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
+
+      - name: Test TUI installer bodies and workflow contract
+        run: python3 -m pytest -q tests/test_tui_installers.py tests/test_tui_installer_workflow.py
+
+      - name: Set up Bun for TUI installer redirect test
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install web dependencies for TUI installer redirect test
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Test TUI installer redirects
+        working-directory: web
+        run: bun test --isolate tests/install-analytics.test.tsx
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
@@ -110,6 +154,22 @@ jobs:
 
       - name: Test SDK publishing workflow guards
         run: python3 tests/test_tui_publish_workflow_security.py -v
+
+      - name: Set up Node.js for TUI package contract
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned npm for TUI package contract
+        run: npm install --global npm@11.5.1
+
+      - name: Test TUI package artifact contract
+        run: python3 tests/test_tui_package_contract.py
+      - name: Test TUI runtime coverage contract
+        run: python3 tests/test_tui_runtime_coverage.py
+
+      - name: Test TUI npm artifact transfer contract
+        run: python3 tests/test_tui_npm_package_artifact.py
 
       - name: Check package versions
         run: python3 cmux-tui/bindings/check-versions.py --published-only

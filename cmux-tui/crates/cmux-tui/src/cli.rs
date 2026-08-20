@@ -287,6 +287,14 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             }
         }
     }
+    if let Some(session) = global.session.as_deref()
+        && cmux_tui_core::server::validate_session_name(session).is_err()
+    {
+        return Err((
+            UsageError::new(crate::localization::catalog().startup.invalid_session),
+            global.output,
+        ));
+    }
     Ok((global, command))
 }
 

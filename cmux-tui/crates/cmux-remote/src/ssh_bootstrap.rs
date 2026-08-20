@@ -10,12 +10,7 @@ use tokio::process::{Child, Command};
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 
-/// The version of the npm/PyPI distribution that contains this binary. Release
-/// workflows stamp it independently from the Rust crate's internal version.
-pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+pub use cmux_tui_core::DISTRIBUTION_VERSION;
 pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
 pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
 

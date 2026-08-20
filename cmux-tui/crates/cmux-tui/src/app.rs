@@ -17235,11 +17235,16 @@ impl App {
                     self.terminal_tab_size_hint(self.active_pane()),
                 )
             }
-            FileCommand::OpenBrowser(path) => self.session.new_browser_tab(
-                file_url(&path),
-                self.active_pane(),
-                self.browser_tab_size_hint(self.active_pane()),
-            ),
+            FileCommand::OpenBrowser(path) => match file_url(&path) {
+                Ok(url) => self.session.new_browser_tab(
+                    url,
+                    self.active_pane(),
+                    self.browser_tab_size_hint(self.active_pane()),
+                ),
+                Err(_) => {
+                    Err(anyhow::anyhow!(localization::catalog().sidebar.unsupported_browser_path))
+                }
+            },
         };
         match result {
             Ok(()) => self.sidebar_files.set_message("sent to focused pane"),

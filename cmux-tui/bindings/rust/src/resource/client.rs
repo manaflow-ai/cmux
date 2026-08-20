@@ -126,10 +126,20 @@ impl Config {
         }
     }
 
+    /// Builds a configuration from the environment or a named session.
+    ///
+    /// This source-compatible convenience API panics for invalid session
+    /// input. Use [`Self::try_from_env_or_default_session`] for user input.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        let socket_path = crate::client::env_socket_path()
-            .unwrap_or_else(|| crate::client::default_socket_path(session));
-        Self::from_socket_path(socket_path)
+        Self::try_from_env_or_default_session(session)
+            .unwrap_or_else(|error| panic!("invalid session name: {error}"))
+    }
+
+    /// Builds a resource configuration and reports invalid session input.
+    pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
+        let socket_path =
+            crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
+        Ok(Self::from_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -183,7 +193,8 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::from_env_or_default_session("main")
+        Self::try_from_env_or_default_session("main")
+            .expect("the built-in main session name is valid")
     }
 }
 

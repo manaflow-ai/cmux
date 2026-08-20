@@ -437,14 +437,25 @@ fn connectUnixStream(
 }
 
 pub fn validateSession(session: []const u8) !void {
-    if (session.len == 0 or session.len > 64) return error.InvalidSession;
-    if (std.mem.eql(u8, session, ".") or std.mem.eql(u8, session, "..")) {
+    if (session.len == 0 or
+        std.mem.eql(u8, session, ".") or
+        std.mem.eql(u8, session, ".."))
+    {
         return error.InvalidSession;
     }
-    for (session, 0..) |byte, index| {
-        const valid = std.ascii.isAlphanumeric(byte) or
-            (index > 0 and (byte == '.' or byte == '_' or byte == '-'));
-        if (!valid) return error.InvalidSession;
+    var iterator = (std.unicode.Utf8View.init(session) catch {
+        return error.InvalidSession;
+    }).iterator();
+    while (iterator.nextCodepoint()) |codepoint| {
+        if (codepoint == '/' or codepoint == '\\' or codepoint == 0 or
+            codepoint <= 0x001F or
+            (codepoint >= 0x007F and codepoint <= 0x009F) or
+            codepoint == 0x0085 or
+            codepoint == 0x2028 or
+            codepoint == 0x2029)
+        {
+            return error.InvalidSession;
+        }
     }
 }
 
@@ -494,9 +505,41 @@ pub fn resolveSocketPath(
 }
 
 test "session validation rejects path traversal" {
-    try std.testing.expectError(error.InvalidSession, validateSession("../bad"));
-    try std.testing.expectError(error.InvalidSession, validateSession(""));
-    try validateSession("agent-1.dev");
+    for ([_][]const u8{
+        "",
+        ".",
+        "..",
+        "../bad",
+        "nested/bad",
+        "nested\\bad",
+        "bad\x00name",
+        "bad\nname",
+        "bad\xc2\x85name",
+        "bad\xe2\x80\xa8name",
+        "bad\xe2\x80\xa9name",
+        "bad\xffname",
+    }) |session| {
+        try std.testing.expectError(error.InvalidSession, validateSession(session));
+    }
+}
+
+test "session validation preserves legacy-safe names" {
+    for ([_][]const u8{
+        "agent-1.dev",
+        "contains space",
+        "名前",
+        "_leading",
+        "-leading",
+        ".leading",
+        "legacy:colon",
+    }) |session| {
+        try validateSession(session);
+    }
+
+    var long_name: [207]u8 = undefined;
+    @memcpy(long_name[0..7], "legacy-");
+    @memset(long_name[7..], 'x');
+    try validateSession(&long_name);
 }
 
 test "explicit socket discovery wins" {

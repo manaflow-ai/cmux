@@ -745,12 +745,25 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
     }
 }
 
+#[test]
+fn invalid_session_is_rejected_before_socket_access() {
+    let socket = unique_temp_dir("invalid-session-socket").join("must-not-connect.sock");
+    let output = Command::new(bin())
+        .args(["--session", "../escape", "server", "status", "--socket", socket.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("session name is invalid"), "{error}");
+    assert!(!error.contains("cannot connect"), "{error}");
+}
+
 #[cfg(unix)]
 #[test]
 fn explicit_session_overrides_an_inherited_socket_route() {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let session = format!("explicit-route-{unique}");
-    let socket = cmux_tui_core::server::default_socket_path(&session);
+    let socket = cmux_tui_core::server::default_socket_path(&session).unwrap();
     fs::create_dir_all(socket.parent().unwrap()).unwrap();
     let _ = fs::remove_file(&socket);
     let _socket_guard = SocketFileGuard(socket.clone());

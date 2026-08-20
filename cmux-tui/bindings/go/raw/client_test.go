@@ -402,10 +402,64 @@ func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
 func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
 	t.Setenv("CMUX_TUI_SOCKET", "")
 	t.Setenv("CMUX_MUX_SOCKET", "")
-	for _, session := range []string{"", ".", "..", "../other", "contains space", "a/b"} {
+	for _, session := range []string{
+		"",
+		".",
+		"..",
+		"../other",
+		"a/b",
+		"a\\b",
+		"bad\x00name",
+		"bad\nname",
+		"bad\u0085name",
+		"bad\u2028name",
+		"bad\u2029name",
+	} {
 		if _, err := ResolveSocketPath("", session); !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("session %q error = %v, want invalid argument", session, err)
 		}
+	}
+	if _, err := ResolveSocketPath("", string([]byte{'b', 0xff, 'd'})); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("malformed UTF-8 session was accepted")
+	}
+}
+
+func TestSocketResolutionPreservesLegacySafeSessionNames(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	for _, session := range []string{
+		"contains space",
+		"名前",
+		"_leading",
+		"-leading",
+		".leading",
+		"legacy:colon",
+		"legacy-" + strings.Repeat("x", 200),
+	} {
+		path, err := ResolveSocketPath("", session)
+		if err != nil {
+			t.Fatalf("session %q rejected: %v", session, err)
+		}
+		if !strings.HasSuffix(path, "/"+session+".sock") {
+			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
+		}
+	}
+}
+
+func TestInvalidCompatibilityPathIsDeterministicAndIsolated(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	first := DefaultSocketPath("../escape")
+	second := DefaultSocketPath("../escape")
+	if first != second {
+		t.Fatalf("invalid compatibility paths differ: %q != %q", first, second)
+	}
+	if (!strings.Contains(first, "/cmux-tui-invalid-") &&
+		!strings.Contains(first, "/tmp/cmux-tui-invalid-")) ||
+		!strings.HasSuffix(first, ".sock") || strings.Contains(first, "escape") {
+		t.Fatalf("invalid compatibility path is not an isolated digest leaf: %q", first)
 	}
 }
 

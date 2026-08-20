@@ -86,7 +86,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
+use cmux_tui_core::{DISTRIBUTION_VERSION, Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -762,23 +762,26 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     if out.agent_browser_provider {
         return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
+    cmux_tui_core::server::validate_session_name(&out.session)
+        .map_err(|_| localization::catalog().startup.invalid_session.to_string())?;
     Ok(out)
 }
 
 fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
-    // it enters an app bundle. Local builds report the crate version alone.
+    // it enters an app bundle. The version follows the canonical distribution
+    // stamp and falls back to the Cargo version for local builds.
     let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
         .filter(|commit| !commit.is_empty());
     let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
     match (commit, ghostty) {
         (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
+            format!("{DISTRIBUTION_VERSION} ({commit}; ghostty {ghostty})")
         }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
+        (Some(commit), None) => format!("{DISTRIBUTION_VERSION} ({commit})"),
+        (None, _) => DISTRIBUTION_VERSION.to_string(),
     }
 }
 
@@ -1514,8 +1517,10 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     let config = config::load();
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1605,8 +1610,10 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
         anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
     })?;
@@ -1787,10 +1794,10 @@ fn run_server(
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
-    let socket_path = args
-        .socket
-        .clone()
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket.clone() {
+        Some(path) => path,
+        None => cmux_tui_core::server::default_socket_path(&args.session)?,
+    };
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
@@ -2586,6 +2593,32 @@ mod remote_args_tests {
     }
 
     #[test]
+    fn session_names_reject_path_components_and_control_characters() {
+        for session in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            "nested\\session",
+            "bad\0name",
+            "bad\nname",
+        ] {
+            let arguments = ["--session", session].map(str::to_string);
+            let error = parse_args_result(arguments)
+                .expect_err("unsafe session name was accepted before socket resolution");
+            assert!(error.contains("session"), "unexpected error for {session:?}: {error}");
+        }
+
+        for session in ["legacy name", "名前", "_legacy", "-legacy", &"x".repeat(200)] {
+            let arguments = ["--session", session].map(str::to_string);
+            parse_args_result(arguments).unwrap_or_else(|error| {
+                panic!("legacy-safe session name {session:?} was rejected: {error}")
+            });
+        }
+    }
+
+    #[test]
     fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
         let error = relay_daemon_options(
             vec!["relay+wss://dont-leak-me@[".into()],
@@ -2606,6 +2639,16 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn version_output_uses_the_canonical_distribution_stamp() {
+        let output = version_string();
+        assert!(
+            output == DISTRIBUTION_VERSION
+                || output.starts_with(&format!("{DISTRIBUTION_VERSION} (")),
+            "version output {output:?} does not use distribution version {DISTRIBUTION_VERSION:?}"
+        );
     }
 
     #[test]

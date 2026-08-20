@@ -6,12 +6,14 @@ import unittest
 from unittest.mock import patch
 
 from cmux.raw import (
+    CmuxClient,
     MISSING,
     MUX_PROTOCOL,
     UnknownEvent,
     default_socket_path,
     env_socket_path,
 )
+from cmux.resources import Client as ResourceClient
 from cmux.raw._generated import models
 from cmux.raw._generated._schema import SCHEMA
 from cmux.raw._generated.client import GeneratedClientMixin
@@ -139,6 +141,46 @@ class GeneratedProtocolTests(unittest.TestCase):
                 default_socket_path("sdk"),
                 f"/temporary/cmux-tui-{os.getuid()}/sdk.sock",
             )
+
+    def test_session_socket_paths_reject_unsafe_names_before_joining(self) -> None:
+        for session in (
+            "",
+            ".",
+            "..",
+            "../escape",
+            "nested/session",
+            r"nested\session",
+            "bad\x00name",
+            "bad\nname",
+            "bad\u0085name",
+            "bad\u2028name",
+            "bad\u2029name",
+        ):
+            with self.assertRaises(ValueError, msg=repr(session)):
+                default_socket_path(session)
+
+        for session in (
+            "legacy name",
+            "名前",
+            "_legacy",
+            "-legacy",
+            "legacy:colon",
+        ):
+            self.assertTrue(default_socket_path(session).endswith(f"/{session}.sock"))
+        self.assertTrue(
+            default_socket_path(f"legacy-{'x' * 200}").endswith(
+                f"/{'legacy-' + 'x' * 200}.sock"
+            )
+        )
+
+        with patch("cmux.raw.client.JsonLineConnection") as connection:
+            with self.assertRaises(ValueError):
+                CmuxClient(session="../escape")
+            connection.assert_not_called()
+        with patch("cmux.resources.ProtocolConnection") as connection:
+            with self.assertRaises(ValueError):
+                ResourceClient(session="../escape")
+            connection.assert_not_called()
 
 
 if __name__ == "__main__":

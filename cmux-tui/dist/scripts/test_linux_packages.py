@@ -28,10 +28,50 @@ BINARY_IMAGES = (
     ("alpine-3.22", "alpine:3.22"),
 )
 
+MANYLINUX_IMAGES = {
+    "x64": (
+        "manylinux2014-x64",
+        "quay.io/pypa/manylinux2014_x86_64@sha256:"
+        "95440e0e72dd3a81dc8d2cf59a84d57af661456620f5bc821ff92048d0e54ff9",
+    ),
+    "arm64": (
+        "manylinux2014-arm64",
+        "quay.io/pypa/manylinux2014_aarch64@sha256:"
+        "b63ff749fee6f3f2a6b67ed3101a073db3211df1791da19e9acf96f43c0dd6ff",
+    ),
+}
+
+MANYLINUX_WHEEL_TAGS = {
+    "x64": "manylinux_2_17_x86_64.manylinux2014_x86_64",
+    "arm64": "manylinux_2_17_aarch64.manylinux2014_aarch64",
+}
+
+MANYLINUX_GLIBC_FLOOR_CHECK = """
+glibc_version="$(getconf GNU_LIBC_VERSION | awk '{print $2}')"
+if [ "$glibc_version" != "2.17" ]; then
+  echo "expected manylinux2014 glibc 2.17, got $glibc_version" >&2
+  exit 1
+fi
+""".strip()
+
 ARCHITECTURES = {
     "x64": ("linux/amd64", "cmux-tui-linux-x64"),
     "arm64": ("linux/arm64", "cmux-tui-linux-arm64"),
 }
+
+
+def manylinux_image(architecture: str) -> tuple[str, str]:
+    try:
+        return MANYLINUX_IMAGES[architecture]
+    except KeyError as error:
+        raise SystemExit(f"unsupported Linux architecture: {architecture}") from error
+
+
+def manylinux_wheel_tag(architecture: str) -> str:
+    try:
+        return MANYLINUX_WHEEL_TAGS[architecture]
+    except KeyError as error:
+        raise SystemExit(f"unsupported Linux architecture: {architecture}") from error
 
 
 def parse_args() -> argparse.Namespace:
@@ -170,21 +210,58 @@ def test_uvx(wheels: pathlib.Path, version: str, platform: str) -> None:
 
 
 def test_native_binary(
-    packages: pathlib.Path, platform: str, package_name: str
+    packages: pathlib.Path,
+    platform: str,
+    package_name: str,
+    architecture: str,
 ) -> None:
     binary = packages / package_name / "bin" / "cmux-tui"
     if not binary.is_file():
         raise SystemExit(f"missing Linux binary: {binary}")
-    for distro, image in BINARY_IMAGES:
+    images = (*BINARY_IMAGES, manylinux_image(architecture))
+    for distro, image in images:
+        is_manylinux = image.startswith("quay.io/pypa/manylinux2014_")
+        script = "/cmux-tui --version"
+        if is_manylinux:
+            script = f"{MANYLINUX_GLIBC_FLOOR_CHECK}\n{script}"
         run(
             f"native binary on {distro}",
             container_command(
                 image,
                 platform=platform,
                 mounts=((binary, "/cmux-tui"),),
-                script="/cmux-tui --version",
+                script=script,
+                entrypoint="" if is_manylinux else None,
             ),
         )
+
+
+def test_pypi_manylinux_binary(
+    wheels: pathlib.Path, version: str, platform: str, architecture: str
+) -> None:
+    wheel_name = f"cmux-{version}-py3-none-{manylinux_wheel_tag(architecture)}.whl"
+    wheel = wheels / wheel_name
+    if not wheel.is_file():
+        raise SystemExit(f"missing manylinux wheel: {wheel}")
+    script = f"""
+set -eu
+{MANYLINUX_GLIBC_FLOOR_CHECK}
+unzip -p "/wheels/{wheel_name}" cmux_tui/bin/cmux-tui > /tmp/cmux-tui
+test -s /tmp/cmux-tui
+chmod 0755 /tmp/cmux-tui
+/tmp/cmux-tui --version
+"""
+    distro, image = manylinux_image(architecture)
+    run(
+        f"PyPI binary on {distro}",
+        container_command(
+            image,
+            platform=platform,
+            entrypoint="",
+            mounts=((wheels, "/wheels"),),
+            script=script,
+        ),
+    )
 
 
 def main() -> None:
@@ -195,9 +272,13 @@ def main() -> None:
     if args.npm_packages is not None:
         npm_packages = args.npm_packages.resolve()
         test_npm(npm_packages, platform, package_name)
-        test_native_binary(npm_packages, platform, package_name)
+        test_native_binary(npm_packages, platform, package_name, args.architecture)
     if args.pypi_wheels is not None:
-        test_uvx(args.pypi_wheels.resolve(), args.version, platform)
+        pypi_wheels = args.pypi_wheels.resolve()
+        test_uvx(pypi_wheels, args.version, platform)
+        test_pypi_manylinux_binary(
+            pypi_wheels, args.version, platform, args.architecture
+        )
 
 
 if __name__ == "__main__":

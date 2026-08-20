@@ -19,6 +19,8 @@ import {
 } from "../src/node.js";
 import {
   UnixSocketTransport,
+  defaultSocketPath,
+  validateSessionName,
   type UnixSocketTransportOptions,
 } from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
@@ -30,6 +32,43 @@ import {
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
+
+test("session socket helpers enforce the relaxed safe-name contract", () => {
+  for (const session of [
+    "",
+    ".",
+    "..",
+    "../escape",
+    "nested/session",
+    "nested\\session",
+    "bad\u0000name",
+    "bad\nname",
+    "bad\u0085name",
+    "bad\u2028name",
+    "bad\u2029name",
+    "bad\ud800name",
+  ]) {
+    assert.throws(
+      () => validateSessionName(session),
+      /session name must be a non-empty path component/,
+      `accepted unsafe session ${JSON.stringify(session)}`,
+    );
+    assert.throws(() => defaultSocketPath(session));
+  }
+
+  for (const session of [
+    "legacy name",
+    "名前",
+    "_leading",
+    "-leading",
+    ".leading",
+    "legacy:colon",
+    `legacy-${"x".repeat(200)}`,
+  ]) {
+    assert.doesNotThrow(() => validateSessionName(session));
+    assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
+  }
+});
 
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
