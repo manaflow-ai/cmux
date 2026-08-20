@@ -129,6 +129,21 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
     @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
     private static let replyRetryDelay: Duration = .seconds(5)
+    /// Held from the moment a reply parks until no reply is pending, so a
+    /// lock-screen reply's background wake survives past the notification
+    /// delegate's return long enough to redial the Mac and run the retry
+    /// ladder. Without it iOS suspends the process within seconds and the
+    /// parked reply silently expires.
+    @ObservationIgnored private var replyBackgroundAssertion: BackgroundReplyRuntimeAssertion?
+    @ObservationIgnored private let backgroundRuntime: any BackgroundReplyRuntimeAsserting
+    /// Whether the current parked reply still owes its one connection-recovery
+    /// kick. Armed on park and after a failed send; cleared once the kick runs
+    /// (or the reply resolves) so the recovery owner is never spammed.
+    @ObservationIgnored private var replyRecoveryKickPending = false
+    @ObservationIgnored private let replyFailureNotifier: any ReplyFailureNoticing
+    /// Grace past ``PendingReplyState/lifetime`` so an in-flight final send
+    /// isn't raced by its own failure notice.
+    private static let replyFailureNoticeSlack: TimeInterval = 10
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -207,12 +222,16 @@ public final class MobilePushCoordinator {
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         },
+        backgroundRuntime: any BackgroundReplyRuntimeAsserting = SystemBackgroundReplyRuntime(),
+        replyFailureNotifier: any ReplyFailureNoticing = SystemReplyFailureNotifier(),
         notificationSettingsClock: any Clock<Duration> = ContinuousClock(),
         notificationSettingsTimeout: Duration = .seconds(5),
         authorizationRequestTimeout: Duration = .seconds(120)
     ) {
         self.registration = registration
         self.replyRetrySleep = replyRetrySleep
+        self.backgroundRuntime = backgroundRuntime
+        self.replyFailureNotifier = replyFailureNotifier
         self.notificationSettingsClock = notificationSettingsClock
         self.notificationSettingsTimeout = notificationSettingsTimeout
         self.authorizationRequestTimeout = authorizationRequestTimeout
@@ -302,6 +321,10 @@ public final class MobilePushCoordinator {
         applyPendingDeeplinkIfReady()
         Task { @MainActor [weak self] in
             await self?.applyPendingReplyIfReady()
+            // A reply parked before any store existed (a store-less background
+            // launch) still owes its recovery kick; run it now that routing
+            // has a target.
+            self?.kickReplyConnectionRecoveryIfNeeded()
         }
     }
 
@@ -1016,7 +1039,18 @@ public final class MobilePushCoordinator {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         ))
+        replyRecoveryKickPending = true
+        // A lock-screen reply wakes the app in the BACKGROUND: hold runtime so
+        // the redial + retry ladder outlive the notification delegate, and
+        // pre-schedule the failure notice so even a process kill cannot turn a
+        // lost reply into silence. Both resolve when the reply does.
+        beginReplyBackgroundAssertionIfNeeded()
+        await replyFailureNotifier.schedule(
+            after: PendingReplyState.lifetime + Self.replyFailureNoticeSlack,
+            replyText: text
+        )
         await applyPendingReplyIfReady()
+        kickReplyConnectionRecoveryIfNeeded()
     }
 
     /// Apply the parked tap if its target can be navigated to right now;
@@ -1130,7 +1164,18 @@ public final class MobilePushCoordinator {
     }
 
     /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.
+    /// Also reconciles the reply background assertion: it is held exactly while
+    /// a reply is pending (or a send is in flight), so every resolution path —
+    /// sent, discarded, expired — releases the process back to iOS.
     private func applyPendingReplyIfReady() async {
+        await applyPendingReplyIfReadyCore()
+        if pendingReplyState.pending == nil, !replySendInFlight {
+            replyRecoveryKickPending = false
+            endReplyBackgroundAssertionIfHeld()
+        }
+    }
+
+    private func applyPendingReplyIfReadyCore() async {
         guard !replySendInFlight else { return }
         let initialDecision = pendingReplyState.evaluate(
             now: now(),
@@ -1162,21 +1207,32 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping inline reply without a surface id")
+            await replyFailureNotifier.deliverNow(replyText: pending.text)
             return
         }
 
+        // An unresolvable target stays parked. Arm the bounded retry ladder as
+        // well: while backgrounded the SwiftUI topology observation that would
+        // otherwise re-apply the reply is not guaranteed to fire, so the
+        // ladder is what re-evaluates after the reply lane's redial lands.
         var workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
             guard let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
                 macDeviceID: pending.macDeviceId
-            ) else { return }
+            ) else {
+                scheduleReplyRetry()
+                return
+            }
             workspaceTarget = resolved
         } else if pending.retargetsToLiveSurfaceOwner {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
                 macDeviceID: pending.macDeviceId
-            ) else { return }
+            ) else {
+                scheduleReplyRetry()
+                return
+            }
             workspaceTarget = owner
         } else {
             pendingReplyState.discard()
@@ -1185,6 +1241,7 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping confined inline reply without a workspace id")
+            await replyFailureNotifier.deliverNow(replyText: pending.text)
             return
         }
 
@@ -1200,6 +1257,7 @@ public final class MobilePushCoordinator {
                     failure: .noRoute
                 )
                 mobilePushLog.info("dropping inline reply because the target surface has no permitted live owner")
+                await replyFailureNotifier.deliverNow(replyText: pending.text)
                 return
             }
             workspaceTarget = liveOwner
@@ -1246,13 +1304,54 @@ public final class MobilePushCoordinator {
             if pendingReplyState.pending == nil {
                 pendingReplyState.park(ready)
             }
+            // The client existed but its send failed, so the channel is
+            // suspect: re-arm the one recovery kick. The recovery owner probes
+            // a connection it still believes healthy before replacing it.
+            replyRecoveryKickPending = true
+            kickReplyConnectionRecoveryIfNeeded()
             scheduleReplyRetry()
             return
         }
         replyRetryTask?.cancel()
         replyRetryTask = nil
         diagnosticLog?.recordAppEvent(.pushReplySucceeded)
+        // Guarded so a newer reply parked mid-send keeps its own notice.
+        if pendingReplyState.pending == nil {
+            await replyFailureNotifier.cancel()
+        }
         await applyPendingReplyIfReady()
+    }
+
+    /// Runs the parked reply's one connection-recovery kick. Without it a
+    /// backgrounded app never redials: the transport was suspended when the
+    /// phone locked, and every automatic recovery trigger parks until the next
+    /// foreground. The kick is selection-neutral and rides the background
+    /// assertion held by the reply lane.
+    private func kickReplyConnectionRecoveryIfNeeded() {
+        guard replyRecoveryKickPending,
+              !replySendInFlight,
+              let pending = pendingReplyState.pending,
+              let store else { return }
+        replyRecoveryKickPending = false
+        store.recoverConnectionForBackgroundNotificationReply(
+            macDeviceID: pending.macDeviceId
+        )
+    }
+
+    private func beginReplyBackgroundAssertionIfNeeded() {
+        guard replyBackgroundAssertion == nil else { return }
+        replyBackgroundAssertion = backgroundRuntime.begin { [weak self] in
+            // The system window is closing; release promptly. The reply stays
+            // parked — a foreground within its lifetime still delivers it, and
+            // the pre-scheduled failure notice reports it otherwise.
+            self?.endReplyBackgroundAssertionIfHeld()
+        }
+    }
+
+    private func endReplyBackgroundAssertionIfHeld() {
+        guard let assertion = replyBackgroundAssertion else { return }
+        replyBackgroundAssertion = nil
+        backgroundRuntime.end(assertion)
     }
 
     /// Arms one delayed `applyPendingReplyIfReady` pass (see `replyRetryTask`).

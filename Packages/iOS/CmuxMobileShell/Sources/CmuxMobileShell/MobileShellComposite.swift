@@ -2348,8 +2348,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case transportWriteTimedOut
         case automaticBackoffExpired
         case connectionMethodChanged
+        case backgroundNotificationReply
 
-        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+        var reschedulesSecondaryAggregation: Bool {
+            self != .presencePush && self != .backgroundNotificationReply
+        }
+
+        /// Whether this trigger may start a dial while
+        /// ``foregroundRefreshIsActive`` is false. Background dials normally
+        /// suspend with the process, so only a caller that holds a
+        /// `UIApplication` background task assertion for the dial's duration
+        /// (the inline notification reply lane) may set this.
+        var permitsBackgroundedDial: Bool { self == .backgroundNotificationReply }
 
         /// Stable integer carried in ``DiagnosticEventCode/recoveryStarted``'s
         /// `b` slot so an export names WHY each recovery cycle began. Values
@@ -2366,6 +2376,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .transportWriteTimedOut: 8
             case .automaticBackoffExpired: 9
             case .connectionMethodChanged: 10
+            case .backgroundNotificationReply: 11
             }
         }
 
@@ -2381,6 +2392,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .transportWriteTimedOut: return "transportWriteTimedOut"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
             case .connectionMethodChanged: return "connectionMethodChanged"
+            case .backgroundNotificationReply: return "backgroundNotificationReply"
             }
         }
     }
