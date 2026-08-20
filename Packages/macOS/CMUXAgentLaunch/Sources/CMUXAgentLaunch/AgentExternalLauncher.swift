@@ -290,13 +290,27 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
                 return executables
             }
             forwardsRemaining -= 1
-            index = indexOfForwardedExecutable(in: argv, after: index)
+            index = indexOfForwardedExecutable(
+                in: argv,
+                after: index,
+                forwardingCommand: (word as NSString).lastPathComponent
+            )
         }
         return executables
     }
 
     /// The index of the program a forwarding command runs, skipping its own arguments.
-    private static func indexOfForwardedExecutable(in argv: [String], after index: Int) -> Int {
+    ///
+    /// - Parameters:
+    ///   - argv: The process argv being scanned.
+    ///   - index: The index of the forwarding command itself.
+    ///   - forwardingCommand: That command's basename, which decides how `-` is read.
+    /// - Returns: The index of the program being run, or `argv.count` when there is none.
+    private static func indexOfForwardedExecutable(
+        in argv: [String],
+        after index: Int,
+        forwardingCommand: String
+    ) -> Int {
         var cursor = index + 1
         while cursor < argv.count {
             let word = argv[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -309,11 +323,17 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
                 cursor += 1
                 continue
             }
-            // `--` ends the forwarding command's own option list, and a bare `-` is `env`'s
-            // empty-environment shorthand. Neither is the program being run, so the program is the
-            // word after them — treating the separator as the program is how `env -- llm-gateway`
-            // lost its launcher.
-            if word == "--" || word == "-" {
+            // `--` ends the forwarding command's own option list, so the program follows it —
+            // treating the separator as the program is how `env -- llm-gateway` lost its launcher.
+            if word == "--" {
+                cursor += 1
+                continue
+            }
+            if word == "-" {
+                // For `env`, a bare `-` is the `-i` shorthand and the program still follows. For an
+                // interpreter it means "read the program from stdin", so nothing after it is an
+                // executable: `node - llm-gateway` passes `llm-gateway` to a script on stdin.
+                guard forwardingCommand == "env" else { return argv.count }
                 cursor += 1
                 continue
             }

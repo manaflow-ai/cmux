@@ -260,6 +260,36 @@ import Testing
         #expect(detected.id == "gateway")
     }
 
+    /// `-` means different things per command: `env -` is the empty-environment shorthand and the
+    /// program still follows, while `node -` / `python3 -` read the program from stdin, so a later
+    /// word is that program's argument, not an executable.
+    @Test func bareDashIsReadPerForwardingCommand() throws {
+        let gateway = AgentExternalLauncher(
+            id: "gateway",
+            kinds: ["claude"],
+            argvExecutables: ["llm-gateway"],
+            resumeArgvPrefix: ["llm-gateway", "exec", "--"]
+        )
+        let registry = registry(gateway)
+
+        #expect(
+            registry.detectedLauncher(ancestorArgvs: [["node", "-", "llm-gateway"]], kind: "claude") == nil
+        )
+        #expect(
+            registry.detectedLauncher(
+                ancestorArgvs: [["python3", "-", "llm-gateway", "exec"]],
+                kind: "claude"
+            ) == nil
+        )
+        let detected = try #require(
+            registry.detectedLauncher(
+                ancestorArgvs: [["env", "-", "VAR=1", "llm-gateway", "exec"]],
+                kind: "claude"
+            )
+        )
+        #expect(detected.id == "gateway")
+    }
+
     @Test func forwardingIsNotFollowedIndefinitely() {
         // env -> node -> npx are two hops plus a third executable; `teamclaude` sits behind all of
         // them, so it is out of reach and the session stays unwrapped rather than being attributed
