@@ -7663,6 +7663,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        // The scrollbar callback is coalesced onto the main queue. Drain a
+        // packet that was queued before this wheel event before arming the
+        // explicit-sync window; otherwise that stale packet can consume the
+        // window and cause the actual wheel response to be treated as passive.
+        _ = flushPendingScrollbarIfAvailable()
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
