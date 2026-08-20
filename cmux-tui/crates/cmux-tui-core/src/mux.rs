@@ -5124,7 +5124,7 @@ impl Mux {
     /// news.
     pub(crate) fn report_skipped_reconnect_checkpoint(
         &self,
-        terminal_id: impl std::fmt::Display,
+        terminal_id: impl fmt::Display,
         error: &anyhow::Error,
     ) {
         let message = format!(
