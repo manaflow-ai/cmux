@@ -118,7 +118,7 @@ extension MobileShellComposite {
     /// Supersede every older replay and output acknowledgement for a surface,
     /// then request one authoritative replacement owned by the new barrier.
     func requestAuthoritativeTerminalResync(surfaceID: String, reason: String) {
-        guard hasTerminalOutputSink(surfaceID: surfaceID), remoteClient != nil else { return }
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
         let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
         MobileDebugLog.anchormux(
             "CMUX_REPLAY authoritative_resync reason=\(reason) surface=\(surfaceID)"

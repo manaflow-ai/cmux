@@ -433,20 +433,31 @@ extension MobileShellComposite {
             return false
         }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
-        let immediate = queue.enqueue(delivery)
+        let enqueueResult = queue.enqueue(delivery)
         let pendingCount = queue.pendingCount
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if enqueueResult == .overloaded {
+            MobileDebugLog.anchormux(
+                "terminal.output.overload surface=\(surfaceID) " +
+                    "limit=\(TerminalOutputDeliveryQueue.maximumPendingCount)"
+            )
+            requestAuthoritativeTerminalResync(
+                surfaceID: surfaceID,
+                reason: "output_queue_overload"
+            )
+            return false
+        }
         if bypassReplayBarrier,
-           immediate != nil,
+           case .immediate = enqueueResult,
            terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
             terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] = streamToken
         }
-        if pendingCount >= 32, pendingCount.isMultiple(of: 32) {
+        if pendingCount == TerminalOutputDeliveryQueue.maximumPendingCount {
             MobileDebugLog.anchormux(
                 "terminal.output.pending surface=\(surfaceID) depth=\(pendingCount)"
             )
         }
-        if let immediate {
+        if case .immediate(let immediate) = enqueueResult {
             continuation.yield(
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,

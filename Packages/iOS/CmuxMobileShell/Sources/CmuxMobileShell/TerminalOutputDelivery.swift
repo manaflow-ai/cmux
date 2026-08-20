@@ -90,6 +90,18 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
+    enum EnqueueResult: Equatable, Sendable {
+        case immediate(TerminalOutputDelivery)
+        case queued
+        case overloaded
+    }
+
+    /// A stalled surface must not retain an unbounded sequence of
+    /// nonreplaceable deltas. Once this many applies are waiting, the caller
+    /// replaces the queue with an authoritative replay instead of adding more
+    /// work that is already becoming stale.
+    static let maximumPendingCount = 32
+
     private var inFlight = false
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
@@ -102,13 +114,17 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pending.count - pendingHeadIndex
     }
 
-    mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
+    mutating func enqueue(_ delivery: TerminalOutputDelivery) -> EnqueueResult {
         guard inFlight else {
             inFlight = true
-            return delivery
+            return .immediate(delivery)
         }
         appendPending(delivery)
-        return nil
+        guard pendingCount <= Self.maximumPendingCount else {
+            reset()
+            return .overloaded
+        }
+        return .queued
     }
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
