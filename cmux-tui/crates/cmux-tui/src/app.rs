@@ -27258,6 +27258,66 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    /// A reattach restores the inner terminal's mouse modes through the
+    /// daemon replay before any frame renders, and a later frame whose pane
+    /// render fails or is skipped (contended terminal lock while the network
+    /// thread applies output, zero-sized pane during layout churn) leaves no
+    /// rendered pointer semantics either. Host mouse capture must follow the
+    /// terminal's canonical mode state in both situations; deriving it from
+    /// the rendered projection writes capture-off to the host exactly when
+    /// the inner application still owns the mouse.
+    #[test]
+    fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
+        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(true));
+        assert!(
+            app.rendered_terminal_pointer_semantics.is_empty(),
+            "precondition: no frame has rendered this surface"
+        );
+        assert!(
+            app.desired_host_mouse_capture(),
+            "host capture must follow the inner terminal's canonical mouse-tracking \
+             state, not the rendered-frame projection"
+        );
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "capture releases when the inner application disables tracking"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// When the canonical state is momentarily unknowable (the scoped surface
+    /// is gone from the session during attach teardown or handoff), the client
+    /// must keep the capture it last applied instead of toggling the host.
+    #[test]
+    fn scoped_host_mouse_capture_keeps_last_applied_when_state_is_unknowable() {
+        let mux = Mux::new("scoped-capture-unknowable-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let missing: SurfaceId = surface.id + 1000;
+        app.surface_only = Some(missing);
+
+        app.host_mouse_capture_applied = Some(true);
+        assert!(
+            app.desired_host_mouse_capture(),
+            "an unknowable surface must not release capture the client already applied"
+        );
+        app.host_mouse_capture_applied = Some(false);
+        assert!(
+            !app.desired_host_mouse_capture(),
+            "an unknowable surface must not assert capture the client never applied"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[test]
     fn pointer_motion_does_not_wait_for_terminal_parsing() {
         let mux = Mux::new(
