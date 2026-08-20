@@ -11,7 +11,15 @@ import SwiftUI
 /// rail (`displayMode == .icons`) rows shrink to just the icon and details
 /// move into a dwell hover card. Selecting a machine scopes the workspaces
 /// column and creation defaults to it.
-struct SidebarMachineColumnView: View {
+struct SidebarMachineColumnView: View, Equatable {
+    // Equatable gates only parent-driven re-evaluation (divider width
+    // ticks): every rendered data source is an @EnvironmentObject /
+    // @StateObject / @State that invalidates this view directly, bypassing
+    // the gate. Same pattern as VerticalTabsSidebar.
+    static func == (lhs: SidebarMachineColumnView, rhs: SidebarMachineColumnView) -> Bool {
+        lhs.displayMode == rhs.displayMode
+    }
+
     private static let machineDragPayloadPrefix = "cmux.sidebar.machine:"
 
     let displayMode: SidebarColumnDisplayMode

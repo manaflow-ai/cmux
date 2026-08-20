@@ -15,12 +15,16 @@ struct SidebarDividerTracker: NSViewRepresentable {
     let onBegan: () -> Void
     let onChanged: (CGFloat) -> Void
     let onEnded: () -> Void
+    /// Optional double-click action (collapse/expand a column). The first
+    /// click of the pair still runs a no-movement drag, which is harmless.
+    var onDoubleClick: (() -> Void)?
 
     func makeNSView(context: Context) -> SidebarDividerTrackingView {
         let view = SidebarDividerTrackingView()
         view.onBegan = onBegan
         view.onChanged = onChanged
         view.onEnded = onEnded
+        view.onDoubleClick = onDoubleClick
         return view
     }
 
@@ -28,6 +32,7 @@ struct SidebarDividerTracker: NSViewRepresentable {
         nsView.onBegan = onBegan
         nsView.onChanged = onChanged
         nsView.onEnded = onEnded
+        nsView.onDoubleClick = onDoubleClick
     }
 }
 
@@ -36,6 +41,7 @@ final class SidebarDividerTrackingView: NSView {
     var onBegan: (() -> Void)?
     var onChanged: ((CGFloat) -> Void)?
     var onEnded: (() -> Void)?
+    var onDoubleClick: (() -> Void)?
 
 #if DEBUG
     // Routing diagnosis: sidebar-resize bugs have historically been fights
@@ -82,6 +88,10 @@ final class SidebarDividerTrackingView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
+        if event.clickCount == 2, let onDoubleClick {
+            onDoubleClick()
+            return
+        }
         onBegan?()
         let startX = event.locationInWindow.x
         var eventCount = 0

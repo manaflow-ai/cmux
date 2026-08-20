@@ -8,11 +8,11 @@ struct SidebarWorkspaceHoverCardView: View {
     var body: some View {
         SidebarHoverCardShell(
             icon: {
-                Circle()
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(avatarTint)
                     .overlay {
                         Text(avatarLetter)
-                            .font(.system(size: 9.5, weight: .semibold))
+                            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
                             .foregroundStyle(Color.primary)
                     }
             },

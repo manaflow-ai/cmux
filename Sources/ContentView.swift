@@ -919,6 +919,7 @@ struct ContentView: View {
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
+    @State private var sidebarColumnDragStartWidth: CGFloat?
     // Non-observed: flush pacing must not invalidate the view.
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
@@ -1272,6 +1273,7 @@ struct ContentView: View {
 
     private enum SidebarResizerHandle: Hashable {
         case divider
+        case columnDivider
         case explorerDivider
     }
 
@@ -1299,6 +1301,23 @@ struct ContentView: View {
                     sidebarState.persistedPrimaryColumnMode = sidebarLayout.primaryColumnMode
                 }
             )
+        case .columnDivider:
+            return (
+                currentWidth: sidebarLayout.effectiveLeadingColumnWidth,
+                captureStart: {
+                    sidebarColumnDragStartWidth = sidebarLayout.effectiveLeadingColumnWidth
+                },
+                updateWidth: { translation in
+                    let startWidth = sidebarColumnDragStartWidth
+                        ?? sidebarLayout.effectiveLeadingColumnWidth
+                    applySidebarLeadingColumnDrag(startWidth + translation)
+                },
+                finishDrag: {
+                    sidebarColumnDragStartWidth = nil
+                    sidebarState.persistedLeadingColumnWidth = sidebarLayout.leadingColumnWidth
+                    sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
+                }
+            )
         case .explorerDivider:
             return (
                 currentWidth: fileExplorerWidth,
@@ -1324,7 +1343,7 @@ struct ContentView: View {
 
     /// One easing for every column grow/shrink so the sidebar reads as one
     /// mechanism.
-    static let sidebarColumnModeAnimation: Animation = .easeInOut(duration: 0.18)
+    static let sidebarColumnModeAnimation: Animation = .spring(response: 0.28, dampingFraction: 0.85)
 
     /// Every animated column-mode change defers terminal PTY resizes for the
     /// animation's duration and posts the interactive-resize end signal on
@@ -1422,12 +1441,6 @@ struct ContentView: View {
                 sidebarLayout.leadingColumnWidth = regularWidth
             }
         }
-    }
-
-    private func endSidebarLeadingColumnDrag() {
-        endSidebarColumnResize()
-        sidebarState.persistedLeadingColumnWidth = sidebarLayout.leadingColumnWidth
-        sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
     }
 
     /// Double-click on the machines divider: toggle between the icon rail and
@@ -1786,7 +1799,10 @@ struct ContentView: View {
                             config.finishDrag()
                             activateSidebarResizerCursor()
                             scheduleSidebarResizerCursorRelease()
-                        }
+                        },
+                        onDoubleClick: handle == .columnDivider
+                            ? { toggleSidebarLeadingColumnMode() }
+                            : nil
                     )
                 )
                 .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
@@ -1905,6 +1921,19 @@ struct ContentView: View {
         }
     }
 
+    /// Machines/workspaces divider. Same synchronous tracker as the region
+    /// divider so both drags feel identical.
+    private var sidebarColumnResizerOverlay: some View {
+        SidebarColumnWidthsReader(layout: sidebarLayout) { leadingWidth, _, _ in
+            placedSidebarResizerOverlay(
+                handle: .columnDivider,
+                edge: .leading,
+                accessibilityIdentifier: "SidebarColumnResizer",
+                dividerX: { totalWidth in min(max(leadingWidth, 0), totalWidth) }
+            )
+        }
+    }
+
     private func beginSidebarColumnResize() {
         guard !isResizerDragging else { return }
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
@@ -1981,12 +2010,10 @@ struct ContentView: View {
                 SidebarColumnsContainer(
                     leadingWidth: leadingWidth,
                     trailingWidth: primaryWidth,
-                    trailingIdentity: tabManager.selectedSidebarChildColumn.id,
-                    onLeadingDrag: applySidebarLeadingColumnDrag,
-                    onLeadingDragEnded: endSidebarLeadingColumnDrag,
-                    onToggleLeadingMode: toggleSidebarLeadingColumnMode
+                    trailingIdentity: tabManager.selectedSidebarChildColumn.id
                 ) {
                     SidebarMachineColumnView(displayMode: sidebarLayout.leadingColumnMode)
+                        .equatable()
                 } trailing: {
                     sidebarChildColumn(tabManager.selectedSidebarChildColumn)
                 }
@@ -2891,6 +2918,12 @@ struct ContentView: View {
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
+                            .zIndex(1000)
+                    }
+                }
+                .overlay(alignment: .leading) {
+                    if sidebarState.isVisible {
+                        sidebarColumnResizerOverlay
                             .zIndex(1000)
                     }
                 }

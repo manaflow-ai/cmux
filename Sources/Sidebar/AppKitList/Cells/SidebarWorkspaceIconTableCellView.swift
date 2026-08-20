@@ -3,8 +3,9 @@ import CmuxFoundation
 import SwiftUI
 
 /// Icon-rail presentation of one workspace or group-header row: a single
-/// centered glyph with selection paint and an unread dot. Every textual
-/// detail moves to the row's hover card. Selection, click dispatch, and drag
+/// rounded avatar (monogram tinted by the workspace color, or the group's
+/// symbol) with a selection ring and an unread dot. Every textual detail
+/// moves to the row's hover card. Selection, click dispatch, and drag
 /// handling stay controller-owned, and the context menu reuses the regular
 /// row's shared builder so both presentations expose identical actions.
 @MainActor
@@ -12,11 +13,11 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceIconRowCell")
     static let rowHeight: CGFloat = 36
 
-    private static let avatarSide: CGFloat = 26
-    private static let selectionSide: CGFloat = 32
+    private static let avatarSide: CGFloat = 28
+    private static let avatarCornerRadius: CGFloat = 8
+    private static let selectionRingWidth: CGFloat = 2
 
-    private let selectionBackground = NSView()
-    private let avatarBackground = NSView()
+    private let avatarView = NSView()
     private let letterField = NSTextField(labelWithString: "")
     private let symbolView = NSImageView()
     private let unreadDot = NSView()
@@ -32,22 +33,17 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
         identifier = Self.reuseIdentifier
         wantsLayer = true
 
-        selectionBackground.wantsLayer = true
-        selectionBackground.layer?.cornerRadius = 6
-        selectionBackground.layer?.cornerCurve = .continuous
-        addSubview(selectionBackground)
-
-        avatarBackground.wantsLayer = true
-        avatarBackground.layer?.cornerRadius = 7
-        avatarBackground.layer?.cornerCurve = .continuous
-        addSubview(avatarBackground)
+        avatarView.wantsLayer = true
+        avatarView.layer?.cornerRadius = Self.avatarCornerRadius
+        avatarView.layer?.cornerCurve = .continuous
+        addSubview(avatarView)
 
         letterField.alignment = .center
         letterField.lineBreakMode = .byClipping
-        avatarBackground.addSubview(letterField)
+        avatarView.addSubview(letterField)
 
         symbolView.imageScaling = .scaleProportionallyDown
-        avatarBackground.addSubview(symbolView)
+        avatarView.addSubview(symbolView)
 
         unreadDot.wantsLayer = true
         unreadDot.layer?.cornerRadius = 4
@@ -73,18 +69,16 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
         isDark = model.colorSchemeIsDark
         toolTip = model.snapshot.title
 
-        applySelection(
-            isActive: model.isActive || model.isMultiSelected,
-            selectionColorHex: model.settings.selectionColorHex,
-            dimmed: model.isMultiSelected && !model.isActive
-        )
         applyAvatar(
             letter: Self.avatarLetter(for: model.snapshot.title),
             symbolName: nil,
-            tintHex: model.snapshot.customColorHex
+            tintHex: model.snapshot.customColorHex,
+            isSelected: model.isActive,
+            isMultiSelected: model.isMultiSelected,
+            selectionColorHex: model.settings.selectionColorHex
         )
         applyUnread(count: model.unreadCount)
-        accessibilityLabelOverride = model.snapshot.title
+        setAccessibilityLabel(model.snapshot.title)
         needsLayout = true
     }
 
@@ -99,41 +93,27 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
         isDark = model.colorSchemeIsDark
         toolTip = model.name
 
-        applySelection(
-            isActive: model.isAnchorActive || model.isMultiSelected,
-            selectionColorHex: nil,
-            dimmed: model.isMultiSelected && !model.isAnchorActive
-        )
         applyAvatar(
             letter: nil,
             symbolName: model.iconSymbol,
-            tintHex: model.tintHex
+            tintHex: model.tintHex,
+            isSelected: model.isAnchorActive,
+            isMultiSelected: model.isMultiSelected,
+            selectionColorHex: nil
         )
         applyUnread(count: model.anchorUnreadCount)
-        accessibilityLabelOverride = model.name
+        setAccessibilityLabel(model.name)
         needsLayout = true
     }
 
-    private var accessibilityLabelOverride: String = "" {
-        didSet { setAccessibilityLabel(accessibilityLabelOverride) }
-    }
-
-    private func applySelection(isActive: Bool, selectionColorHex: String?, dimmed: Bool) {
-        let scheme: ColorScheme = isDark ? .dark : .light
-        if isActive {
-            let color = sidebarSelectedRowBackgroundNSColor(
-                for: scheme,
-                sidebarSelectionColorHex: selectionColorHex
-            )
-            selectionBackground.layer?.backgroundColor =
-                color.withAlphaComponent(dimmed ? 0.45 : 1).cgColor
-            selectionBackground.isHidden = false
-        } else {
-            selectionBackground.isHidden = true
-        }
-    }
-
-    private func applyAvatar(letter: String?, symbolName: String?, tintHex: String?) {
+    private func applyAvatar(
+        letter: String?,
+        symbolName: String?,
+        tintHex: String?,
+        isSelected: Bool,
+        isMultiSelected: Bool,
+        selectionColorHex: String?
+    ) {
         let scheme: ColorScheme = isDark ? .dark : .light
         let tint = tintHex.flatMap {
             WorkspaceTabColorSettings.displayNSColor(
@@ -142,10 +122,26 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
                 forceBright: false
             )
         }
-        avatarBackground.layer?.backgroundColor = (
-            tint?.withAlphaComponent(0.35)
-                ?? NSColor.secondaryLabelColor.withAlphaComponent(0.16)
-        ).cgColor
+
+        let baseFill = tint?.withAlphaComponent(isSelected ? 0.42 : 0.26)
+            ?? NSColor.secondaryLabelColor.withAlphaComponent(isSelected ? 0.26 : 0.14)
+        avatarView.layer?.backgroundColor = baseFill.cgColor
+
+        // Selection is a ring, not a second box behind the avatar: one shape
+        // stays the row's identity in both states.
+        if isSelected || isMultiSelected {
+            let ringColor = sidebarSelectedRowBackgroundNSColor(
+                for: scheme,
+                sidebarSelectionColorHex: selectionColorHex
+            )
+            avatarView.layer?.borderWidth = Self.selectionRingWidth
+            avatarView.layer?.borderColor = ringColor
+                .withAlphaComponent(isSelected ? 1 : 0.55)
+                .cgColor
+        } else {
+            avatarView.layer?.borderWidth = 0
+            avatarView.layer?.borderColor = nil
+        }
 
         if let symbolName, let image = NSImage(
             systemSymbolName: symbolName,
@@ -159,12 +155,22 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
             letterField.isHidden = true
         } else {
             letterField.stringValue = letter ?? ""
-            letterField.font = .systemFont(ofSize: 12.5, weight: .semibold)
-            letterField.textColor = tint == nil ? .labelColor : .labelColor
+            letterField.font = Self.monogramFont
+            letterField.textColor = .labelColor
             letterField.isHidden = false
             symbolView.isHidden = true
         }
     }
+
+    /// Rounded-design monogram so the letter reads as an identity mark, not
+    /// stray list text.
+    private static let monogramFont: NSFont = {
+        let base = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded),
+              let rounded = NSFont(descriptor: descriptor, size: 12.5)
+        else { return base }
+        return rounded
+    }()
 
     private func applyUnread(count: Int) {
         unreadDot.isHidden = count <= 0
@@ -187,23 +193,17 @@ final class SidebarWorkspaceIconTableCellView: NSTableCellView {
         super.layout()
         let midX = bounds.midX
         let midY = bounds.midY
-        selectionBackground.frame = NSRect(
-            x: midX - Self.selectionSide / 2,
-            y: midY - Self.selectionSide / 2,
-            width: Self.selectionSide,
-            height: Self.selectionSide
-        )
-        avatarBackground.frame = NSRect(
+        avatarView.frame = NSRect(
             x: midX - Self.avatarSide / 2,
             y: midY - Self.avatarSide / 2,
             width: Self.avatarSide,
             height: Self.avatarSide
         )
-        letterField.frame = avatarBackground.bounds.insetBy(dx: 0, dy: 4)
-        symbolView.frame = avatarBackground.bounds
+        letterField.frame = avatarView.bounds.insetBy(dx: 0, dy: 5)
+        symbolView.frame = avatarView.bounds
         unreadDot.frame = NSRect(
-            x: avatarBackground.frame.maxX - 5,
-            y: avatarBackground.frame.maxY - 5,
+            x: avatarView.frame.maxX - 4,
+            y: avatarView.frame.maxY - 4,
             width: 8,
             height: 8
         )
