@@ -891,13 +891,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard let surfaceView else { return }
             if isActive {
                 guard surfaceView.window != nil else { return }
+                // A blocked consumer is an explicit recovery state. A
+                // presentation update must not silently clear its bounded
+                // retry budget; only a real window remount or Retry owns that
+                // reset. Keep the pending alert alive across backgrounding.
+                guard !outputConsumerRestartBlocked,
+                      !outputConsumerRecoveryAlertPending else {
+                    attemptPendingOutputConsumerRecoveryPresentation()
+                    return
+                }
                 startMountedTasks(
                     surfaceView: surfaceView,
                     resetRestartFailure: true
                 )
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
-                outputConsumerRecoveryAlertPending = false
+                outputConsumerRecoveryAlertPending = outputConsumerRestartBlocked
                 stopMountedTasks()
             }
         }
