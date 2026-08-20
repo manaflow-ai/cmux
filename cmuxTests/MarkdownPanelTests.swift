@@ -11,12 +11,28 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
-    private static func drainDeferredSchedulerTurn() async {
-        // MainActorDeferredActionScheduler enqueues a zero-delay MainActor
-        // task. Yield on that same executor so assertions observe the queued
-        // action, rather than relying on RunLoop ordering.
-        await Task.yield()
-        await Task.yield()
+    @MainActor
+    private final class RenderingActionRecorder {
+        typealias Action = MarkdownWebRenderingCoordinator.Action
+
+        let stream: AsyncStream<Action>
+        private let continuation: AsyncStream<Action>.Continuation
+        private(set) var actions: [Action] = []
+
+        init() {
+            let events = AsyncStream<Action>.makeStream()
+            stream = events.stream
+            continuation = events.continuation
+        }
+
+        func record(_ action: Action) {
+            actions.append(action)
+            continuation.yield(action)
+        }
+
+        func reset() {
+            actions.removeAll()
+        }
     }
 
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
@@ -428,91 +444,94 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
         var isActuallyVisible = true
-        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
         var reentryCount = 0
         let coordinator = MarkdownWebRenderingCoordinator(
             initialBoundsSize: CGSize(width: 640, height: 360),
             isActuallyVisible: { isActuallyVisible },
-            applyAction: { action in actions.append(action) },
+            applyAction: recorder.record,
             onReenterWindow: { reentryCount += 1 }
         )
 
         // Establish the attached state, then model Bonsplit's remove/add
         // transition before the deferred action gets a chance to run.
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainDeferredSchedulerTurn()
-        actions.removeAll()
+        _ = await events.next()
+        recorder.reset()
         isActuallyVisible = false
         coordinator.viewDidMoveToWindow(isAttached: false)
         isActuallyVisible = true
         coordinator.viewDidMoveToWindow(isAttached: true)
 
         XCTAssertTrue(
-            actions.isEmpty,
+            recorder.actions.isEmpty,
             "A markdown viewer re-entry must not flush WebKit while the host layout callback is active"
         )
 
         // The repair still has to happen once the originating callback has
         // returned. A MainActor yield is the production scheduling boundary;
         // no wall-clock delay is needed.
-        await Self.drainDeferredSchedulerTurn()
-        XCTAssertEqual(actions.count, 1)
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
         XCTAssertEqual(
-            actions.first,
+            recorder.actions.first,
             .refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
         )
         XCTAssertEqual(reentryCount, 2, "The initial attach and reattach each complete once")
     }
 
     func testMarkdownWebViewResizeRefreshCoalescesOutsideLayoutCallback() async {
-        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
         let coordinator = MarkdownWebRenderingCoordinator(
             initialBoundsSize: CGSize(width: 640, height: 360),
             isActuallyVisible: { true },
-            applyAction: { action in actions.append(action) }
+            applyAction: recorder.record
         )
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainDeferredSchedulerTurn()
-        actions.removeAll()
+        _ = await events.next()
+        recorder.reset()
         // Both changes are smaller than the old half-point tolerance. Each is
         // still real divider geometry and must leave a deferred repair queued.
         coordinator.layoutDidChange(to: CGSize(width: 639.75, height: 359.75))
         coordinator.layoutDidChange(to: CGSize(width: 639.5, height: 359.5))
 
         XCTAssertTrue(
-            actions.isEmpty,
+            recorder.actions.isEmpty,
             "A markdown resize must not flush WebKit synchronously from AppKit layout"
         )
 
-        await Self.drainDeferredSchedulerTurn()
-        XCTAssertEqual(actions.count, 1)
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
         XCTAssertEqual(
-            actions.first,
+            recorder.actions.first,
             .refresh(reason: "boundsChanged", forceLifecycleRefresh: false),
             "Repeated geometry callbacks should coalesce into one deferred repaint"
         )
     }
 
     func testMarkdownWebViewVisibilityRevealRepairsAfterHiddenTabLifecycle() async {
-        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
         let coordinator = MarkdownWebRenderingCoordinator(
             initialBoundsSize: CGSize(width: 640, height: 360),
             isActuallyVisible: { true },
-            applyAction: { action in actions.append(action) }
+            applyAction: recorder.record
         )
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainDeferredSchedulerTurn()
-        actions.removeAll()
+        _ = await events.next()
+        recorder.reset()
         coordinator.setVisibleInUI(false)
-        await Self.drainDeferredSchedulerTurn()
-        XCTAssertEqual(actions, [.hide(reason: "visibility.hidden")])
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions, [.hide(reason: "visibility.hidden")])
 
-        actions.removeAll()
+        recorder.reset()
         coordinator.setVisibleInUI(true)
-        XCTAssertTrue(actions.isEmpty, "A visibility reveal must cross the deferred boundary")
-        await Self.drainDeferredSchedulerTurn()
+        XCTAssertTrue(recorder.actions.isEmpty, "A visibility reveal must cross the deferred boundary")
+        _ = await events.next()
         XCTAssertEqual(
-            actions,
+            recorder.actions,
             [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)],
             "A revealed markdown tab must receive a repaint pass"
         )
@@ -520,25 +539,28 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRenderingCoordinatorRetriesWhenVisibilitySettles() async {
         var isActuallyVisible = false
-        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
         let coordinator = MarkdownWebRenderingCoordinator(
             initialBoundsSize: CGSize(width: 640, height: 360),
             isActuallyVisible: { isActuallyVisible },
-            applyAction: { action in actions.append(action) }
+            applyAction: recorder.record
         )
 
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainDeferredSchedulerTurn()
-        XCTAssertTrue(actions.isEmpty, "A hidden ancestor must defer the first paint")
+        // Let the scheduled attempt run; it must stop at the visibility gate.
+        await Task.yield()
+        await Task.yield()
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden ancestor must defer the first paint")
 
         // SwiftUI can call updateNSView with the same visible value after the
         // ancestor becomes visible. That callback must retry pending work.
         isActuallyVisible = true
         coordinator.setVisibleInUI(true)
-        XCTAssertTrue(actions.isEmpty, "The visibility retry remains deferred")
-        await Self.drainDeferredSchedulerTurn()
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
         XCTAssertEqual(
-            actions,
+            recorder.actions,
             [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)]
         )
     }
