@@ -25,9 +25,14 @@ export function retagWebglDisplayP3(
 ): "display-p3" | "srgb" | null {
   const canvas = getCanvas(host);
   if (canvas === null) return null;
-  let gl: (WebGL2RenderingContext & { drawingBufferColorSpace?: string }) | null = null;
+  // Named type instead of `as typeof gl`: a typeof query in the cast
+  // resolves against the control-flow-narrowed type of `gl` (which is
+  // `null` right after its initializer), typing the variable as `null`
+  // and everything after the guard as `never`.
+  type RetaggableContext = WebGL2RenderingContext & { drawingBufferColorSpace?: string };
+  let gl: RetaggableContext | null = null;
   try {
-    gl = canvas.getContext("webgl2") as typeof gl;
+    gl = canvas.getContext("webgl2") as RetaggableContext | null;
   } catch {
     return null;
   }
