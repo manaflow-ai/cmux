@@ -362,22 +362,20 @@ struct TerminalComposerView: View {
                 // rendered through the same support component as GUI chat. `.bottom`
                 // alignment pins the button to the field's last line as it grows.
                 MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
-                    TextField(
-                        L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
+                    TerminalComposerPromptEditor(
                         text: $store.terminalInputText,
-                        axis: .vertical
+                        isFocused: $isFieldFocused,
+                        isDisabled: dictation.locksComposerField,
+                        pasteAttachment: pasteAttachment
                     )
                     // Opens at a single line and grows up to 14 lines so a long message has
                     // room. Each added line grows this view, which the host reserves above the
                     // always-visible toolbar; the toolbar and keyboard never move.
-                    .lineLimit(composerLineLimit)
+                    .frame(minHeight: composerFieldMinHeight, maxHeight: 40 * 14)
                     // Natural-language to an agent, so normal iOS text assistance
                     // is on (autocorrect, sentence-case, spell check). The raw
                     // terminal input field keeps these OFF; only the composer
                     // enables them.
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled(false)
-                    .focused($isFieldFocused)
                     .simultaneousGesture(
                         TapGesture().onEnded {
                             guard !dictation.locksComposerField else { return }
@@ -478,30 +476,22 @@ struct TerminalComposerView: View {
         }
     }
 
-    private func pasteAttachment() {
-        let pasteboard = UIPasteboard.general
-        if let data = pasteboardImageData(pasteboard) {
+    @discardableResult
+    private func pasteAttachment() -> Bool {
+        switch MobilePasteboardReader.payload() {
+        case .image(let data):
             stagePastedImage(data)
-            return
-        }
-        let fileURLs = (pasteboard.urls ?? []).filter(\.isFileURL)
-        if !fileURLs.isEmpty {
+            return true
+        case .files(let fileURLs):
             stageFiles(fileURLs)
-            return
-        }
-        if let string = pasteboard.string, !string.isEmpty {
+            return true
+        case .text(let string):
             store.terminalInputText += string
             isFieldFocused = true
+            return false
+        case nil:
+            return false
         }
-    }
-
-    private func pasteboardImageData(_ pasteboard: UIPasteboard) -> Data? {
-        for type in [UTType.png.identifier, UTType.jpeg.identifier, UTType.heic.identifier] {
-            if let data = pasteboard.data(forPasteboardType: type) {
-                return data
-            }
-        }
-        return pasteboard.image?.pngData()
     }
 
     private func stagePastedImage(_ data: Data) {

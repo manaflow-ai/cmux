@@ -170,24 +170,16 @@ extension TaskComposerSheet {
             attachmentAlertMessage = Self.attachmentCountFailureMessage
             return true
         }
-        let pasteboard = UIPasteboard.general
-        if let data = pasteboardImageData(pasteboard) {
+        switch MobilePasteboardReader.payload() {
+        case .image(let data):
             stagePastedImageData(data)
             return true
+        case .files(let fileURLs):
+            stageSelectedFiles(.success(fileURLs))
+            return true
+        case .text, nil:
+            return false
         }
-        let fileURLs = (pasteboard.urls ?? []).filter(\.isFileURL)
-        guard !fileURLs.isEmpty else { return false }
-        stageSelectedFiles(.success(fileURLs))
-        return true
-    }
-
-    private func pasteboardImageData(_ pasteboard: UIPasteboard) -> Data? {
-        for type in [UTType.png.identifier, UTType.jpeg.identifier, UTType.heic.identifier] {
-            if let data = pasteboard.data(forPasteboardType: type) {
-                return data
-            }
-        }
-        return pasteboard.image?.pngData()
     }
 
     private func stagePastedImageData(_ data: Data) {
