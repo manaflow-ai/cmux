@@ -606,12 +606,12 @@ struct SidebarAppKitRowCellTests {
         Self.layoutCell(cell, model: model)
         let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
 
-        let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+        let selectionBackground = sidebarSelectedRowBackgroundNSColor(
             for: .dark,
             sidebarSelectionColorHex: settings.selectionColorHex
         )
         let expected = try #require(
-            sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+            sidebarSelectedRowForegroundNSColor(on: selectionBackground, opacity: 1.0)
                 .usingColorSpace(.sRGB)
         )
         let rendered = try #require(
@@ -1359,12 +1359,12 @@ struct SidebarAppKitRowCellTests {
             attributed.attribute(.foregroundColor, at: linkLocation, effectiveRange: nil) as? NSColor
         )
         if isActive {
-            let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            let selectionBackground = sidebarSelectedRowBackgroundNSColor(
                 for: .dark,
                 sidebarSelectionColorHex: model.settings.selectionColorHex
             )
             let expected = try #require(
-                sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+                sidebarSelectedRowForegroundNSColor(on: selectionBackground, opacity: 1.0)
                     .usingColorSpace(.sRGB)
             )
             let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))

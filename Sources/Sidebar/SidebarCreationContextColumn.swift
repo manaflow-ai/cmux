@@ -14,7 +14,7 @@ struct SidebarCreationContextColumn: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
     @StateObject private var rowSettingsStore = SidebarListRowSettingsStore(
-        initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
+        initialSidebarFontSize: GhosttyConfig.loadForCmux().sidebarFontSize
     )
     @State private var observationRevision: UInt64 = 0
     @State private var isAddingSSHMachine = false
