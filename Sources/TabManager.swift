@@ -198,6 +198,12 @@ class TabManager: ObservableObject {
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
+    /// Live window-scope Dock stores registered with this manager (weak
+    /// registry: deallocated stores are skipped automatically).
+    var liveWindowDockStores: [DockSplitStore] {
+        (windowDockTitleRoutingStores.objectEnumerator()?.allObjects as? [DockSplitStore]) ?? []
+    }
+
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }

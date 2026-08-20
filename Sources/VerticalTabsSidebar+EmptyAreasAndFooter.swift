@@ -461,27 +461,32 @@ struct SidebarMobileConnectButton: View {
     }
 
     var body: some View {
-        Button {
-            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
-                tabManager: tabManager,
-                debugSource: "sidebar.mobileConnect"
-            )
-        } label: {
-            CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                .foregroundStyle(.secondary)
-                .frame(
-                    width: SidebarFooterButtonMetrics.buttonSize,
-                    height: SidebarFooterButtonMetrics.buttonSize
+        // Hidden under a managed remote-control disable: pairing cannot open
+        // (chokepoint in performMobileConnectWorkspaceAction), so showing the
+        // button would be a dead affordance.
+        if MobileRemoteControlPolicy.isEnabled {
+            Button {
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.mobileConnect"
                 )
+            } label: {
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
+                    .foregroundStyle(.secondary)
+                    .frame(
+                        width: SidebarFooterButtonMetrics.buttonSize,
+                        height: SidebarFooterButtonMetrics.buttonSize
+                    )
+            }
+            .buttonStyle(SidebarFooterIconButtonStyle())
+            .frame(
+                width: SidebarFooterButtonMetrics.buttonSize,
+                height: SidebarFooterButtonMetrics.buttonSize
+            )
+            .safeHelp(title)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("SidebarMobileConnectButton")
         }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(
-            width: SidebarFooterButtonMetrics.buttonSize,
-            height: SidebarFooterButtonMetrics.buttonSize
-        )
-        .safeHelp(title)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("SidebarMobileConnectButton")
     }
 }
 

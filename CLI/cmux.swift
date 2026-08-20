@@ -3365,6 +3365,52 @@ struct CMUXCLI {
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    /// The shared MDM resolver, bound to the target `domain`'s suite with the
+    /// channel → release-domain fallback keyed off that domain.
+    private static func managedDevicePolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> ManagedDevicePolicy {
+        ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: ManagedDevicePolicy.defaultReleaseDomainDefaults(
+                bundleIdentifier: domain
+            )
+        )
+    }
+
+    /// Whether MDM locks browser availability for `domain`: the dedicated
+    /// policy key is enforced (forced `true`, `ManagedDevicePolicy.isEnforced`
+    /// semantics — a key forced `false` or non-Boolean does not lock the user
+    /// toggle, whose writes go to a different key), or an administrator forces
+    /// the user-level key directly, in which case a write would fight the
+    /// forced value.
+    private static func browserAvailabilityManagedByProfile(
+        defaults: UserDefaults,
+        domain: String
+    ) -> Bool {
+        let policy = managedDevicePolicy(defaults: defaults, domain: domain)
+        if policy.isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: browserDisabledDefaultsKey
+        ) {
+            return true
+        }
+        // A user key forced to any value (even false) still refuses writes:
+        // they could never change the effective value.
+        return policy.isKeyForcedInAppDomain(browserDisabledDefaultsKey)
+    }
+
+    /// Whether the browser is disabled by management for `domain` (the policy
+    /// key enforced, or the user key forced to true).
+    private static func browserDisabledByManagedPolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> Bool {
+        managedDevicePolicy(defaults: defaults, domain: domain)
+            .isBrowserDisableLocked(
+                browserDisabledUserDefaultsKey: browserDisabledDefaultsKey
+            )
+    }
 
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
@@ -3467,12 +3513,22 @@ struct CMUXCLI {
 
         let domain = Self.browserSettingsDomain(environment: environment)
         let defaults = UserDefaults(suiteName: domain) ?? .standard
+        let managedByProfile = Self.browserAvailabilityManagedByProfile(
+            defaults: defaults,
+            domain: domain
+        )
 
         switch action {
         case "disable", "disable-browser":
+            guard !managedByProfile else {
+                throw CLIError(message: "Browser availability is managed by your organization (MDM policy for domain \(domain)); it cannot be changed from the CLI.")
+            }
             defaults.set(true, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "enable", "enable-browser":
+            guard !managedByProfile else {
+                throw CLIError(message: "Browser availability is managed by your organization (MDM policy for domain \(domain)); it cannot be changed from the CLI.")
+            }
             defaults.set(false, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "status", "browser-status":
@@ -3481,12 +3537,17 @@ struct CMUXCLI {
             throw CLIError(message: "Unknown browser availability command: \(action)")
         }
 
-        let disabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
+        let storedDisabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
             ? false
             : defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+        let disabled = storedDisabled || Self.browserDisabledByManagedPolicy(
+            defaults: defaults,
+            domain: domain
+        )
         let payload: [String: Any] = [
             "enabled": !disabled,
             "disabled": disabled,
+            "managed": managedByProfile,
             "domain": domain,
             "key": Self.browserDisabledDefaultsKey
         ]
