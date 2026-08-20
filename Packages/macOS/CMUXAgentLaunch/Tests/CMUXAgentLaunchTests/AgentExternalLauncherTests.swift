@@ -99,6 +99,34 @@ import Testing
         #expect(try #require(merged.launchers.first).resumeArgvPrefix == ["teamclaude", "run", "--"])
     }
 
+    /// A project file that overrides a user-level launcher and gets a field wrong must not fall back
+    /// to the prefix it meant to replace — the override wins the id, then fails closed.
+    @Test func abrokenProjectOverrideDoesNotRestoreTheUserLevelPrefix() {
+        let userLevel = AgentExternalLauncher(
+            id: "teamclaude",
+            kinds: ["claude"],
+            argvExecutables: ["teamclaude"],
+            resumeArgvPrefix: ["teamclaude", "run", "--"]
+        )
+        let brokenProjectOverride = AgentExternalLauncher(
+            id: "teamclaude",
+            kinds: ["claude"],
+            argvExecutables: [],
+            resumeArgvPrefix: ["teamclaude", "run", "--auto-fallback", "--"]
+        )
+
+        let merged = registry(userLevel, brokenProjectOverride)
+
+        #expect(merged.launchers.isEmpty)
+        #expect(
+            merged.applyingResumePrefix(
+                to: ["/shim/claude", "--resume", sessionID],
+                launcherID: "teamclaude",
+                kind: "claude"
+            ) == ["/shim/claude", "--resume", sessionID]
+        )
+    }
+
     @Test func detectionWalksAncestorsNearestFirst() throws {
         let outer = AgentExternalLauncher(
             id: "outer",

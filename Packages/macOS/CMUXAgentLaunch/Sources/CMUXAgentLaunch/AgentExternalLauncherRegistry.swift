@@ -14,14 +14,19 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
     /// A registry with no declarations. Restores behave exactly as they did before the feature.
     public static let empty = AgentExternalLauncherRegistry(launchers: [])
 
-    /// Creates a registry, dropping unusable declarations and de-duplicating by id.
+    /// Creates a registry, de-duplicating by id and then dropping unusable declarations.
     ///
-    /// - Parameter launchers: Declarations in reading order; a later entry replaces an earlier entry
-    ///   with the same id.
+    /// Order matters: a later declaration replaces an earlier one with the same id *before*
+    /// usability is judged. A project file that overrides a user-level launcher and gets one field
+    /// wrong therefore leaves nothing behind, matching the documented behavior — an unusable
+    /// declaration resumes the session without a wrapper. Filtering first would silently fall back
+    /// to the user-level prefix the project meant to replace.
+    ///
+    /// - Parameter launchers: Declarations in reading order.
     public init(launchers: [AgentExternalLauncher]) {
         var ordered: [AgentExternalLauncher] = []
         var indexesByID: [String: Int] = [:]
-        for launcher in launchers where launcher.isUsable {
+        for launcher in launchers where !launcher.id.isEmpty {
             if let index = indexesByID[launcher.id] {
                 ordered[index] = launcher
             } else {
@@ -29,7 +34,7 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
                 ordered.append(launcher)
             }
         }
-        self.launchers = ordered
+        self.launchers = ordered.filter { $0.isUsable }
     }
 
     /// Decodes `agents.launchers` from already comment-stripped `cmux.json` bytes.
