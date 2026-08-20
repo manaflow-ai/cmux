@@ -3746,31 +3746,40 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     return
                 }
                 // Register the exported grid on MainActor before submitting
-                // the token. The Ghostty callback may be synchronous, so the
-                // observation task must already be queued when it arrives.
+                // the token. The Ghostty callback may be synchronous, so do
+                // not submit until the observation task has installed the
+                // readback on the exact pending fence. Otherwise a callback
+                // can win the race and release a token whose verification has
+                // not been registered yet.
                 let observed = read.exportGridSynchronously()
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.acceptVerifiedReplayObservedFrame(
+                    guard self.acceptVerifiedReplayObservedFrame(
                         observed,
                         submission: VerifiedReplayRenderSubmission(
                             surface: submission.surface,
                             token: submission.token
                         ),
                         generation: submission.generation
-                    )
-                    // A failed read-back never submits a tokened render, so
-                    // Ghostty cannot deliver the callback that normally
-                    // releases the presentation gate.
-                    if observed == nil {
+                    ) else {
                         self.cancelRenderSubmission(token: submission.token)
+                        return
+                    }
+                    // The read-back is now installed on the pending fence.
+                    // Keep the gate occupied until Ghostty presents this
+                    // exact token and the callback verifies its layer.
+                    guard self.renderSubmission?.token == submission.token,
+                          self.surface == submission.surface,
+                          self.surfaceGeneration == submission.generation,
+                          !self.isDismantled else { return }
+                    self.outputQueue.async { [weak self] in
+                        guard self != nil else { return }
+                        ghostty_surface_render_now_with_token(
+                            submission.surface,
+                            submission.token
+                        )
                     }
                 }
-                guard observed != nil else { return }
-                ghostty_surface_render_now_with_token(
-                    submission.surface,
-                    submission.token
-                )
             }
         }
         return true

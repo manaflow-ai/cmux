@@ -134,11 +134,12 @@ extension GhosttySurfaceView {
     /// been serialized on the surface gate. The submission driver lives in
     /// `GhosttySurfaceView.swift`, so this entry point is module-visible while
     /// the fence-building helpers above remain private to this file.
+    @discardableResult
     func acceptVerifiedReplayObservedFrame(
         _ observed: MobileTerminalRenderGridFrame?,
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
-    ) {
+    ) -> Bool {
         guard surface == submission.surface,
               surfaceGeneration == generation,
               var pending = pendingVerifiedReplayPresentation,
@@ -148,7 +149,7 @@ extension GhosttySurfaceView {
                 id: submission.token,
                 returning: nil
             )
-            return
+            return false
         }
         pending.observedFrame = normalizedVerifiedReplayObservedFrameForSubmission(
             observed,
@@ -157,6 +158,7 @@ extension GhosttySurfaceView {
         pending.fence.markObservedFrameReady()
         pendingVerifiedReplayPresentation = pending
         completePendingVerifiedReplayPresentationIfPresented()
+        return true
     }
 }
 
