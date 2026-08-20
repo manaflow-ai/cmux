@@ -10,7 +10,11 @@ struct BrowserDownloadURLNormalizer {
         guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
+        // Query items are page-controlled and may repeat or differ only by case.
+        let map = Dictionary(
+            queryItems.map { ($0.name.lowercased(), $0.value ?? "") },
+            uniquingKeysWith: { first, _ in first }
+        )
         let candidates = ["imgurl", "mediaurl", "url", "q"]
         for key in candidates {
             guard let raw = map[key], !raw.isEmpty,
