@@ -518,6 +518,9 @@ extension MobileHostPeerRuntime {
             var plan = initialPlan
             var backoff = PeerReconnectBackoff(profile: .host)
             let clock = ContinuousClock()
+            if plan != nil {
+                await self?.publishRelayPathHints(for: runtime)
+            }
             while !Task.isCancelled {
                 guard let self, self.active === runtime,
                       revision == self.lifecycleRevision else { return }
@@ -622,6 +625,7 @@ extension MobileHostPeerRuntime {
                     backoff.reset()
                     self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                     self.publishIrohSettingsUpdate()
+                    await self.publishRelayPathHints(for: runtime)
                 } catch {
                     self.noteBrokerRateLimit(error, accountID: runtime.accountID)
                     #if DEBUG
@@ -652,5 +656,85 @@ extension MobileHostPeerRuntime {
                 }
             }
         }
+    }
+
+    /// Publishes the endpoint's relay path hints through a registration
+    /// refresh so dialers can route to this host: upstream `EndpointAddr`
+    /// carries a single relay URL, and a binding starts hint-less because
+    /// relay credentials are minted only after the first registration.
+    /// Broker hints expire within the hour, so every successful credential
+    /// refresh republishes them; a failed publication waits for the next
+    /// refresh cycle rather than tearing anything down.
+    func publishRelayPathHints(for runtime: MobileHostPeerActiveRuntime) async {
+        guard active === runtime, !runtime.appliedRelayConfigs.isEmpty else { return }
+        // Hint order matters (dialers use the first hint), so wait — bounded —
+        // for the home relay connection and lead with it. Hints publish the
+        // applied config URL form, not iroh's home-relay string: the broker
+        // drops hint values that do not exactly match the managed relay set.
+        try? await MobileHostPeerRelayApplier(manager: endpointManager)
+            .homeRelayHealthy()
+        let homeURLs = await endpointManager.homeRelayStatus().connectedRelayURLs
+            .map(Self.looseRelayURLKey)
+        let appliedURLs = runtime.appliedRelayConfigs.map(\.url)
+        let relayURLs = appliedURLs.filter { homeURLs.contains(Self.looseRelayURLKey($0)) }
+            + appliedURLs.filter { !homeURLs.contains(Self.looseRelayURLKey($0)) }
+        let now = Date()
+        let hints = relayURLs.prefix(2).compactMap { url in
+            try? CmxIrohPathHint(
+                kind: .relayURL,
+                value: url,
+                source: .native,
+                privacyScope: .publicInternet,
+                observedAt: now,
+                expiresAt: now.addingTimeInterval(55 * 60)
+            )
+        }
+        guard !hints.isEmpty, active === runtime else { return }
+        do {
+            let signer = try PeerRegistrationSigner(
+                identity: runtime.identity,
+                endpointID: runtime.identity.endpointID.endpointID
+            )
+            let payload = try PeerRegistrationPayload(
+                deviceID: cmxCanonicalDeviceID(MobileHostIdentity.deviceID()),
+                appInstanceID: appInstances.appInstanceID(
+                    accountID: runtime.accountID,
+                    tag: runtime.tag
+                ),
+                clientNamespace: runtime.clientNamespace,
+                tag: runtime.tag,
+                platform: .mac,
+                displayName: MobileHostIdentity.instanceDisplayName(),
+                endpointID: runtime.identity.endpointID.endpointID,
+                identityGeneration: runtime.identity.generation,
+                pairingEnabled: true,
+                capabilities: Self.capabilities,
+                pathHints: hints
+            )
+            let prepared = try signer.prepare(payload: payload)
+            let registration = try await runtime.broker.register(
+                prepared: prepared,
+                signer: signer
+            )
+            guard active === runtime else { return }
+            stageRoute(registration.binding, revision: runtime.revision)
+            publishRouteIfActive(revision: runtime.revision)
+        } catch {
+            #if DEBUG
+            mobileHostRelayLog.error(
+                "relay path hint publication failed: \(String(describing: error), privacy: .public)"
+            )
+            #endif
+        }
+    }
+
+    /// Equality key for matching iroh's home-relay URL string against the
+    /// canonical managed relay origin (case and trailing-slash insensitive).
+    private static func looseRelayURLKey(_ value: String) -> String {
+        var key = value.lowercased()
+        while key.hasSuffix("/") {
+            key.removeLast()
+        }
+        return key
     }
 }
