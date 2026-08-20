@@ -182,6 +182,24 @@ Environment:
 
 ## Command Families
 
+Sessions output:
+
+`cmux sessions [list]` reads saved hook state from disk and never connects to a
+cmux socket. By default the listing includes records that are active for a
+workspace or surface, restorable, launch-backed, or transcript-backed. Passing
+`--all`, or any record filter (`--session`, `--workspace`, `--surface`,
+`--cwd`), includes every record that matches the filters. `--json` prints one
+object with:
+
+| Field | Contract |
+| --- | --- |
+| `state_dir` | Hook state directory the session stores were read from. |
+| `default_codex_home` | Codex home used for transcript checks. |
+| `total_matches` | Number of matching records, counted before `--limit` is applied. |
+| `limit` | Applied result limit, or `null` when `--all` removes it. |
+| `stores` | Per-agent hook store files that were read: `agent`, `path`, `exists`, `session_count`. |
+| `sessions` | The limited result set of session records. |
+
 Auth subcommands:
 
 | Command | Contract |
