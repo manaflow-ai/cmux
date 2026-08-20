@@ -12635,11 +12635,29 @@ impl App {
     /// client mirrors the inner terminal's mouse-tracking state instead, so
     /// the host terminal keeps native click and selection handling whenever
     /// the inner application did not request mouse input.
+    ///
+    /// The state is read from the scoped surface's terminal itself (the
+    /// mirror a daemon replay restores and live output keeps current), never
+    /// from the rendered-frame projection: `draw_content` removes a
+    /// surface's rendered semantics at the start of every draw and restores
+    /// them only after a successful render, so a frame whose pane render
+    /// failed or was skipped (renderer error while daemon output is applied,
+    /// zero-sized pane during layout churn) must not release capture the
+    /// inner application still holds. When the state is momentarily
+    /// unknowable (terminal lock contended, surface gone during teardown)
+    /// the client keeps the capture it last applied instead of toggling the
+    /// host.
     fn desired_host_mouse_capture(&self) -> bool {
-        let Some(surface) = self.surface_only else { return true };
-        self.rendered_terminal_pointer_semantics
-            .get(&surface)
-            .is_some_and(|semantics| semantics.mouse_tracking)
+        let Some(surface_id) = self.surface_only else { return true };
+        let canonical = self
+            .session
+            .surface(surface_id)
+            .and_then(|surface| surface.try_pointer_semantics())
+            .and_then(|probe| match probe {
+                PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
+                PointerSemanticProbe::Contended => None,
+            });
+        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -28950,17 +28968,9 @@ mod tests {
             "scoped attach must not capture before the inner terminal requests mouse"
         );
 
-        let semantics = |mouse_tracking| ghostty_vt::TerminalPointerSemanticSnapshot {
-            terminal_instance_id: 1,
-            mouse_mode_revision: 1,
-            mouse_tracking,
-            active_screen: Screen::Primary,
-            cols: 20,
-            rows: 8,
-        };
-        app.rendered_terminal_pointer_semantics.insert(surface.id, semantics(true));
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h"));
         assert!(app.desired_host_mouse_capture(), "scoped attach mirrors inner mouse tracking on");
-        app.rendered_terminal_pointer_semantics.insert(surface.id, semantics(false));
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l"));
         assert!(
             !app.desired_host_mouse_capture(),
             "scoped attach mirrors inner mouse tracking off"
