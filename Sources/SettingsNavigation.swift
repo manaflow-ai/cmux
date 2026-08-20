@@ -611,6 +611,8 @@ enum SettingsSearchIndex {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
+        "browser.siteSearch": settingID(for: .browser, idSuffix: "site-search"),
+        "browser.siteSearchKeyboardShortcut": settingID(for: .browser, idSuffix: "site-search"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
     ].merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
 

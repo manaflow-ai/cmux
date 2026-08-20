@@ -521,6 +521,8 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "browser.siteSearch",
+        "browser.siteSearchKeyboardShortcut",
         "mobile.artifactFolderAccess",
         "markdown.fontSize",
         "markdown.fontFamily",

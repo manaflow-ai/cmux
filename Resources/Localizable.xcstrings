@@ -1,6 +1,139 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sidebar.ghpr.refresh.incompatibleResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PRDashboard returned an incompatible response." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PRDashboard が互換性のない応答を返しました。" } }
+      }
+    },
+    "sidebar.ghpr.refresh.requestFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t refresh PRDashboard pull request status." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PRDashboard のプルリクエスト状態を更新できませんでした。" } }
+      }
+    },
+    "sidebar.ghpr.refresh.socketUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PRDashboard is not running. Start it, then refresh pull request status." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PRDashboard が実行されていません。起動してからプルリクエストの状態を更新してください。" } }
+      }
+    },
+    "sidebar.workspaceTab.refreshStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh pull request status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プルリクエストの状態を更新" } }
+      }
+    },
+    "sidebar.workspaceTab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "settings.browser.siteSearch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Site Search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザサイト検索" } }
+      }
+    },
+    "settings.browser.siteSearch.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use shortcuts such as pr 1234 to search a configured site." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "pr 1234 のようなショートカットで設定済みサイトを検索します。" } }
+      }
+    },
+    "settings.browser.siteSearch.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名前" } }
+      }
+    },
+    "settings.browser.siteSearch.shortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shortcut" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ショートカット" } }
+      }
+    },
+    "settings.browser.siteSearch.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "URL template" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL テンプレート" } }
+      }
+    },
+    "settings.browser.siteSearch.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効" } }
+      }
+    },
+    "settings.browser.siteSearch.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add shortcut" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ショートカットを追加" } }
+      }
+    },
+    "settings.browser.siteSearch.keyboard.tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tab" } }
+      }
+    },
+    "settings.browser.siteSearch.keyboard.spaceOrTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Space or Tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Space または Tab" } }
+      }
+    },
+    "browser.omnibar.siteSearch.pressTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Press Tab to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tab を押して検索" } }
+      }
+    },
+    "browser.omnibar.siteSearch.pressSpaceOrTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Press Space or Tab to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Space または Tab を押して検索" } }
+      }
+    },
+    "browser.omnibar.siteSearch.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を検索" } }
+      }
+    },
+    "browser.omnibar.siteSearch.chip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を検索" } }
+      }
+    },
+    "browser.omnibar.siteSearch.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を検索" } }
+      }
+    },
     "caffeine.error.missingEnabled": {
       "extractionState": "manual",
       "localizations": {
@@ -121458,6 +121591,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コピーモード切替"
+          }
+        }
+      }
+    },
+    "leader.action.toggleSplitZoom.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Split Zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ズーム切替"
           }
         }
       }

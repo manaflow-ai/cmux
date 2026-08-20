@@ -54,6 +54,7 @@ enum LeaderKeySettings {
         case focusUp
         case setWorkspaceTag
         case toggleCopyMode
+        case toggleSplitZoom
         case selectTab0
         case selectTab1
         case selectTab2
@@ -86,6 +87,7 @@ enum LeaderKeySettings {
             case .focusUp: return "k"
             case .setWorkspaceTag: return ","
             case .toggleCopyMode: return "["
+            case .toggleSplitZoom: return "z"
             case .selectTab0: return "0"
             case .selectTab1: return "1"
             case .selectTab2: return "2"
@@ -127,6 +129,8 @@ enum LeaderKeySettings {
                 return String(localized: "leader.action.setWorkspaceTag.label", defaultValue: "Set Workspace Tag")
             case .toggleCopyMode:
                 return String(localized: "leader.action.toggleCopyMode.label", defaultValue: "Toggle Copy Mode")
+            case .toggleSplitZoom:
+                return String(localized: "leader.action.toggleSplitZoom.label", defaultValue: "Toggle Split Zoom")
             case .selectTab0:
                 return String(localized: "leader.action.selectTab0.label", defaultValue: "Select Tab 10")
             case .selectTab1:
@@ -166,7 +170,7 @@ enum LeaderKeySettings {
     static let configurableActions: [LeaderAction] = [
         .splitRight, .splitDown, .focusNextPane, .closePane,
         .newTab, .nextTab, .previousTab, .focusLeft, .focusRight, .focusDown, .focusUp,
-        .setWorkspaceTag, .toggleCopyMode,
+        .setWorkspaceTag, .toggleCopyMode, .toggleSplitZoom,
     ]
 
     // MARK: - Per-Action Key Accessors

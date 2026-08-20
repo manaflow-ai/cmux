@@ -942,6 +942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var leaderKeyState: LeaderKeyState = .inactive
     private var leaderKeyWorkItem: DispatchWorkItem?
     private weak var leaderKeyOwner: TabManager?
+    private weak var leaderKeyPreferredWindow: NSWindow?
     private var leaderKeyDisableObserver: NSObjectProtocol?
 #if DEBUG
     struct DebugWorkspaceTagPromptResult {
@@ -13473,7 +13474,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // This must run before modal/alert guards so that an already-armed leader
         // session is not blocked by intervening guard code.
         if LeaderKeySettings.isEnabled, leaderKeyState == .waitingForSecondKey {
-            if synchronizeShortcutRoutingContext(event: event) {
+            let owner = leaderKeyOwner
+            let preferredWindow = leaderKeyPreferredWindow
+            let eventWindow = resolvedShortcutEventWindow(event)
+            let belongsToOtherWindow =
+                eventWindow != nil && preferredWindow != nil && eventWindow !== preferredWindow
+            if belongsToOtherWindow {
+                cancelLeaderMode()
+            } else {
                 cancelLeaderMode()
                 let leaderShortcut = KeyboardShortcutSettings.shortcut(for: .leaderKey)
                 // Double-press leader key: send the raw key through to terminal
@@ -13485,14 +13493,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return true
                 }
                 // Try to dispatch the second key
-                if executeLeaderAction(event: event) {
+                if executeLeaderAction(event: event, tabManager: owner, preferredWindow: preferredWindow) {
                     return true
                 }
                 // Unrecognized second key: beep and consume
                 NSSound.beep()
                 return true
-            } else {
-                cancelLeaderMode()
             }
         }
 
@@ -13554,8 +13560,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let leaderShortcut = KeyboardShortcutSettings.shortcut(for: .leaderKey)
                 if matchShortcut(event: event, shortcut: leaderShortcut) {
                     leaderKeyState = .waitingForSecondKey
-                    leaderKeyOwner = tabManager
-                    tabManager?.isLeaderModeActive = true
+                    let context = preferredMainWindowContextForShortcutRouting(event: event)
+                    leaderKeyOwner = context?.tabManager ?? tabManager
+                    leaderKeyPreferredWindow = context?.window ?? resolvedShortcutEventWindow(event)
+                    leaderKeyOwner?.isLeaderModeActive = true
                     startLeaderKeyTimer()
                     return true
                 }
@@ -16636,9 +16644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func startLeaderKeyTimer() {
         cancelLeaderKeyTimer()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.cancelLeaderMode()
-        }
+        let workItem = DispatchWorkItem { [weak self] in self?.cancelLeaderMode() }
         leaderKeyWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + LeaderKeySettings.timeout, execute: workItem)
     }
@@ -16650,18 +16656,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func cancelLeaderMode() {
         leaderKeyState = .inactive
-        // Clear on the originating window's tabManager, not the currently focused one
         leaderKeyOwner?.isLeaderModeActive = false
         leaderKeyOwner = nil
+        leaderKeyPreferredWindow = nil
         cancelLeaderKeyTimer()
+    }
+
+    var isLeaderKeyWaitingForSecondKey: Bool {
+        leaderKeyState == .waitingForSecondKey
     }
 
     private func installLeaderKeyDisableObserver() {
         guard leaderKeyDisableObserver == nil else { return }
         leaderKeyDisableObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             if !LeaderKeySettings.isEnabled, self?.leaderKeyState != .inactive {
                 self?.cancelLeaderMode()
@@ -16669,165 +16677,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Dispatch the second key after leader key activation.
-    /// Returns true if the key was recognized and handled.
-    private func executeLeaderAction(event: NSEvent) -> Bool {
-#if DEBUG
-        cmuxDebugLog("leader.action chars=\(event.charactersIgnoringModifiers ?? "") shifted=\(event.characters ?? "") keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)")
-#endif
-
-        // Table-driven: match configurable keys to actions.
-        // Check both base key (unshifted) and shifted output to support rebound shifted symbols.
+    private func executeLeaderAction(event: NSEvent, tabManager: TabManager?, preferredWindow: NSWindow?) -> Bool {
         for action in LeaderKeySettings.LeaderAction.allCases {
             let configuredKey = LeaderKeySettings.key(for: action)
             if leaderActionMatches(event: event, action: action, configuredKey: configuredKey) {
-                return performLeaderAction(action)
+                return performLeaderAction(action, tabManager: tabManager, preferredWindow: preferredWindow)
             }
         }
         return false
     }
 
-    /// Match a shortcut stroke against an event, handling normal keys.
     func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
         stroke.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
     }
 
-    private func leaderActionMatches(
-        event: NSEvent,
-        action: LeaderKeySettings.LeaderAction,
-        configuredKey: String
-    ) -> Bool {
-        let chars = event.charactersIgnoringModifiers ?? ""
-        let shifted = event.characters ?? ""
-        if chars.lowercased() == configuredKey || shifted == configuredKey {
-            return true
-        }
-
-        // Keep broader leader matching behavior unchanged for all other actions.
-        guard action == .setWorkspaceTag, configuredKey == LeaderKeySettings.LeaderAction.setWorkspaceTag.defaultKey else {
-            return false
-        }
-
+    private func leaderActionMatches(event: NSEvent, action: LeaderKeySettings.LeaderAction, configuredKey: String) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        let applyShiftNormalization = flags.contains(.shift)
-
-        if shortcutCharacterMatches(
-            eventCharacter: chars,
-            shortcutKey: configuredKey,
-            applyShiftSymbolNormalization: applyShiftNormalization,
-            eventKeyCode: event.keyCode
-        ) {
+        let candidates = [
+            event.charactersIgnoringModifiers,
+            event.characters,
+            KeyboardLayout.normalizedCharacters(for: event),
+            shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags),
+        ].compactMap { $0 }
+        if candidates.contains(where: { $0.lowercased() == configuredKey.lowercased() }) {
             return true
         }
-
-        if shortcutCharacterMatches(
-            eventCharacter: shifted,
-            shortcutKey: configuredKey,
-            applyShiftSymbolNormalization: applyShiftNormalization,
-            eventKeyCode: event.keyCode
-        ) {
+        if candidates.contains(where: {
+            shortcutCharacterMatches(
+                eventCharacter: $0,
+                shortcutKey: configuredKey,
+                applyShiftSymbolNormalization: flags.contains(.shift),
+                eventKeyCode: event.keyCode
+            )
+        }) {
             return true
         }
-
-        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
-        if shortcutCharacterMatches(
-            eventCharacter: layoutCharacter,
-            shortcutKey: configuredKey,
-            applyShiftSymbolNormalization: applyShiftNormalization,
-            eventKeyCode: event.keyCode
-        ) {
-            return true
-        }
-
-        if let expectedKeyCode = keyCodeForShortcutKey(configuredKey) {
-            return event.keyCode == expectedKeyCode
-        }
-        return false
+        return keyCodeForShortcutKey(configuredKey).map { event.keyCode == $0 } ?? false
     }
 
-    /// Execute a resolved leader action.
-    private func performLeaderAction(_ action: LeaderKeySettings.LeaderAction) -> Bool {
-        // Actions that don't require a workspace
+    private func performLeaderAction(
+        _ action: LeaderKeySettings.LeaderAction,
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> Bool {
         switch action {
         case .splitRight:
-            _ = performSplitShortcut(direction: .right)
+            _ = performSplitShortcut(direction: .right, preferredWindow: preferredWindow)
             return true
         case .splitDown:
-            _ = performSplitShortcut(direction: .down)
+            _ = performSplitShortcut(direction: .down, preferredWindow: preferredWindow)
             return true
         case .setWorkspaceTag:
-            return beginSetWorkspaceTagFlow()
+            return beginSetWorkspaceTagFlow(tabManager: tabManager)
         default:
             break
         }
-
         guard let tabManager, let ws = tabManager.selectedWorkspace else { return false }
-
         switch action {
-        case .focusNextPane:
-            ws.focusNextPane()
-        case .closePane:
-            if let paneId = ws.bonsplitController.focusedPaneId {
-                ws.bonsplitController.closePane(paneId)
-            }
-        case .newTab:
-            ws.newTerminalSurfaceInFocusedPane()
-        case .nextTab:
-            ws.selectNextSurface()
-        case .previousTab:
-            ws.selectPreviousSurface()
-        case .focusLeft:
-            tabManager.movePaneFocus(direction: .left)
-        case .focusRight:
-            tabManager.movePaneFocus(direction: .right)
-        case .focusDown:
-            tabManager.movePaneFocus(direction: .down)
-        case .focusUp:
-            tabManager.movePaneFocus(direction: .up)
-        case .toggleCopyMode:
-            _ = tabManager.toggleFocusedTerminalCopyMode()
-        case .selectTab0:
-            ws.selectSurface(at: 9)
-        case .selectTab1:
-            ws.selectSurface(at: 0)
-        case .selectTab2:
-            ws.selectSurface(at: 1)
-        case .selectTab3:
-            ws.selectSurface(at: 2)
-        case .selectTab4:
-            ws.selectSurface(at: 3)
-        case .selectTab5:
-            ws.selectSurface(at: 4)
-        case .selectTab6:
-            ws.selectSurface(at: 5)
-        case .selectTab7:
-            ws.selectSurface(at: 6)
-        case .selectTab8:
-            ws.selectSurface(at: 7)
-        case .selectTab9:
-            ws.selectSurface(at: 8)
-        case .splitRight, .splitDown, .setWorkspaceTag:
-            break // Already handled above
+        case .focusNextPane: ws.focusNextPane()
+        case .closePane: if let paneId = ws.bonsplitController.focusedPaneId { ws.bonsplitController.closePane(paneId) }
+        case .newTab: ws.newTerminalSurfaceInFocusedPane()
+        case .nextTab: ws.selectNextSurface()
+        case .previousTab: ws.selectPreviousSurface()
+        case .focusLeft: tabManager.movePaneFocus(direction: .left)
+        case .focusRight: tabManager.movePaneFocus(direction: .right)
+        case .focusDown: tabManager.movePaneFocus(direction: .down)
+        case .focusUp: tabManager.movePaneFocus(direction: .up)
+        case .toggleCopyMode: _ = tabManager.toggleFocusedTerminalCopyMode()
+        case .toggleSplitZoom: tabManager.toggleFocusedSplitZoom()
+        case .selectTab0: ws.selectSurface(at: 9)
+        case .selectTab1: ws.selectSurface(at: 0)
+        case .selectTab2: ws.selectSurface(at: 1)
+        case .selectTab3: ws.selectSurface(at: 2)
+        case .selectTab4: ws.selectSurface(at: 3)
+        case .selectTab5: ws.selectSurface(at: 4)
+        case .selectTab6: ws.selectSurface(at: 5)
+        case .selectTab7: ws.selectSurface(at: 6)
+        case .selectTab8: ws.selectSurface(at: 7)
+        case .selectTab9: ws.selectSurface(at: 8)
+        case .splitRight, .splitDown, .setWorkspaceTag: break
         }
         return true
     }
 
-    private func beginSetWorkspaceTagFlow() -> Bool {
-        guard LeaderKeySettings.workspaceTagsEnabled else {
-            NSSound.beep()
-            return true
-        }
-        guard let tabManager, let workspace = tabManager.selectedWorkspace else {
+    private func beginSetWorkspaceTagFlow(tabManager: TabManager?) -> Bool {
+        guard LeaderKeySettings.workspaceTagsEnabled, let workspace = tabManager?.selectedWorkspace else {
             NSSound.beep()
             return true
         }
 #if DEBUG
         if let debugWorkspaceTagPromptHandler {
             let result = debugWorkspaceTagPromptHandler(workspace)
-            if result.response == .alertFirstButtonReturn {
-                workspace.setTag(result.tag)
-            }
+            if result.response == .alertFirstButtonReturn { workspace.setTag(result.tag) }
             return true
         }
 #endif
@@ -16841,9 +16783,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.window.initialFirstResponder = input
-        if alert.runModal() == .alertFirstButtonReturn {
-            workspace.setTag(input.stringValue)
-        }
+        if alert.runModal() == .alertFirstButtonReturn { workspace.setTag(input.stringValue) }
         return true
     }
 
@@ -18499,7 +18439,7 @@ private extension NSWindow {
             // While leader key mode is active, don't route keystrokes to the terminal.
             // Let them flow through to the local event monitor so executeLeaderAction
             // can dispatch the second key.
-            if AppDelegate.shared?.tabManager?.isLeaderModeActive == true {
+            if AppDelegate.shared?.isLeaderKeyWaitingForSecondKey == true {
 #if DEBUG
                 dlog("  → leader mode active, skipping ghostty direct routing")
 #endif

@@ -12,15 +12,18 @@ final class BrowserHiddenWebViewRetentionCoordinatorTests: XCTestCase {
     private final class Delegate: BrowserHiddenWebViewDiscardManagerDelegate {
         var hiddenAt: Date?
         var instanceID = UUID()
-        var snapshot = BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
-            isClosing: false, isVisibleInUI: false, shouldRenderWebView: true,
-            hasPendingRemoteNavigation: false, hasCurrentURL: true, isLoading: false,
-            webViewIsLoading: false, hasActiveMainFrameProvisionalNavigation: false,
-            isDownloading: false, activeDownloadCount: 0, preferredDeveloperToolsVisible: false,
-            isDeveloperToolsVisible: false, isElementFullscreenActive: false, isReactGrabActive: false,
-            isVisualAutomationCaptureActive: false, isMobileBrowserStreamActive: false,
-            hasPopups: false, isCapturingMedia: false, isPlayingMedia: false
-        )
+        var isVisibleInUI = false
+        var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+            BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+                isClosing: false, isVisibleInUI: isVisibleInUI, shouldRenderWebView: true,
+                hasPendingRemoteNavigation: false, hasCurrentURL: true, isLoading: false,
+                webViewIsLoading: false, hasActiveMainFrameProvisionalNavigation: false,
+                isDownloading: false, activeDownloadCount: 0, preferredDeveloperToolsVisible: false,
+                isDeveloperToolsVisible: false, isElementFullscreenActive: false, isReactGrabActive: false,
+                isVisualAutomationCaptureActive: false, isMobileBrowserStreamActive: false,
+                hasPopups: false, isCapturingMedia: false, isPlayingMedia: false
+            )
+        }
         var discardCount = 0
         var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot { snapshot }
         var hiddenWebViewDiscardHiddenAt: Date? { hiddenAt }
@@ -46,24 +49,26 @@ final class BrowserHiddenWebViewRetentionCoordinatorTests: XCTestCase {
     func test32EligibleHiddenManagersRemainAnd33rdTriggersOldest() {
         let defaults = makeDefaults(), now = Date(timeIntervalSince1970: 100)
         var delegates: [Delegate] = []
+        var managers: [BrowserHiddenWebViewDiscardManager] = []
         for index in 0..<33 {
             let delegate = Delegate()
             let manager = makeManager(defaults: defaults, hiddenAt: now.addingTimeInterval(Double(index)), delegate: delegate)
             manager.scheduleIfNeeded(reason: "hidden", now: now.addingTimeInterval(1000))
-            manager.markDiscarded(reason: "memory", now: now)
+            managers.append(manager)
             delegates.append(delegate)
         }
         XCTAssertEqual(delegates.count, 33)
-        XCTAssertTrue(delegates.allSatisfy { $0.discardCount == 0 })
+        XCTAssertEqual(delegates[0].discardCount, 1)
+        XCTAssertTrue(delegates.dropFirst().allSatisfy { $0.discardCount == 0 })
+        withExtendedLifetime(managers) {}
     }
-
     func testBlockersVisibleAndAlreadyDiscardedManagersAreExcluded() {
         let defaults = makeDefaults(), delegate = Delegate()
-        delegate.snapshot.isVisibleInUI = true
+        delegate.isVisibleInUI = true
         let manager = makeManager(defaults: defaults, hiddenAt: Date(), delegate: delegate)
         manager.scheduleIfNeeded(reason: "visible", now: Date())
         XCTAssertFalse(manager.hasScheduledDiscard)
-        delegate.snapshot.isVisibleInUI = false
+        delegate.isVisibleInUI = false
         manager.markDiscarded(reason: "memory", now: Date())
         manager.scheduleIfNeeded(reason: "discarded", now: Date())
         XCTAssertTrue(manager.isDiscardedForMemory)
@@ -71,12 +76,18 @@ final class BrowserHiddenWebViewRetentionCoordinatorTests: XCTestCase {
 
     func testEqualTimestampsUseRegistrationSequenceOrder() {
         let defaults = makeDefaults(), date = Date(timeIntervalSince1970: 50)
-        let first = Delegate(), second = Delegate()
-        let firstManager = makeManager(defaults: defaults, hiddenAt: date, delegate: first)
-        let secondManager = makeManager(defaults: defaults, hiddenAt: date, delegate: second)
-        firstManager.scheduleIfNeeded(reason: "first", now: date)
-        secondManager.scheduleIfNeeded(reason: "second", now: date)
-        XCTAssertTrue(firstManager.hasScheduledDiscard || secondManager.hasScheduledDiscard)
+        var delegates: [Delegate] = []
+        var managers: [BrowserHiddenWebViewDiscardManager] = []
+        for _ in 0..<33 {
+            let delegate = Delegate()
+            let manager = makeManager(defaults: defaults, hiddenAt: date, delegate: delegate)
+            manager.scheduleIfNeeded(reason: "same-timestamp", now: date)
+            delegates.append(delegate)
+            managers.append(manager)
+        }
+        XCTAssertEqual(delegates[0].discardCount, 1)
+        XCTAssertTrue(delegates.dropFirst().allSatisfy { $0.discardCount == 0 })
+        withExtendedLifetime(managers) {}
     }
 
     func testWakeResetsEffectiveGraceTimestamp() {

@@ -403,17 +403,20 @@ struct BrowserPanelView: View {
         return BrowserSearchSettingsStore(defaults: .standard).currentSearchSuggestionsEnabled
     }
 
+    private var siteSearchSettings: BrowserSiteSearchSettings {
+        BrowserSiteSearchSettings(shortcutsStorage: siteSearchShortcutsStorage, activationShortcutRaw: siteSearchActivationShortcutRaw)
+    }
+
     private var siteSearchShortcuts: [BrowserSiteSearchShortcut] {
-        BrowserSiteSearchSettings.decode(siteSearchShortcutsStorage)
+        siteSearchSettings.shortcuts
     }
 
     private var activeSiteSearchShortcuts: [BrowserSiteSearchShortcut] {
-        BrowserSiteSearchSettings.activeShortcuts(from: siteSearchShortcuts)
+        siteSearchSettings.activeShortcuts
     }
 
     private var siteSearchActivationShortcut: BrowserSiteSearchActivationShortcut {
-        BrowserSiteSearchActivationShortcut(rawValue: siteSearchActivationShortcutRaw)
-            ?? BrowserSiteSearchSettings.defaultActivationShortcut
+        siteSearchSettings.activationShortcut
     }
 
     private var remoteSuggestionsEnabled: Bool {
@@ -1742,10 +1745,7 @@ struct BrowserPanelView: View {
                 },
                 onSubmit: { liveField in
                     if let session = omnibarState.siteSearchSession {
-                        guard let url = BrowserSiteSearchSettings.searchURL(
-                            template: session.shortcut.urlTemplate,
-                            query: omnibarState.buffer
-                        ) else {
+                        guard let url = session.shortcut.searchURL(query: omnibarState.buffer) else {
                             NSSound.beep()
                             return
                         }
@@ -2602,7 +2602,7 @@ struct BrowserPanelView: View {
         }
 
         let raw = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let shortcut = BrowserSiteSearchSettings.matchingShortcut(raw, in: activeSiteSearchShortcuts) else {
+        guard let shortcut = siteSearchSettings.matchingShortcut(raw) else {
             return false
         }
 
@@ -2817,10 +2817,7 @@ struct BrowserPanelView: View {
             )
         }
         let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)
-        let matchedSiteSearchShortcut = BrowserSiteSearchSettings.matchingShortcut(
-            query,
-            in: activeSiteSearchShortcuts
-        )
+        let matchedSiteSearchShortcut = siteSearchSettings.matchingShortcut(query)
         let items = buildOmnibarSuggestions(
             query: query,
             engineName: searchConfiguration.displayName,
@@ -2898,10 +2895,7 @@ struct BrowserPanelView: View {
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
                     resolvedURL: panel.resolveNavigableURL(from: query),
-                    siteSearchShortcut: BrowserSiteSearchSettings.matchingShortcut(
-                        query,
-                        in: activeSiteSearchShortcuts
-                    ),
+                    siteSearchShortcut: siteSearchSettings.matchingShortcut(query),
                     siteSearchTriggerLabel: siteSearchActivationShortcut.promptText,
                     limit: 8
                 )

@@ -19,6 +19,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         case invalid
     }
 
+    private let additionalTopContentInset: CGFloat
+
+    init(additionalTopContentInset: CGFloat = 0) {
+        self.additionalTopContentInset = additionalTopContentInset
+        super.init()
+    }
+
     private weak var containerView: SidebarWorkspaceTableContainerView?
     private let createdCellViews = NSHashTable<NSView>.weakObjects()
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
@@ -121,7 +128,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.contentInsets = NSEdgeInsets(
             top: SidebarWorkspaceScrollInsets.workspaceList.top
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+                + SidebarWorkspaceListMetrics.rowVerticalPadding
+                + additionalTopContentInset,
             left: 0,
             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                 + SidebarWorkspaceListMetrics.rowVerticalPadding,

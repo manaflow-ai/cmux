@@ -15,6 +15,7 @@ import SwiftUI
 public struct BrowserSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
+    private let siteSearchCard: BrowserSiteSearchSettingsCard
     private let importAnchorID: String?
 
     @State private var disabled: DefaultsValueModel<Bool>
@@ -46,9 +47,10 @@ public struct BrowserSection: View {
         hostActions: SettingsHostActions,
         importAnchorID: String? = nil
     ) {
+        self.siteSearchCard = BrowserSiteSearchSettingsCard(defaultsStore: defaultsStore, catalog: catalog)
         self.catalog = catalog
-        self.hostActions = hostActions
         self.importAnchorID = importAnchorID
+        self.hostActions = hostActions
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
@@ -75,6 +77,7 @@ public struct BrowserSection: View {
             SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"), section: .browser)
                 .accessibilityIdentifier("SettingsBrowserSection")
             mainCard
+            siteSearchCard
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),

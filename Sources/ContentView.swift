@@ -12052,6 +12052,7 @@ struct VerticalTabsSidebar: View, Equatable {
             )
             appKitRowSnapshotCache.prune(keeping: Set(renderContext.workspaceIds))
         }
+        let statusHeaderHeight: CGFloat = 30
         let selectedWorkspaceId = isPresented ? tabManager.selectedTabId : nil
         let selectedScrollTargetWorkspaceId: UUID? = selectedWorkspaceId.map { selectedId in
             let group = renderContext.workspaceById[selectedId]?.groupId
@@ -12063,6 +12064,7 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         return SidebarWorkspaceTableView(
             contentUpdate: contentUpdate,
+            additionalTopContentInset: statusHeaderHeight,
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
@@ -12073,7 +12075,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
-                    topHeight: sidebarTopScrimHeight,
+                    topHeight: sidebarTopScrimHeight + statusHeaderHeight,
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
@@ -12088,6 +12090,19 @@ struct VerticalTabsSidebar: View, Equatable {
             }
             .overlay(alignment: .topLeading) {
                 if isPresented { minimalModeSidebarTitlebarControlsOverlay() }
+            }
+            .overlay(alignment: .top) {
+                if isPresented {
+                    WorkspaceSidebarStatusHeader(
+                        refreshState: tabManager.ghprRefreshState,
+                        onRefresh: {
+                            tabManager.pullRequestProbing.forceRefreshAllWorkspacePullRequests()
+                            tabManager.ghprMetadataService.refreshAll()
+                        }
+                    )
+                    .frame(height: statusHeaderHeight)
+                    .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top)
+                }
             }
             .background(Color.clear)
             .onChange(of: selectedWorkspaceId) { _, _ in

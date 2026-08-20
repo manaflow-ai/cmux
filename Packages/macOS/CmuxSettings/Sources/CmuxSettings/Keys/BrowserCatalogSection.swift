@@ -122,6 +122,20 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         defaultValue: false,
         userDefaultsKey: "browserImportHintDismissed"
     )
+    
+    /// Site-search shortcuts serialized under the legacy UserDefaults key.
+    public let siteSearchShortcutsStorage = DefaultsKey<String>(
+        id: "browser.siteSearch",
+        defaultValue: BrowserSiteSearchSettings.defaultShortcutsStorage,
+        userDefaultsKey: BrowserSiteSearchSettings.shortcutsKey
+    )
+
+    /// Key used to activate site-search shortcuts from the omnibar.
+    public let siteSearchActivationShortcut = DefaultsKey<BrowserSiteSearchActivationShortcut>(
+        id: "browser.siteSearchKeyboardShortcut",
+        defaultValue: .tab,
+        userDefaultsKey: BrowserSiteSearchSettings.activationShortcutKey
+    )
 
     public init() {}
 }

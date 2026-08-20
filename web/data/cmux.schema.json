@@ -1530,6 +1530,29 @@
           "type": "string",
           "default": "0.1.29",
           "description": "Pinned react-grab version for the browser toolbar helper."
+        },
+        "siteSearchKeyboardShortcut": {
+          "type": "string",
+          "enum": ["tab", "spaceOrTab"],
+          "default": "tab",
+          "description": "Keyboard activation mode for Browser Site Search shortcuts."
+        },
+        "siteSearch": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "shortcut", "urlTemplate"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "shortcut": { "type": "string" },
+              "urlTemplate": { "type": "string" },
+              "isActive": { "type": "boolean", "default": true }
+            }
+          },
+          "default": [],
+          "description": "Named HTTP(S) URL templates activated from the browser omnibar."
         }
       }
     },

@@ -227,6 +227,8 @@ extension CmuxSettingsFileStore {
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
+                    "siteSearch": [],
+                    "siteSearchKeyboardShortcut": BrowserSiteSearchActivationShortcut.tab.rawValue,
                 ],
             ],
             [

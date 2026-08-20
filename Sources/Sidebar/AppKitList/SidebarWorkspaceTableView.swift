@@ -15,6 +15,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     let contentUpdate: ContentUpdate
+    let additionalTopContentInset: CGFloat
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
@@ -30,8 +31,28 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
 
+    init(
+        contentUpdate: ContentUpdate,
+        additionalTopContentInset: CGFloat = 0,
+        workspaceIds: [UUID],
+        selectedWorkspaceId: UUID?,
+        selectedScrollTargetWorkspaceId: UUID?,
+        isPresented: Bool,
+        unreadSource: SidebarUnreadModel,
+        onDeferredClickAwaitingApply: @escaping () -> Void
+    ) {
+        self.contentUpdate = contentUpdate
+        self.additionalTopContentInset = additionalTopContentInset
+        self.workspaceIds = workspaceIds
+        self.selectedWorkspaceId = selectedWorkspaceId
+        self.selectedScrollTargetWorkspaceId = selectedScrollTargetWorkspaceId
+        self.isPresented = isPresented
+        self.unreadSource = unreadSource
+        self.onDeferredClickAwaitingApply = onDeferredClickAwaitingApply
+    }
+
     func makeCoordinator() -> SidebarWorkspaceTableController {
-        SidebarWorkspaceTableController()
+        SidebarWorkspaceTableController(additionalTopContentInset: additionalTopContentInset)
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {

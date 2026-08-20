@@ -1007,6 +1007,27 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        if let rawActivation = jsonString(section["siteSearchKeyboardShortcut"]) {
+            guard let activation = BrowserSiteSearchActivationShortcut(rawValue: rawActivation) else {
+                logInvalid("browser.siteSearchKeyboardShortcut", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserSiteSearchSettings.activationShortcutKey] = .string(activation.rawValue)
+        } else if section.keys.contains("siteSearchKeyboardShortcut") {
+            logInvalid("browser.siteSearchKeyboardShortcut", sourcePath: sourcePath)
+        }
+        if section.keys.contains("siteSearch") {
+            guard let rawItems = section["siteSearch"] as? [[String: Any]] else {
+                logInvalid("browser.siteSearch", sourcePath: sourcePath)
+                return
+            }
+            let parsed = BrowserSiteSearchSettings.parseManagedShortcuts(rawItems)
+            guard parsed.count == rawItems.count else {
+                logInvalid("browser.siteSearch", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserSiteSearchSettings.shortcutsKey] = .string(BrowserSiteSearchSettings.encode(parsed))
+        }
     }
 
     private func parseWorkspaceGroupsSection(

@@ -184,6 +184,10 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
 | ⌘ ⇧ H | Flash focused panel |
 
+### Leader Key
+
+When enabled in `Settings → Leader Key`, the default prefix is `⌃ B`. Press the prefix followed by a configured action key. The default `⌃ B`, then `Z` action toggles split zoom; leader actions are editable in Settings.
+
 ### Browser
 
 Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
