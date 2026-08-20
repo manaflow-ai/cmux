@@ -546,24 +546,28 @@ impl Session {
     /// is the expected content size of the first pane, when known.
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => match initial_bootstrap(&self.tree()) {
-                InitialBootstrap::FirstWorkspace => {
-                    mux.new_workspace(None, size)?;
-                    Ok(())
+            Session::Local(mux) => {
+                // One snapshot serves both the decision and the target
+                // selection; a second read could disagree with the first
+                // when another mux owner mutates the tree in between.
+                let tree = self.tree();
+                match initial_bootstrap(&tree) {
+                    InitialBootstrap::FirstWorkspace => {
+                        mux.new_workspace(None, size)?;
+                    }
+                    InitialBootstrap::ShellInActiveWorkspace => {
+                        let workspace = tree
+                            .workspaces
+                            .get(tree.active_workspace)
+                            .or_else(|| tree.workspaces.first())
+                            .expect("bare-session bootstrap requires at least one workspace")
+                            .id;
+                        mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                    }
+                    InitialBootstrap::LayoutIntact => {}
                 }
-                InitialBootstrap::ShellInActiveWorkspace => {
-                    let tree = self.tree();
-                    let workspace = tree
-                        .workspaces
-                        .get(tree.active_workspace)
-                        .or_else(|| tree.workspaces.first())
-                        .expect("bare-session bootstrap requires at least one workspace")
-                        .id;
-                    mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
-                    Ok(())
-                }
-                InitialBootstrap::LayoutIntact => Ok(()),
-            },
+                Ok(())
+            }
             Session::Remote(remote) => {
                 let tree = remote.refresh_tree()?;
                 match initial_bootstrap(&tree) {
