@@ -33,8 +33,9 @@ sidebar(() =>
               .onTap(() => log("tapped header " + w().id))
           : HStack({ spacing: 8 }, [
               Circle({ size: 7 }).fill("accent"),
-              Text(() => w().title).font(13),
+              Text(() => w().title).font(13).lineLimit(1).truncation("tail"),
               Spacer(),
+              Text("42").font("caption2").color("tertiary"),
             ])
               .padding(6)
               .cornerRadius(6)

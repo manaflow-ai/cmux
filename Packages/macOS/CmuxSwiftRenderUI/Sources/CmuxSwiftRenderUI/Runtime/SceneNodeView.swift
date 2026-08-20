@@ -177,6 +177,14 @@ private struct SceneNodeContent: View {
             .modifier(OptionalForeground(color: resolvedColor))
             .modifier(SceneTextLimits(node: node))
             .modifier(SceneBoxStyle(node: node))
+            // A truncating Text and a Spacer are both "flexible" to HStack
+            // layout, which would split the width between them and truncate
+            // the text at half the row. Truncating text therefore outranks
+            // spacers by default; `.layoutPriority(n)` overrides.
+            .layoutPriority(
+                node.double("layoutPriority")
+                    ?? (node.type == "text" && node.props["lineLimit"] != nil ? 1 : 0)
+            )
         if node.bool("tappable") {
             base
                 .contentShape(Rectangle())
