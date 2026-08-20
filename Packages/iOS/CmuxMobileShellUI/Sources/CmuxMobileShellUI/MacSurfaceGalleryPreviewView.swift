@@ -152,30 +152,39 @@ public struct MacSurfaceGalleryPreviewView: View {
         )
     ]
 
-    private static let fixtureLoader = ChatArtifactLoader(
-        supportsArtifacts: true,
-        scope: .panel(workspaceID: "gallery-ws", surfaceID: "gallery-surface"),
-        stat: { path in
-            ChatArtifactStat(
-                exists: true,
-                isDirectory: false,
-                size: Int64(MacSurfaceGalleryFixtureBytes.body(for: path).count),
-                modifiedAt: Date(timeIntervalSince1970: 1_753_800_000),
-                kind: .text,
-                mimeType: path.hasSuffix(".md") ? "text/markdown" : "text/plain"
-            )
-        },
-        fetch: { path, progress in
-            let data = MacSurfaceGalleryFixtureBytes.body(for: path)
-            progress?(Int64(data.count), Int64(data.count))
-            return data
-        }
-    )
+    /// Off-actor: constructed once and captured by value into the
+    /// `@Sendable` loader closures below, so they never need a main-actor
+    /// hop to read fixture bytes.
+    private static let fixtureLoader: ChatArtifactLoader = {
+        let fixtures = MacSurfaceGalleryFixtureBytes()
+        return ChatArtifactLoader(
+            supportsArtifacts: true,
+            scope: .panel(workspaceID: "gallery-ws", surfaceID: "gallery-surface"),
+            stat: { path in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(fixtures.body(for: path).count),
+                    modifiedAt: Date(timeIntervalSince1970: 1_753_800_000),
+                    kind: .text,
+                    mimeType: path.hasSuffix(".md") ? "text/markdown" : "text/plain"
+                )
+            },
+            fetch: { path, progress in
+                let data = fixtures.body(for: path)
+                progress?(Int64(data.count), Int64(data.count))
+                return data
+            }
+        )
+    }()
 }
 
-/// Off-actor fixture bytes so the `@Sendable` loader closures can read them.
-private enum MacSurfaceGalleryFixtureBytes {
-    static let textBody = Data("""
+/// Fixture bytes for the gallery's panel-scoped loader. An instance, not a
+/// static namespace: `fixtureLoader` above constructs one value and injects
+/// it into the loader's `@Sendable` closures instead of dispatching through
+/// static members of an ambient namespace type.
+private struct MacSurfaceGalleryFixtureBytes: Sendable {
+    let textBody = Data("""
     cmux iOS all-surfaces UX round — panel file preview fixture.
 
     This body streams through the panel-scoped artifact loader and renders in
@@ -186,7 +195,7 @@ private enum MacSurfaceGalleryFixtureBytes {
     - The header shows the surface kind badge, title, and Open on Mac.
     """.utf8)
 
-    static let markdownBody = Data("""
+    let markdownBody = Data("""
     # iosrf-demo
 
     Markdown panels now render **natively** on iOS through the shared
@@ -205,7 +214,7 @@ private enum MacSurfaceGalleryFixtureBytes {
     ```
     """.utf8)
 
-    static func body(for path: String) -> Data {
+    func body(for path: String) -> Data {
         path.hasSuffix(".md") ? markdownBody : textBody
     }
 }

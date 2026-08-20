@@ -595,7 +595,7 @@ struct TaskComposerSheet: View {
     }
 
     private var workspaceGroupsForSelectedMachine: [MobileWorkspaceGroupPreview] {
-        filteredWorkspaceGroups(
+        Self.filteredWorkspaceGroups(
             workspaceGroups,
             macDeviceID: selectedMacDeviceID,
             instanceTag: selectedMacInstanceTag
@@ -604,7 +604,7 @@ struct TaskComposerSheet: View {
 
     var resolvedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID? {
         guard workspaceGroupInventoryIsAuthoritative,
-              let validID = validWorkspaceGroupID(
+              let validID = Self.validWorkspaceGroupID(
             selectedWorkspaceGroupID,
             groups: workspaceGroups,
             macDeviceID: selectedMacDeviceID,
@@ -829,7 +829,7 @@ struct TaskComposerSheet: View {
             selectedMacInstanceTag = instanceTag
             pendingRestoredWorkspaceGroupID = nil
             workspaceGroupSelectionRequiresResolution = false
-            selectedWorkspaceGroupID = validWorkspaceGroupID(
+            selectedWorkspaceGroupID = Self.validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
                 macDeviceID: macDeviceID,
@@ -1021,7 +1021,7 @@ struct TaskComposerSheet: View {
             selectedMacInstanceTag = machines.first?.instanceTag
             pendingRestoredWorkspaceGroupID = nil
             workspaceGroupSelectionRequiresResolution = false
-            selectedWorkspaceGroupID = validWorkspaceGroupID(
+            selectedWorkspaceGroupID = Self.validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
                 macDeviceID: selectedMacDeviceID,
@@ -1047,7 +1047,7 @@ struct TaskComposerSheet: View {
             return
         }
 
-        if validWorkspaceGroupID(
+        if Self.validWorkspaceGroupID(
             selectedWorkspaceGroupID,
             groups: workspaceGroups,
             macDeviceID: selectedMacDeviceID,
@@ -1077,47 +1077,47 @@ struct TaskComposerSheet: View {
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
-}
-
-private func validWorkspaceGroupID(
-    _ candidate: MobileWorkspaceGroupPreview.ID?,
-    groups: [MobileWorkspaceGroupPreview],
-    macDeviceID: String,
-    instanceTag: String?
-) -> MobileWorkspaceGroupPreview.ID? {
-    guard let candidate,
-          filteredWorkspaceGroups(
-              groups,
-              macDeviceID: macDeviceID,
-              instanceTag: instanceTag
-          ).contains(where: { $0.id == candidate }) else {
-        return nil
-    }
-    return candidate
-}
-
-private func filteredWorkspaceGroups(
-    _ groups: [MobileWorkspaceGroupPreview],
-    macDeviceID: String,
-    instanceTag: String?
-) -> [MobileWorkspaceGroupPreview] {
-    guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
-        return []
-    }
-    return groups.filter { group in
-        guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
-              groupMacDeviceID == macDeviceID else {
-            return false
+    private static func validWorkspaceGroupID(
+        _ candidate: MobileWorkspaceGroupPreview.ID?,
+        groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileWorkspaceGroupPreview.ID? {
+        guard let candidate,
+              filteredWorkspaceGroups(
+                  groups,
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ).contains(where: { $0.id == candidate }) else {
+            return nil
         }
-        return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+        return candidate
     }
-}
 
-private func normalizedWorkspaceOwner(_ value: String?) -> String? {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return nil
+    private static func filteredWorkspaceGroups(
+        _ groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> [MobileWorkspaceGroupPreview] {
+        guard let macDeviceID = normalizedWorkspaceOwner(macDeviceID) else {
+            return []
+        }
+        return groups.filter { group in
+            guard let groupMacDeviceID = normalizedWorkspaceOwner(group.macDeviceID),
+                  groupMacDeviceID == macDeviceID else {
+                return false
+            }
+            return normalizedWorkspaceOwner(group.macInstanceTag) == normalizedWorkspaceOwner(instanceTag)
+        }
     }
-    return value
+
+    private static func normalizedWorkspaceOwner(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
 }
 #endif

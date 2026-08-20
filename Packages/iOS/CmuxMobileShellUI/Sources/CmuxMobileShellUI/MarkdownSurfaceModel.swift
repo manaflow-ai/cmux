@@ -42,7 +42,7 @@ final class MarkdownSurfaceModel {
 
     /// Stats, streams, and decodes the panel's markdown file.
     ///
-    /// UTF-8 with an ISO-Latin-1 fallback (`MacSurfaceTextDecoder`), so any
+    /// UTF-8 with an ISO-Latin-1 fallback (`MacSurfaceDecodedText`), so any
     /// byte payload within the preview size limit renders as text.
     func load(path: String, loader: ChatArtifactLoader) async {
         loadGeneration &+= 1
@@ -71,7 +71,7 @@ final class MarkdownSurfaceModel {
             }
             try Task.checkCancellation()
             guard generation == loadGeneration else { return }
-            phase = .loaded(text: MacSurfaceTextDecoder.decode(collected).text)
+            phase = .loaded(text: MacSurfaceDecodedText.decoding(collected).text)
             collected = Data()
         } catch is CancellationError {
             return

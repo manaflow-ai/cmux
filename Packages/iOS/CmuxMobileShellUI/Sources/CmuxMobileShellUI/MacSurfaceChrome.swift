@@ -1,5 +1,6 @@
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 #if canImport(UIKit)
@@ -64,6 +65,28 @@ extension MacSurfaceHeader where Accessory == EmptyView {
         subtitle: String?
     ) {
         self.init(kind: kind, title: title, subtitle: subtitle) { EmptyView() }
+    }
+
+    /// Convenience initializer for file-backed surfaces: derives the subtitle
+    /// from the file path (the file name when the title doesn't already show
+    /// it, otherwise the parent directory name so a duplicated line never
+    /// appears).
+    init(
+        kind: MobileSurfacePreview.Kind,
+        title: String,
+        path: String
+    ) {
+        self.init(kind: kind, title: title, subtitle: Self.fileSubtitle(title: title, path: path))
+    }
+
+    private static func fileSubtitle(title: String, path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        let fileName = url.lastPathComponent
+        guard !fileName.isEmpty else { return nil }
+        if title != fileName { return fileName }
+        let parent = url.deletingLastPathComponent().lastPathComponent
+        guard !parent.isEmpty, parent != "/" else { return nil }
+        return parent
     }
 }
 

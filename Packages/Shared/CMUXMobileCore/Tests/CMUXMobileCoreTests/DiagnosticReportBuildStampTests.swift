@@ -1,9 +1,9 @@
 import Testing
 @testable import CMUXMobileCore
 
-@Suite struct DiagnosticBuildStampTests {
+@Suite struct DiagnosticReportBuildStampTests {
     @Test func includesSignedTagAndShaWithoutRuntimeInput() {
-        let stamp = DiagnosticBuildStamp.make(infoDictionary: [
+        let stamp = DiagnosticReport.buildStamp(infoDictionary: [
             "CFBundleName": "cmux",
             "CFBundleShortVersionString": "1.2.3",
             "CFBundleVersion": "42",
@@ -15,7 +15,7 @@ import Testing
     }
 
     @Test func removesUnsafeBundleMetadata() {
-        let stamp = DiagnosticBuildStamp.make(infoDictionary: [
+        let stamp = DiagnosticReport.buildStamp(infoDictionary: [
             "CFBundleName": "cmux/unsafe",
             "CFBundleShortVersionString": "1\n2",
             "CFBundleVersion": "7",
