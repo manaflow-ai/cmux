@@ -862,6 +862,12 @@ import Testing
                     MobilePairedMac(
                         macDeviceID: "mac-a", displayName: "Mac A", routes: [],
                         createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 4), isActive: false,
+                        stackUserID: "user-1", teamID: "team-a"
+                    ),
+                    MobilePairedMac(
+                        macDeviceID: "mac-a", displayName: "Mac A", routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
                         lastSeenAt: Date(timeIntervalSince1970: 2), isActive: false,
                         stackUserID: "user-1", teamID: "team-a", instanceTag: "stable"
                     ),
@@ -886,8 +892,9 @@ import Testing
         await store.loadPairedMacs()
 
         #expect(store.workspaceComputerPriority == [
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: nil),
             MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
         ])
         #expect(MobileWorkspaceSortStore(defaults: defaults).computerPriority == store.workspaceComputerPriority)
     }

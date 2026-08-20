@@ -841,15 +841,23 @@ extension MobileShellComposite {
                     instanceTag: $0.instanceTag
                 ).macDeviceID == identity.macDeviceID
             }
-            if matches.contains(where: { $0.instanceTag == nil }) {
-                if !migrated.contains(identity.id) { migrated.append(identity.id) }
-                continue
-            }
             if matches.isEmpty {
                 if !migrated.contains(identity.id) { migrated.append(identity.id) }
                 continue
             }
-            for mac in matches {
+            for mac in matches.sorted(by: {
+                let lhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).instanceTag
+                let rhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $1.macDeviceID,
+                    instanceTag: $1.instanceTag
+                ).instanceTag
+                if lhsTag == nil { return rhsTag != nil }
+                if rhsTag == nil { return false }
+                return lhsTag! < rhsTag!
+            }) {
                 let pairingID = CmxMacAppInstanceIdentity(
                     macDeviceID: mac.macDeviceID,
                     instanceTag: mac.instanceTag
