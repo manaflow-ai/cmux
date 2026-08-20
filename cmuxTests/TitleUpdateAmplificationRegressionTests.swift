@@ -142,6 +142,42 @@ struct TitleUpdateAmplificationRegressionTests {
         deadline.cancel()
     }
 
+    @Test
+    func staleDeadlineCannotFlushAReplacementTitleWindow() async {
+        let scheduler = DeadlineRaceScheduler()
+        var published: [String] = []
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            schedule: scheduler.schedule(interval:action:),
+            publish: { updates in
+                published.append(contentsOf: updates.map(\.title))
+            }
+        )
+        let source = NSObject()
+        let first = GhosttyTitleUpdate(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "first",
+            sourceSurfaceIdentifier: ObjectIdentifier(source),
+            terminalLifecycleID: UUID()
+        )
+        let second = GhosttyTitleUpdate(
+            tabId: first.tabId,
+            surfaceId: first.surfaceId,
+            title: "second",
+            sourceSurfaceIdentifier: first.sourceSurfaceIdentifier,
+            terminalLifecycleID: first.terminalLifecycleID
+        )
+
+        await dispatcher.receive(first)
+        await dispatcher.flushNow()
+        await dispatcher.receive(second)
+
+        await scheduler.fire(index: 0)
+        #expect(published == ["first"])
+        await scheduler.fire(index: 1)
+        #expect(published == ["first", "second"])
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
@@ -205,6 +241,31 @@ struct TitleUpdateAmplificationRegressionTests {
                 return
             }
             pendingFlushes[index].action()
+        }
+    }
+
+    // SAFETY: the lock protects the callback array while a canceled deadline
+    // is deliberately fired by the race test.
+    private final class DeadlineRaceScheduler: @unchecked Sendable {
+        private let lock = NSLock()
+        private var actions: [(@Sendable () async -> Void)?] = []
+
+        func schedule(
+            interval _: Duration,
+            action: @escaping @Sendable () async -> Void
+        ) -> GhosttyTitleUpdateDispatcher.Cancellation {
+            lock.lock()
+            let index = actions.count
+            actions.append(action)
+            lock.unlock()
+            return {}
+        }
+
+        func fire(index: Int) async {
+            lock.lock()
+            let action = actions.indices.contains(index) ? actions[index] : nil
+            lock.unlock()
+            await action?()
         }
     }
 }
