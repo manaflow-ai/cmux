@@ -7530,8 +7530,8 @@ mod tests {
     /// file must never make cmux-tui advertise xterm-ghostty.
     #[test]
     fn terminfo_lookup_rejects_unloadable_entries() {
-        let base = std::env::temp_dir()
-            .join(format!("cmux-tui-terminfo-badtest-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("cmux-tui-terminfo-badtest-{}", std::process::id()));
         let dir = base.join("x");
         std::fs::create_dir_all(&dir).unwrap();
 
