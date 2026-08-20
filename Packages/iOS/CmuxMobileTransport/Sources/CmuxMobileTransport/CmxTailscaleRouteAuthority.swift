@@ -11,7 +11,12 @@ struct CmxPreparedTailscaleRoute: Sendable {
 
 protocol CmxTailscaleRouteAuthorizing: Sendable {
     func prepare(request: CmxByteTransportRequest) async throws -> CmxPreparedTailscaleRoute
+    func waitForNextPathUpdate() async
     func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) async throws
+}
+
+extension CmxTailscaleRouteAuthorizing {
+    func waitForNextPathUpdate() async {}
 }
 
 actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
@@ -28,11 +33,18 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
     private var pathState = PathState()
     private var hasReceivedInitialPathUpdate = false
     private var initialPathWaiters: [CheckedContinuation<Void, Never>] = []
+    private let pathUpdateContinuation: AsyncStream<Void>.Continuation
+    private let pathUpdateStream: AsyncStream<Void>
     private let monitor: NWPathMonitor
 
     init() {
         let monitor = NWPathMonitor()
         self.monitor = monitor
+        let pathUpdates = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.pathUpdateContinuation = pathUpdates.continuation
+        self.pathUpdateStream = pathUpdates.stream
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             Task { await self.observe(path) }
@@ -59,36 +71,52 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
         // returns, so gate the first proof on that callback instead of treating
         // the monitor's startup snapshot as a real Tailscale outage.
         await waitForInitialPathUpdate()
-        let observed = observedPath()
-        let snapshot = Self.authoritySnapshot(
-            generation: observed.generation,
-            path: observed.path
-        )
-        MobileDebugLog.shared.append(Self.logLine("tailscale.prepare.snapshot", snapshot: snapshot))
-        let proof: CmxTailscaleRouteProof
-        do {
-            proof = try CmxTailscaleRouteProofValidator().prepare(
-                request: request,
-                snapshot: snapshot
+        while true {
+            let observed = observedPath()
+            let snapshot = Self.authoritySnapshot(
+                generation: observed.generation,
+                path: observed.path
             )
-        } catch {
+            MobileDebugLog.shared.append(Self.logLine("tailscale.prepare.snapshot", snapshot: snapshot))
+            let proof: CmxTailscaleRouteProof
+            do {
+                proof = try CmxTailscaleRouteProofValidator().prepare(
+                    request: request,
+                    snapshot: snapshot
+                )
+            } catch let error as CmxTailscaleRouteProofError
+                where error.isTransientReadinessFailure
+            {
+                MobileDebugLog.shared.append(
+                    "tailscale.prepare.proof_failed error=\(String(describing: error)); waiting_for_path_update=true"
+                )
+                await waitForNextPathUpdate()
+                continue
+            } catch {
+                MobileDebugLog.shared.append(
+                    "tailscale.prepare.proof_failed error=\(String(describing: error))"
+                )
+                throw error
+            }
+            guard let interface = observed.path.availableInterfaces.first(where: {
+                $0.name == proof.interface.name && $0.index == proof.interface.index
+            }) else {
+                MobileDebugLog.shared.append(
+                    "tailscale.prepare.interface_failed proof_interface=\(proof.interface.name):\(proof.interface.index) snapshot_interfaces=\(Self.interfaceNames(observed.path)); waiting_for_path_update=true"
+                )
+                await waitForNextPathUpdate()
+                continue
+            }
             MobileDebugLog.shared.append(
-                "tailscale.prepare.proof_failed error=\(String(describing: error))"
+                "tailscale.prepare.success interface=\(proof.interface.name):\(proof.interface.index) generation=\(proof.generation)"
             )
-            throw error
+            return CmxPreparedTailscaleRoute(proof: proof, requiredInterface: interface)
         }
-        guard let interface = observed.path.availableInterfaces.first(where: {
-            $0.name == proof.interface.name && $0.index == proof.interface.index
-        }) else {
-            MobileDebugLog.shared.append(
-                "tailscale.prepare.interface_failed proof_interface=\(proof.interface.name):\(proof.interface.index) snapshot_interfaces=\(Self.interfaceNames(observed.path))"
-            )
-            throw CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable
-        }
-        MobileDebugLog.shared.append(
-            "tailscale.prepare.success interface=\(proof.interface.name):\(proof.interface.index) generation=\(proof.generation)"
-        )
-        return CmxPreparedTailscaleRoute(proof: proof, requiredInterface: interface)
+    }
+
+    func waitForNextPathUpdate() async {
+        var iterator = pathUpdateStream.makeAsyncIterator()
+        _ = await iterator.next()
     }
 
     func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) throws {
@@ -118,7 +146,8 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
     }
 
     private func observe(_ path: NWPath) {
-        if pathState.path != path {
+        let pathChanged = pathState.path != path
+        if pathChanged {
             pathState.generation = Self.nextGeneration(after: pathState.generation)
             pathState.path = path
             let snapshot = Self.authoritySnapshot(
@@ -127,7 +156,13 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
             )
             MobileDebugLog.shared.append(Self.logLine("tailscale.path_update", snapshot: snapshot))
         }
-        guard !hasReceivedInitialPathUpdate else { return }
+        let wasInitialPathUpdate = !hasReceivedInitialPathUpdate
+        guard wasInitialPathUpdate else {
+            if pathChanged {
+                pathUpdateContinuation.yield(())
+            }
+            return
+        }
         hasReceivedInitialPathUpdate = true
         let waiters = initialPathWaiters
         initialPathWaiters.removeAll(keepingCapacity: false)

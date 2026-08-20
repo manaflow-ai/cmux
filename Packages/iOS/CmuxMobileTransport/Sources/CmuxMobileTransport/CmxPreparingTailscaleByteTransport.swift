@@ -119,9 +119,9 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
                         guard attempt < Self.maximumPreparationAttempts else {
                             throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                         }
-                        // Yield so NWPathMonitor's callback can update the
-                        // authority actor before the next proof attempt.
-                        await Task.yield()
+                        // Wait for a real NWPathMonitor transition. Repeating
+                        // immediately only re-reads the same pre-Tailscale path.
+                        await authority.waitForNextPathUpdate()
                     } catch {
                         MobileDebugLog.shared.append(
                             "tailscale.prepare.permanent_failure error=\(String(describing: error))"
