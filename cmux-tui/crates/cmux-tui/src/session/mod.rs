@@ -606,10 +606,13 @@ impl Session {
                         let workspaces = snapshot["workspaces"].as_array();
                         let bare = workspaces.is_some_and(|workspaces| {
                             !workspaces.is_empty()
+                                // An explicit empty screen array is the only
+                                // proof of bareness; a missing or malformed
+                                // field fails closed and skips the create.
                                 && workspaces.iter().all(|workspace| {
                                     workspace["screens"]
                                         .as_array()
-                                        .is_none_or(|screens| screens.is_empty())
+                                        .is_some_and(|screens| screens.is_empty())
                                 })
                         });
                         // Fail closed: without the revision metadata the
