@@ -29362,7 +29362,12 @@ struct CMUXCLI {
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
-                arguments: resumeCommandParts,
+                // The agent's own argv: the bootstrap commands run the agent, so their executable
+                // comes from here and the launcher prefix is applied to each of them below. Passing
+                // the wrapped argv would make the wrapper's own name the executable and turn
+                // `hermes config set …` into `<wrapper> config set …`.
+                arguments: agentCommandParts,
+                externalLauncher: externalLauncher,
                 environment: environment
             )
         }
@@ -29386,6 +29391,7 @@ struct CMUXCLI {
     private func hermesAgentSubrouterResumeCommand(
         _ command: String,
         arguments: [String],
+        externalLauncher: AgentExternalLauncher? = nil,
         environment: [String: String]?
     ) -> String {
         guard !hermesAgentArgumentsSetModelAPIMode(arguments),
@@ -29395,17 +29401,24 @@ struct CMUXCLI {
             return command
         }
         let hermesExecutable = normalizedHookValue(arguments.first) ?? "hermes"
+        // Each bootstrap command is a whole agent invocation, so it goes through the launcher the
+        // same way the resumed session does.
+        func bootstrapCommand(_ settingArguments: [String]) -> String {
+            let argv = externalLauncher?.applyingResumePrefix(to: [hermesExecutable] + settingArguments)
+                ?? ([hermesExecutable] + settingArguments)
+            return argv.map(cliShellQuote).joined(separator: " ") + " >/dev/null"
+        }
 
         var bootstrap = [
-            "\(cliShellQuote(hermesExecutable)) config set model.provider \(cliShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
-            "\(cliShellQuote(hermesExecutable)) config set model.base_url \(cliShellQuote(baseURL)) >/dev/null",
-            "\(cliShellQuote(hermesExecutable)) config set model.api_mode \(cliShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+            bootstrapCommand(["config", "set", "model.provider", HermesAgentCodexEnvironment.defaultProvider]),
+            bootstrapCommand(["config", "set", "model.base_url", baseURL]),
+            bootstrapCommand(["config", "set", "model.api_mode", HermesAgentCodexEnvironment.codexResponsesAPIMode]),
         ]
         if let model = HermesAgentCodexEnvironment.defaultCodexModel(
             environment: environment,
             ambientEnvironment: ProcessInfo.processInfo.environment
         ) {
-            bootstrap.append("\(cliShellQuote(hermesExecutable)) config set model.default \(cliShellQuote(model)) >/dev/null")
+            bootstrap.append(bootstrapCommand(["config", "set", "model.default", model]))
         }
         return bootstrap.joined(separator: " && ") + " && " + command
     }
