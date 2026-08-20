@@ -188,11 +188,22 @@ function workspaceRow(w, entry) {
       .truncation("tail")
       .color(() => (w()?.selected ? "primary" : "secondary")),
     Spacer(),
-    Text(() => (w()?.unread > 0 ? String(w().unread) : ""))
-      .font("caption2").bold().color("white")
-      .paddingHorizontal(5).paddingVertical(1)
-      .background(() => (w()?.unread > 0 ? "#E4573D" : null))
-      .cornerRadius(7),
+    ZStack({}, [
+      // Unread badge at rest; on hover it yields to the close button.
+      Text(() => (w()?.unread > 0 ? String(w().unread) : ""))
+        .font("caption2").bold().color("white")
+        .paddingHorizontal(5).paddingVertical(1)
+        .background(() => (w()?.unread > 0 ? "#E4573D" : null))
+        .cornerRadius(7)
+        .hideOnHover(),
+      Image("xmark")
+        .font(9).weight("semibold").color("secondary")
+        .paddingHorizontal(4).paddingVertical(3)
+        .cornerRadius(5)
+        .hoverBackground("#7f7f7f38")
+        .showOnHover()
+        .onTap(() => cmux("workspace.close", { workspace_id: w().id })),
+    ]),
   ])
     .paddingHorizontal(10)
     .paddingVertical(6)
