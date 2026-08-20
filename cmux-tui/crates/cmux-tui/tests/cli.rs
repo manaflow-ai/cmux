@@ -1293,6 +1293,207 @@ fn json_socket_request(path: &std::path::Path, request: serde_json::Value) -> se
     response["data"].clone()
 }
 
+#[cfg(unix)]
+fn journal_cli_fixture(
+    args: &[&str],
+    result: serde_json::Value,
+) -> (Output, Option<serde_json::Value>) {
+    let dir = unique_temp_dir("journal-cli-contract");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("journal.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (sender, receiver) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let read_half = stream.try_clone().unwrap();
+                    let mut reader = BufReader::new(read_half);
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                            break;
+                        }
+                        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                        if request["cmd"] == "identify" {
+                            let response = serde_json::json!({
+                                "id": request["id"],
+                                "ok": true,
+                                "data": {"capabilities": ["session-journal-v1"]}
+                            });
+                            writeln!(stream, "{response}").unwrap();
+                            stream.flush().unwrap();
+                            continue;
+                        }
+                        let response = serde_json::json!({
+                            "protocol": "cmux.protocol/2",
+                            "type": "response",
+                            "id": request["id"],
+                            "ok": true,
+                            "result": result.clone(),
+                        });
+                        writeln!(stream, "{response}").unwrap();
+                        stream.flush().unwrap();
+                        sender.send(request).unwrap();
+                        return;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("journal fixture listener failed: {error}"),
+            }
+        }
+    });
+
+    let output = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&socket)
+        .args(args)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let request = receiver.recv_timeout(Duration::from_secs(6)).ok();
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+    (output, request)
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_cli_routes_list_and_inspect_and_preserves_decimal_strings() {
+    const SESSION: &str = "session_00000000000000000000000000000002";
+    const HUGE: &str = "9007199254740993";
+
+    let (list, request) = journal_cli_fixture(
+        &["session", SESSION, "journal", "list"],
+        serde_json::json!({
+            "head_sequence": HUGE,
+            "checkpoints": [{"source_sequence": HUGE, "created_at_ms": HUGE}],
+            "segments": [{"start_sequence": HUGE, "end_sequence": HUGE}],
+            "projection": {
+                "head_sequence": HUGE,
+                "cursor_sequence": HUGE,
+                "candidate_sequence": null,
+                "target_sequence": HUGE,
+                "pending": false,
+            },
+        }),
+    );
+    assert_success(&list);
+    let list_json = json_output(&list);
+    assert_eq!(request.as_ref().unwrap()["operation"], "session.journal.list");
+    assert_eq!(list_json["head_sequence"].as_str(), Some(HUGE));
+    assert_eq!(list_json["checkpoints"][0]["source_sequence"].as_str(), Some(HUGE));
+    assert_eq!(list_json["projection"]["cursor_sequence"].as_str(), Some(HUGE));
+
+    let (inspect, request) = journal_cli_fixture(
+        &["session", SESSION, "journal", "inspect", "--checkpoint", "latest"],
+        serde_json::json!({
+            "head_sequence": HUGE,
+            "checkpoint": {"source_sequence": HUGE},
+            "preview": {"head_sequence": HUGE, "applied_required_records": HUGE},
+            "projection": {
+                "head_sequence": HUGE,
+                "cursor_sequence": null,
+                "candidate_sequence": HUGE,
+                "target_sequence": null,
+                "pending": true,
+            },
+        }),
+    );
+    assert_success(&inspect);
+    let inspect_json = json_output(&inspect);
+    assert_eq!(request.as_ref().unwrap()["operation"], "session.journal.inspect");
+    assert_eq!(request.as_ref().unwrap()["params"]["checkpoint"], "latest");
+    assert_eq!(inspect_json["preview"]["head_sequence"].as_str(), Some(HUGE));
+    assert_eq!(inspect_json["projection"]["candidate_sequence"].as_str(), Some(HUGE));
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_restore_cli_requires_and_reuses_an_explicit_idempotency_key() {
+    const SESSION: &str = "session_00000000000000000000000000000002";
+    const HUGE: &str = "9007199254740993";
+    let restore_result = serde_json::json!({
+        "value": {
+            "restored": true,
+            "checkpoint_id": "checkpoint_demo",
+            "state_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "projection": {
+                "head_sequence": HUGE,
+                "cursor_sequence": HUGE,
+                "candidate_sequence": null,
+                "target_sequence": HUGE,
+                "pending": false,
+            },
+            "published_checkpoint": true,
+            "sequence": HUGE,
+            "event_id": "event_restore",
+        },
+        "generation": SESSION,
+        "revision": HUGE,
+        "replayed": false,
+    });
+    let restore_args = [
+        "session",
+        SESSION,
+        "journal",
+        "restore",
+        "--checkpoint",
+        "latest",
+        "--idempotency-key",
+        "restore-stable-key",
+    ];
+    let (first, first_request) = journal_cli_fixture(&restore_args, restore_result.clone());
+    assert_success(&first);
+    let (second, second_request) = journal_cli_fixture(
+        &restore_args,
+        serde_json::json!({
+            "value": restore_result["value"],
+            "generation": SESSION,
+            "revision": HUGE,
+            "replayed": true,
+        }),
+    );
+    assert_success(&second);
+    assert_eq!(first_request.as_ref().unwrap()["operation"], "session.journal.restore");
+    assert_eq!(first_request.as_ref().unwrap()["params"]["checkpoint"], "latest");
+    assert_eq!(first_request.as_ref().unwrap()["idempotency_key"], "restore-stable-key");
+    assert_eq!(second_request.as_ref().unwrap()["idempotency_key"], "restore-stable-key");
+    assert_eq!(json_output(&first)["value"]["sequence"].as_str(), Some(HUGE));
+    assert_eq!(json_output(&second)["replayed"], true);
+}
+
+#[test]
+fn journal_restore_cli_rejects_missing_idempotency_key_before_connecting() {
+    let output = Command::new(bin())
+        .args([
+            "--json",
+            "--socket",
+            "/tmp/cmux-journal-contract-missing-key.sock",
+            "session",
+            "current",
+            "journal",
+            "restore",
+            "--checkpoint",
+            "latest",
+        ])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = json_error(&output);
+    assert_eq!(error["code"], "usage.invalid");
+    assert!(error["message"].as_str().unwrap().contains("--idempotency-key"));
+}
+
 #[test]
 fn explicit_socket_keeps_state_in_platform_root() {
     let dir = unique_temp_dir("explicit-socket-durable-state");
@@ -3661,7 +3862,71 @@ fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
     assert!(startup.contains("--ws <addr>"));
     assert!(startup.contains("--ws-token <token>"));
     assert!(startup.contains("--ws-insecure-bind"));
+    assert!(
+        startup.contains("--no-restore       Skip startup journal projection replay for this run.")
+    );
     assert!(!startup.contains("cmux-tui"));
+}
+
+#[test]
+fn journal_help_lists_read_and_mutating_administration_paths() {
+    let output = Command::new(bin())
+        .args(["session", "--help"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("cmux session <selector> journal list"), "{help}");
+    assert!(
+        help.contains(
+            "cmux session <selector> journal inspect [--checkpoint latest|<checkpoint-id>]"
+        ),
+        "{help}"
+    );
+    assert!(
+        help.contains("cmux session <selector> journal restore [--checkpoint latest|<checkpoint-id>] --idempotency-key <key>"),
+        "{help}"
+    );
+}
+
+#[test]
+fn no_restore_is_a_start_only_option_and_provider_modes_reject_it() {
+    let help = Command::new(bin())
+        .args(["--no-restore", "--help"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&help);
+
+    let attach = Command::new(bin())
+        .args(["attach", "--no-restore"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(attach.status.code(), Some(2));
+    assert!(
+        String::from_utf8(attach.stderr)
+            .unwrap()
+            .contains("--no-restore applies only when starting a session")
+    );
+
+    for provider_args in [
+        vec!["--machine-provider", "/tmp/provider.sock", "--no-restore"],
+        vec!["--no-restore", "--machine-provider-command", "provider", "--"],
+        vec!["--cloud", "--no-restore"],
+    ] {
+        let output = Command::new(bin())
+            .args(&provider_args)
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{provider_args:?}");
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains("--no-restore"),
+            "{provider_args:?}"
+        );
+    }
 }
 
 #[cfg(unix)]

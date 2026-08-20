@@ -64,6 +64,10 @@ remote-listener flags when the owning process also serves authenticated
 clients. Top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle.
 
+Startup restores journal-owned agent projections by default. Pass
+`--no-restore` on a new session start to skip that replay for one invocation.
+The option is not valid with `attach` or a machine provider.
+
 ## Public grammar
 
 ```text
@@ -153,6 +157,11 @@ the caller supplies `--idempotency-key`. The CLI sends one request and never
 retries a mutation. Mutations that support optimistic concurrency expose
 `--expected-revision`.
 
+The noun-first journal restore route requires an explicit `--idempotency-key`.
+This gives a retry from another process the same durable receipt. The raw
+`cmux raw operation` transport route keeps its generic mutation behavior and
+may generate a key when the caller does not provide one.
+
 An explicit idempotency key contains 1 to 128 UTF-8 bytes, at least one
 Unicode scalar outside the Unicode `White_Space` property, and no Unicode
 `Cc` control scalar. Non-control whitespace is preserved when the key also
@@ -208,6 +217,9 @@ session <selector> journal hook list
 session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
 session <selector> journal checkpoint create --idempotency-key <key>
 session <selector> journal checkpoint list
+session <selector> journal list
+session <selector> journal inspect [--checkpoint latest|<checkpoint-id>]
+session <selector> journal restore [--checkpoint latest|<checkpoint-id>] --idempotency-key <key>
 session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
 session <selector> journal segment list
 session <selector> journal segment seal --through <sequence> --idempotency-key <key>

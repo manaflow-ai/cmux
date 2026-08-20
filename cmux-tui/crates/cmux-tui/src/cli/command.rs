@@ -413,6 +413,33 @@ fn parse_session(
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionJournalCheckpointList, selectors, flags, Map::new())
         }
+        [selector, "journal", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "inspect"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            if let Some(checkpoint) = flags.take("checkpoint") {
+                params.insert("checkpoint".into(), Value::String(checkpoint));
+            }
+            request(ResourceOperation::SessionJournalInspect, selectors, flags, params)
+        }
+        [selector, "journal", "restore"] => {
+            selectors.insert("session", "session", selector)?;
+            let idempotency_key = required_idempotency_key(flags)?;
+            let mut params = Map::new();
+            if let Some(checkpoint) = flags.take("checkpoint") {
+                params.insert("checkpoint".into(), Value::String(checkpoint));
+            }
+            request_with_idempotency(
+                ResourceOperation::SessionJournalRestore,
+                selectors,
+                flags,
+                params,
+                idempotency_key,
+            )
+        }
         [selector, "journal", "restore", "preview"] => {
             selectors.insert("session", "session", selector)?;
             let mut params = Map::new();
@@ -1711,6 +1738,27 @@ fn request(
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
 }
 
+fn request_with_idempotency(
+    operation: ResourceOperation,
+    selectors: &Selectors,
+    flags: &mut Flags,
+    params: Map<String, Value>,
+    idempotency_key: String,
+) -> Result<CommandPlan, UsageError> {
+    let plan = request(operation, selectors, flags, params)?;
+    let CommandPlan::Protocol(mut plan) = plan else {
+        return Err(UsageError::new("journal restore did not produce a protocol request"));
+    };
+    plan.idempotency_key = Some(idempotency_key);
+    Ok(CommandPlan::Protocol(plan))
+}
+
+fn required_idempotency_key(flags: &mut Flags) -> Result<String, UsageError> {
+    let key = flags.required("idempotency-key")?;
+    validate_idempotency_key(&key).map_err(|error| UsageError::new(error.message))?;
+    Ok(key)
+}
+
 const fn correlated_creation(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -1793,6 +1841,7 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalCheckpointCreate
                 | ResourceOperation::SessionJournalHookPut
                 | ResourceOperation::SessionJournalProducerPut
+                | ResourceOperation::SessionJournalRestore
                 | ResourceOperation::SessionJournalSegmentSeal
         )
 }
@@ -3571,6 +3620,22 @@ mod tests {
     }
 
     #[test]
+    fn journal_restore_rejects_expected_revision_when_catalog_omits_it() {
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        let restore = parse(&strings(&[
+            "session",
+            SESSION,
+            "journal",
+            "restore",
+            "--idempotency-key",
+            "restore-key",
+            "--expected-revision",
+            "7",
+        ]));
+        assert!(restore.is_err());
+    }
+
+    #[test]
     fn nullable_fields_have_explicit_clear_flags() {
         const CLIENT: &str = "client_00000000000000000000000000000003";
         const SESSION: &str = "session_00000000000000000000000000000002";
@@ -3826,6 +3891,24 @@ mod tests {
             (
                 vec!["session", SESSION, "journal", "checkpoint", "list"],
                 "session.journal.checkpoint.list",
+            ),
+            (vec!["session", SESSION, "journal", "list"], "session.journal.list"),
+            (
+                vec!["session", SESSION, "journal", "inspect", "--checkpoint", "latest"],
+                "session.journal.inspect",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "restore",
+                    "--checkpoint",
+                    "latest",
+                    "--idempotency-key",
+                    "restore-case",
+                ],
+                "session.journal.restore",
             ),
             (
                 vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
@@ -4371,9 +4454,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 117);
+        assert_eq!(cases.len(), 120);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

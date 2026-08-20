@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "d92b567abdfc8d76382c65e222521b3ac76f7183216cb922bceb841475513509",
+  "catalog_sha256": "8e9cf1d1f5e1ed2819ccf410b6e1fa21f9aae502c2b93c59204aa0dc94804d66",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -190,10 +190,19 @@
     "session.journal.hook.put": {
       "class": "mutation"
     },
+    "session.journal.inspect": {
+      "class": "read"
+    },
+    "session.journal.list": {
+      "class": "read"
+    },
     "session.journal.producer.list": {
       "class": "read"
     },
     "session.journal.producer.put": {
+      "class": "mutation"
+    },
+    "session.journal.restore": {
       "class": "mutation"
     },
     "session.journal.restore.preview": {
