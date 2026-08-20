@@ -35,6 +35,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var iconHoverCardDwellTask: Task<Void, Never>?
     private var iconHoverCardPopover: NSPopover?
+    /// Cell classes differ per display mode, so a mode flip must replace
+    /// every mounted cell (atomic reload) instead of reconfiguring in place.
+    private var lastAppliedColumnDisplayMode: SidebarColumnDisplayMode = .regular
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
@@ -468,7 +471,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             )
         }
 #endif
-        if hasStructuralChanges {
+        let nextDisplayMode = nextRows.first?.columnDisplayMode ?? lastAppliedColumnDisplayMode
+        let displayModeChanged = nextDisplayMode != lastAppliedColumnDisplayMode
+        lastAppliedColumnDisplayMode = nextDisplayMode
+        if displayModeChanged {
+            // Regular and icon presentations use different cell classes; an
+            // in-place reconfigure would repaint the old class at the new
+            // height. Replace everything atomically.
+            let postUpdateActions = detachLoadedCells()
+            containerView.tableView.reloadData()
+            mutationScheduler.stagePostUpdateActions(postUpdateActions)
+        } else if hasStructuralChanges {
             if heightChanges.isEmpty, isSmallPureReorder {
                 // Stable-geometry reorder (drag-drop): move rows in place.
                 // reloadData tears down every visible cell and snaps the
@@ -1538,11 +1551,35 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func reconfigureVisibleRows(_ indexes: IndexSet) {
         guard let table = containerView?.tableView else { return }
         for row in indexes where rows.indices.contains(row) {
+            let wantsIconCell = rows[row].columnDisplayMode == .icons
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarWorkspaceIconTableCellView:
+                if wantsIconCell {
+                    configure(iconCell: cell, at: row)
+                } else {
+                    table.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                }
             case let cell as SidebarGroupHeaderTableCellView:
-                configure(headerCell: cell, at: row)
+                if wantsIconCell {
+                    table.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                } else {
+                    configure(headerCell: cell, at: row)
+                }
             case let cell as SidebarWorkspaceRowTableCellView:
-                configure(workspaceCell: cell, at: row)
+                if wantsIconCell {
+                    table.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                } else {
+                    configure(workspaceCell: cell, at: row)
+                }
             case let cell as SidebarWorkspaceTableCellView:
                 configure(cell: cell, at: row)
             default:

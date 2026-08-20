@@ -191,18 +191,14 @@ struct SidebarMachineColumnView: View {
         _ machine: SidebarCreationContextSnapshot,
         settings: SidebarTabItemSettingsSnapshot
     ) -> some View {
+        // Finder cascade: the machines column is the ancestor of the focused
+        // workspaces column, so its selection uses the quiet system tint
+        // (unemphasized) instead of competing with the accent selection next
+        // to it.
         let palette = SidebarListRowPalette(
-            isActive: machine.isSelected,
+            isActive: false,
             colorScheme: colorScheme,
             selectionColorHex: settings.selectionColorHex
-        )
-        let backgroundStyle = sidebarListRowBackgroundStyle(
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
-            isActive: machine.isSelected,
-            isMultiSelected: false,
-            customColorHex: nil,
-            colorScheme: colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
         )
 
         Group {
@@ -234,18 +230,15 @@ struct SidebarMachineColumnView: View {
             }
         }
         .background {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(rowBackgroundColor(backgroundStyle))
+            if machine.isSelected {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
+            }
         }
         .padding(.horizontal, SidebarListMetrics.rowOuterHorizontalPadding)
         .contentShape(Rectangle())
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.18), value: displayMode)
-    }
-
-    private func rowBackgroundColor(_ style: SidebarListRowBackgroundStyle) -> Color {
-        guard let color = style.color else { return .clear }
-        return Color(nsColor: color).opacity(style.opacity)
     }
 
     /// This Mac renders the actual hardware icon (like Finder's sidebar);
