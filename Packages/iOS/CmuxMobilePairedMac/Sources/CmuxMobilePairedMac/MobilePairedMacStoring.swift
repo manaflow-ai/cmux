@@ -213,7 +213,10 @@ extension MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard instanceTag?.isEmpty != false else { return }
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await setActive(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -234,7 +237,10 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        guard instanceTag?.isEmpty != false else { return }
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
@@ -255,7 +261,10 @@ extension MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard instanceTag?.isEmpty != false else { return }
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await remove(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
