@@ -889,6 +889,21 @@ import Testing
         #expect(MobileWorkspaceSortStore(defaults: defaults).computerPriority == store.workspaceComputerPriority)
     }
 
+    @Test func foregroundWorkspaceChangesRetainAnonymousRows() {
+        let anonymous = MobileWorkspacePreview(
+            id: "anonymous", name: "Anonymous", terminals: []
+        )
+        var owned = MobileWorkspacePreview(
+            id: "owned", macDeviceID: "mac-a", name: "Owned", terminals: []
+        )
+        owned.macInstanceTag = "stable"
+        let store = MobileShellComposite(workspaces: [anonymous, owned])
+        store.foregroundMacDeviceID = "mac-a"
+        store.activeMacInstanceTag = "stable"
+
+        #expect(Set(store.foregroundWorkspaceChangesIDs) == ["anonymous", "owned"])
+    }
+
     @Test func secondaryUnavailableDowngradeKeepsRowsVisibleButInactive() {
         let store = MobileShellComposite.preview()
         store.signIn()

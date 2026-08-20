@@ -125,15 +125,12 @@ extension MobileShellComposite {
         if foregroundMacKey.isOnDevice(ownerKey.canonicalMacDeviceID), remoteClient != nil {
             liveOwners.insert(foregroundMacKey)
         }
-        if liveOwners == [legacyOwnerKey] {
-            if foregroundMacKey == legacyOwnerKey { return remoteClient }
-            return secondaryMacSubscriptions[legacyOwnerKey]?.client
-        }
         let storedSiblings = pairedMacsForIdentityMatching.filter {
             cmxCanonicalDeviceID($0.macDeviceID) == ownerKey.canonicalMacDeviceID
         }
         guard storedSiblings.count == 1,
               storedSiblings[0].instanceTag == nil else { return nil }
+        guard liveOwners == [legacyOwnerKey] else { return nil }
         if foregroundMacKey == legacyOwnerKey,
            let remoteClient {
             return remoteClient
