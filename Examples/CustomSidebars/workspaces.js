@@ -13,6 +13,62 @@
 // Install:  cp Examples/CustomSidebars/workspaces.js ~/.config/cmux/sidebars/
 // Open:     cmux sidebar open workspaces
 
+// --- optimistic UI -------------------------------------------------------------
+// Every user action flips local state the same frame; the cmux command runs
+// behind it and the authoritative data context (which refreshes about once a
+// second) reconciles: each override clears itself as soon as the data agrees.
+let selectOverride = null;
+const [selectTick, setSelectTick] = signal(0);
+
+function isSelected(w) {
+  selectTick();
+  if (!w) return false;
+  if (selectOverride) {
+    if (data.selectedId() === selectOverride) selectOverride = null; // caught up
+    else return w.id === selectOverride;
+  }
+  return !!w.selected;
+}
+
+function selectWorkspace(id) {
+  if (!id) return;
+  selectOverride = id;
+  setSelectTick(selectTick() + 1);
+  cmux("workspace.select", { workspace_id: id });
+}
+
+const closedOverride = new Set();
+const [closeTick, setCloseTick] = signal(0);
+
+function visibleWorkspaces() {
+  closeTick();
+  const ws = data.workspaces() ?? [];
+  for (const id of Array.from(closedOverride)) {
+    if (!ws.some((w) => w.id === id)) closedOverride.delete(id); // caught up
+  }
+  return ws.filter((w) => !closedOverride.has(w.id));
+}
+
+function closeWorkspace(id) {
+  closedOverride.add(id);
+  setCloseTick(closeTick() + 1);
+  cmux("workspace.close", { workspace_id: id });
+}
+
+const titleOverride = new Map();
+const [titleTick, setTitleTick] = signal(0);
+
+function displayTitle(w) {
+  titleTick();
+  if (!w) return "";
+  if (titleOverride.has(w.id)) {
+    const t = titleOverride.get(w.id);
+    if (w.title === t) titleOverride.delete(w.id); // caught up
+    else return t;
+  }
+  return w.title;
+}
+
 // --- inline rename -----------------------------------------------------------
 // Double-click a row/header (or its Rename menu item) to edit in place.
 // Editing swaps the entry's key, so the keyed reconciler remounts the row as
@@ -42,7 +98,7 @@ function toggleCollapse(g) {
 
 // --- data helpers ------------------------------------------------------------
 const groupById = (id) => (data.groups() ?? []).find((g) => g.id === id);
-const membersOf = (id) => (data.workspaces() ?? []).filter((w) => w.group === id);
+const membersOf = (id) => visibleWorkspaces().filter((w) => w.group === id);
 // The anchor workspace IS the header (matching the built-in sidebar).
 const memberRowsOf = (id) => {
   const g = groupById(id);
@@ -52,7 +108,7 @@ const memberRowsOf = (id) => {
 // One flat entry list: a group renders (header + expanded member rows) at its
 // first member's position; ungrouped workspaces are plain rows.
 const flatEntries = computed(() => {
-  const ws = data.workspaces() ?? [];
+  const ws = visibleWorkspaces();
   const groups = new Map((data.groups() ?? []).map((g) => [g.id, g]));
   const out = [];
   const seen = new Set();
@@ -182,11 +238,11 @@ function workspaceMenu(w) {
 
 function workspaceRow(w, entry) {
   return HStack({ spacing: 8 }, [
-    Text(() => w()?.title ?? "")
+    Text(() => displayTitle(w()))
       .font(13)
       .lineLimit(1)
       .truncation("tail")
-      .color(() => (w()?.selected ? "primary" : "secondary")),
+      .color(() => (isSelected(w()) ? "primary" : "secondary")),
     Spacer(),
     ZStack({}, [
       // Unread badge at rest; on hover it yields to the close button.
@@ -202,18 +258,18 @@ function workspaceRow(w, entry) {
         .cornerRadius(5)
         .hoverBackground("#7f7f7f38")
         .showOnHover()
-        .onTap(() => cmux("workspace.close", { workspace_id: w().id })),
+        .onTap(() => closeWorkspace(w().id)),
     ]),
   ])
     .paddingHorizontal(10)
     .paddingVertical(6)
     .marginLeading(() => (entry().groupId ? 14 : 0))
     .cornerRadius(8)
-    .background(() => (w()?.selected ? "#7f7f7f3d" : null))
-    .hoverBackground(() => (w()?.selected ? "#7f7f7f3d" : "#7f7f7f24"))
+    .background(() => (isSelected(w()) ? "#7f7f7f3d" : null))
+    .hoverBackground(() => (isSelected(w()) ? "#7f7f7f3d" : "#7f7f7f24"))
     .frame({ maxWidth: "infinity" })
     .block(() => (entry().groupId ? "h:" + entry().groupId : null))
-    .onTap(() => cmux("workspace.select", { workspace_id: w().id }))
+    .onTap(() => selectWorkspace(w().id))
     .onDoubleTap(() => setEditingId(w().id))
     .contextMenu(workspaceMenu(w));
 }
@@ -225,8 +281,13 @@ function workspaceEditRow(w, entry) {
       placeholder: "Workspace name",
       onSubmit: (t) => {
         const title = (t ?? "").trim();
-        if (title) cmux("workspace.action", { action: "rename", workspace_id: w().id, title });
-        else cmux("workspace.action", { action: "clear_name", workspace_id: w().id });
+        if (title) {
+          titleOverride.set(w().id, title);
+          setTitleTick(titleTick() + 1);
+          cmux("workspace.action", { action: "rename", workspace_id: w().id, title });
+        } else {
+          cmux("workspace.action", { action: "clear_name", workspace_id: w().id });
+        }
         setEditingId(null);
       },
       onCancel: () => setEditingId(null),
@@ -257,7 +318,7 @@ function groupHeader(groupId) {
       .frame({ width: 14, height: 16 })
       .onTap(() => toggleCollapse(g())),
     Text(() => g().name).font(12).weight("semibold").lineLimit(1).truncation("tail")
-      .color(() => (anchor()?.selected ? "primary" : "secondary")),
+      .color(() => (isSelected(anchor()) ? "primary" : "secondary")),
     Spacer(),
     Text(() => String(membersOf(groupId).length))
       .font("caption2").color("tertiary").monospaced(),
@@ -266,15 +327,12 @@ function groupHeader(groupId) {
     .paddingTrailing(10)
     .paddingVertical(5)
     .cornerRadius(8)
-    .background(() => (anchor()?.selected ? "#7f7f7f3d" : null))
-    .hoverBackground(() => (anchor()?.selected ? "#7f7f7f3d" : "#7f7f7f1c"))
+    .background(() => (isSelected(anchor()) ? "#7f7f7f3d" : null))
+    .hoverBackground(() => (isSelected(anchor()) ? "#7f7f7f3d" : "#7f7f7f1c"))
     .frame({ maxWidth: "infinity" })
     .fixed()
     .block("h:" + groupId)
-    .onTap(() => {
-      const a = anchor();
-      if (a) cmux("workspace.select", { workspace_id: a.id });
-    })
+    .onTap(() => selectWorkspace(anchor()?.id))
     .onDoubleTap(() => setEditingId("h:" + groupId))
     .contextMenu([
       Button("Rename Group", () => setEditingId("h:" + groupId)),
