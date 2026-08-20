@@ -36,9 +36,10 @@ public struct IrohRoute: Codable, Equatable, Hashable, Sendable {
 
     /// Converts the route into the generic transport descriptor.
     ///
-    /// The current experiment carries the endpoint identifier as the opaque
-    /// identifier. Relay and address hints remain available to the Iroh
-    /// provider and will be threaded through a richer route registry later.
+    /// The generic route carries only the stable endpoint identity. A
+    /// ``IrohRouteResolver`` supplies current relay and direct-address hints
+    /// immediately before dialing, so stale reachability data is not persisted
+    /// in the generic selection layer.
     ///
     /// - Returns: A route addressed to this endpoint.
     public func transportRoute() throws -> TransportRoute {

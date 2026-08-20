@@ -4,12 +4,17 @@ public import CmuxLiteTransport
 /// Opens Iroh routes and returns ``IrohByteStream`` adapters.
 public struct IrohConnector: TransportConnector, Sendable {
     private let provider: any IrohConnectionProvider
+    private let routeResolver: (any IrohRouteResolver)?
 
     /// Creates a connector around a native binding provider.
     ///
     /// - Parameter provider: The object that owns the native Iroh endpoint.
-    public init(provider: any IrohConnectionProvider) {
+    public init(
+        provider: any IrohConnectionProvider,
+        routeResolver: (any IrohRouteResolver)? = nil
+    ) {
         self.provider = provider
+        self.routeResolver = routeResolver
     }
 
     /// Opens one Iroh route and classifies binding failures for fallback policy.
@@ -24,10 +29,25 @@ public struct IrohConnector: TransportConnector, Sendable {
         }
 
         let irohRoute: IrohRoute
-        do {
-            irohRoute = try IrohRoute(endpointID: route.identifier)
-        } catch {
-            throw TransportOpenFailure.invalidRoute
+        if let routeResolver {
+            do {
+                irohRoute = try await routeResolver.resolve(
+                    endpointID: route.identifier
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw TransportOpenFailure.invalidRoute
+            }
+            guard irohRoute.endpointID == route.identifier else {
+                throw TransportOpenFailure.invalidRoute
+            }
+        } else {
+            do {
+                irohRoute = try IrohRoute(endpointID: route.identifier)
+            } catch {
+                throw TransportOpenFailure.invalidRoute
+            }
         }
 
         do {
@@ -42,7 +62,7 @@ public struct IrohConnector: TransportConnector, Sendable {
 
     private static func map(_ failure: IrohOpenFailure) -> TransportOpenFailure {
         switch failure {
-        case .unavailable, .closed:
+        case .unavailable, .closed, .acceptAlreadyPending:
             return .unavailable
         case .incompatiblePeer:
             return .incompatiblePeer

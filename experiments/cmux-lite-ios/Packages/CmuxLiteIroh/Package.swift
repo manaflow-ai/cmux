@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxLiteProtocol"),
+        .package(path: "../CmuxLiteSession"),
         .package(path: "../CmuxLiteTransport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
@@ -27,6 +28,7 @@ let package = Package(
             name: "CmuxLiteIroh",
             dependencies: [
                 .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
+                .product(name: "CmuxLiteSession", package: "CmuxLiteSession"),
                 .product(name: "CmuxLiteTransport", package: "CmuxLiteTransport"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
@@ -41,6 +43,7 @@ let package = Package(
             dependencies: [
                 "CmuxLiteIroh",
                 .product(name: "CmuxLiteProtocol", package: "CmuxLiteProtocol"),
+                .product(name: "CmuxLiteSession", package: "CmuxLiteSession"),
                 .product(name: "CmuxLiteTransport", package: "CmuxLiteTransport"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],

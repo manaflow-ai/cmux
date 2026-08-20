@@ -6,7 +6,7 @@ import IrohLib
 /// Binding is shared by concurrent callers. The provider never creates a
 /// second endpoint generation merely because two sessions begin at once, and
 /// `close()` is explicit so endpoint teardown has a deterministic owner.
-public actor IrohLibConnectionProvider: IrohConnectionProvider {
+public actor IrohLibConnectionProvider: IrohEndpointProvider {
     private let configuration: IrohLibConfiguration
     private let factory: any IrohEndpointFactory
     private var endpoint: (any IrohEndpointDriver)?
@@ -14,6 +14,7 @@ public actor IrohLibConnectionProvider: IrohConnectionProvider {
     private var bindingWaiters: [
         CheckedContinuation<any IrohEndpointDriver, any Error>
     ] = []
+    private var acceptTask: Task<IrohIncomingConnection?, any Error>?
     private var isClosed = false
 
     /// Creates a provider using the checked-in IrohLib implementation.
@@ -56,12 +57,74 @@ public actor IrohLibConnectionProvider: IrohConnectionProvider {
         }
     }
 
+    /// Returns the endpoint's public identity and currently known addresses.
+    public func localRoute() async throws -> IrohRoute {
+        guard !isClosed else {
+            throw IrohOpenFailure.closed
+        }
+
+        let endpoint = try await endpointDriver()
+        do {
+            return try await endpoint.localRoute()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let failure as IrohOpenFailure {
+            throw failure
+        } catch {
+            throw IrohLibFailureMapper.openFailure(for: error)
+        }
+    }
+
+    /// Waits for one incoming connection.
+    ///
+    /// The provider permits one pending accept owner. A second caller is
+    /// rejected instead of receiving the same connection value, which would
+    /// create two owners for one native stream. Closing the provider cancels
+    /// this operation and closes the native endpoint so a pending caller cannot
+    /// hang forever.
+    public func accept() async throws -> IrohIncomingConnection? {
+        guard !isClosed else {
+            throw IrohOpenFailure.closed
+        }
+
+        // Claim accept ownership before the binding await. Otherwise two actor
+        // calls can both enter `endpointDriver()` while it suspends and each
+        // start a native accept after the shared bind completes.
+        guard acceptTask == nil else {
+            throw IrohOpenFailure.acceptAlreadyPending
+        }
+        let alpn = configuration.alpn
+        let task = Task<IrohIncomingConnection?, any Error> {
+            let endpoint = try await self.endpointDriver()
+            return try await endpoint.accept(alpn: alpn)
+        }
+        acceptTask = task
+
+        do {
+            let incoming = try await task.value
+            acceptTask = nil
+            if isClosed {
+                await incoming?.connection.close()
+                throw IrohOpenFailure.closed
+            }
+            return incoming
+        } catch is CancellationError {
+            acceptTask = nil
+            throw CancellationError()
+        } catch {
+            acceptTask = nil
+            throw IrohLibFailureMapper.openFailure(for: error)
+        }
+    }
+
     /// Closes the endpoint generation after all callers have stopped using it.
     public func close() async {
         guard !isClosed else {
             return
         }
         isClosed = true
+        acceptTask?.cancel()
+        acceptTask = nil
         resumeBindingWaiters(throwing: IrohOpenFailure.closed)
 
         guard let endpoint else {

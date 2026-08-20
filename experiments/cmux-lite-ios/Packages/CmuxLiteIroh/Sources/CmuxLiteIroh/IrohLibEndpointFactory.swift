@@ -3,8 +3,16 @@ import IrohLib
 
 /// Binds the generated IrohLib endpoint and wraps it in the experiment seam.
 public struct IrohLibEndpointFactory: IrohEndpointFactory, Sendable {
+    private let closeClock: any IrohCloseClock
+
     /// Creates the default native endpoint factory.
-    public init() {}
+    public init() {
+        closeClock = ContinuousIrohCloseClock()
+    }
+
+    init(closeClock: any IrohCloseClock) {
+        self.closeClock = closeClock
+    }
 
     /// Binds an endpoint using the requested relay mode, ALPN, and key.
     public func bind(
@@ -21,6 +29,13 @@ public struct IrohLibEndpointFactory: IrohEndpointFactory, Sendable {
             builder.applyN0DisableRelay()
         }
         builder.alpns(alpns: [configuration.alpn])
+        if let bindAddress = configuration.bindAddress {
+            do {
+                try builder.bindAddr(addr: bindAddress)
+            } catch {
+                throw IrohLibFailureMapper.openFailure(for: error)
+            }
+        }
         if let secretKeyBytes = configuration.secretKeyBytes {
             do {
                 try builder.secretKey(bytes: secretKeyBytes)
@@ -33,7 +48,9 @@ public struct IrohLibEndpointFactory: IrohEndpointFactory, Sendable {
             let endpoint = try await builder.bind()
             return IrohLibEndpointDriver(
                 endpoint: endpoint,
-                maximumReceiveChunkBytes: configuration.maximumReceiveChunkBytes
+                maximumReceiveChunkBytes: configuration.maximumReceiveChunkBytes,
+                closeDrainTimeout: configuration.closeDrainTimeout,
+                closeClock: closeClock
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -49,12 +66,28 @@ public struct IrohLibEndpointFactory: IrohEndpointFactory, Sendable {
 final class IrohLibEndpointDriver: IrohEndpointDriver, @unchecked Sendable {
     private let endpoint: Endpoint
     private let maximumReceiveChunkBytes: UInt32
+    private let closeDrainTimeout: Duration
+    private let closeClock: any IrohCloseClock
     private let stateLock = NSLock()
     private var closed = false
 
-    init(endpoint: Endpoint, maximumReceiveChunkBytes: UInt32) {
+    init(
+        endpoint: Endpoint,
+        maximumReceiveChunkBytes: UInt32,
+        closeDrainTimeout: Duration,
+        closeClock: any IrohCloseClock
+    ) {
         self.endpoint = endpoint
         self.maximumReceiveChunkBytes = maximumReceiveChunkBytes
+        self.closeDrainTimeout = closeDrainTimeout
+        self.closeClock = closeClock
+    }
+
+    func localRoute() async throws -> IrohRoute {
+        guard !isClosed() else {
+            throw IrohOpenFailure.closed
+        }
+        return try IrohLibRouteAddress.makeRoute(for: endpoint.addr())
     }
 
     func connect(
@@ -86,7 +119,9 @@ final class IrohLibEndpointDriver: IrohEndpointDriver, @unchecked Sendable {
                 return IrohLibConnection(
                     connection: connection,
                     stream: stream,
-                    maximumReceiveChunkBytes: maximumReceiveChunkBytes
+                    maximumReceiveChunkBytes: maximumReceiveChunkBytes,
+                    closeDrainTimeout: closeDrainTimeout,
+                    closeClock: closeClock
                 )
             } catch {
                 try? connection.close(errorCode: 0, reason: Data())
@@ -99,6 +134,77 @@ final class IrohLibEndpointDriver: IrohEndpointDriver, @unchecked Sendable {
         } catch {
             throw IrohLibFailureMapper.openFailure(for: error)
         }
+    }
+
+    func accept(alpn: Data) async throws -> IrohIncomingConnection? {
+        guard !isClosed() else {
+            throw IrohOpenFailure.closed
+        }
+
+        while let incoming = await endpoint.acceptNext() {
+            guard !isClosed() else {
+                try? await incoming.refuse()
+                throw IrohOpenFailure.closed
+            }
+            do {
+                let accepting = try await incoming.accept()
+                let offeredALPN = try await accepting.alpn()
+
+                // Dropping an incompatible Accepting handle rejects that
+                // candidate. Keep listening because one unrelated protocol
+                // must not take the server endpoint offline.
+                guard offeredALPN == alpn else {
+                    continue
+                }
+
+                let connection = try await accepting.connect()
+                guard connection.alpn() == alpn else {
+                    try? connection.close(
+                        errorCode: 0,
+                        reason: Data("ALPN mismatch".utf8)
+                    )
+                    continue
+                }
+
+                let peerRoute = try IrohRoute(
+                    endpointID: connection.remoteId().description
+                )
+                do {
+                    let stream = try await connection.acceptBi()
+                    return IrohIncomingConnection(
+                        peerRoute: peerRoute,
+                        connection: IrohLibConnection(
+                            connection: connection,
+                            stream: stream,
+                            maximumReceiveChunkBytes: maximumReceiveChunkBytes,
+                            closeDrainTimeout: closeDrainTimeout,
+                            closeClock: closeClock
+                        )
+                    )
+                } catch {
+                    try? connection.close(errorCode: 0, reason: Data())
+                    throw error
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let failure as IrohOpenFailure {
+                guard failure == .closed else {
+                    continue
+                }
+                throw failure
+            } catch {
+                let failure = IrohLibFailureMapper.openFailure(for: error)
+                guard failure != .closed else {
+                    throw failure
+                }
+                // A malformed or incompatible incoming candidate is isolated
+                // to that candidate. The listener remains available for the
+                // next peer.
+                continue
+            }
+        }
+
+        return nil
     }
 
     func close() async {
@@ -140,6 +246,19 @@ enum IrohLibRouteAddress {
             relayUrl: route.relayURL,
             addresses: route.directAddresses
         )
+    }
+
+    /// Converts a native endpoint address into public route metadata.
+    static func makeRoute(for address: EndpointAddr) throws -> IrohRoute {
+        do {
+            return try IrohRoute(
+                endpointID: address.id().description,
+                relayURL: address.relayUrl(),
+                directAddresses: address.directAddresses()
+            )
+        } catch {
+            throw IrohOpenFailure.invalidRoute
+        }
     }
 }
 

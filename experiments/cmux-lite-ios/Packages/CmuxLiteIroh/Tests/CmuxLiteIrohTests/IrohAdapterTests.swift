@@ -59,6 +59,147 @@ struct IrohAdapterTests {
         #expect(await factory.bindCount() == 1)
     }
 
+    @Test("one endpoint publishes one route and owns one pending accept")
+    func endpointOwnership() async throws {
+        let endpoint = BlockingAcceptEndpointDriver()
+        let factory = ImmediateEndpointFactory(endpoint: endpoint)
+        let provider = IrohLibConnectionProvider(
+            configuration: .standard,
+            factory: factory
+        )
+
+        let firstRoute = try await provider.localRoute()
+        let secondRoute = try await provider.localRoute()
+        #expect(firstRoute == secondRoute)
+        #expect(await factory.bindCount() == 1)
+
+        let firstAccept = Task<IrohIncomingConnection?, any Error> {
+            try await provider.accept()
+        }
+        await endpoint.waitUntilAcceptIsPending()
+        await #expect(throws: IrohOpenFailure.acceptAlreadyPending) {
+            _ = try await provider.accept()
+        }
+
+        await provider.close()
+        _ = try? await firstAccept.value
+        #expect(await endpoint.acceptCount() == 1)
+        #expect(await endpoint.isClosed())
+    }
+
+    @Test("accept ownership is claimed while the endpoint is still binding")
+    func acceptOwnershipDuringBind() async throws {
+        let endpoint = BlockingAcceptEndpointDriver()
+        let factory = GatedEndpointFactory(endpoint: endpoint)
+        let provider = IrohLibConnectionProvider(
+            configuration: .standard,
+            factory: factory
+        )
+
+        let firstAccept = Task<IrohIncomingConnection?, any Error> {
+            try await provider.accept()
+        }
+        await factory.waitUntilBindIsPending()
+        await #expect(throws: IrohOpenFailure.acceptAlreadyPending) {
+            _ = try await provider.accept()
+        }
+
+        await factory.release()
+        await endpoint.waitUntilAcceptIsPending()
+        await provider.close()
+        _ = try? await firstAccept.value
+        #expect(await factory.bindCount() == 1)
+        #expect(await endpoint.acceptCount() == 1)
+    }
+
+    @Test("a rejected peer does not stop the endpoint host")
+    func endpointHostIsolatesAdmissionRejection() async throws {
+        let firstConnection = FakeIrohConnection()
+        let secondConnection = WaitingIrohConnection()
+        let firstPeer = try IrohRoute(endpointID: "denied-peer")
+        let secondPeer = try IrohRoute(endpointID: "admitted-peer")
+        let endpoint = QueueingEndpointProvider(
+            localRoute: try IrohRoute(endpointID: "host-peer")
+        )
+        let host = IrohEndpointHost(
+            endpoint: endpoint,
+            codec: try FrameCodec()
+        ) { peer in
+            if peer.endpointID == firstPeer.endpointID {
+                throw AdmissionFailure.denied
+            }
+            return .server(
+                welcome: .init(
+                    sessionID: "admitted-session",
+                    nonce: "server-nonce"
+                )
+            )
+        }
+
+        try await host.start()
+        await endpoint.enqueue(
+            IrohIncomingConnection(
+                peerRoute: firstPeer,
+                connection: firstConnection
+            )
+        )
+        await firstConnection.waitUntilClosed()
+        #expect(await firstConnection.isClosed())
+        #expect(await endpoint.acceptCount() >= 2)
+
+        await endpoint.enqueue(
+            IrohIncomingConnection(
+                peerRoute: secondPeer,
+                connection: secondConnection
+            )
+        )
+        await endpoint.waitUntilAcceptCount(3)
+        #expect(await host.activePeerEndpointIDs() == [secondPeer.endpointID])
+
+        await host.close()
+        #expect(await secondConnection.isClosed())
+        #expect(await endpoint.isClosed())
+    }
+
+    @Test("the route catalog preserves public reachability hints")
+    func routeCatalog() async throws {
+        let route = try IrohRoute(
+            endpointID: "peer-1",
+            relayURL: "https://relay.example",
+            directAddresses: ["192.0.2.1:7842"]
+        )
+        let catalog = IrohRouteCatalog()
+        await catalog.publish(route)
+
+        #expect(try await catalog.resolve(endpointID: "peer-1") == route)
+        #expect(await catalog.snapshot() == [route])
+        #expect(await catalog.remove(endpointID: "peer-1") == route)
+        await #expect(throws: IrohRouteCatalog.Failure.unknownEndpoint("peer-1")) {
+            _ = try await catalog.resolve(endpointID: "peer-1")
+        }
+    }
+
+    @Test("a resolver cannot substitute a different endpoint identity")
+    func routeResolverIdentityMismatch() async throws {
+        let provider = FakeIrohProvider(
+            behavior: .success(FakeIrohConnection())
+        )
+        let resolver = SubstitutingRouteResolver()
+        let connector = IrohConnector(
+            provider: provider,
+            routeResolver: resolver
+        )
+        let route = try TransportRoute(
+            kind: .iroh,
+            identifier: "requested-peer"
+        )
+
+        await #expect(throws: TransportOpenFailure.invalidRoute) {
+            _ = try await connector.open(route: route)
+        }
+        #expect(await provider.attemptCount() == 0)
+    }
+
     @Test("configuration rejects unsafe native inputs")
     func configurationValidation() {
         #expect(
@@ -80,6 +221,22 @@ struct IrohAdapterTests {
             try IrohLibConfiguration(
                 alpn: Data("cmux-lite".utf8),
                 maximumReceiveChunkBytes: 0
+            )
+        }
+        #expect(
+            throws: IrohLibConfiguration.Failure.emptyBindAddress
+        ) {
+            try IrohLibConfiguration(
+                alpn: Data("cmux-lite".utf8),
+                bindAddress: " \t"
+            )
+        }
+        #expect(
+            throws: IrohLibConfiguration.Failure.invalidCloseDrainTimeout
+        ) {
+            try IrohLibConfiguration(
+                alpn: Data("cmux-lite".utf8),
+                closeDrainTimeout: .zero
             )
         }
     }
@@ -282,7 +439,7 @@ struct IrohAdapterTests {
 }
 
 private actor GatedEndpointFactory: IrohEndpointFactory {
-    private let endpoint: RecordingEndpointDriver
+    private let endpoint: any IrohEndpointDriver
     private var continuation: CheckedContinuation<
         any IrohEndpointDriver,
         any Error
@@ -290,7 +447,7 @@ private actor GatedEndpointFactory: IrohEndpointFactory {
     private var observer: CheckedContinuation<Void, Never>?
     private var binds = 0
 
-    init(endpoint: RecordingEndpointDriver) {
+    init(endpoint: any IrohEndpointDriver) {
         self.endpoint = endpoint
     }
 
@@ -344,10 +501,34 @@ private actor FailingEndpointFactory: IrohEndpointFactory {
     }
 }
 
+private actor ImmediateEndpointFactory: IrohEndpointFactory {
+    private let endpoint: any IrohEndpointDriver
+    private var binds = 0
+
+    init(endpoint: any IrohEndpointDriver) {
+        self.endpoint = endpoint
+    }
+
+    func bind(
+        configuration: IrohLibConfiguration
+    ) async throws -> any IrohEndpointDriver {
+        binds += 1
+        return endpoint
+    }
+
+    func bindCount() -> Int {
+        binds
+    }
+}
+
 private actor RecordingEndpointDriver: IrohEndpointDriver {
     private var recordedRoutes: [IrohRoute] = []
     private var recordedALPNs: [Data] = []
     private var closed = false
+
+    func localRoute() async throws -> IrohRoute {
+        try IrohRoute(endpointID: "peer-1")
+    }
 
     func connect(
         to route: IrohRoute,
@@ -359,6 +540,10 @@ private actor RecordingEndpointDriver: IrohEndpointDriver {
         recordedRoutes.append(route)
         recordedALPNs.append(alpn)
         return FakeIrohConnection()
+    }
+
+    func accept(alpn: Data) async throws -> IrohIncomingConnection? {
+        nil
     }
 
     func close() async {
@@ -378,9 +563,74 @@ private actor RecordingEndpointDriver: IrohEndpointDriver {
     }
 }
 
+private actor BlockingAcceptEndpointDriver: IrohEndpointDriver {
+    private var accepts = 0
+    private var pendingAccept: CheckedContinuation<
+        IrohIncomingConnection?,
+        any Error
+    >?
+    private var pendingObserver: CheckedContinuation<Void, Never>?
+    private var closed = false
+
+    func localRoute() async throws -> IrohRoute {
+        try IrohRoute(endpointID: "blocking-accept-peer")
+    }
+
+    func connect(
+        to route: IrohRoute,
+        alpn: Data
+    ) async throws -> any IrohConnection {
+        guard !closed else {
+            throw IrohOpenFailure.closed
+        }
+        return FakeIrohConnection()
+    }
+
+    func accept(alpn: Data) async throws -> IrohIncomingConnection? {
+        accepts += 1
+        pendingObserver?.resume()
+        pendingObserver = nil
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingAccept = continuation
+        }
+    }
+
+    func close() async {
+        guard !closed else {
+            return
+        }
+        closed = true
+        pendingAccept?.resume(returning: nil)
+        pendingAccept = nil
+    }
+
+    func waitUntilAcceptIsPending() async {
+        if pendingAccept != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            pendingObserver = continuation
+        }
+    }
+
+    func acceptCount() -> Int {
+        accepts
+    }
+
+    func isClosed() -> Bool {
+        closed
+    }
+}
+
 private enum FakeProviderBehavior: Sendable {
     case success(FakeIrohConnection)
     case failure(IrohOpenFailure)
+}
+
+private struct SubstitutingRouteResolver: IrohRouteResolver {
+    func resolve(endpointID: String) async throws -> IrohRoute {
+        try IrohRoute(endpointID: "different-peer")
+    }
 }
 
 private actor FakeIrohProvider: IrohConnectionProvider {
@@ -410,6 +660,7 @@ private actor FakeIrohConnection: IrohConnection {
     private var inbound: [Data]
     private var sent: [Data] = []
     private var closed = false
+    private var closeObservers: [CheckedContinuation<Void, Never>] = []
 
     init(inbound: [Data] = []) {
         self.inbound = inbound
@@ -434,6 +685,11 @@ private actor FakeIrohConnection: IrohConnection {
 
     func close() async {
         closed = true
+        let observers = closeObservers
+        closeObservers.removeAll(keepingCapacity: false)
+        for observer in observers {
+            observer.resume()
+        }
     }
 
     func sentChunks() -> [Data] {
@@ -442,6 +698,139 @@ private actor FakeIrohConnection: IrohConnection {
 
     func isClosed() -> Bool {
         closed
+    }
+
+    func waitUntilClosed() async {
+        if closed {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            closeObservers.append(continuation)
+        }
+    }
+}
+
+private enum AdmissionFailure: Error {
+    case denied
+}
+
+private actor WaitingIrohConnection: IrohConnection {
+    private var receiveContinuation: CheckedContinuation<Data?, any Error>?
+    private var closed = false
+
+    func send(_ bytes: Data) async throws {
+        guard !closed else {
+            throw IrohOpenFailure.closed
+        }
+    }
+
+    func receive() async throws -> Data? {
+        guard !closed else {
+            return nil
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            receiveContinuation = continuation
+        }
+    }
+
+    func close() async {
+        guard !closed else {
+            return
+        }
+        closed = true
+        receiveContinuation?.resume(returning: nil)
+        receiveContinuation = nil
+    }
+
+    func isClosed() -> Bool {
+        closed
+    }
+}
+
+private actor QueueingEndpointProvider: IrohEndpointProvider {
+    private let route: IrohRoute
+    private var queued: [IrohIncomingConnection] = []
+    private var pendingAccept: CheckedContinuation<
+        IrohIncomingConnection?,
+        any Error
+    >?
+    private var accepts = 0
+    private var acceptObservers: [(
+        target: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )] = []
+    private var closed = false
+
+    init(localRoute: IrohRoute) {
+        route = localRoute
+    }
+
+    func localRoute() async throws -> IrohRoute {
+        guard !closed else {
+            throw IrohOpenFailure.closed
+        }
+        return route
+    }
+
+    func connect(to route: IrohRoute) async throws -> any IrohConnection {
+        throw IrohOpenFailure.unavailable
+    }
+
+    func accept() async throws -> IrohIncomingConnection? {
+        accepts += 1
+        resumeAcceptObservers()
+        if !queued.isEmpty {
+            return queued.removeFirst()
+        }
+        guard !closed else {
+            return nil
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingAccept = continuation
+        }
+    }
+
+    func close() async {
+        guard !closed else {
+            return
+        }
+        closed = true
+        pendingAccept?.resume(returning: nil)
+        pendingAccept = nil
+    }
+
+    func enqueue(_ incoming: IrohIncomingConnection) {
+        if let pendingAccept {
+            self.pendingAccept = nil
+            pendingAccept.resume(returning: incoming)
+            return
+        }
+        queued.append(incoming)
+    }
+
+    func acceptCount() -> Int {
+        accepts
+    }
+
+    func waitUntilAcceptCount(_ target: Int) async {
+        if accepts >= target {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            acceptObservers.append((target, continuation))
+        }
+    }
+
+    func isClosed() -> Bool {
+        closed
+    }
+
+    private func resumeAcceptObservers() {
+        let ready = acceptObservers.filter { accepts >= $0.target }
+        acceptObservers.removeAll { accepts >= $0.target }
+        for observer in ready {
+            observer.continuation.resume()
+        }
     }
 }
 

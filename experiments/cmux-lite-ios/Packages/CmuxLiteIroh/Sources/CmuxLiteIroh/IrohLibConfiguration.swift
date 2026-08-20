@@ -28,6 +28,12 @@ public struct IrohLibConfiguration: Equatable, Sendable {
 
         /// Native reads need a positive upper bound.
         case invalidReceiveChunkLimit
+
+        /// Graceful stream shutdown needs a positive drain deadline.
+        case invalidCloseDrainTimeout
+
+        /// A supplied bind address must not be empty or whitespace-only.
+        case emptyBindAddress
     }
 
     /// A conservative default for the cmux-lite protocol.
@@ -35,7 +41,9 @@ public struct IrohLibConfiguration: Equatable, Sendable {
         uncheckedALPN: Data("dev.cmux.cmux-lite/1".utf8),
         relayMode: .production,
         secretKeyBytes: nil,
-        maximumReceiveChunkBytes: 64 * 1024
+        maximumReceiveChunkBytes: 64 * 1024,
+        bindAddress: nil,
+        closeDrainTimeout: .seconds(2)
     )
 
     /// The ALPN negotiated by both peers.
@@ -43,6 +51,13 @@ public struct IrohLibConfiguration: Equatable, Sendable {
 
     /// The relay/discovery mode for the endpoint.
     public let relayMode: RelayMode
+
+    /// Optional local socket address in `host:port` form.
+    ///
+    /// Leaving this nil lets Iroh choose its normal platform bind addresses.
+    /// Tests and local harnesses can use `127.0.0.1:0` to force a direct,
+    /// ephemeral loopback socket without involving a relay.
+    public let bindAddress: String?
 
     /// Optional caller-owned 32-byte endpoint key material.
     ///
@@ -53,12 +68,21 @@ public struct IrohLibConfiguration: Equatable, Sendable {
     /// Maximum number of bytes returned by one native receive operation.
     public let maximumReceiveChunkBytes: UInt32
 
+    /// Maximum time to wait for a finished native stream before forcing close.
+    ///
+    /// The deadline prevents a vanished peer from pinning an actor forever,
+    /// while still giving a normal peer time to consume the final protocol
+    /// close frame.
+    public let closeDrainTimeout: Duration
+
     /// Creates a validated endpoint configuration.
     public init(
         alpn: Data,
         relayMode: RelayMode = .production,
         secretKeyBytes: Data? = nil,
-        maximumReceiveChunkBytes: UInt32 = 64 * 1024
+        maximumReceiveChunkBytes: UInt32 = 64 * 1024,
+        bindAddress: String? = nil,
+        closeDrainTimeout: Duration = .seconds(2)
     ) throws {
         guard !alpn.isEmpty else {
             throw Failure.emptyALPN
@@ -66,25 +90,39 @@ public struct IrohLibConfiguration: Equatable, Sendable {
         if let secretKeyBytes, secretKeyBytes.count != 32 {
             throw Failure.invalidSecretKeyLength(secretKeyBytes.count)
         }
+        if let bindAddress,
+           bindAddress.isEmpty || bindAddress.allSatisfy({ $0.isWhitespace })
+        {
+            throw Failure.emptyBindAddress
+        }
         guard maximumReceiveChunkBytes > 0 else {
             throw Failure.invalidReceiveChunkLimit
+        }
+        guard closeDrainTimeout > .zero else {
+            throw Failure.invalidCloseDrainTimeout
         }
 
         self.alpn = Data(alpn)
         self.relayMode = relayMode
+        self.bindAddress = bindAddress
         self.secretKeyBytes = secretKeyBytes.map { Data($0) }
         self.maximumReceiveChunkBytes = maximumReceiveChunkBytes
+        self.closeDrainTimeout = closeDrainTimeout
     }
 
     private init(
         uncheckedALPN alpn: Data,
         relayMode: RelayMode,
         secretKeyBytes: Data?,
-        maximumReceiveChunkBytes: UInt32
+        maximumReceiveChunkBytes: UInt32,
+        bindAddress: String?,
+        closeDrainTimeout: Duration
     ) {
         self.alpn = alpn
         self.relayMode = relayMode
+        self.bindAddress = bindAddress
         self.secretKeyBytes = secretKeyBytes
         self.maximumReceiveChunkBytes = maximumReceiveChunkBytes
+        self.closeDrainTimeout = closeDrainTimeout
     }
 }

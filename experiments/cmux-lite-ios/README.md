@@ -15,16 +15,22 @@ a dependency on the existing cmux mobile implementation.
 attempt, while still leaving concrete network adapters out of the experiment.
 `Packages/CmuxLiteIroh` adds the unit-testable Swift adapter boundary and a
 concrete provider backed by the isolated `manaflow-ai/iroh-ffi` `cmux-lite`
-branch. The provider binds one endpoint lazily, validates route identity, and
-opens one bidirectional stream without wiring the experiment into production.
+branch. The provider binds one endpoint lazily, publishes its public route,
+resolves current address hints, validates peer identity and ALPN, accepts one
+owned inbound connection at a time, and opens one bidirectional stream without
+wiring the experiment into production. Its real loopback suite drives the
+generic transport dialer and session owner, not a renderer. A dedicated
+endpoint host owns the listener loop and accepted session lifetimes.
 
 Later slices will add, in order:
 
-1. a real two-endpoint Iroh listener/dialer harness;
-2. a Tailscale compatibility adapter;
-3. session reconnect and migration policy;
-4. terminal synchronization over deterministic transcripts;
-5. a Ghostty consumer and renderer verification.
+1. a Tailscale compatibility adapter;
+2. session reconnect and migration policy;
+3. terminal synchronization over deterministic transcripts;
+4. a Ghostty consumer and renderer verification.
 
 Nothing under this experiment is wired into the production app targets unless
 a later, explicit design decision promotes it.
+
+`./scripts/ci/run-cmux-lite-tests.sh` runs every isolated package suite,
+including the real local Iroh endpoint checks, without launching cmux.
