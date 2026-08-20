@@ -46,6 +46,23 @@ struct MobileWorkspacePreviewDefaultSurfaceTests {
         #expect(workspace.selectedMacSurface(id: nil) == todoSurface)
     }
 
+    @Test func fallbackPicksFirstNonTerminalSurfaceInSpatialOrder() {
+        let browserSurface = surface(id: "surface-browser", kind: .browser)
+        let workspace = workspace(terminals: [], surfaces: [browserSurface, todoSurface])
+        #expect(workspace.selectedMacSurface(id: nil) == browserSurface)
+    }
+
+    @Test func staleSelectionFallsBackWhenTerminalless() {
+        let workspace = workspace(terminals: [], surfaces: [todoSurface])
+        #expect(workspace.selectedMacSurface(id: "surface-closed") == todoSurface)
+    }
+
+    @Test func staleSelectionKeepsTerminalWhenTerminalsExist() {
+        let terminal = MobileTerminalPreview(id: "terminal-1", name: "zsh")
+        let workspace = workspace(terminals: [terminal], surfaces: [todoSurface])
+        #expect(workspace.selectedMacSurface(id: "surface-closed") == nil)
+    }
+
     @Test func explicitSelectionStillWins() {
         let browserSurface = surface(id: "surface-browser", kind: .browser)
         let workspace = workspace(terminals: [], surfaces: [todoSurface, browserSurface])

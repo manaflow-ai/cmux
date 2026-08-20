@@ -186,13 +186,14 @@ extension MobileWorkspacePreview {
     /// their own selection axis), so this is the one lookup every call site
     /// must share rather than re-filtering `surfaces` inline.
     ///
-    /// With no explicit selection and no terminals to stream (for example a
-    /// workspace whose only pane is a todo panel), this falls back to the
-    /// first non-terminal surface: the detail view would otherwise render an
-    /// empty terminal background.
+    /// With no explicit selection (or a stale one whose surface no longer
+    /// exists) and no terminals to stream (for example a workspace whose only
+    /// pane is a todo panel), this falls back to the first non-terminal
+    /// surface: the detail view would otherwise render an empty terminal
+    /// background.
     public func selectedMacSurface(id: MobileSurfacePreview.ID?) -> MobileSurfacePreview? {
         guard let id else { return defaultMacSurface }
-        return surfaces.first { $0.id == id && !$0.kind.isTerminal }
+        return surfaces.first { $0.id == id && !$0.kind.isTerminal } ?? defaultMacSurface
     }
 
     private var defaultMacSurface: MobileSurfacePreview? {

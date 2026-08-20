@@ -52,6 +52,7 @@ public struct MacSurfaceGalleryPreviewView: View {
             TodoSurfaceView(
                 surface: Self.todoSurface,
                 todo: Self.todoSnapshot,
+                allowsMutations: true,
                 mutate: { _ in }
             )
         }

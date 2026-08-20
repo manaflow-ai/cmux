@@ -22,7 +22,7 @@ struct TodoSurfaceView: View {
     init(
         surface: MobileSurfacePreview,
         todo: MobileTodoSnapshot,
-        allowsMutations: Bool = true,
+        allowsMutations: Bool,
         mutate: @escaping @MainActor (MobileTodoMutation) async throws -> Void
     ) {
         self.surface = surface
