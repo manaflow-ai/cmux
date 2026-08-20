@@ -8,6 +8,8 @@ public enum ChatArtifactAction: Hashable, Sendable {
     case save
     /// Copies loaded image data to the system pasteboard.
     case copyImage
+    /// Copies a materialized artifact file to the system pasteboard.
+    case copyFile
     /// Copies the artifact's rendered text contents.
     case copyContents
     /// Copies the artifact's remote path.
@@ -22,6 +24,8 @@ public enum ChatArtifactAction: Hashable, Sendable {
             String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module)
         case .copyImage:
             String(localized: "chat.artifact.copy_image", defaultValue: "Copy image", bundle: .module)
+        case .copyFile:
+            String(localized: "chat.artifact.copy_file", defaultValue: "Copy file", bundle: .module)
         case .copyContents:
             String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module)
         case .copyPath:
@@ -36,7 +40,7 @@ public enum ChatArtifactAction: Hashable, Sendable {
             "square.and.arrow.up"
         case .save:
             "folder.badge.plus"
-        case .copyImage:
+        case .copyImage, .copyFile:
             "doc.on.doc"
         case .copyContents:
             "doc.on.doc"

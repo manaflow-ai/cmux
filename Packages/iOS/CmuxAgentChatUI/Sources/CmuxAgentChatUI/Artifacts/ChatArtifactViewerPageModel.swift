@@ -3,6 +3,10 @@ import CmuxAgentChat
 import Foundation
 import Observation
 
+#if os(iOS)
+import UIKit
+#endif
+
 /// Owns mutable content and controls for one stable artifact path.
 @Observable
 @MainActor
@@ -228,6 +232,28 @@ final class ChatArtifactViewerPageModel {
             failed: .artifactSaveFailed,
             presentation: ChatArtifactFileActionPresentation.save
         )
+    }
+
+    func copyFile(loader: ChatArtifactLoader) async -> Bool {
+        guard !fileActionState.isRunning else { return false }
+        fileActionState.failure = nil
+        fileActionState.isRunning = true
+        defer { fileActionState.isRunning = false }
+        do {
+            let fileURL = try await ChatArtifactFileActionStore.applicationDefault.materialize(
+                path: path,
+                loader: loader
+            )
+            try Task.checkCancellation()
+            UIPasteboard.general.urls = [fileURL]
+            loader.recordDiagnostic(.artifactCopied)
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            fileActionState.failure = (error as? ChatArtifactError) ?? .loadFailed
+            return false
+        }
     }
 
     func setFileActionPresentation(_ presentation: ChatArtifactFileActionPresentation?) {

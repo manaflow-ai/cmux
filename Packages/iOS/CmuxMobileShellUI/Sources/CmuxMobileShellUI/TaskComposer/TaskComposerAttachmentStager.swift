@@ -41,6 +41,47 @@ struct TaskComposerAttachmentStager: Sendable {
         )
     }
 
+    /// Stages in-memory clipboard image bytes without performing file I/O on
+    /// the caller's actor.
+    func stageImage(
+        data: Data,
+        originalFileName: String
+    ) async throws -> TaskComposerAttachment {
+        try await withThrowingTaskGroup(of: TaskComposerAttachment.self) { group in
+            group.addTask(priority: .utility) {
+                let sourceURL = temporaryURL(fileExtension: "png")
+                defer { try? FileManager.default.removeItem(at: sourceURL) }
+                do {
+                    try data.write(to: sourceURL, options: .atomic)
+                } catch {
+                    throw StagingError.unreadableFile
+                }
+                return try await stageImage(
+                    at: sourceURL,
+                    originalFileName: originalFileName
+                )
+            }
+            guard let attachment = try await group.next() else {
+                throw CancellationError()
+            }
+            return attachment
+        }
+    }
+
+    /// Reads staged bytes on a utility child task before a terminal attachment
+    /// is handed to the existing in-memory image transport.
+    func data(for attachment: TaskComposerAttachment) async throws -> Data {
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask(priority: .utility) {
+                try Data(contentsOf: attachment.localStagedFileURL)
+            }
+            guard let data = try await group.next() else {
+                throw CancellationError()
+            }
+            return data
+        }
+    }
+
     func stageFile(at sourceURL: URL) async throws -> TaskComposerAttachment {
         try await withThrowingTaskGroup(of: TaskComposerAttachment.self) { group in
             group.addTask(priority: .utility) {

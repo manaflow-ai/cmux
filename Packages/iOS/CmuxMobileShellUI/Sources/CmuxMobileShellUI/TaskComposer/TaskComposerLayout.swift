@@ -45,6 +45,7 @@ struct TaskComposerLayout: View {
     let requestStartAgain: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    let pasteAttachments: () -> Bool
     let removeAttachment: (UUID) -> Void
 
     @State private var isPromptFocused = false
@@ -103,7 +104,8 @@ struct TaskComposerLayout: View {
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"
                 ),
-                accessibilityHint: promptPlaceholder
+                accessibilityHint: promptPlaceholder,
+                pasteAttachment: pasteAttachments
             )
                 .padding(.horizontal, 20)
                 .padding(.vertical, 18)
@@ -204,7 +206,8 @@ struct TaskComposerLayout: View {
                     style: .circularPlus,
                     isDisabled: isDisabled,
                     choosePhotos: chooseAttachmentPhotos,
-                    chooseFiles: chooseAttachmentFiles
+                    chooseFiles: chooseAttachmentFiles,
+                    paste: { _ = pasteAttachments() }
                 )
             }
         }

@@ -5005,6 +5005,37 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// A clipboard image follows the same bounded staging path as a photo
+    /// picker selection and appears as an editable task attachment.
+    @MainActor
+    func testTaskComposerPastesClipboardImageAsAttachment() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 30)).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+        }
+        UIPasteboard.general.image = image
+        defer { UIPasteboard.general.items = [] }
+
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        tap(app.buttons["MobileTaskComposerAttachmentButton"], in: app)
+        tapMenuItem(app.buttons["Paste Attachment"], in: app)
+
+        let pastedPreview = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileTaskComposerAttachmentPreview-"
+            )
+        ).firstMatch
+        XCTAssertTrue(pastedPreview.waitForExistence(timeout: 8))
+        XCTAssertEqual(pastedPreview.label, "pasted-image.png")
+    }
+
     /// Staged image and file chips must retain their app-owned bytes as native
     /// Quick Look previews while the composer draft remains editable.
     @MainActor

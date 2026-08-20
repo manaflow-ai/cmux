@@ -4,6 +4,25 @@ public import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
+    /// Uploads a file selected for the active terminal composer and returns the
+    /// Mac-local path that can be inserted into the draft.
+    ///
+    /// - Parameter attachment: App-owned staged attachment file to upload.
+    /// - Returns: The final absolute Mac path, or a user-actionable failure.
+    public func uploadTerminalComposerAttachment(
+        _ attachment: TaskComposerAttachment
+    ) async -> Result<String, MobileWorkspaceMutationFailure> {
+        guard let macDeviceID = foregroundMacDeviceID else {
+            return .failure(.notConnected(hostDisplayName: nil))
+        }
+        return await uploadTaskAttachment(
+            attachment,
+            operationID: UUID(),
+            macDeviceID: macDeviceID,
+            instanceTag: activeMacInstanceTag
+        )
+    }
+
     /// Whether the selected Mac instance currently advertises task attachments.
     ///
     /// - Parameters:

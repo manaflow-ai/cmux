@@ -16,6 +16,7 @@ struct ChatArtifactActionVisibilityPolicyTests {
         #expect(ChatArtifactAction.share.systemImage == "square.and.arrow.up")
         #expect(ChatArtifactAction.save.systemImage == "folder.badge.plus")
         #expect(ChatArtifactAction.copyImage.systemImage == "doc.on.doc")
+        #expect(ChatArtifactAction.copyFile.systemImage == "doc.on.doc")
         #expect(ChatArtifactAction.copyContents.systemImage == "doc.on.doc")
         #expect(ChatArtifactAction.copyPath.systemImage == "link")
     }
@@ -24,9 +25,9 @@ struct ChatArtifactActionVisibilityPolicyTests {
     func documentPreviewsOfferShareAndSave() {
         let url = URL(fileURLWithPath: "/tmp/artifact")
 
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .pdf(fileURL: url)).actions == [.share, .save])
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .media(fileURL: url)).actions == [.share, .save])
-        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .quickLook(fileURL: url)).actions == [.share, .save])
+        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .pdf(fileURL: url)).actions == [.share, .save, .copyFile])
+        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .media(fileURL: url)).actions == [.share, .save, .copyFile])
+        #expect(ChatArtifactActionVisibilityPolicy(inlineState: .quickLook(fileURL: url)).actions == [.share, .save, .copyFile])
     }
 
     @Test
@@ -61,11 +62,11 @@ struct ChatArtifactActionVisibilityPolicyTests {
         #expect(ChatArtifactActionVisibilityPolicy(
             viewerHasFileActions: true,
             isTextFile: false
-        ).actions == [.share, .save, .copyPath])
+        ).actions == [.share, .save, .copyFile, .copyPath])
         #expect(ChatArtifactActionVisibilityPolicy(
             viewerHasFileActions: true,
             isTextFile: true
-        ).actions == [.share, .save, .copyContents, .copyPath])
+        ).actions == [.share, .save, .copyFile, .copyContents, .copyPath])
         #expect(ChatArtifactActionVisibilityPolicy(
             viewerHasFileActions: false,
             isTextFile: false

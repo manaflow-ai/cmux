@@ -221,6 +221,11 @@ struct ChatArtifactViewerPager: View {
             UIPasteboard.general.image = UIImage(data: data)
             loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied())
+        case .copyFile:
+            Task {
+                guard await model.copyFile(for: snapshot.path, loader: loader) else { return }
+                toasts.present(.copied())
+            }
         case .copyContents:
             UIPasteboard.general.string = snapshot.renderedText
             loader.recordDiagnostic(.artifactCopied)

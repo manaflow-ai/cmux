@@ -394,9 +394,30 @@ public struct ChatComposerView: View {
     }
 
     private var attachButton: some View {
-        Button {
-            onDiagnosticEvent(.photoPickerOpened)
-            isPhotoPickerPresented = true
+        Menu {
+            Button {
+                onDiagnosticEvent(.photoPickerOpened)
+                isPhotoPickerPresented = true
+            } label: {
+                Label(
+                    String(
+                        localized: "chat.composer.attach.photo",
+                        defaultValue: "Photo Library",
+                        bundle: .module
+                    ),
+                    systemImage: "photo.on.rectangle"
+                )
+            }
+            Button(action: performPaste) {
+                Label(
+                    String(
+                        localized: "chat.composer.attach.paste",
+                        defaultValue: "Paste Attachment",
+                        bundle: .module
+                    ),
+                    systemImage: "doc.on.clipboard"
+                )
+            }
         } label: {
             MobileComposerIconLabel(
                 systemImage: "paperclip",

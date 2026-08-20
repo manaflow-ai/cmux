@@ -22,8 +22,9 @@ import UniformTypeIdentifiers
 /// presented does NOT mean focused: the field appears with the keyboard down and
 /// takes focus only on a user tap or an explicit focus request from the store
 /// (an explicit open/reveal, or a terminal switch mid-compose). The button to
-/// the left of the field opens the photo picker for image attachments; the
-/// composer is dismissed from the accessory toolbar's compose toggle.
+/// the left of the field opens an attachment menu for photos, files, and
+/// clipboard content; the composer is dismissed from the accessory toolbar's
+/// compose toggle.
 ///
 /// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
 /// is owned entirely by `GhosttySurfaceView` in one coordinate system. This view is
@@ -59,6 +60,8 @@ struct TerminalComposerView: View {
     @State private var pickerSelection: [PhotosPickerItem] = []
     /// Drives the photo picker's presentation from the attach button.
     @State private var isPickerPresented = false
+    @State private var isFileImporterPresented = false
+    @State private var attachmentErrorMessage: String?
     /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
     /// attachment is staged. The chip row renders these instead of decoding the
     /// full multi-MB `Data` from inside the view body on every composer
@@ -319,17 +322,39 @@ struct TerminalComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                MobileComposerIconButton(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    ),
-                    size: controlHeight,
-                    accessibilityIdentifier: "MobileComposerAttach",
-                    accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
-                ) {
-                    presentPhotoPicker()
+                Menu {
+                    Button(action: presentPhotoPicker) {
+                        Label(
+                            L10n.string("mobile.composer.attach.photo", defaultValue: "Photo Library"),
+                            systemImage: "photo.on.rectangle"
+                        )
+                    }
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.composer.attach.file", defaultValue: "Choose Files"),
+                            systemImage: "folder"
+                        )
+                    }
+                    Button(action: pasteAttachment) {
+                        Label(
+                            L10n.string("mobile.composer.attach.paste", defaultValue: "Paste Attachment"),
+                            systemImage: "doc.on.clipboard"
+                        )
+                    }
+                } label: {
+                    MobileComposerIconLabel(
+                        systemImage: "paperclip",
+                        foregroundStyle: AnyShapeStyle(
+                            store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                        ),
+                        size: controlHeight
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("MobileComposerAttach")
+                .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Add Attachment"))
 
                 micButton
 
@@ -401,6 +426,21 @@ struct TerminalComposerView: View {
             maxSelectionCount: Self.maxAttachmentCount,
             matching: .images
         )
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                stageFiles(urls)
+            case .failure:
+                attachmentErrorMessage = L10n.string(
+                    "mobile.composer.attach.unreadable",
+                    defaultValue: "That file couldn’t be read. Choose another file."
+                )
+            }
+        }
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
             store.recordAppEvent(
@@ -422,6 +462,108 @@ struct TerminalComposerView: View {
                 )
                 photoPickerDidDismiss()
             }
+        }
+        .alert(
+            L10n.string("mobile.composer.attach.error", defaultValue: "Couldn’t Add Attachment"),
+            isPresented: Binding(
+                get: { attachmentErrorMessage != nil },
+                set: { if !$0 { attachmentErrorMessage = nil } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK")) {
+                attachmentErrorMessage = nil
+            }
+        } message: {
+            Text(attachmentErrorMessage ?? "")
+        }
+    }
+
+    private func pasteAttachment() {
+        let pasteboard = UIPasteboard.general
+        if let data = pasteboardImageData(pasteboard) {
+            stagePastedImage(data)
+            return
+        }
+        let fileURLs = (pasteboard.urls ?? []).filter(\.isFileURL)
+        if !fileURLs.isEmpty {
+            stageFiles(fileURLs)
+            return
+        }
+        if let string = pasteboard.string, !string.isEmpty {
+            store.terminalInputText += string
+            isFieldFocused = true
+        }
+    }
+
+    private func pasteboardImageData(_ pasteboard: UIPasteboard) -> Data? {
+        for type in [UTType.png.identifier, UTType.jpeg.identifier, UTType.heic.identifier] {
+            if let data = pasteboard.data(forPasteboardType: type) {
+                return data
+            }
+        }
+        return pasteboard.image?.pngData()
+    }
+
+    private func stagePastedImage(_ data: Data) {
+        let sessionGeneration = store.currentSessionGeneration
+        stagingTask.task?.cancel()
+        stagingTask.task = Task { @MainActor in
+            defer { requestHeightRemeasure() }
+            do {
+                let attachment = try await TaskComposerAttachmentStager().stageImage(
+                    data: data,
+                    originalFileName: "pasted-image.png"
+                )
+                defer { try? FileManager.default.removeItem(at: attachment.localStagedFileURL) }
+                let stagedData = try await TaskComposerAttachmentStager().data(for: attachment)
+                guard
+                      let id = store.addPendingAttachment(
+                          stagedData,
+                          format: attachment.localStagedFileURL.pathExtension,
+                          forTerminalID: terminalID,
+                          ifSessionGeneration: sessionGeneration
+                      ) else { return }
+                if let thumbnailData = attachment.thumbnailData,
+                   let thumbnail = UIImage(data: thumbnailData) {
+                    thumbnailCache.set(thumbnail, for: id)
+                }
+            } catch {
+                attachmentErrorMessage = L10n.string(
+                    "mobile.composer.attach.unreadable",
+                    defaultValue: "That file couldn’t be read. Choose another file."
+                )
+            }
+        }
+    }
+
+    private func stageFiles(_ urls: [URL]) {
+        stagingTask.task?.cancel()
+        stagingTask.task = Task { @MainActor in
+            for url in urls.prefix(Self.maxAttachmentCount) {
+                guard !Task.isCancelled else { return }
+                do {
+                    let attachment = try await TaskComposerAttachmentStager().stageFile(at: url)
+                    defer { try? FileManager.default.removeItem(at: attachment.localStagedFileURL) }
+                    let result = await store.uploadTerminalComposerAttachment(attachment)
+                    guard case .success(let path) = result else {
+                        attachmentErrorMessage = L10n.string(
+                            "mobile.composer.attach.uploadFailed",
+                            defaultValue: "The file couldn’t be uploaded to your Mac."
+                        )
+                        return
+                    }
+                    store.terminalInputText = TerminalComposerAttachmentInsertion(path: path)
+                        .appending(to: store.terminalInputText)
+                } catch {
+                    attachmentErrorMessage = L10n.string(
+                        "mobile.composer.attach.unreadable",
+                        defaultValue: "That file couldn’t be read. Choose another file."
+                    )
+                    return
+                }
+            }
+            isFieldFocused = true
+            requestHeightRemeasure()
         }
     }
 

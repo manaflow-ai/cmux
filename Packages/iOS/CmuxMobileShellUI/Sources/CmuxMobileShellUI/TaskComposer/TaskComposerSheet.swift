@@ -475,6 +475,7 @@ struct TaskComposerSheet: View {
             requestStartAgain: { isStartAgainConfirmationPresented = true },
             chooseAttachmentPhotos: presentAttachmentPhotoPicker,
             chooseAttachmentFiles: presentAttachmentFileImporter,
+            pasteAttachments: stagePasteboardAttachments,
             removeAttachment: removeAttachment
         )
     }
@@ -1077,9 +1078,7 @@ struct TaskComposerSheet: View {
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
-}
-
-private func validWorkspaceGroupID(
+    private func validWorkspaceGroupID(
     _ candidate: MobileWorkspaceGroupPreview.ID?,
     groups: [MobileWorkspaceGroupPreview],
     macDeviceID: String,
@@ -1096,7 +1095,7 @@ private func validWorkspaceGroupID(
     return candidate
 }
 
-private func filteredWorkspaceGroups(
+    private func filteredWorkspaceGroups(
     _ groups: [MobileWorkspaceGroupPreview],
     macDeviceID: String,
     instanceTag: String?
@@ -1113,11 +1112,12 @@ private func filteredWorkspaceGroups(
     }
 }
 
-private func normalizedWorkspaceOwner(_ value: String?) -> String? {
+    private func normalizedWorkspaceOwner(_ value: String?) -> String? {
     guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !value.isEmpty else {
         return nil
     }
     return value
+}
 }
 #endif
