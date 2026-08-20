@@ -35,6 +35,32 @@ Customize split-workspace pane boundaries controlled by cmux.
 
 Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to keep the built-in appearance. These settings apply to cmux's multi-surface pane layout, not Ghostty's internal splits; Ghostty settings such as `split-divider-color` still only affect splits inside one Ghostty instance.
 
+## `agentStateBorder`
+
+Border each terminal pane in the lifecycle color of the agent running in it.
+
+```json
+{
+  "agentStateBorder": true
+}
+```
+
+| Color | State |
+| --- | --- |
+| Yellow `#FFD60A` | The agent is blocked waiting on your input. |
+| Blue `#4C8DFF` | The agent is working. |
+| Green `#30D158` | The agent finished its turn. |
+
+Panes with no agent reporting a state stay unbordered, and a pane whose agent
+reports an unknown state is treated as having no agent. When several agents
+report under one pane, the pane takes the most demanding state:
+needs-input over working over finished.
+
+The border shares its layer with the unread notification ring, and the ring
+wins while a notification is unread — so a finished agent shows the usual blue
+unread ring first and turns green once you have read it. Defaults to `true`;
+set it to `false` to leave pane borders alone.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.

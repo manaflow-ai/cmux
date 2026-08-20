@@ -222,7 +222,7 @@ extension GhosttyTerminalView {
             opacity: CGFloat(snapshot.inactiveOverlayOpacity),
             visible: snapshot.showsInactiveOverlay
         )
-        hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+        hostedView.setNotificationRing(color: coordinator.desiredNotificationRingColor)
         hostedView.setSearchOverlay(searchState: snapshot.searchState)
         hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         hostedView.setDropZoneOverlay(zone: snapshot.dropZone)

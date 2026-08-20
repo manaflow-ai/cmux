@@ -9496,23 +9496,28 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    func setNotificationRing(visible: Bool) {
+    /// Shows the pane ring stroked in `color`, or hides it when `color` is nil.
+    ///
+    /// The stroke is written unconditionally rather than guarded on a cached
+    /// value: `setWorkspaceAttentionColor` also writes this layer's stroke and
+    /// runs earlier in the same reconciliation pass, so an unconditional write
+    /// is both shorter than tracking an override and impossible to stomp.
+    func setNotificationRing(color: NSColor?) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.setNotificationRing(visible: visible)
+                self?.setNotificationRing(color: color)
             }
             return
         }
 
-        let targetHidden = !visible
-        let targetOpacity: Float = visible ? 1 : 0
-        guard notificationRingOverlayView.isHidden != targetHidden ||
-                notificationRingLayer.opacity != targetOpacity else { return }
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        notificationRingOverlayView.isHidden = targetHidden
-        notificationRingLayer.opacity = targetOpacity
+        if let color {
+            notificationRingLayer.strokeColor = color.cgColor
+            notificationRingLayer.shadowColor = color.cgColor
+        }
+        notificationRingOverlayView.isHidden = color == nil
+        notificationRingLayer.opacity = color == nil ? 0 : 1
         CATransaction.commit()
     }
 
@@ -12400,6 +12405,7 @@ extension GhosttyNSView: NSTextInputClient {
 
 struct GhosttyTerminalView: NSViewRepresentable {
     @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @Environment(\.agentPaneStateColor) private var agentPaneStateColor
     @Environment(\.paneDropZone) var paneDropZone
 
     let terminalSurface: TerminalSurface
@@ -12504,7 +12510,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
-        var desiredShowsUnreadNotificationRing: Bool = false
+        /// The resolved notification-ring color, or `nil` to hide the ring.
+        /// Carries the unread-notification color when one is pending and the
+        /// pane's agent-state color otherwise.
+        var desiredNotificationRingColor: NSColor?
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
         var lastPaneDropZone: DropZone?
@@ -12582,7 +12591,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
             previousDesiredPortalZPriority != portalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
-        coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
+        // Unread wins: the agent-state border only fills panes the unread ring
+        // is not already claiming, so this cannot regress notification display.
+        coordinator.desiredNotificationRingColor = showsUnreadNotificationRing
+            ? workspaceAttentionColorSnapshot.nsColor
+            : agentPaneStateColor?.nsColor
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
@@ -12821,7 +12834,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
-        coordinator.desiredShowsUnreadNotificationRing = false
+        coordinator.desiredNotificationRingColor = nil
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
         coordinator.portalReconciliationScheduler.cancel()

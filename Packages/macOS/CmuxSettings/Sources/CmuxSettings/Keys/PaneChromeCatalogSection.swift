@@ -20,6 +20,13 @@ public struct PaneChromeCatalogSection: SettingCatalogSection {
         userDefaultsKey: "activePaneBorderColor"
     )
 
+    /// Whether a terminal pane borders itself in its agent's lifecycle color.
+    public let agentStateBorder = DefaultsKey<Bool>(
+        id: "agentStateBorder",
+        defaultValue: true,
+        userDefaultsKey: "agentStateBorder"
+    )
+
     /// Creates the pane chrome settings section with its default keys.
     public init() {}
 }

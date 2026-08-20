@@ -396,6 +396,7 @@ extension CmuxSettingsFileStore {
     static let supportedSettingsJSONPaths: Set<String> = [
         PaneChromeSettings.paneBorderColorKey,
         PaneChromeSettings.activePaneBorderColorKey,
+        PaneChromeSettings.agentStateBorderKey,
         "app.language",
         "app.appearance",
         "app.appIcon",

@@ -30,6 +30,12 @@
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
+    "agentStateBorder": {
+      "type": "boolean",
+      "default": true,
+      "descriptionKey": "schemaDescriptions.agentStateBorder",
+      "description": "Border each terminal pane in its agent's lifecycle color: yellow when the agent needs input, blue while it is working, green when it finished. Panes with no reporting agent stay unbordered. The unread notification ring takes precedence when both apply."
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",

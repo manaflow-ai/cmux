@@ -47,4 +47,12 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
 
 extension EnvironmentValues {
     @Entry var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
+
+    /// The resolved agent-state border color for the pane subtree below this
+    /// value, or `nil` when no agent state should color the pane.
+    ///
+    /// Carried through the environment rather than as a view parameter so the
+    /// color reaches `GhosttyTerminalView` without threading a new argument
+    /// through `PanelContentView` and `TerminalPanelView`.
+    @Entry var agentPaneStateColor: WorkspaceAttentionColor?
 }

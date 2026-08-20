@@ -420,6 +420,15 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[key] = .nullableString(value)
         }
+
+        let agentStateBorderKey = PaneChromeSettings.agentStateBorderKey
+        if root.keys.contains(agentStateBorderKey) {
+            if let value = root[agentStateBorderKey] as? Bool {
+                snapshot.managedUserDefaults[agentStateBorderKey] = .bool(value)
+            } else {
+                logInvalid(agentStateBorderKey, sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseAppSection(
@@ -1601,7 +1610,8 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    change.defaultsKey == PaneChromeSettings.agentStateBorderKey {
                     paneChromeDidChange = true
                 }
 

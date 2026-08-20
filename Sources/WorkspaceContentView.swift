@@ -183,11 +183,35 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    /// Bumped by the agent runtime observation below so the body re-runs and
+    /// re-resolves every pane's agent-state border. The lifecycle maps are
+    /// `@ObservationIgnored`, so reading them alone would render once and go
+    /// stale.
+    @State private var agentLifecycleRevision: UInt64 = 0
+    @AppStorage(PaneChromeSettings.agentStateBorderKey)
+    private var agentStateBorderEnabled = PaneChromeSettings.defaultAgentStateBorderEnabled
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
+
+    /// Resolves one pane's agent lifecycle states into the border color the
+    /// pane subtree should carry, or `nil` to leave the pane unbordered.
+    ///
+    /// `revision` is unused by the computation; it exists so callers inside
+    /// `body` take a read dependency on the agent-runtime observation counter,
+    /// whose backing maps are `@ObservationIgnored`.
+    static func agentPaneStateColor(
+        enabled: Bool,
+        revision: UInt64,
+        lifecycles: [String: AgentHibernationLifecycleState]?
+    ) -> WorkspaceAttentionColor? {
+        _ = revision
+        guard enabled, let lifecycles, !lifecycles.isEmpty else { return nil }
+        guard let hex = AgentPaneStateBorder.colorHex(lifecycles: lifecycles) else { return nil }
+        return WorkspaceAttentionColor(configuredHex: hex)
+    }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -255,6 +279,14 @@ struct WorkspaceContentView: View {
                     paneHasSelectedTab: selectedTab != nil,
                     isSelectedInPane: isSelectedInPane,
                     isFocused: isFocusedPanel
+                )
+                // `agentLifecycleRevision` is read here purely to register the
+                // body's dependency on the runtime observation above; the maps
+                // themselves are `@ObservationIgnored`.
+                let agentStateBorderColor = Self.agentPaneStateColor(
+                    enabled: agentStateBorderEnabled,
+                    revision: agentLifecycleRevision,
+                    lifecycles: workspace.agentLifecycleStatesByPanelId[panel.id]
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
@@ -338,6 +370,7 @@ struct WorkspaceContentView: View {
                         },
                         onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                     )
+                    .environment(\.agentPaneStateColor, agentStateBorderColor)
                     .onTapGesture {
                         workspace.bonsplitController.focusPane(paneId)
                     }
@@ -359,6 +392,12 @@ struct WorkspaceContentView: View {
         // cannot remain stacked above portal-hosted browser content.
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sidebarAgentRuntimeObservation(
+            id: workspace.id,
+            model: workspace.sidebarAgentRuntimeObservation
+        ) {
+            agentLifecycleRevision &+= 1
+        }
         .onAppear {
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
