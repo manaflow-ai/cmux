@@ -662,6 +662,9 @@ impl ConfigMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
     pub filtered_subscription_unavailable: &'static str,
+    pub scoped_terminal_exited: &'static str,
+    pub scoped_terminal_closed: &'static str,
+    pub scoped_connection_lost: &'static str,
     pub remote_attach_queue_full: &'static str,
     remote_attach_workers_failed_template: &'static str,
     surface_sync_failed_template: &'static str,
@@ -1493,6 +1496,9 @@ OPTIONS:
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
+        scoped_terminal_exited: "cmux: the terminal's process ended",
+        scoped_terminal_closed: "cmux: the terminal was closed",
+        scoped_connection_lost: "cmux: lost the connection to the cmux-tui session daemon",
         remote_attach_queue_full: "remote surface attach queue is full",
         remote_attach_workers_failed_template: "could not start surface attach workers: {error}",
         surface_sync_failed_template: "surface {surface} {operation} failed; retries are rate-limited: {error}",
@@ -2080,6 +2086,9 @@ ID とセッション:
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
+        scoped_terminal_exited: "cmux: ターミナルのプロセスが終了しました",
+        scoped_terminal_closed: "cmux: ターミナルは閉じられました",
+        scoped_connection_lost: "cmux: cmux-tui セッションデーモンへの接続が失われました",
         remote_attach_queue_full: "リモートサーフェス接続キューがいっぱいです",
         remote_attach_workers_failed_template: "リモートサーフェス接続ワーカーを開始できませんでした: {error}",
         surface_sync_failed_template: "サーフェス {surface} の{operation}に失敗しました。再試行は制限されています: {error}",

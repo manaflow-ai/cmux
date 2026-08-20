@@ -6758,6 +6758,10 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Why a scoped (single-terminal) attach stopped. Drives the visible
+    /// post-restore notice so a bridge tab never just vanishes or freezes
+    /// without saying what happened.
+    scoped_shutdown_notice: Option<ScopedShutdownNotice>,
 }
 
 struct QueuedDurableNotice {
@@ -7214,6 +7218,45 @@ fn stacked_header_parts_for_rect(rect: Rect) -> PaneParts<Rect> {
 pub enum RunOutcome {
     Quit,
     Machine(MachineRequest),
+}
+
+/// Why a scoped (single-terminal) attach client stopped. The bridge renders
+/// the inner terminal's last frame until the process ends, so the exit path
+/// must say what happened instead of leaving a silently frozen or vanished
+/// surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopedShutdownNotice {
+    /// The attached terminal's process (or its host) ended.
+    TerminalExited,
+    /// The terminal or its session was closed on the daemon side.
+    SessionEnded,
+    /// The stream to the session daemon was lost or became unresponsive.
+    ConnectionLost,
+}
+
+/// Maps a session-level Empty event in a scoped attach to its notice: an
+/// Empty emitted after transport loss means the daemon connection died, while
+/// an Empty received over a live transport means the daemon deliberately
+/// ended this view (terminal closed, workspace emptied).
+pub(crate) fn scoped_empty_shutdown_notice(transport_lost: bool) -> ScopedShutdownNotice {
+    if transport_lost {
+        ScopedShutdownNotice::ConnectionLost
+    } else {
+        ScopedShutdownNotice::SessionEnded
+    }
+}
+
+/// The visible line a scoped attach leaves on the host terminal after the
+/// alternate screen is restored, in place of a silent exit.
+pub(crate) fn scoped_shutdown_notice_line(
+    attach: &crate::localization::AttachMessages,
+    notice: ScopedShutdownNotice,
+) -> &'static str {
+    match notice {
+        ScopedShutdownNotice::TerminalExited => attach.scoped_terminal_exited,
+        ScopedShutdownNotice::SessionEnded => attach.scoped_terminal_closed,
+        ScopedShutdownNotice::ConnectionLost => attach.scoped_connection_lost,
+    }
 }
 
 struct MachineUpdatePump {
@@ -8219,6 +8262,7 @@ fn run_with_machine_updates_inner(
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        scoped_shutdown_notice: None,
     };
     if app.session_available() {
         app.session.refresh_clients_background();
@@ -21681,6 +21725,7 @@ mod tests {
         PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
         PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
+        ScopedShutdownNotice, scoped_empty_shutdown_notice, scoped_shutdown_notice_line,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
@@ -27478,6 +27523,98 @@ mod tests {
     /// every window re-activation and app reopen, observed in the real path)
     /// must force the client to re-derive and re-assert the canonical host
     /// state so the dropped modes come back.
+    #[test]
+    fn scoped_terminal_exit_quits_with_a_visible_terminal_exited_notice() {
+        let mux = Mux::new("scoped-exit-notice-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id))).unwrap();
+
+        assert!(app.quit, "the scoped client must stop when its terminal exits");
+        assert_eq!(
+            app.scoped_shutdown_notice,
+            Some(ScopedShutdownNotice::TerminalExited),
+            "the exit must record a notice so the user sees why the view ended \
+             instead of the surface silently vanishing"
+        );
+    }
+
+    /// A sibling surface exiting must not end or annotate a scoped attach.
+    #[test]
+    fn scoped_attach_ignores_other_surfaces_exits() {
+        let mux = Mux::new("scoped-exit-other-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id + 999))).unwrap();
+
+        assert!(!app.quit);
+        assert_eq!(app.scoped_shutdown_notice, None);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// A session-level Empty over a live transport means the daemon
+    /// deliberately ended this view; after transport loss it means the
+    /// connection died. Both must leave a distinguishable notice, and the
+    /// full (non-scoped) TUI must keep its silent quit.
+    #[test]
+    fn scoped_session_end_and_transport_loss_leave_distinct_notices() {
+        assert_eq!(
+            scoped_empty_shutdown_notice(false),
+            ScopedShutdownNotice::SessionEnded,
+        );
+        assert_eq!(
+            scoped_empty_shutdown_notice(true),
+            ScopedShutdownNotice::ConnectionLost,
+        );
+
+        let mux = Mux::new("scoped-empty-notice-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        assert!(app.quit, "empty must still stop the scoped client");
+        assert_eq!(
+            app.scoped_shutdown_notice,
+            Some(ScopedShutdownNotice::SessionEnded),
+            "a live-transport Empty is a daemon-side close and must say so"
+        );
+
+        let mux = Mux::new("full-empty-notice-test", SurfaceOptions::default());
+        let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        assert_eq!(
+            app.scoped_shutdown_notice, None,
+            "the full TUI quit stays silent; notices are scoped-attach behavior"
+        );
+    }
+
+    #[test]
+    fn scoped_shutdown_notices_map_to_localized_lines() {
+        let messages = crate::localization::catalog();
+        assert!(!scoped_shutdown_notice_line(
+            &messages.attach,
+            ScopedShutdownNotice::TerminalExited
+        )
+        .is_empty());
+        assert!(!scoped_shutdown_notice_line(
+            &messages.attach,
+            ScopedShutdownNotice::SessionEnded
+        )
+        .is_empty());
+        assert!(!scoped_shutdown_notice_line(
+            &messages.attach,
+            ScopedShutdownNotice::ConnectionLost
+        )
+        .is_empty());
+    }
+
+    /// The bridge relies on this pairing: the mouse-capture reassert tests
+    /// live directly below.
     #[test]
     fn scoped_focus_gained_reasserts_host_mouse_capture_after_invisible_host_reset() {
         let mux = Mux::new("scoped-focus-reassert-test", SurfaceOptions::default());
@@ -40144,6 +40281,7 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            scoped_shutdown_notice: None,
         };
         (app, receiver)
     }
