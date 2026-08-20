@@ -38,6 +38,9 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `tabs.show_titles` | boolean | `false` | Shows full process titles after tab numbers |
 | `tabs.agents` | string array | `["claude","codex","opencode","pi"]` | Agent names surfaced in tab labels when `show_titles` is false |
 | `tabs.style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around solid tab chips (Nerd Font powerline glyphs, catppuccin-tmux style) |
+| `tabs.plus.label` | string | `" + "` | Text of the tab bar's `+` button |
+| `tabs.plus.action` | action name or `command:<id>` | new tab | Left-click override for the `+` button |
+| `tabs.plus.menu` | action array | `[]` | Right-click menu on the `+` button; entries use the sidebar action grammar including labels and `command:<id>` |
 
 Tabs are numbered by default. A recognized agent program can appear after the number. A user-assigned tab name replaces the generated label.
 
@@ -243,6 +246,7 @@ Padding shrinks the PTY size accordingly and never pads a pane below one content
 | `status_bar.left_separator` | string | unset | Powerline separator between left segments; its foreground takes the previous segment's background and its background the next one's (e.g. `"\ue0b0"`) |
 | `status_bar.right_separator` | string | unset | Mirrored separator drawn left of each right segment (e.g. `"\ue0b2"`) |
 | `status_bar.screens_style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around the active screen chip |
+| `status_bar.screens_plus.label` / `.action` / `.menu` | as `tabs.plus` | `" + "` / new screen / `[]` | The screens strip's `+` button |
 
 Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. At most 8 segments per side. Transient status messages keep priority over the session label.
 

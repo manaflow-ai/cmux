@@ -436,7 +436,12 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
                 ));
             }
         }
-        let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
+        let (start, width) = put(
+            frame,
+            &mut x,
+            &app.config.status_bar.screens_plus.label,
+            base.fg(chrome.status_dim_fg),
+        );
         if width > 0 {
             hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
         }

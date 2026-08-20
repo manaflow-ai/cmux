@@ -315,7 +315,8 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let cap_cells: u16 = if chip_caps.is_some() { 2 } else { 0 };
     let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16 + cap_cells).collect();
     let inner_w = full_width.saturating_sub(2); // between the corners
-    let plus_w: u16 = 3; // " + "
+    let plus_label = app.config.tabs.plus.label.clone();
+    let plus_w: u16 = (plus_label.width() as u16).max(1);
     let arrow_w: u16 = 1;
 
     // Clamp the requested scroll, then bump it until the active tab fits.
@@ -405,7 +406,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     }
     if x + plus_w <= max_x {
         let rect = Rect { x, y: 0, width: plus_w, height: 1 };
-        buf.set_stringn(origin_x + x, origin_y, " + ", plus_w as usize, ctrl_style(rect));
+        buf.set_stringn(origin_x + x, origin_y, &plus_label, plus_w as usize, ctrl_style(rect));
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
 

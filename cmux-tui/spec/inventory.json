@@ -418,7 +418,8 @@
     {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"},
     {"variant": "CreateMachineFrom", "classification": "composite", "route": "native source picker + client-local machine catalog"},
     {"variant": "ConnectMachineTarget", "classification": "composite", "route": "SSH config picker + client-local machine connector"},
-    {"variant": "ConnectOtherMachine", "classification": "composite", "route": "frontend prompt + client-local machine connector"}
+    {"variant": "ConnectOtherMachine", "classification": "composite", "route": "frontend prompt + client-local machine connector"},
+    {"variant": "RunConfigured", "classification": "composite", "route": "frontend configured menu + the referenced action's own route"}
   ],
   "feature_families": [
     {"id": "topology-layout-focus", "wire_status": "implemented", "programmability": "partial", "route": "control commands and tree snapshots/events; SDK and conformance parity remain incomplete"},

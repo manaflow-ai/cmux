@@ -227,6 +227,7 @@ struct RawStatusBar {
     left_separator: Option<String>,
     right_separator: Option<String>,
     screens_style: Option<ChipStyle>,
+    screens_plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -501,6 +502,7 @@ struct RawTabs {
     show_titles: Option<bool>,
     agents: Option<Vec<String>>,
     style: Option<ChipStyle>,
+    plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -569,6 +571,17 @@ impl RawSidebarAction {
             RawSidebarAction::Detailed { label, .. } => label.as_deref(),
         }
     }
+}
+
+/// Raw form of a configurable `+` button.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPlusButton {
+    label: Option<String>,
+    /// Left-click action override; action name or `command:<id>`.
+    action: Option<String>,
+    /// Right-click menu entries; same grammar as sidebar view actions.
+    menu: Option<Vec<RawSidebarAction>>,
 }
 
 /// Where a view's pinned action buttons render.
@@ -957,6 +970,8 @@ pub struct Tabs {
     pub agents: Vec<String>,
     /// Cap style for solid tab chips.
     pub style: ChipStyle,
+    /// The tab bar's `+` button: label, click override, right-click menu.
+    pub plus: PlusButton,
 }
 
 impl Default for Tabs {
@@ -967,6 +982,7 @@ impl Default for Tabs {
             show_titles: false,
             agents: ["claude", "codex", "opencode", "pi"].map(String::from).to_vec(),
             style: ChipStyle::Block,
+            plus: PlusButton::default(),
         }
     }
 }
@@ -1091,6 +1107,58 @@ impl SidebarActionSpec {
     pub fn plain(action: Action) -> Self {
         Self { action, label: None }
     }
+}
+
+/// A configurable `+` button: its rendered label, an optional left-click
+/// action override, and an optional right-click menu of actions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlusButton {
+    pub label: String,
+    pub action: Option<Action>,
+    pub menu: Vec<SidebarActionSpec>,
+}
+
+impl Default for PlusButton {
+    fn default() -> Self {
+        Self { label: " + ".to_string(), action: None, menu: Vec::new() }
+    }
+}
+
+fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) -> PlusButton {
+    let mut plus = PlusButton::default();
+    if let Some(label) = raw.label {
+        // Keep at least one visible cell so the button stays clickable.
+        if !label.trim().is_empty() {
+            plus.label = label;
+        }
+    }
+    if let Some(action) = raw.action.as_deref() {
+        match parse_sidebar_action(action.trim(), command_ids) {
+            Ok(action) => plus.action = Some(action),
+            Err(warning) => eprintln!("{warning} in {owner} plus button"),
+        }
+    }
+    if let Some(menu) = raw.menu {
+        let mut seen = HashSet::new();
+        for raw_action in &menu {
+            match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                Ok(action) if seen.insert(action) => plus.menu.push(SidebarActionSpec {
+                    action,
+                    label: raw_action
+                        .label()
+                        .map(str::trim)
+                        .filter(|label| !label.is_empty())
+                        .map(str::to_string),
+                }),
+                Ok(_) => eprintln!(
+                    "cmux-tui: ignoring duplicate {owner} plus menu action {:?}",
+                    raw_action.action().trim()
+                ),
+                Err(warning) => eprintln!("{warning} in {owner} plus menu"),
+            }
+        }
+    }
+    plus
 }
 
 impl SidebarViewSpec {
@@ -2934,6 +3002,8 @@ pub struct StatusBarOptions {
     pub right_separator: Option<String>,
     /// Cap style for the active screen chip in the screens strip.
     pub screens_style: ChipStyle,
+    /// The screens strip's `+` button.
+    pub screens_plus: PlusButton,
 }
 
 impl Default for StatusBarOptions {
@@ -2947,6 +3017,7 @@ impl Default for StatusBarOptions {
             left_separator: None,
             right_separator: None,
             screens_style: ChipStyle::Block,
+            screens_plus: PlusButton::default(),
         }
     }
 }
@@ -3296,6 +3367,12 @@ pub fn load() -> Config {
     // reference them as `command:<id>`; their chords bind after `keys`.
     let (user_commands, user_command_keys) = resolve_user_command_specs(raw.commands);
     let command_ids: Vec<String> = user_commands.iter().map(|command| command.id.clone()).collect();
+    if let Some(plus) = raw.tabs.plus {
+        config.tabs.plus = resolve_plus_button(plus, &command_ids, "tabs");
+    }
+    if let Some(plus) = raw.status_bar.screens_plus {
+        config.status_bar.screens_plus = resolve_plus_button(plus, &command_ids, "status_bar");
+    }
     if let Some(views) = raw.sidebar.views.as_ref() {
         if raw.sidebar.columns.is_some() {
             eprintln!("cmux-tui: sidebar.views overrides sidebar.columns");
@@ -7988,6 +8065,52 @@ mod tests {
         assert_eq!(raw.sidebar.row_gap, Some(0));
         assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
         assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    fn plus_buttons_parse_labels_actions_and_menus() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"plus": {
+                "label": " new ",
+                "action": "command:top",
+                "menu": [
+                    "new-tab",
+                    {"action": "new-browser-tab", "label": "browser"},
+                    "command:top",
+                    "command:unknown"
+                ]
+            }},
+            "status_bar": {"screens_plus": {"label": " ⊕ "}}
+        }))
+        .unwrap();
+        let command_ids = vec!["top".to_string()];
+        let plus = resolve_plus_button(raw.tabs.plus.unwrap(), &command_ids, "tabs");
+        assert_eq!(plus.label, " new ");
+        assert_eq!(plus.action, Action::user_command(0));
+        assert_eq!(
+            plus.menu,
+            vec![
+                SidebarActionSpec::plain(Action::NewTab),
+                SidebarActionSpec {
+                    action: Action::NewBrowserTab,
+                    label: Some("browser".to_string()),
+                },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+            ],
+            "unknown command references drop from plus menus"
+        );
+        let screens =
+            resolve_plus_button(raw.status_bar.screens_plus.unwrap(), &command_ids, "status_bar");
+        assert_eq!(screens.label, " ⊕ ");
+        assert_eq!(screens.action, None);
+        assert!(screens.menu.is_empty());
+        // A blank label keeps the clickable default.
+        let blank = resolve_plus_button(
+            RawPlusButton { label: Some("   ".to_string()), action: None, menu: None },
+            &command_ids,
+            "tabs",
+        );
+        assert_eq!(blank.label, " + ");
     }
 
     #[test]
