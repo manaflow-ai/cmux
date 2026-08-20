@@ -51,12 +51,12 @@ final class MarkdownWebRenderingCoordinator {
     /// Creates a coordinator with an injectable action sink for transition tests.
     init(
         initialBoundsSize: CGSize,
-        scheduler: MainActorDeferredActionScheduler = MainActorDeferredActionScheduler(),
+        scheduler: MainActorDeferredActionScheduler? = nil,
         isActuallyVisible: @escaping @MainActor () -> Bool,
         applyAction: @escaping @MainActor (Action) -> Void,
         onReenterWindow: @escaping @MainActor () -> Void = {}
     ) {
-        self.scheduler = scheduler
+        self.scheduler = scheduler ?? MainActorDeferredActionScheduler()
         self.isActuallyVisible = isActuallyVisible
         self.applyAction = applyAction
         self.onReenterWindow = onReenterWindow
