@@ -2488,15 +2488,18 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
-                    self.startContextMenuDownload(
-                        imageURL,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                    return
+                if let imageURL {
+                    let normalizedImageURL = self.normalizedLinkedDownloadURL(imageURL)
+                    if self.isDownloadableScheme(normalizedImageURL) {
+                        self.startContextMenuDownload(
+                            normalizedImageURL,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                        return
+                    }
                 }
                 if let imageURL, self.isDataURLScheme(imageURL) {
                     dataImageURL = imageURL
