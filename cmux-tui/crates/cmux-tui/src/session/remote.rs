@@ -1485,6 +1485,10 @@ struct ExitedSurfaceState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    /// Why the transport was torn down (reader EOF, oversized frame,
+    /// unresponsive daemon). First writer wins; surfaced in the scoped
+    /// attach's connection-lost notice.
+    disconnect_reason: Mutex<Option<String>>,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
@@ -1823,6 +1827,7 @@ impl RemoteSession {
         let session = Arc::new(RemoteSession {
             interactive_writer,
             pending: Mutex::new(HashMap::new()),
+            disconnect_reason: Mutex::new(None),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
@@ -2822,6 +2827,11 @@ impl RemoteSession {
         self.shutdown.load(Ordering::Acquire)
     }
 
+    /// The first recorded reason the transport was torn down, when known.
+    pub fn transport_disconnect_reason(&self) -> Option<String> {
+        self.disconnect_reason.lock().unwrap().clone()
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
@@ -3761,6 +3771,7 @@ fn test_session_with_writer(
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
+        disconnect_reason: Mutex::new(None),
         surfaces: Mutex::new(HashMap::new()),
         exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
         surface_leases: Mutex::new(HashMap::new()),
@@ -4966,6 +4977,7 @@ mod tests {
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
+            disconnect_reason: Mutex::new(None),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
@@ -5871,6 +5883,127 @@ mod tests {
 
         assert!(!session.subscription_started.load(Ordering::Acquire));
         assert!(!closed.load(Ordering::Acquire));
+    }
+
+    /// A fake daemon that completes the identify/set-client-info handshake
+    /// for an unsubscribed session, then runs `and_then` with the server
+    /// stream.
+    #[cfg(unix)]
+    fn handshake_session_with_peer(
+        and_then: impl FnOnce(UnixStream) + Send + 'static,
+    ) -> (Arc<RemoteSession>, std::thread::JoinHandle<()>) {
+        let (client, server) = UnixStream::pair().unwrap();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+            and_then(peer.into_inner());
+        });
+        client.set_read_timeout(None).unwrap();
+        let transport = RemoteTransport::json_lines(Box::new(client)).unwrap();
+        let session =
+            RemoteSession::connect_transport_with_initial_subscription(transport, false).unwrap();
+        (session, peer)
+    }
+
+    /// The reader thread ending must never be mute: the incident class here
+    /// is a scoped attach frozen forever with no recorded cause. An oversized
+    /// daemon frame tears the transport down today, but the WHY is dropped,
+    /// so the user-facing connection-lost notice cannot explain itself.
+    #[cfg(unix)]
+    #[test]
+    fn oversized_daemon_frame_disconnects_with_a_recorded_reason() {
+        let (session, peer) = handshake_session_with_peer(|mut server| {
+            let chunk = vec![b'x'; 1 << 20];
+            for _ in 0..33 {
+                if server.write_all(&chunk).is_err() {
+                    return;
+                }
+            }
+            let _ = server.write_all(b"\n");
+        });
+        let events = session.subscribe();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(MuxEvent::Empty) => break,
+                Ok(_) => continue,
+                Err(error) => panic!("oversized frame never closed the session: {error}"),
+            }
+        }
+        let reason = session.transport_disconnect_reason();
+        assert!(
+            reason.as_deref().is_some_and(|reason| reason.contains("exceeds the")),
+            "the disconnect must record why the stream died (got {reason:?})"
+        );
+        drop(session);
+        let _ = peer.join();
+    }
+
+    /// EOF from the daemon must also leave a recorded reason.
+    #[cfg(unix)]
+    #[test]
+    fn daemon_eof_disconnects_with_a_recorded_reason() {
+        let (session, peer) = handshake_session_with_peer(drop);
+        let events = session.subscribe();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(MuxEvent::Empty) => break,
+                Ok(_) => continue,
+                Err(error) => panic!("daemon EOF never closed the session: {error}"),
+            }
+        }
+        let reason = session.transport_disconnect_reason();
+        assert!(
+            reason.as_deref().is_some_and(|reason| reason.contains("closed the connection")),
+            "EOF must record that the daemon closed the connection (got {reason:?})"
+        );
+        drop(session);
+        let _ = peer.join();
+    }
+
+    /// Fire-and-forget input sends carry no pending entry, so a daemon error
+    /// reply ("unknown surface") matches nothing and is dropped today: input
+    /// against a dead terminal is swallowed with no trace. The error must
+    /// surface as a status event (deduplicated across repeats).
+    #[cfg(unix)]
+    #[test]
+    fn unmatched_error_response_surfaces_a_status_event_once() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({"id": 424242, "ok": false, "error": "unknown surface 7"}));
+        match events.recv_timeout(Duration::from_secs(1)) {
+            Ok(MuxEvent::Status(status)) => {
+                assert!(status.contains("unknown surface 7"), "status must carry the error");
+            }
+            other => panic!("dropped daemon error was not surfaced: {other:?}"),
+        }
+
+        session.handle_line(json!({"id": 424243, "ok": false, "error": "unknown surface 7"}));
+        assert!(
+            events.recv_timeout(Duration::from_millis(200)).is_err(),
+            "an identical repeated error must not spam status events"
+        );
     }
 
     #[cfg(unix)]
