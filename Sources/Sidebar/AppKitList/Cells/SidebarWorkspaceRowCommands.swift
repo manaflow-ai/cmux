@@ -17,6 +17,7 @@ struct SidebarWorkspaceRowCommands {
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     let index: Int
+    let visibleWorkspaceIds: [UUID]
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -51,8 +52,13 @@ struct SidebarWorkspaceRowCommands {
         cmuxDebugLog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) source=appKitRow")
 #endif
         var selectedTabIds = readSelectedTabIds()
-        let workspaceIds = tabManager.tabs.map(\.id)
-        let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let workspaceIds = visibleWorkspaceIds
+        let visibleWorkspaceIDSet = Set(visibleWorkspaceIds)
+        let anchorIds = Set(tabManager.workspaceGroups.compactMap { group in
+            visibleWorkspaceIDSet.contains(group.anchorWorkspaceId)
+                ? group.anchorWorkspaceId
+                : nil
+        })
         let selectionKindPolicy = SidebarSelectionKindPolicy()
         let shiftAnchorIndex = isShift
             ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
@@ -77,7 +83,10 @@ struct SidebarWorkspaceRowCommands {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+            let visibleRangeIds = visibleWorkspaceIds[lower...upper].compactMap { workspaceID -> UUID? in
+                guard let tab = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                    return nil
+                }
                 if let gid = tab.groupId,
                    collapsedGroupIds.contains(gid),
                    anchorIdsByGroup[gid] != tab.id {
@@ -137,21 +146,35 @@ struct SidebarWorkspaceRowCommands {
     func syncSelectionAfterMutation() {
         guard let tabManager else { return }
         var selectedTabIds = readSelectedTabIds()
-        let existingIds = Set(tabManager.tabs.map { $0.id })
+        let existingIds = Set(visibleWorkspaceIds).intersection(tabManager.tabs.map(\.id))
         selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
-        if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+        if selectedTabIds.isEmpty,
+           let selectedId = tabManager.selectedTabId,
+           existingIds.contains(selectedId)
+        {
             selectedTabIds = [selectedId]
         }
         writeSelectedTabIds(selectedTabIds)
         if let selectedId = tabManager.selectedTabId {
-            writeLastSelectionIndex(tabManager.tabs.firstIndex { $0.id == selectedId })
+            writeLastSelectionIndex(visibleWorkspaceIds.firstIndex(of: selectedId))
         }
     }
 
     func moveBy(_ delta: Int) {
-        guard let tabManager, tabManager.reorderWorkspace(tabId: tab.id, by: delta) else { return }
+        guard let tabManager,
+              let currentIndex = visibleWorkspaceIds.firstIndex(of: tab.id)
+        else {
+            return
+        }
+        let targetIndex = min(max(currentIndex + delta, 0), visibleWorkspaceIds.count - 1)
+        guard targetIndex != currentIndex else { return }
+        let targetID = visibleWorkspaceIds[targetIndex]
+        let didMove = delta < 0
+            ? tabManager.reorderWorkspace(tabId: tab.id, before: targetID)
+            : tabManager.reorderWorkspace(tabId: tab.id, after: targetID)
+        guard didMove else { return }
         writeSelectedTabIds([tab.id])
-        writeLastSelectionIndex(tabManager.tabs.firstIndex { $0.id == tab.id })
+        writeLastSelectionIndex(targetIndex)
         tabManager.selectTab(tab)
         setSelectionToTabs()
     }
@@ -633,7 +656,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
         menu.addItem(item(
             String(localized: "contextMenu.moveDown", defaultValue: "Move Down"),
-            enabled: commands.index < tabManager.tabs.count - 1
+            enabled: commands.index < commands.visibleWorkspaceIds.count - 1
         ) { [commands] in
             commands.moveBy(1)
         })
@@ -688,29 +711,26 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
         menu.addItem(item(
             String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces"),
-            enabled: !(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-        ) { [weak tabManager, commands] in
-            guard let tabManager else { return }
+            enabled: !(commands.visibleWorkspaceIds.count <= 1 || targetIds.count == commands.visibleWorkspaceIds.count)
+        ) { [commands] in
             let keepIds = Set(commands.contextMenuWorkspaceIds)
-            let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
+            let idsToClose = commands.visibleWorkspaceIds.filter { !keepIds.contains($0) }
             commands.closeTabs(idsToClose, allowPinned: true)
         })
         menu.addItem(item(
             String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below"),
-            enabled: commands.index < tabManager.tabs.count - 1
-        ) { [weak tabManager, commands] in
-            guard let tabManager,
-                  let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
-            let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
+            enabled: commands.index < commands.visibleWorkspaceIds.count - 1
+        ) { [commands] in
+            guard let anchorIndex = commands.visibleWorkspaceIds.firstIndex(of: commands.tab.id) else { return }
+            let idsToClose = Array(commands.visibleWorkspaceIds.suffix(from: anchorIndex + 1))
             commands.closeTabs(idsToClose, allowPinned: true)
         })
         menu.addItem(item(
             String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above"),
             enabled: commands.index != 0
-        ) { [weak tabManager, commands] in
-            guard let tabManager,
-                  let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
-            let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
+        ) { [commands] in
+            guard let anchorIndex = commands.visibleWorkspaceIds.firstIndex(of: commands.tab.id) else { return }
+            let idsToClose = Array(commands.visibleWorkspaceIds.prefix(upTo: anchorIndex))
             commands.closeTabs(idsToClose, allowPinned: true)
         })
     }

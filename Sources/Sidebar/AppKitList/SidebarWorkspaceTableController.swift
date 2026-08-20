@@ -121,10 +121,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.contentInsets = NSEdgeInsets(
             top: SidebarWorkspaceScrollInsets.workspaceList.top
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+                + SidebarListMetrics.rowVerticalPadding,
             left: 0,
             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+                + SidebarListMetrics.rowVerticalPadding,
             right: 0
         )
         scrollView.applySidebarOverlayScrollerConfiguration()
@@ -1756,7 +1756,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         } else {
             y = container.bounds.height
                 - SidebarWorkspaceScrollInsets.workspaceList.top
-                - SidebarWorkspaceListMetrics.rowVerticalPadding
+                - SidebarListMetrics.rowVerticalPadding
         }
         let leadingIndent: CGFloat = {
             guard appKitDropIndicatorIncludesRowTargets,

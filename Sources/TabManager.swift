@@ -239,6 +239,19 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    /// Per-window parent column and default source for shared
+    /// workspace/surface creation actions.
+    @Published var sidebarCreationContextSelection: SidebarCreationContextSelection = .automatic
+    var sidebarRemoteCreationContextOrder: [SidebarRemoteCreationContextKey] = []
+    /// User-defined order for machine rows. `Automatic` is a creation mode,
+    /// not a machine, so it remains fixed above this ordered collection.
+    var sidebarMachineCreationContextOrder: [String] = [SidebarCreationContextSelection.localID]
+    var sidebarRemoteCreationContexts: [
+        SidebarRemoteCreationContextKey: SidebarRegisteredRemoteCreationContext
+    ] = [:]
+    /// Per-machine navigation cursors for this cmux window. Stable workspace
+    /// identities survive session restore even though live workspace UUIDs do not.
+    var sidebarFocusedWorkspaceStableIDByCreationContextID: [String: UUID] = [:]
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -300,6 +313,7 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            rememberSelectedSidebarWorkspaceFocus()
             pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
@@ -673,6 +687,7 @@ class TabManager: ObservableObject {
             }
         })
 #if DEBUG
+        setupUITestSidebarMachineScopesIfNeeded()
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
         setupChildExitSplitUITestIfNeeded()
@@ -1272,6 +1287,7 @@ class TabManager: ObservableObject {
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: select && allowTextBoxFocusDefault
             )
+            newWorkspace.sidebarCreationContextID = sidebarCreationContextIDForNewWorkspace()
             applyCreationChromeInheritance(
                 to: newWorkspace,
                 from: sourceWorkspace ?? capturedTabs.first
@@ -3907,14 +3923,11 @@ class TabManager: ObservableObject {
 
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
-        // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        _ = newSurfaceUsingSidebarCreationContext()
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        _ = newSurfaceUsingSidebarCreationContext(initialInput: initialInput)
     }
 
     // MARK: - Split Creation

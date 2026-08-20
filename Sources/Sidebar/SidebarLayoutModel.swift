@@ -13,10 +13,19 @@ import SwiftUI
 /// through `width` directly and register no dependency.
 @MainActor
 final class SidebarLayoutModel: ObservableObject {
+    @Published var leadingColumnWidth: CGFloat
     @Published var width: CGFloat
 
-    init(width: CGFloat) {
+    init(
+        width: CGFloat,
+        leadingColumnWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarLeadingColumnWidth)
+    ) {
         self.width = width
+        self.leadingColumnWidth = leadingColumnWidth
+    }
+
+    var regionWidth: CGFloat {
+        max(0, leadingColumnWidth) + max(0, width)
     }
 }
 
@@ -31,6 +40,28 @@ struct SidebarWidthReader<Content: View>: View {
 
     var body: some View {
         content(layout.width)
+    }
+}
+
+/// Re-evaluates only its wrapper when either column changes and exposes the
+/// full sidebar-region width.
+struct SidebarRegionWidthReader<Content: View>: View {
+    @ObservedObject var layout: SidebarLayoutModel
+    @ViewBuilder let content: (CGFloat) -> Content
+
+    var body: some View {
+        content(layout.regionWidth)
+    }
+}
+
+/// Exposes both independently persisted column widths without invalidating
+/// ContentView's expensive terminal subtree on divider ticks.
+struct SidebarColumnWidthsReader<Content: View>: View {
+    @ObservedObject var layout: SidebarLayoutModel
+    @ViewBuilder let content: (_ leading: CGFloat, _ primary: CGFloat, _ total: CGFloat) -> Content
+
+    var body: some View {
+        content(layout.leadingColumnWidth, layout.width, layout.regionWidth)
     }
 }
 
@@ -57,5 +88,15 @@ struct SidebarWidthLeadingPaddingModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.padding(.leading, enabled ? layout.width : 0)
+    }
+}
+
+/// Leading padding for the complete multi-column sidebar region.
+struct SidebarRegionWidthLeadingPaddingModifier: ViewModifier {
+    @ObservedObject var layout: SidebarLayoutModel
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        content.padding(.leading, enabled ? layout.regionWidth : 0)
     }
 }

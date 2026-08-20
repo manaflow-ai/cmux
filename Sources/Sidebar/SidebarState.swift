@@ -6,13 +6,23 @@ import Foundation
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
+    @Published var persistedLeadingColumnWidth: CGFloat
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
 
-    init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
+    init(
+        isVisible: Bool = true,
+        persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
+        persistedLeadingColumnWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarLeadingColumnWidth)
+    ) {
         self.isVisible = isVisible
         let sanitized = SessionPersistencePolicy.sanitizedSidebarWidth(Double(persistedWidth))
         self.persistedWidth = CGFloat(sanitized)
+        self.persistedLeadingColumnWidth = CGFloat(
+            SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(
+                Double(persistedLeadingColumnWidth)
+            )
+        )
     }
 
     func toggle() {

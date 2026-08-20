@@ -292,7 +292,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.cornerRadius = SidebarListMetrics.rowCornerRadius
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
         CATransaction.commit()
     }
@@ -380,10 +380,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
-        let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+        let outerPad = SidebarListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
         backgroundView.frame = bgFrame
-        let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+        let contentMaxX = bgFrame.maxX - SidebarListMetrics.rowContentHorizontalPadding
         let midY = bounds.height / 2
         var x = bgFrame.minX
 

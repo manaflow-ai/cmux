@@ -2510,6 +2510,18 @@ class TerminalController {
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
+        case "sidebar.creation_context.list":
+            return v2Result(id: id, self.v2SidebarCreationContextList(params: params))
+        case "sidebar.creation_context.select":
+            return v2Result(id: id, self.v2SidebarCreationContextSelect(params: params))
+        case "sidebar.creation_context.reorder":
+            return v2Result(id: id, self.v2SidebarCreationContextReorder(params: params))
+        case "sidebar.machine.add_ssh":
+            return v2Result(id: id, self.v2SidebarMachineAddSSH(params: params))
+        case "sidebar.machine.attach_cmux_tui":
+            return v2Result(id: id, self.v2SidebarMachineAttachCmuxTUI(params: params))
+        case "sidebar.workspace.move_to_context":
+            return v2Result(id: id, self.v2SidebarWorkspaceMoveToContext(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2692,6 +2704,12 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
+            "sidebar.creation_context.list",
+            "sidebar.creation_context.select",
+            "sidebar.creation_context.reorder",
+            "sidebar.machine.add_ssh",
+            "sidebar.machine.attach_cmux_tui",
+            "sidebar.workspace.move_to_context",
             "system.top",
             "system.memory",
             "caffeine.status",

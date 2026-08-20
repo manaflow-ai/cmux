@@ -149,6 +149,17 @@ with:
   `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
+- `creationContexts`: array of machine/default rows. Always present: `id`,
+  `title`, `systemImage`, `selected`, `kind` (`automatic|local|remote`), and
+  `workspaceCount`, plus ordered `workspaceIds` children. Every row also has
+  `childColumn` (`{ id, rendererId }`). Route ids are parent-specific; the
+  built-in `cmux.workspaces` renderer resolves each context's `workspaceIds`
+  against the shared `workspaces` snapshot. Remote rows can include
+  `subtitle` and `connectionState`. Machine rows include `focusedWorkspaceId`
+  after a child has been focused. `capabilities` lists optional native actions,
+  currently `attachRemoteCmuxTUI` for SSH machines. `selectedCreationContextId` is the active
+  id. A context stays available with zero open workspaces. Membership controls
+  navigation only; workspaces and surfaces can still mix local and remote runtimes.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
   sidebar re-renders about once a second, so clocks/countdowns and workspace
   changes are live.
@@ -244,11 +255,29 @@ it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
     ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+    Button(action: {
+        cmux("sidebar.creation_context.select", context_id: context.id, workspace_id: selectedId)
+    }) { Text(context.title) }
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`
-(`workspace_id` + `index`). Run `cmux docs api` to discover the full command
-surface.
+(`workspace_id` + `index`), and `sidebar.creation_context.select`
+(`context_id` + `workspace_id`). Machine order is changed with
+`sidebar.creation_context.reorder` (`context_id` + machine-only `index`).
+Move a workspace between machine child columns with
+`sidebar.workspace.move_to_context` (`workspace_id` + `context_id`). This only
+changes sidebar membership; local and remote surfaces keep their transports.
+Add a zero-workspace SSH machine with `sidebar.machine.add_ssh` (`host`, plus
+optional `port`, `identity_file`, `ssh_options`, and `select`). Attach its
+remote `cmux-tui` session into any workspace with
+`sidebar.machine.attach_cmux_tui` (`context_id`, optional `session`,
+`workspace_id`, and `focus`). Socket calls create in the background unless
+`focus` is explicitly allowed.
+Render one machine's children with
+`workspaces.filter { machine.workspaceIds.contains($0.id) }`; Automatic's
+`workspaceIds` contains the aggregate list.
+`Automatic` is a fixed creation mode and is not a machine-order member. Run
+`cmux docs api` to discover the full command surface.
 
 ## Drag-and-drop reordering (persisted)
 
@@ -261,6 +290,22 @@ workspace order):
     Reorderable(workspaces, move: "workspace.reorder") { w in
         Button(action: { cmux("workspace.select", workspace_id: w.id) }) {
             HStack { Text(w.title); Spacer() }.padding(6)
+        }
+    }
+
+Creation contexts arrive in the user's saved order. Keep `Automatic` fixed and
+make the machine subset reorderable with the same primitive:
+
+    let machines = creationContexts.filter { $0.kind != "automatic" }
+    Reorderable(
+        machines,
+        move: "sidebar.creation_context.reorder",
+        idParam: "context_id"
+    ) { machine in
+        Button(action: {
+            cmux("sidebar.creation_context.select", context_id: machine.id)
+        }) {
+            Text(machine.title)
         }
     }
 
