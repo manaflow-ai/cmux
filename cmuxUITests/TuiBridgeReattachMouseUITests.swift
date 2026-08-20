@@ -172,12 +172,25 @@ final class TuiBridgeReattachMouseUITests: XCTestCase {
     }
 
     private func launchAgain(_ app: XCUIApplication) {
-        app.launch()
-        XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 30),
-            "App never reached foreground. state=\(app.state.rawValue)"
+        // launch() records a test failure when the freshly spawned app cannot
+        // be activated immediately ("Running Background"), a transient on
+        // headless CI sessions (see RemoteTmuxSizingUITests). Absorb that and
+        // retry activation below: this test genuinely needs the foreground
+        // (real clicks, the quit dialog), so only give up after the retries.
+        let activationOptions = XCTExpectedFailure.Options()
+        activationOptions.isStrict = false
+        XCTExpectFailure("App activation may fail transiently on headless CI sessions", options: activationOptions) {
+            app.launch()
+        }
+        let deadline = Date().addingTimeInterval(45)
+        while app.state != .runningForeground, Date() < deadline {
+            app.activate()
+            Thread.sleep(forTimeInterval: 1.0)
+        }
+        XCTAssertEqual(
+            app.state, .runningForeground,
+            "App never reached foreground after activation retries. state=\(app.state.rawValue)"
         )
-        app.activate()
         XCTAssertTrue(
             waitForSocket(timeout: 30),
             "control socket never answered. candidates=\(socketCandidates()) lastFailure=\(lastSocketFailure ?? "nil") diagnostics=\(loadDiagnostics())"
