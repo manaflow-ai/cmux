@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSwiftRender
 import SwiftUI
 
@@ -95,6 +96,15 @@ final class JSSidebarEngine {
 
     var eventSink: SceneEventSink {
         SceneEventSink { [weak self] nodeId, event, payload in
+            // Any interaction outside an active inline editor ends the edit
+            // (blur-commits): clicking a SwiftUI row never moves AppKit first
+            // responder off the NSTextField by itself, so resign it here.
+            // The field's own submit/cancel events must not re-blur.
+            if event != "submit", event != "cancel",
+               let window = NSApp.keyWindow,
+               window.firstResponder is NSTextView {
+                window.makeFirstResponder(nil)
+            }
             self?.runtime?.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
         }
     }

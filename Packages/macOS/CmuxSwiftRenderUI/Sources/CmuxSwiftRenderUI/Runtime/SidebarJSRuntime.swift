@@ -116,19 +116,30 @@ public final class SidebarJSRuntime {
               let raw = try? JSONSerialization.jsonObject(with: data),
               let object = raw as? [String: Any],
               let kind = object["kind"] as? String else { return }
+        let action: ButtonAction
         switch kind {
         case "cmux":
             guard let method = object["method"] as? String else { return }
             let params = (object["params"] as? [String: String]) ?? [:]
-            dispatch.run(ButtonAction(commands: [.cmux(method: method, params: params)]))
+            action = ButtonAction(commands: [.cmux(method: method, params: params)])
         case "openURL":
             guard let url = object["url"] as? String else { return }
-            dispatch.run(ButtonAction(commands: [.openURL(url)]))
+            action = ButtonAction(commands: [.openURL(url)])
         case "log":
             guard let message = object["message"] as? String else { return }
-            dispatch.run(ButtonAction(commands: [.log(message)]))
+            action = ButtonAction(commands: [.log(message)])
         default:
-            break
+            return
+        }
+        // Deferred one runloop turn ON PURPOSE: the JS handler applies its
+        // optimistic scene updates synchronously before calling cmux(...),
+        // and a heavy host command (workspace.select swaps terminals) running
+        // inside the same turn would block that paint - rapid click-click-
+        // click then feels laggy even though the state already flipped.
+        // Ordering between queued actions is preserved.
+        let dispatch = self.dispatch
+        DispatchQueue.main.async {
+            dispatch.run(action)
         }
     }
 

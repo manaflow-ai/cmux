@@ -4,6 +4,12 @@ import Testing
 
 @MainActor
 struct SidebarJSRuntimeTests {
+    /// Actions dispatch one main-queue turn after the event (paint-before-
+    /// command); suspend so the queued dispatch runs before asserting.
+    private func pumpActions() async {
+        for _ in 0..<5 { await Task.yield() }
+    }
+
     @Test func buildsRetainedScene() {
         let runtime = SidebarJSRuntime()
         let ok = runtime.start(source: """
@@ -89,7 +95,7 @@ struct SidebarJSRuntimeTests {
         #expect(runtime.store.node(rowId)?.string("text") == "new")
     }
 
-    @Test func buttonTapRunsCmuxCommand() {
+    @Test func buttonTapRunsCmuxCommand() async {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -100,10 +106,11 @@ struct SidebarJSRuntimeTests {
         """)
         let rootId = try! #require(runtime.store.rootId)
         runtime.dispatchEvent(nodeId: rootId, event: "tap")
+        await pumpActions()
         #expect(captured == [.cmux(method: "workspace.select", params: ["workspace_id": "w1"])])
     }
 
-    @Test func reorderableCarriesItemKeysAndMoveHandler() {
+    @Test func reorderableCarriesItemKeysAndMoveHandler() async {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -126,10 +133,11 @@ struct SidebarJSRuntimeTests {
         ]))
         #expect(runtime.store.node(rootId)?.string("itemKeys") == #"["a","b"]"#)
         runtime.dispatchEvent(nodeId: rootId, event: "move", payload: ["id": "a", "index": 1])
+        await pumpActions()
         #expect(captured == [.cmux(method: "workspace.reorder", params: ["workspace_id": "a", "index": "1"])])
     }
 
-    @Test func contextMenuAttachesAsMenuChild() {
+    @Test func contextMenuAttachesAsMenuChild() async {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -153,6 +161,7 @@ struct SidebarJSRuntimeTests {
         #expect(menu.children.count == 3)
         // Menu item taps dispatch like any button.
         runtime.dispatchEvent(nodeId: menu.children[0], event: "tap")
+        await pumpActions()
         #expect(captured == [.cmux(method: "workspace.action", params: ["action": "pin", "workspace_id": "w1"])])
         // Submenu node carries its title and item.
         let submenu = try! #require(runtime.store.node(menu.children[2]))
