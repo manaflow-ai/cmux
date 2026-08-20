@@ -480,6 +480,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // height. Replace everything atomically.
             let postUpdateActions = detachLoadedCells()
             containerView.tableView.reloadData()
+            resetViewportToTop()
             mutationScheduler.stagePostUpdateActions(postUpdateActions)
         } else if hasStructuralChanges {
             if heightChanges.isEmpty, isSmallPureReorder {
@@ -544,9 +545,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let visible = table.rows(in: table.visibleRect)
             for row in visible.lowerBound..<(visible.lowerBound + visible.length)
             where rows.indices.contains(row) {
-                let served = pumpHeightOverrides[rows[row].id]
-                    ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
-                    ?? rows[row].estimatedHeight
+                let served = rows[row].columnDisplayMode == .icons
+                    ? SidebarWorkspaceIconTableCellView.rowHeight
+                    : pumpHeightOverrides[rows[row].id]
+                        ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
+                        ?? rows[row].estimatedHeight
                 let actual = table.rect(ofRow: row).height - spacing
                 if abs(served - actual) > 0.5 {
                     cmuxDebugLog(
@@ -595,6 +598,31 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageApply(deferredInteractiveResizeApply)
         }
         performWidthRemeasureNow()
+        clampHorizontalScrollOrigin()
+    }
+
+    /// The sidebar never scrolls horizontally by design, but an animated
+    /// column collapse can transiently leave the clip view scrolled while
+    /// the document width lags the clip width, which then renders every row
+    /// shifted and clipped at the divider. Pin x back to zero once geometry
+    /// settles.
+    private func clampHorizontalScrollOrigin() {
+        guard let containerView else { return }
+        let clip = containerView.scrollView.contentView
+        guard clip.bounds.origin.x != 0 else { return }
+        clip.setBoundsOrigin(NSPoint(x: 0, y: clip.bounds.origin.y))
+        containerView.scrollView.reflectScrolledClipView(clip)
+    }
+
+    /// Mode flips replace every cell and change every height; the previous
+    /// scroll offset is meaningless in the new geometry and can land beyond
+    /// the shrunken content. Reset to the inset-aware top.
+    private func resetViewportToTop() {
+        guard let containerView else { return }
+        let scrollView = containerView.scrollView
+        let clip = scrollView.contentView
+        clip.setBoundsOrigin(NSPoint(x: 0, y: -scrollView.contentInsets.top))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     /// Row clicks route through the table's action (NSTableView owns the
