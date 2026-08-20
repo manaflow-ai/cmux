@@ -32738,6 +32738,7 @@ export default CMUXSessionRestore;
                 env: env,
                 sessionId: input.sessionId ?? sessionId
             )
+            var rebuiltFromStoredSummary = false
             if summary.body.isEmpty, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
                 // A notification with no usable message reuses the stored
                 // session summary for DISPLAY only: no lifecycle status is
@@ -32751,6 +32752,7 @@ export default CMUXSessionRestore;
                     isFallback: false,
                     notifyCategory: .idleReminder
                 )
+                rebuiltFromStoredSummary = true
             }
             let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
                 && summary.status == .idle
@@ -32773,7 +32775,10 @@ export default CMUXSessionRestore;
             )
 #endif
 
-            if def.name == "grok", summary.status == nil {
+            // A rebuilt stored summary is an intentional re-notification, not
+            // grok notification noise: it bypasses the nil-status filter (the
+            // rebuilt summary deliberately claims no lifecycle status).
+            if def.name == "grok", summary.status == nil, !rebuiltFromStoredSummary {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=nonTerminalNotification subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",

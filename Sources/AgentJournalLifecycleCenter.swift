@@ -315,6 +315,12 @@ final class AgentJournalLifecycleCenter: Sendable {
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "agentJournal.apply surface=\(assignment.surfaceId.prefix(8)) " +
+                "key=\(assignment.agentKey) phase=\(assignment.phase?.rawValue ?? "clear")"
+        )
+#endif
     }
 
     /// Projects the journal phase onto the sidebar's lifecycle enum. The
