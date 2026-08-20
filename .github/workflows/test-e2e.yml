@@ -426,6 +426,14 @@ jobs:
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
+          # The UI-test runner process does not inherit xcodebuild's plain
+          # environment; xcodebuild forwards only TEST_RUNNER_-prefixed
+          # variables into it. The TuiBridge tests resolve the cmux-tui
+          # binary through this variable.
+          TUI_BINARY="${GITHUB_WORKSPACE:-$PWD}/cmux-tui/target/debug/cmux-tui"
+          if [ -x "$TUI_BINARY" ]; then
+            XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_UI_TEST_TUI_BINARY=$TUI_BINARY")
+          fi
           if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
             XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
           fi
