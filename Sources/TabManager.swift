@@ -393,8 +393,8 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
     private let panelTitleUpdateCoalescer: NotificationBurstCoalescer
-    /// Shared presentation gate for this window's terminal-driven title path.
-    let windowTitleUpdateGate: WindowTitleUpdateGate
+    /// Deduplicates this manager's final AppKit window-title writes.
+    let windowTitleWriter: WindowTitleWriter
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
     // per-window composition point. It owns the concrete sub-models, hosts
@@ -498,7 +498,7 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
-        windowTitleUpdateGate: WindowTitleUpdateGate? = nil,
+        windowTitleWriter: WindowTitleWriter? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
             GhosttyWorkingDirectoryResolver(
@@ -528,7 +528,7 @@ class TabManager: ObservableObject {
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
-        self.windowTitleUpdateGate = windowTitleUpdateGate ?? WindowTitleUpdateGate()
+        self.windowTitleWriter = windowTitleWriter ?? WindowTitleWriter()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.tabDragTransferRegistry = tabDragTransferRegistry
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -2200,7 +2200,6 @@ class TabManager: ObservableObject {
         // asked to close and announces a close that did not happen.
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
         panelTitleUpdateCoalescer.flushNow()
-        flushPendingWindowTitleUpdate()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
         // leaving it alive on the server for resume. Killing the session is never a
@@ -2284,7 +2283,6 @@ class TabManager: ObservableObject {
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         panelTitleUpdateCoalescer.flushNow()
-        flushPendingWindowTitleUpdate()
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarMultiSelection.removeFromSelection(tabId)
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
@@ -3521,7 +3519,6 @@ class TabManager: ObservableObject {
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
         panelTitleUpdateCoalescer.flushNow()
-        flushPendingWindowTitleUpdate()
     }
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
         guard let tab = workspacesById[tabId],
@@ -3532,7 +3529,7 @@ class TabManager: ObservableObject {
         guard !tab.isRemoteTmuxMirror else { return }
         if tab.focusedPanelId == panelId {
             if selectedTabId == tabId {
-                updateWindowTitle(for: tab, rateLimited: true)
+                updateWindowTitle(for: tab)
             }
         }
         let currentDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3554,7 +3551,7 @@ class TabManager: ObservableObject {
               !tab.isRemoteTmuxMirror,
               let focusedPanelId = tab.focusedPanelId else { return }
         tab.applyFocusedPanelTitle(panelId: focusedPanelId)
-        if selectedTabId == tabId { updateWindowTitle(for: tab, rateLimited: true) }
+        if selectedTabId == tabId { updateWindowTitle(for: tab) }
     }
     func focusTab(
         _ tabId: UUID,
@@ -6168,7 +6165,6 @@ extension TabManager {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
-        flushPendingWindowTitleUpdate()
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)

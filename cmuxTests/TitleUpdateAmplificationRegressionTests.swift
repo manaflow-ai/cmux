@@ -34,6 +34,10 @@ struct TitleUpdateAmplificationRegressionTests {
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
         let sourceSurface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        let window = CountingTitleWindow()
+        manager.window = window
+        manager.updateWindowTitleForSelectedTab()
+        window.titleWriteCount = 0
         var workspacePublishCount = 0
         let observer = NotificationCenter.default.addObserver(
             forName: .workspaceTitleDidChange,
@@ -61,10 +65,13 @@ struct TitleUpdateAmplificationRegressionTests {
         // Workspace/SwiftUI state.
         #expect(scheduler.delays == [1.0])
         #expect(workspacePublishCount == 0)
+        #expect(window.titleWriteCount == 0)
         scheduler.fire(at: 0)
 
         #expect(workspacePublishCount == 1)
         #expect(workspace.title == "Agent frame 99")
+        #expect(window.titleWriteCount == 1)
+        #expect(window.title == "Agent frame 99")
     }
 
     @Test
@@ -86,30 +93,6 @@ struct TitleUpdateAmplificationRegressionTests {
         // same value still emits the Dock/Spaces work that this regression is
         // about, so no-op writes must be skipped at the source.
         #expect(window.titleWriteCount == firstWriteCount)
-    }
-
-    @Test
-    func terminalDrivenWindowTitlesPublishOnlyTheLatestFrame() {
-        let scheduler = ManualTitleCoalescerScheduler()
-        let gate = WindowTitleUpdateGate(
-            coalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            )
-        )
-        let window = CountingTitleWindow()
-        window.titleWriteCount = 0
-
-        for sequence in 0..<100 {
-            gate.submit("Agent frame \(sequence)", to: window)
-        }
-
-        #expect(scheduler.delays == [1.0])
-        #expect(window.titleWriteCount == 0)
-
-        gate.flushNow()
-
-        #expect(window.titleWriteCount == 1)
-        #expect(window.title == "Agent frame 99")
     }
 
     @Test
