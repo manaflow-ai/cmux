@@ -64,10 +64,22 @@ final class AgentJournalLifecycleCenter: Sendable {
                         }
                     }
                 case .recordAliases(let workspaces, let surfaces):
-                    try? store.recordRestoreAliases(
-                        workspaceAliases: workspaces,
-                        surfaceAliases: surfaces
-                    )
+                    do {
+                        try store.recordRestoreAliases(
+                            workspaceAliases: workspaces,
+                            surfaceAliases: surfaces
+                        )
+#if DEBUG
+                        cmuxDebugLog(
+                            "agentJournal.aliases.recorded surfaces=\(surfaces.count) " +
+                                "workspaces=\(workspaces.count)"
+                        )
+#endif
+                    } catch {
+#if DEBUG
+                        cmuxDebugLog("agentJournal.aliases.error \(String(describing: error))")
+#endif
+                    }
                 case .startupReplay:
                     let assignments = Self.reduceStartupReplay(
                         store: store,
@@ -156,6 +168,13 @@ final class AgentJournalLifecycleCenter: Sendable {
         for (old, new) in oldToNewPanelIds where old != new {
             surfaces[old.uuidString] = new.uuidString
         }
+#if DEBUG
+        cmuxDebugLog(
+            "agentJournal.aliases.note workspace=\(newWorkspaceId.uuidString.prefix(8)) " +
+                "pairs=\(oldToNewPanelIds.count) remapped=\(surfaces.count) " +
+                "workspaceRemapped=\(workspaces.count)"
+        )
+#endif
         guard !workspaces.isEmpty || !surfaces.isEmpty else { return }
         operations.yield(.recordAliases(workspaces: workspaces, surfaces: surfaces))
     }
