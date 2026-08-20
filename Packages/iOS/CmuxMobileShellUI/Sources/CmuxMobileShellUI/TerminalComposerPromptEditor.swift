@@ -36,6 +36,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     @Binding var isFocused: Bool
     let isDisabled: Bool
     let placeholder: String
+    let textColor: UIColor
     let pasteAttachment: () -> Bool
 
     func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
@@ -47,7 +48,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         view.delegate = context.coordinator
         view.font = UIFont.preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
-        view.textColor = .label
+        view.textColor = textColor
         view.autocapitalizationType = .sentences
         view.autocorrectionType = .yes
         view.backgroundColor = .clear
@@ -56,11 +57,13 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         view.isScrollEnabled = false
         view.text = text
         view.placeholderLabel.text = placeholder
-        view.placeholderLabel.textColor = .secondaryLabel
+        view.placeholderLabel.textColor = textColor.withAlphaComponent(0.55)
         view.placeholderLabel.font = view.font
         view.addSubview(view.placeholderLabel)
         view.accessibilityIdentifier = "MobileComposerField"
         view.pasteAttachment = pasteAttachment
+        view.textColor = textColor
+        view.placeholderLabel.textColor = textColor.withAlphaComponent(0.55)
         update(view)
         return view
     }

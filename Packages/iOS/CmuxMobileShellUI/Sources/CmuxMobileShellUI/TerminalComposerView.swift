@@ -375,6 +375,7 @@ struct TerminalComposerView: View {
                             "mobile.composer.placeholder",
                             defaultValue: "Message"
                         ),
+                        textColor: UIColor(store.activeTerminalTheme.terminalForegroundColor),
                         pasteAttachment: pasteAttachment
                     )
                     // Opens at a single line and grows up to 14 lines so a long message has
@@ -499,7 +500,16 @@ struct TerminalComposerView: View {
             isFieldFocused = true
             return false
         case nil:
-            return false
+            return MobilePasteboardReader.loadAttachmentPayload { [weak store] payload in
+                guard let payload else { return }
+                switch payload {
+                case .image(let data): self.stagePastedImage(data)
+                case .files(let urls): self.stageFiles(urls)
+                case .text(let string):
+                    store?.terminalInputText += string
+                    self.isFieldFocused = true
+                }
+            }
         }
     }
 

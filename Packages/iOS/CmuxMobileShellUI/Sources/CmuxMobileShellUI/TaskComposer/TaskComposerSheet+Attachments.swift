@@ -178,7 +178,14 @@ extension TaskComposerSheet {
             stageSelectedFiles(.success(fileURLs))
             return true
         case .text, nil:
-            return false
+            return MobilePasteboardReader.loadAttachmentPayload { payload in
+                guard let payload else { return }
+                switch payload {
+                case .image(let data): self.stagePastedImageData(data)
+                case .files(let urls): self.stageSelectedFiles(.success(urls))
+                case .text: break
+                }
+            }
         }
     }
 
