@@ -3012,6 +3012,151 @@ fn running_host_sigkill_detaches_exited_terminal_topology() {
     );
 }
 
+fn liveness_file_for(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
+    record_path
+        .with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
+}
+
+fn wait_for_terminal_exit_commit(
+    socket: &Path,
+    terminal_id: &str,
+    deadline: Instant,
+    context: &str,
+) -> serde_json::Value {
+    loop {
+        let resolved = request(
+            socket,
+            serde_json::json!({"id":97,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            return resolved;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{context}: terminal never committed a durable exit; last lifecycle={} — an \
+             unprovable host death left a silent zombie terminal (frozen clients, dropped input)",
+            resolved["lifecycle"]
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// A host that dies while its liveness proof stays unreadable (Indeterminate)
+/// exhausts the reconnect backoff. Today that path silently parks the surface
+/// in a Failed connection state: the terminal stays listed as running, attach
+/// clients keep a frozen frame, and input is accepted and dropped forever.
+/// The daemon must instead commit a durable exit with a reason and notify
+/// clients once reconnection is exhausted and the host cannot be proven live.
+#[test]
+fn unprovable_host_death_after_reconnect_exhaustion_commits_terminal_exit() {
+    let harness = RecoveryHarness::start("reconnect-exhaustion-exit");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    // Make the liveness proof permanently ambiguous: group-readable mode
+    // fails the probe's safety checks, so liveness reports Indeterminate
+    // (never Dead) while the admin socket is gone.
+    let liveness = liveness_file_for(&record_path, &record);
+    let mut permissions = fs::metadata(&liveness).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o644);
+    fs::set_permissions(&liveness, permissions).unwrap();
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Indeterminate
+    );
+    // SAFETY: the record PID is the dedicated host process owned by this
+    // harness; killing it is the failure under test.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+
+    // Reconnect backoff spans ~13s before it gives up; allow that plus commit.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(40));
+    let resolved = wait_for_terminal_exit_commit(
+        &harness.socket,
+        &terminal_id,
+        deadline,
+        "indeterminate liveness + dead admin socket",
+    );
+    assert_eq!(resolved["surface"], serde_json::Value::Null);
+    let reason = resolved["exit"]["outcome"]["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("reconnect"),
+        "durable exit must record why the daemon gave up (got {reason:?})"
+    );
+}
+
+/// While the liveness lock still reads Live, the daemon must keep trying to
+/// reconnect instead of silently abandoning the terminal after a fixed number
+/// of failures: a host can be unreachable-but-alive (stopped, wedged) for far
+/// longer than the backoff budget. Once the host is later proven dead, the
+/// exit must still commit. Today the reconnect thread gives up silently after
+/// ~13s, so a death after that window is never detected.
+#[test]
+fn reconnect_keeps_watching_a_live_locked_host_and_commits_its_later_death() {
+    let harness = RecoveryHarness::start("reconnect-live-lock-patience");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    // Hold the liveness flock ourselves so the probe keeps reporting Live
+    // after the host process is gone (models a stopped/wedged host whose
+    // lock persists while its admin socket stays unreachable). Pause the
+    // daemon around the swap so it cannot observe the lock-free window.
+    harness.signal_daemon(libc::SIGSTOP);
+    // SAFETY: the record PID is the harness-owned terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    let liveness = liveness_file_for(&record_path, &record);
+    let lock_file = fs::OpenOptions::new().read(true).write(true).open(&liveness).unwrap();
+    let lock_deadline = Instant::now() + test_timeout(Duration::from_secs(5));
+    loop {
+        // SAFETY: flock on an owned descriptor; held for the test's lifetime.
+        if unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            break;
+        }
+        assert!(Instant::now() < lock_deadline, "liveness lock never released by killed host");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    harness.signal_daemon(libc::SIGCONT);
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live
+    );
+
+    // Outlive the entire reconnect backoff budget (16 bounded attempts plus
+    // per-attempt adoption costs) while Live holds.
+    std::thread::sleep(test_timeout(Duration::from_secs(60)));
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_ne!(
+        resolved["lifecycle"], "exited",
+        "a Live liveness lock is not evidence of death; the daemon must not exit the terminal"
+    );
+
+    // Release the lock: the probe now proves Dead and the exit must commit.
+    drop(lock_file);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    wait_for_terminal_exit_commit(
+        &harness.socket,
+        &terminal_id,
+        deadline,
+        "liveness released after backoff budget",
+    );
+}
+
 #[test]
 fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
