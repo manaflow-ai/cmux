@@ -98,9 +98,8 @@ pub struct SurfaceOptions {
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
     /// TERM value for children: the outer terminal's xterm-ghostty when it
-    /// advertised that and the entry resolves here (see
-    /// [`default_child_term`]), else the compatible xterm-256color.
-    /// CMUX_TUI_TERM/CMUX_MUX_TERM override.
+    /// advertised that (see [`default_child_term`]), else the compatible
+    /// xterm-256color. CMUX_TUI_TERM/CMUX_MUX_TERM override.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -134,70 +133,28 @@ pub struct SurfaceOptions {
 
 /// Default TERM for child shells.
 ///
-/// `xterm-ghostty` only when the OUTER terminal already advertised it (this
-/// process's own TERM is xterm-ghostty) and its terminfo entry resolves
-/// here, else the compatible `xterm-256color`. Children then behave exactly
-/// like programs started in the host terminal without cmux-tui: prompts
-/// that sniff the TERM name (oh-my-zsh themes matching `*256color`) take
-/// the same branch and render the same colors, terminfo-checking programs
-/// get the RGB capabilities, and remote endpoints (ssh) see precisely the
-/// TERM they would have seen without the multiplexer, never a worse one.
+/// `xterm-ghostty` when the OUTER terminal advertised it (this process's
+/// own TERM), else the compatible `xterm-256color`. No terminfo probing:
+/// a Ghostty session that sets TERM=xterm-ghostty also exports TERMINFO
+/// pointing at its bundled database, and children inherit that variable
+/// through cmux-tui untouched, so the entry resolves for them exactly as
+/// it does for programs in the raw Ghostty pane. Children — local and
+/// remote (ssh forwards TERM, not terminfo) — therefore see precisely the
+/// TERM they would have seen without the multiplexer, never a less
+/// compatible one, and TERM-name-sniffing prompts (oh-my-zsh themes
+/// matching `*256color`) take the same branch inside cmux-tui as in raw
+/// Ghostty, so colors match. Only xterm-ghostty passes through: the inner
+/// terminal IS ghostty-vt, so that name is truthful regardless of which
+/// client later attaches; any other outer TERM would misdescribe it.
 /// Servers started outside a Ghostty session (launchd, ssh, cron) keep
 /// xterm-256color. CMUX_TUI_TERM, CMUX_MUX_TERM, and --term override.
-/// Cached for the process lifetime: children inherit this process's
-/// terminfo environment, so the answer cannot change between spawns.
 pub fn default_child_term() -> String {
-    static DEFAULT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    DEFAULT
-        .get_or_init(|| {
-            let outer = std::env::var("TERM").ok();
-            let resolves = || terminfo_resolves_within("xterm-ghostty", Duration::from_secs(2));
-            child_term_for(outer.as_deref(), resolves).into()
-        })
-        .clone()
+    child_term_for(std::env::var("TERM").ok().as_deref()).into()
 }
 
-/// Pure selection rule: pass the outer terminal through only when it is
-/// xterm-ghostty AND its entry is locally loadable; everything else gets
-/// the compatible default. `resolves` runs only when the outer terminal
-/// makes it relevant.
-fn child_term_for(outer_term: Option<&str>, resolves: impl FnOnce() -> bool) -> &'static str {
-    if outer_term == Some("xterm-ghostty") && resolves() {
-        "xterm-ghostty"
-    } else {
-        "xterm-256color"
-    }
-}
-
-/// Ask the system terminfo resolver — the same ncurses machinery child
-/// programs use, honoring $TERMINFO, ~/.terminfo, and $TERMINFO_DIRS with
-/// their exact semantics — whether `name` is a loadable compiled entry.
-/// `infocmp` exits 0 only after loading the entry, so a missing, truncated,
-/// or corrupt file never passes. Hosts without infocmp resolve nothing.
-///
-/// The whole probe (including process startup, which can block on an
-/// unavailable filesystem during PATH lookup) runs on a helper thread and
-/// is abandoned at the deadline, so surface creation never stalls on it.
-/// At most one probe runs per process (the result is cached in a
-/// OnceLock), so at most one abandoned thread can ever be left behind.
-fn terminfo_resolves_within(name: &str, deadline: Duration) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let name = name.to_string();
-    std::thread::spawn(move || {
-        let resolved = std::process::Command::new("infocmp")
-            .arg(&name)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
-        let _ = sender.send(resolved);
-    });
-    receiver.recv_timeout(deadline).unwrap_or(false)
+/// Pure selection rule for [`default_child_term`].
+fn child_term_for(outer_term: Option<&str>) -> &'static str {
+    if outer_term == Some("xterm-ghostty") { "xterm-ghostty" } else { "xterm-256color" }
 }
 
 impl Default for SurfaceOptions {
@@ -7475,67 +7432,27 @@ mod tests {
         );
     }
 
-    /// Negative answers hold on every host (a missing infocmp is itself a
-    /// negative answer); the positive path is asserted only when the host
-    /// can actually resolve the ubiquitous xterm entry, because running
-    /// without infocmp is a supported fallback state, not a failure.
-    #[cfg(unix)]
-    #[test]
-    fn terminfo_resolver_matches_system_lookup() {
-        let resolves = |name| terminfo_resolves_within(name, Duration::from_secs(5));
-        assert!(!resolves("cmux-no-such-terminal-entry"));
-        assert!(!resolves(""));
-
-        let host_resolves_xterm = std::process::Command::new("infocmp")
-            .arg("xterm")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
-        if host_resolves_xterm {
-            assert!(resolves("xterm"));
-        }
-    }
-
-    /// The deadline is a hard bound: a resolver that cannot answer in time
-    /// reports failure instead of stalling surface creation.
-    #[cfg(unix)]
-    #[test]
-    fn terminfo_resolver_deadline_reports_failure() {
-        assert!(!terminfo_resolves_within("xterm", Duration::ZERO));
-    }
-
     /// The selection rule: pass xterm-ghostty through only when the outer
-    /// terminal already advertised it AND the entry is locally loadable.
-    /// Prompts that sniff the TERM name then take the same branch inside
-    /// cmux-tui as in the host terminal (colors match), and children never
-    /// get a less compatible TERM than the host terminal gave the user.
+    /// terminal already advertised it. Prompts that sniff the TERM name
+    /// then take the same branch inside cmux-tui as in the host terminal
+    /// (colors match), and children never get a less compatible TERM than
+    /// the host terminal gave the user.
     #[test]
-    fn child_term_passes_ghostty_through_only_when_outer_and_resolvable() {
-        assert_eq!(child_term_for(Some("xterm-ghostty"), || true), "xterm-ghostty");
-        assert_eq!(child_term_for(Some("xterm-ghostty"), || false), "xterm-256color");
-        assert_eq!(child_term_for(Some("xterm-256color"), || true), "xterm-256color");
-        assert_eq!(child_term_for(Some("screen"), || true), "xterm-256color");
-        assert_eq!(child_term_for(None, || true), "xterm-256color");
-        // The probe is consulted only when the outer terminal makes it
-        // relevant, so a slow resolver cannot tax non-ghostty sessions.
-        assert_eq!(
-            child_term_for(Some("xterm-256color"), || panic!("probe must not run")),
-            "xterm-256color"
-        );
+    fn child_term_passes_ghostty_through_and_nothing_else() {
+        assert_eq!(child_term_for(Some("xterm-ghostty")), "xterm-ghostty");
+        assert_eq!(child_term_for(Some("xterm-256color")), "xterm-256color");
+        assert_eq!(child_term_for(Some("screen")), "xterm-256color");
+        assert_eq!(child_term_for(Some("alacritty")), "xterm-256color");
+        assert_eq!(child_term_for(Some("")), "xterm-256color");
+        assert_eq!(child_term_for(None), "xterm-256color");
     }
 
-    /// default_child_term composes the rule with this process's real
-    /// environment and must agree with it.
+    /// default_child_term composes the rule with this process's real TERM
+    /// and must agree with it.
     #[test]
     fn default_child_term_matches_selection_rule() {
         let outer = std::env::var("TERM").ok();
-        let expected = child_term_for(outer.as_deref(), || {
-            terminfo_resolves_within("xterm-ghostty", Duration::from_secs(5))
-        });
-        assert_eq!(default_child_term(), expected);
+        assert_eq!(default_child_term(), child_term_for(outer.as_deref()));
     }
 
     #[cfg(unix)]
