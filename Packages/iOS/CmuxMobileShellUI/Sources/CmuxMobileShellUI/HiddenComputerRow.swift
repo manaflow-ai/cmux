@@ -81,8 +81,8 @@ private struct ComputerVisibilityRow: View {
         }
         .confirmationDialog(
             L10n.string(
-                "mobile.computers.forget.confirmTitle",
-                defaultValue: "Forget this computer?"
+                "mobile.connections.forget.confirmTitle",
+                defaultValue: "Forget this connection?"
             ),
             isPresented: $showForgetConfirm,
             titleVisibility: .visible

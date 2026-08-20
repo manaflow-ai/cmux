@@ -24,7 +24,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
-        title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+        title: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection"),
         visibleSelection: .all,
         machines: []
     )
@@ -776,7 +776,7 @@ struct WorkspaceShellView: View {
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection")
         )
         return WorkspaceShellRenderPresentation(
             selectionScope: scope,
@@ -800,11 +800,11 @@ struct WorkspaceShellView: View {
         let title: String
         switch visibleSelection {
         case .all, .automatic:
-            title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            title = L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Connections")
         case .machine(let id):
             title = machineSnapshots.macPickerTitle(
                 for: id,
-                fallback: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+                fallback: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection")
             )
         }
         return WorkspaceRootToolbarRenderContext(

@@ -494,40 +494,6 @@
         }
       }
     },
-    "mobile.addDevice.another": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add another Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のコンピュータを追加"
-          }
-        }
-      }
-    },
-    "mobile.addDevice.formAccessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Computer form"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータ追加フォーム"
-          }
-        }
-      }
-    },
     "mobile.addDevice.help": {
       "extractionState": "manual",
       "localizations": {
@@ -762,23 +728,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン済みですが、メールアドレスを取得できません。"
-          }
-        }
-      }
-    },
-    "mobile.addDevice.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータを追加"
           }
         }
       }
@@ -2296,23 +2245,6 @@
         }
       }
     },
-    "mobile.computers.forget.confirmTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forget this computer?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このコンピュータの登録を解除しますか？"
-          }
-        }
-      }
-    },
     "mobile.computers.forget.failureMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -2326,23 +2258,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだサインインしています。接続を確認してもう一度お試しください。"
-          }
-        }
-      }
-    },
-    "mobile.computers.forget.failureTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't forget computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登録を解除できませんでした"
           }
         }
       }
@@ -2466,23 +2381,6 @@
         }
       }
     },
-    "mobile.computers.hidden.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hidden Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示のコンピュータ"
-          }
-        }
-      }
-    },
     "mobile.computers.hide": {
       "extractionState": "manual",
       "localizations": {
@@ -2513,23 +2411,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "再表示"
-          }
-        }
-      }
-    },
-    "mobile.computers.visibilityToggle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show this computer on this iPhone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このiPhoneにこのコンピュータを表示"
           }
         }
       }
@@ -3316,74 +3197,6 @@
         }
       }
     },
-    "mobile.devices.emptyTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータがありません"
-          }
-        }
-      }
-    },
-    "mobile.devices.savedDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap a saved computer to reconnect, or add another."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存したコンピュータをタップして再接続するか、別のコンピュータを追加します。"
-          }
-        }
-      }
-    },
-    "mobile.devices.savedDescription.reconnectOnly": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap a saved computer to reconnect."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存したコンピュータをタップして再接続します。"
-          }
-        }
-      }
-    },
-    "mobile.devices.savedTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存したコンピュータ"
-          }
-        }
-      }
-    },
     "mobile.devices.setupHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -3448,23 +3261,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@に接続できませんでした"
-          }
-        }
-      }
-    },
-    "mobile.disconnected.listFooter": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示中のコンピュータをタップすると再接続します。スイッチでこのiPhoneでの表示と非表示を切り替えられます。"
           }
         }
       }
@@ -14433,23 +14229,6 @@
         }
       }
     },
-    "mobile.workspaces.sort.computerOrder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer Order"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータの順序"
-          }
-        }
-      }
-    },
     "mobile.workspaces.sort.editOrder": {
       "extractionState": "manual",
       "localizations": {
@@ -14705,23 +14484,6 @@
         }
       }
     },
-    "mobile.workspaces.macPicker.allMacs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのコンピュータ"
-          }
-        }
-      }
-    },
     "mobile.workspaces.macPicker.title": {
       "extractionState": "manual",
       "localizations": {
@@ -14752,23 +14514,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ · %2$@"
-          }
-        }
-      }
-    },
-    "mobile.workspaces.macPicker.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータ"
           }
         }
       }
@@ -19791,6 +19536,20 @@
     "mobile.accessibility.notSelected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"not selected"}},"ja":{"stringUnit":{"state":"translated","value":"未選択"}}}},
     "mobile.accessibility.selected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"selected"}},"ja":{"stringUnit":{"state":"translated","value":"選択済み"}}}},
     "mobile.connections.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続を追加"}}}},
+    "mobile.connections.addAnother": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add another Connection"}},"ja":{"stringUnit":{"state":"translated","value":"別の接続を追加"}}}},
+    "mobile.connections.addFormAccessibilityLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Connection form"}},"ja":{"stringUnit":{"state":"translated","value":"接続追加フォーム"}}}},
+    "mobile.connections.disconnected.listFooter": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tap a shown connection to reconnect. Use its switch to show or hide it on this iPhone."}},"ja":{"stringUnit":{"state":"translated","value":"表示中の接続をタップして再接続します。スイッチでこのiPhoneでの表示・非表示を切り替えられます。"}}}},
+    "mobile.connections.emptyTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Connections"}},"ja":{"stringUnit":{"state":"translated","value":"接続がありません"}}}},
+    "mobile.connections.forget.confirmTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forget this connection?"}},"ja":{"stringUnit":{"state":"translated","value":"この接続を解除しますか？"}}}},
+    "mobile.connections.forget.failureTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't forget connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続を解除できませんでした"}}}},
+    "mobile.connections.hidden.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hidden Connections"}},"ja":{"stringUnit":{"state":"translated","value":"非表示の接続"}}}},
+    "mobile.connections.savedDescription": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tap a saved connection to reconnect, or add another."}},"ja":{"stringUnit":{"state":"translated","value":"保存済みの接続をタップして再接続するか、新しく追加してください。"}}}},
+    "mobile.connections.savedDescription.reconnectOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tap a saved connection to reconnect."}},"ja":{"stringUnit":{"state":"translated","value":"保存済みの接続をタップして再接続します。"}}}},
+    "mobile.connections.savedTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your Connections"}},"ja":{"stringUnit":{"state":"translated","value":"あなたの接続"}}}},
+    "mobile.connections.visibilityToggle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show this connection on this iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"この接続をこのiPhoneに表示"}}}},
+    "mobile.workspaces.macPicker.allConnections": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"All Connections"}},"ja":{"stringUnit":{"state":"translated","value":"すべての接続"}}}},
+    "mobile.workspaces.macPicker.connectionLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続"}}}},
+    "mobile.workspaces.sort.connectionOrder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection Order"}},"ja":{"stringUnit":{"state":"translated","value":"接続順"}}}},
     "mobile.connections.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No connections yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."}},"ja":{"stringUnit":{"state":"translated","value":"接続がありません。自動接続で表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、「設定」を開き、「接続方法」をタップして「Tailscaleのみ」を選択してください。"}}}},
     "mobile.connections.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A Mac appears once for each way this iPhone can connect to it. Turning a connection off hides that Mac's workspaces on this iPhone; it stays signed in to your account."}},"ja":{"stringUnit":{"state":"translated","value":"Macは、このiPhoneから接続できる方法ごとに1行ずつ表示されます。接続をオフにすると、そのMacのワークスペースがこのiPhoneで非表示になります。Macはアカウントにサインインしたままです。"}}}},
     "mobile.connections.method.autoConnect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto-Connect"}},"ja":{"stringUnit":{"state":"translated","value":"自動接続"}}}},

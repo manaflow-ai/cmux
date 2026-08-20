@@ -130,7 +130,7 @@ struct MobileSettingsView: View {
                             }
                         } else if !connectedHostName.isEmpty {
                             LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Computer"),
+                                L10n.string("mobile.settings.mac", defaultValue: "Connection"),
                                 value: connectedHostName
                             )
                         }

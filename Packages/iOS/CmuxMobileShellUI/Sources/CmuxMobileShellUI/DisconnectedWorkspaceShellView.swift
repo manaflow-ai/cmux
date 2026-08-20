@@ -167,11 +167,11 @@ struct DisconnectedWorkspaceShellView: View {
                     unhide: unhideComputer
                 )
             } header: {
-                Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
+                Text(L10n.string("mobile.connections.savedTitle", defaultValue: "Your Connections"))
             } footer: {
                 Text(L10n.string(
-                    "mobile.disconnected.listFooter",
-                    defaultValue: "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
+                    "mobile.connections.disconnected.listFooter",
+                    defaultValue: "Tap a shown connection to reconnect. Use its switch to show or hide it on this iPhone."
                 ))
             }
             Section {
@@ -210,7 +210,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label(
-                L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers"),
+                L10n.string("mobile.connections.emptyTitle", defaultValue: "No Connections"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -229,7 +229,7 @@ struct DisconnectedWorkspaceShellView: View {
                 .accessibilityIdentifier("MobileDisconnectedScanPairingCode")
             } else if let showAddDevice {
                 Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                    Text(L10n.string("mobile.connections.add", defaultValue: "Add Connection"))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
@@ -330,13 +330,13 @@ struct DisconnectedWorkspaceShellView: View {
     private var savedMacDescription: String {
         guard showAddDevice != nil else {
             return L10n.string(
-                "mobile.devices.savedDescription.reconnectOnly",
-                defaultValue: "Tap a saved computer to reconnect."
+                "mobile.connections.savedDescription.reconnectOnly",
+                defaultValue: "Tap a saved connection to reconnect."
             )
         }
         return L10n.string(
-            "mobile.devices.savedDescription",
-            defaultValue: "Tap a saved computer to reconnect, or add another."
+            "mobile.connections.savedDescription",
+            defaultValue: "Tap a saved connection to reconnect, or add another."
         )
     }
 
@@ -344,8 +344,8 @@ struct DisconnectedWorkspaceShellView: View {
         ContentUnavailableView {
             Label(
                 savedMacs.isEmpty
-                    ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers")
-                    : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"),
+                    ? L10n.string("mobile.connections.emptyTitle", defaultValue: "No Connections")
+                    : L10n.string("mobile.connections.savedTitle", defaultValue: "Your Connections"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -383,8 +383,8 @@ struct DisconnectedWorkspaceShellView: View {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
-                            ? L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
-                            : L10n.string("mobile.addDevice.another", defaultValue: "Add another Computer")
+                            ? L10n.string("mobile.connections.add", defaultValue: "Add Connection")
+                            : L10n.string("mobile.connections.addAnother", defaultValue: "Add another Connection")
                     )
                 }
                 .buttonStyle(.borderedProminent)
@@ -434,7 +434,7 @@ struct DisconnectedWorkspaceShellView: View {
             Button(action: showAddDevice) {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+            .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Connection"))
             .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
         }
     }

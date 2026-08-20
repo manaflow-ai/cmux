@@ -125,8 +125,8 @@ struct DeviceTreeView: View {
                             )
                         } header: {
                             Text(L10n.string(
-                                "mobile.computers.hidden.title",
-                                defaultValue: "Hidden Computers"
+                                "mobile.connections.hidden.title",
+                                defaultValue: "Hidden Connections"
                             ))
                         }
                     }
@@ -191,8 +191,8 @@ struct DeviceTreeView: View {
         .accessibilityIdentifier("MobileDeviceTree")
         .alert(
             L10n.string(
-                "mobile.computers.forget.failureTitle",
-                defaultValue: "Couldn't forget computer"
+                "mobile.connections.forget.failureTitle",
+                defaultValue: "Couldn't forget connection"
             ),
             isPresented: Binding(
                 get: { forgetFailureMessage != nil },

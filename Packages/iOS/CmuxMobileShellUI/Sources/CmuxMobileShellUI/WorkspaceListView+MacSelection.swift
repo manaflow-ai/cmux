@@ -64,7 +64,7 @@ extension WorkspaceListView {
     }
 
     var fallbackMacPickerName: String {
-        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection")
     }
 
     func macDisplayNamesByID() -> [String: String] {
@@ -148,7 +148,7 @@ extension WorkspaceListView {
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
-            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Connections")
         case .machine(let id):
             machineSnapshots.macPickerTitle(for: id, fallback: fallbackMacPickerName)
         }
@@ -207,8 +207,8 @@ struct WorkspaceMacTitlePicker: View, Equatable {
             } label: {
                 menuRow(
                     title: L10n.string(
-                        "mobile.workspaces.macPicker.allMacs",
-                        defaultValue: "All Computers"
+                        "mobile.workspaces.macPicker.allConnections",
+                        defaultValue: "All Connections"
                     ),
                     subtitle: nil,
                     isSelected: value.selection == .all
