@@ -12,10 +12,18 @@ import Foundation
 /// kind's own endpoint in ``MacComputerSnapshot/routeDescription``, while the
 /// snapshot `id` stays the pairing id, so visibility toggles and connection
 /// state affect every row of the same pairing consistently.
+///
+/// When the phone has a live foreground connection, the section whose kind is
+/// carrying it (`activeKind`) sorts first and is marked ``isActive``; every
+/// other section renders dimmed so the list reads "this is the method in use
+/// right now". With no live connection nothing is dimmed and sections keep
+/// dial-preference order.
 struct MacComputerListSection: Equatable, Identifiable {
     /// The connection method, or `nil` for the trailing no-route section.
     let kind: CmxAttachTransportKind?
     let computers: [MacComputerSnapshot]
+    /// Whether this section's method carries the phone's live connection.
+    var isActive: Bool = false
 
     var id: String { kind?.rawValue ?? "no-route" }
 
@@ -24,6 +32,17 @@ struct MacComputerListSection: Equatable, Identifiable {
         .iroh, .tailscale, .websocket, .debugLoopback,
     ]
 
+    /// Debug-loopback routes are a dev tool; production builds never show a
+    /// Debug section (the routes still exist in the store, they just don't
+    /// render a list section).
+    static var includesDebugSection: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
     var title: String {
         kind?.mobileConnectionMethodName
             ?? L10n.string("mobile.connections.section.noRoute", defaultValue: "No Route")
@@ -31,12 +50,21 @@ struct MacComputerListSection: Equatable, Identifiable {
 
     /// Group per-Mac snapshots into route-kind sections, preserving the input
     /// (last-seen-newest-first) order within each section. Only non-empty
-    /// sections are returned.
-    static func sections(from snapshots: [MacComputerSnapshot]) -> [MacComputerListSection] {
+    /// sections are returned. `activeKind` is the method carrying the phone's
+    /// live connection (nil when disconnected): its section is flagged active
+    /// and pinned to the top.
+    static func sections(
+        from snapshots: [MacComputerSnapshot],
+        activeKind: CmxAttachTransportKind? = nil,
+        includeDebug: Bool = Self.includesDebugSection
+    ) -> [MacComputerListSection] {
         var byKind: [CmxAttachTransportKind: [MacComputerSnapshot]] = [:]
         var routeless: [MacComputerSnapshot] = []
         for snapshot in snapshots {
-            let kinds = advertisedKinds(of: snapshot.routes)
+            var kinds = advertisedKinds(of: snapshot.routes)
+            if !includeDebug {
+                kinds.removeAll { $0 == .debugLoopback }
+            }
             if kinds.isEmpty {
                 routeless.append(snapshot)
                 continue
@@ -51,12 +79,16 @@ struct MacComputerListSection: Equatable, Identifiable {
             }
         }
         var sections = kindOrder.compactMap { kind in
-            byKind[kind].map { MacComputerListSection(kind: kind, computers: $0) }
+            byKind[kind].map {
+                MacComputerListSection(kind: kind, computers: $0, isActive: kind == activeKind)
+            }
         }
         if !routeless.isEmpty {
             sections.append(MacComputerListSection(kind: nil, computers: routeless))
         }
-        return sections
+        // The live method always leads, whatever the dial preference says.
+        // Partition (not sort) so the remaining order stays deterministic.
+        return sections.filter(\.isActive) + sections.filter { !$0.isActive }
     }
 
     /// The distinct route kinds a pairing advertises, first-seen order.

@@ -53,6 +53,12 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
+    /// The method carrying the phone's live foreground connection, nil while
+    /// disconnected. Drives the active-section pin and inactive dimming.
+    private var activeConnectionKind: CmxAttachTransportKind? {
+        store.connectionState == .connected ? store.activeRoute?.kind : nil
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -60,8 +66,16 @@ struct DeviceTreeView: View {
                     emptySection
                 } else {
                     // One section per connection method, so two routes to the
-                    // same Mac are visibly two different ways to reach it.
-                    ForEach(MacComputerListSection.sections(from: computers)) { section in
+                    // same Mac are visibly two different ways to reach it. The
+                    // live method's section leads undimmed; the rest dim while
+                    // a connection is up so "in use right now" is unambiguous.
+                    let sections = MacComputerListSection.sections(
+                        from: computers,
+                        activeKind: activeConnectionKind
+                    )
+                    let dimsInactive = sections.contains(where: \.isActive)
+                    ForEach(sections) { section in
+                        let dimmed = dimsInactive && !section.isActive
                         Section {
                             ComputerVisibilityRows(
                                 visibleComputers: section.computers,
@@ -71,8 +85,9 @@ struct DeviceTreeView: View {
                                 unhide: unhideComputer,
                                 forget: forgetComputer
                             )
+                            .opacity(dimmed ? 0.5 : 1)
                         } header: {
-                            Text(section.title)
+                            sectionHeader(for: section, dimmed: dimmed)
                         }
                     }
                     if !store.hiddenComputers.isEmpty {
@@ -171,6 +186,23 @@ struct DeviceTreeView: View {
         } message: { message in
             Text(message)
         }
+    }
+
+    /// Section header: the method name, plus "Active" on the section carrying
+    /// the live connection and "Not in use" on the dimmed ones, so the state
+    /// is announced in text and not only through opacity.
+    @ViewBuilder
+    private func sectionHeader(for section: MacComputerListSection, dimmed: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(section.title)
+            if section.isActive {
+                Text(L10n.string("mobile.connections.section.active", defaultValue: "Active"))
+                    .foregroundStyle(.green)
+            } else if dimmed {
+                Text(L10n.string("mobile.connections.section.notInUse", defaultValue: "Not in use"))
+            }
+        }
+        .opacity(dimmed ? 0.5 : 1)
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who

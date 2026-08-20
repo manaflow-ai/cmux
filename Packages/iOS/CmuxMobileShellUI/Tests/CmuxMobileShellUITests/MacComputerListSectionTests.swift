@@ -105,6 +105,93 @@ import Testing
         #expect(sections[0].computers[0].routeDescription == "primary.ts.net:5100")
     }
 
+    @Test func activeKindSectionLeadsAndIsFlagged() throws {
+        let mac = snapshot(
+            deviceId: "mac-1",
+            routes: [
+                try CmxAttachRoute(
+                    id: "r-iroh",
+                    kind: .iroh,
+                    endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: peerID), pathHints: [])
+                ),
+                try CmxAttachRoute(
+                    id: "r-ts",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "mac-1.ts.net", port: 5100)
+                ),
+            ]
+        )
+
+        // Tailscale carries the live connection: it outranks dial preference.
+        let sections = MacComputerListSection.sections(from: [mac], activeKind: .tailscale)
+
+        #expect(sections.map(\.kind) == [.tailscale, .iroh])
+        #expect(sections.map(\.isActive) == [true, false])
+    }
+
+    @Test func noActiveKindKeepsDialPreferenceOrderAndFlagsNothing() throws {
+        let mac = snapshot(
+            deviceId: "mac-1",
+            routes: [
+                try CmxAttachRoute(
+                    id: "r-iroh",
+                    kind: .iroh,
+                    endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: peerID), pathHints: [])
+                ),
+                try CmxAttachRoute(
+                    id: "r-ts",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "mac-1.ts.net", port: 5100)
+                ),
+            ]
+        )
+
+        let sections = MacComputerListSection.sections(from: [mac], activeKind: nil)
+
+        #expect(sections.map(\.kind) == [.iroh, .tailscale])
+        #expect(sections.allSatisfy { !$0.isActive })
+    }
+
+    @Test func debugRoutesRenderNoSectionWhenExcluded() throws {
+        let mac = snapshot(
+            deviceId: "mac-1",
+            routes: [
+                try CmxAttachRoute(
+                    id: "r-debug",
+                    kind: .debugLoopback,
+                    endpoint: .hostPort(host: "127.0.0.1", port: 5100)
+                ),
+                try CmxAttachRoute(
+                    id: "r-ts",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "mac-1.ts.net", port: 5100)
+                ),
+            ]
+        )
+
+        let sections = MacComputerListSection.sections(from: [mac], includeDebug: false)
+
+        #expect(sections.map(\.kind) == [.tailscale])
+    }
+
+    @Test func debugOnlyMacFallsToNoRouteWhenDebugExcluded() throws {
+        let mac = snapshot(
+            deviceId: "mac-1",
+            routes: [
+                try CmxAttachRoute(
+                    id: "r-debug",
+                    kind: .debugLoopback,
+                    endpoint: .hostPort(host: "127.0.0.1", port: 5100)
+                )
+            ]
+        )
+
+        let sections = MacComputerListSection.sections(from: [mac], includeDebug: false)
+
+        #expect(sections.map(\.kind) == [nil])
+        #expect(sections[0].computers.map(\.deviceId) == ["mac-1"])
+    }
+
     private func snapshot(deviceId: String, routes: [CmxAttachRoute]) -> MacComputerSnapshot {
         MacComputerSnapshot(
             deviceId: deviceId,
