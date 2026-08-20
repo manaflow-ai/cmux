@@ -70,8 +70,6 @@ def simulate(config: HarnessConfig) -> HarnessResult:
 
     while queue:
         at_ms, _, kind, surface = heapq.heappop(queue)
-        if at_ms > config.duration_ms:
-            break
 
         if kind == "source":
             assert surface is not None
@@ -153,6 +151,13 @@ def main() -> None:
     parser.add_argument("--panel-ms", type=int, required=True)
     parser.add_argument("--window-ms", type=int, required=True)
     args = parser.parse_args()
+    if args.duration_seconds < 0 or args.surfaces < 1 or args.source_hz < 1:
+        parser.error(
+            "--duration-seconds must be non-negative; "
+            "--surfaces and --source-hz must be positive"
+        )
+    if min(args.ingress_ms, args.panel_ms, args.window_ms) < 0:
+        parser.error("coalescing intervals must be non-negative")
 
     result = simulate(HarnessConfig(
         duration_ms=args.duration_seconds * 1_000,
