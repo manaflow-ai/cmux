@@ -12673,14 +12673,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ownerID: UUID?
     ) -> UUID {
         // A replacement consumer can inherit an active replay barrier from
-        // the stream it is replacing. Keep that barrier's deadline alive; a
-        // registration must never cancel the only watchdog while retaining
-        // the token that blocks ordinary output.
+        // the stream it is replacing. Keep that barrier's existing deadline
+        // alive, but do not recreate a watchdog after replay admission
+        // intentionally cancelled it. The admitted request owns completion;
+        // consumer churn must not restart its barrier deadline indefinitely.
         if let barrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
-            armTerminalReplayBarrierWatchdog(
-                surfaceID: surfaceID,
-                token: barrierToken
-            )
+            if terminalReplayBarrierTokensInFlightBySurfaceID[surfaceID]
+                != barrierToken {
+                armTerminalReplayBarrierWatchdog(
+                    surfaceID: surfaceID,
+                    token: barrierToken
+                )
+            }
         } else {
             cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         }
