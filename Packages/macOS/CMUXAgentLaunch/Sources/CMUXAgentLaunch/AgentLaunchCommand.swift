@@ -4,6 +4,15 @@ import Foundation
 public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     /// The cmux launcher classification, when one was captured.
     public var launcher: String?
+    /// The id of the user-declared external launcher that started the agent, when one was detected.
+    ///
+    /// This is deliberately separate from ``launcher``: that field is cmux's own classification and
+    /// is matched against the agent kind (see ``AgentLaunchCaptureTrust``) and against the built-in
+    /// wrapper tokens in ``AgentResumeArgv``, so an unknown value there would invalidate the whole
+    /// capture. An external launcher only adds an argv prefix at resume time, resolved from
+    /// `agents.launchers` in `cmux.json` (see ``AgentExternalLauncherRegistry``); a capture whose
+    /// declaration was removed resumes exactly as it did before, without the wrapper.
+    public var externalLauncher: String?
     /// The captured executable path.
     public var executablePath: String?
     /// The captured process arguments, including `argv[0]`.
@@ -24,6 +33,7 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - launcher: The cmux launcher classification, when one was captured.
+    ///   - externalLauncher: The id of the user-declared external launcher that started the agent.
     ///   - executablePath: The captured executable path.
     ///   - arguments: The captured process arguments, including `argv[0]`.
     ///   - workingDirectory: The working directory at initial launch.
@@ -33,6 +43,7 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     ///   - source: The capture source.
     public init(
         launcher: String? = nil,
+        externalLauncher: String? = nil,
         executablePath: String? = nil,
         arguments: [String],
         workingDirectory: String? = nil,
@@ -42,6 +53,7 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         source: String? = nil
     ) {
         self.launcher = launcher
+        self.externalLauncher = externalLauncher
         self.executablePath = executablePath
         self.arguments = arguments
         self.workingDirectory = workingDirectory

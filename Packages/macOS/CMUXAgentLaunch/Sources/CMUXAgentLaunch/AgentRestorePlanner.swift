@@ -14,19 +14,34 @@ public struct AgentRestorePlanner: Sendable {
     ]
 
     private let isExecutableFile: @Sendable (String) -> Bool
+    private let externalLaunchers: AgentExternalLauncherRegistry
 
     /// Creates a restore planner.
     ///
-    /// - Parameter isExecutableFile: Executable-path lookup used for optional wrapper shims.
-    public init(isExecutableFile: @escaping @Sendable (String) -> Bool) {
+    /// - Parameters:
+    ///   - isExecutableFile: Executable-path lookup used for optional wrapper shims.
+    ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
+    public init(
+        isExecutableFile: @escaping @Sendable (String) -> Bool,
+        externalLaunchers: AgentExternalLauncherRegistry = .empty
+    ) {
         self.isExecutableFile = isExecutableFile
+        self.externalLaunchers = externalLaunchers
     }
 
     /// Creates a restore planner backed by an injected executable-file resolver.
     ///
-    /// - Parameter executableFileResolver: The filesystem dependency used to resolve wrapper shims.
-    public init(executableFileResolver: AgentRestoreExecutableFileResolver) {
-        self.init(isExecutableFile: executableFileResolver.isExecutableFile(atPath:))
+    /// - Parameters:
+    ///   - executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
+    public init(
+        executableFileResolver: AgentRestoreExecutableFileResolver,
+        externalLaunchers: AgentExternalLauncherRegistry = .empty
+    ) {
+        self.init(
+            isExecutableFile: executableFileResolver.isExecutableFile(atPath:),
+            externalLaunchers: externalLaunchers
+        )
     }
 
     /// Produces the final direct process invocation for a persisted restore request.
