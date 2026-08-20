@@ -310,6 +310,13 @@ extension MobileHostPeerRuntime {
                 } catch AuthError.unauthorized {
                     // Definitively signed out: fail closed.
                     return nil
+                } catch {
+                    #if DEBUG
+                    mobileHostRelayLog.error(
+                        "broker token capture failed transiently: \(String(describing: error), privacy: .public)"
+                    )
+                    #endif
+                    throw error
                 }
                 // Transient failures (a revalidation owns the token store, a
                 // re-mint is in flight or offline) rethrow so the broker
@@ -517,6 +524,7 @@ extension MobileHostPeerRuntime {
         runtime.relayRefreshTask = Task { @MainActor [weak self] in
             var plan = initialPlan
             var backoff = PeerReconnectBackoff(profile: .host)
+            var failedLastCycle = false
             let clock = ContinuousClock()
             if plan != nil {
                 await self?.publishRelayPathHints(for: runtime)
@@ -526,10 +534,13 @@ extension MobileHostPeerRuntime {
                       revision == self.lifecycleRevision else { return }
                 let now = Date()
                 let sleepSeconds: TimeInterval
-                if let schedule = plan?.schedule {
+                if !failedLastCycle, let schedule = plan?.schedule {
                     sleepSeconds = max(0, schedule.refreshDeadline.timeIntervalSince(now))
                 } else {
-                    // No live credentials: retry minting on the backoff ladder.
+                    // No live credentials, or a failed mint whose plan
+                    // deadline has already passed: retry on the backoff
+                    // ladder. Sleeping on the stale deadline alone would
+                    // busy-spin mint attempts until credential expiry.
                     let delay = backoff.nextDelay()
                     sleepSeconds = TimeInterval(delay.components.seconds)
                 }
@@ -623,10 +634,12 @@ extension MobileHostPeerRuntime {
                     )
                     plan = refreshed
                     backoff.reset()
+                    failedLastCycle = false
                     self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                     self.publishIrohSettingsUpdate()
                     await self.publishRelayPathHints(for: runtime)
                 } catch {
+                    failedLastCycle = true
                     self.noteBrokerRateLimit(error, accountID: runtime.accountID)
                     #if DEBUG
                     mobileHostRelayLog.error(
