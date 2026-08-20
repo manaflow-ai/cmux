@@ -2199,6 +2199,10 @@ impl OrderedSession {
         self.inner.transport_lost()
     }
 
+    fn transport_disconnect_reason(&self) -> Option<String> {
+        self.inner.transport_disconnect_reason()
+    }
+
     fn daemon_shutdown_requested(&self) -> bool {
         self.inner.daemon_shutdown_requested()
     }
@@ -8314,7 +8318,10 @@ fn run_with_machine_updates_inner(
         // and surfaces can tell it apart from a normal terminal end.
         let line = scoped_shutdown_notice_line(&localization::catalog().attach, notice);
         if notice == ScopedShutdownNotice::ConnectionLost {
-            return Err(anyhow::anyhow!("{line}"));
+            return Err(match app.session.transport_disconnect_reason() {
+                Some(reason) => anyhow::anyhow!("{line} ({reason})"),
+                None => anyhow::anyhow!("{line}"),
+            });
         }
         eprintln!("{line}");
     }

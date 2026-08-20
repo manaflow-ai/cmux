@@ -493,6 +493,13 @@ impl Session {
             Session::Remote(remote) => remote.transport_lost(),
         }
     }
+    /// Why the remote transport was torn down, when recorded.
+    pub fn transport_disconnect_reason(&self) -> Option<String> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.transport_disconnect_reason(),
+        }
+    }
     pub fn invalidate_remote_tree(&self) {
         if let Session::Remote(remote) = self {
             remote.invalidate_tree();

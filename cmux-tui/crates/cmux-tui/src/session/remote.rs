@@ -1489,6 +1489,9 @@ pub struct RemoteSession {
     /// unresponsive daemon). First writer wins; surfaced in the scoped
     /// attach's connection-lost notice.
     disconnect_reason: Mutex<Option<String>>,
+    /// The last daemon error that matched no pending request; dedupes the
+    /// surfaced status events for repeated identical rejections.
+    last_unmatched_error: Mutex<Option<String>>,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
@@ -1828,6 +1831,7 @@ impl RemoteSession {
             interactive_writer,
             pending: Mutex::new(HashMap::new()),
             disconnect_reason: Mutex::new(None),
+            last_unmatched_error: Mutex::new(None),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
@@ -1861,19 +1865,34 @@ impl RemoteSession {
                     session.report_read_progress(partial);
                 }
             };
-            while let Ok(Some(mut message)) = reader.receive_with_progress(&mut report_progress) {
-                if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break;
+            let reason = loop {
+                match reader.receive_with_progress(&mut report_progress) {
+                    Ok(Some(mut message)) => {
+                        if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
+                            break Some(format!(
+                                "remote session message exceeds the \
+                                 {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+                            ));
+                        }
+                        let value = serde_json::from_str::<Value>(&message);
+                        zeroize_string(&mut message);
+                        let Ok(value) = value else { continue };
+                        let Some(session) = reader_session.upgrade() else { break None };
+                        session.handle_line(value);
+                    }
+                    Ok(None) => break Some("the daemon closed the connection".to_string()),
+                    Err(error) => break Some(error.to_string()),
                 }
-                let value = serde_json::from_str::<Value>(&message);
-                zeroize_string(&mut message);
-                let Ok(value) = value else { continue };
-                let Some(session) = reader_session.upgrade() else { break };
-                session.handle_line(value);
-            }
-            // Connection lost: tell the app to quit.
+            };
+            // Connection lost: record why, then tell the app to quit.
             if let Some(session) = reader_session.upgrade() {
-                session.disconnect_transport();
+                if crate::debug_tap::enabled() {
+                    crate::debug_tap::line(&format!(
+                        "remote.reader.end reason={}",
+                        reason.as_deref().unwrap_or("session dropped")
+                    ));
+                }
+                session.disconnect_transport_with_reason(reason);
                 session.emit(MuxEvent::Empty);
             }
         })?;
@@ -2087,6 +2106,24 @@ impl RemoteSession {
                 let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
                 if let Some(request) = self.pending.lock().unwrap().remove(&id) {
                     let _ = request.response.send(value);
+                } else if let Some(error) = value.get("error").and_then(Value::as_str) {
+                    // No pending entry: a fire-and-forget send (pty input)
+                    // was rejected. Dropping this silently swallows input
+                    // against a dead terminal; surface it once per distinct
+                    // error so the user sees why nothing happens.
+                    if crate::debug_tap::enabled() {
+                        crate::debug_tap::line(&format!(
+                            "remote.response.unmatched id={id} error={error}"
+                        ));
+                    }
+                    let mut last = self.last_unmatched_error.lock().unwrap();
+                    if last.as_deref() != Some(error) {
+                        *last = Some(error.to_string());
+                        drop(last);
+                        self.emit(MuxEvent::Status(format!(
+                            "the session daemon rejected an operation: {error}"
+                        )));
+                    }
                 }
             }
             Some("vt-state") => {
@@ -2857,6 +2894,13 @@ impl RemoteSession {
     }
 
     fn disconnect_transport(&self) {
+        self.disconnect_transport_with_reason(None);
+    }
+
+    fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+        if let Some(reason) = reason {
+            self.disconnect_reason.lock().unwrap().get_or_insert(reason);
+        }
         self.begin_shutdown();
         self.interactive_writer.close();
     }
@@ -3772,6 +3816,8 @@ fn test_session_with_writer(
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         disconnect_reason: Mutex::new(None),
+        last_unmatched_error: Mutex::new(None),
+
         surfaces: Mutex::new(HashMap::new()),
         exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
         surface_leases: Mutex::new(HashMap::new()),
@@ -4978,6 +5024,8 @@ mod tests {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             disconnect_reason: Mutex::new(None),
+            last_unmatched_error: Mutex::new(None),
+
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
