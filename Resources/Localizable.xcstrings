@@ -4130,23 +4130,6 @@
         }
       }
     },
-    "agent.generic.notification.body.needsAttention": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ needs your attention"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の確認が必要です"
-          }
-        }
-      }
-    },
     "agent.generic.notification.body.reportedError": {
       "extractionState": "manual",
       "localizations": {
@@ -4160,23 +4143,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ がエラーを報告しました"
-          }
-        }
-      }
-    },
-    "agent.generic.notification.body.sentNotification": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sent a notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ から通知が届きました"
           }
         }
       }

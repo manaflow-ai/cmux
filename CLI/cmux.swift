@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxAgentJournal
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -3177,13 +3178,6 @@ struct CMUXCLI {
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
     private static let claudeCodeStatusKey = "claude_code"
-
-    private static var allowedAgentLifecycleStatusKeys: Set<String> {
-        var keys = Set(agentDefs.map(\.statusKey))
-        keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
-        keys.insert(claudeCodeStatusKey)
-        return keys
-    }
 
     init(
         args: [String],
@@ -25249,6 +25243,19 @@ struct CMUXCLI {
             ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
@@ -25299,6 +25306,20 @@ struct CMUXCLI {
                 launchCommand: launchCommand,
                 observedPermissionMode: observedHookPermissionMode
             )
+            emitAgentJournalEvent(
+                client: client,
+                kind: .sessionStarted,
+                source: "claude",
+                agentKey: Self.claudeCodeStatusKey,
+                sessionId: acceptedSessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                isSubagent: suppressVisibleMutations,
+                nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                detail: isClearSessionStart ? "clear-session-start" : nil,
+                store: sessionStore,
+                telemetry: telemetry
+            )
             // SessionStart itself is the process-running signal. Keep ordinary
             // startup/resume visually quiet, but register the PID immediately so
             // later hooks and terminal state are attached to this exact surface.
@@ -25310,13 +25331,6 @@ struct CMUXCLI {
             }
             if isClearSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .running,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -25342,6 +25356,19 @@ struct CMUXCLI {
                 ), resolvedTarget.isAuthoritative else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
+                    emitAgentJournalEvent(
+                        client: client,
+                        kind: .turnCompleted,
+                        source: "claude",
+                        agentKey: Self.claudeCodeStatusKey,
+                        sessionId: parsedInput.sessionId,
+                        workspaceId: nil,
+                        surfaceId: nil,
+                        unattributedReason: "target-unresolved",
+                        nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                        store: sessionStore,
+                        telemetry: telemetry
+                    )
                     printClaudeHookAck()
                     return
                 }
@@ -25384,12 +25411,42 @@ struct CMUXCLI {
                     telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
+                    // A stop from a session that is no longer the pane's
+                    // active session: journal the supersession so the stale
+                    // session stops contributing to the reduced lifecycle.
+                    emitAgentJournalEvent(
+                        client: client,
+                        kind: .sessionEnded,
+                        source: "claude",
+                        agentKey: Self.claudeCodeStatusKey,
+                        sessionId: parsedInput.sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                        detail: "superseded-stale",
+                        store: sessionStore,
+                        telemetry: telemetry
+                    )
                     printClaudeHookAck()
                     return
                 }
 
                 guard !suppressVisibleMutations else {
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
+                    emitAgentJournalEvent(
+                        client: client,
+                        kind: .turnCompleted,
+                        source: "claude",
+                        agentKey: Self.claudeCodeStatusKey,
+                        sessionId: parsedInput.sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        isSubagent: true,
+                        pendingWork: hasActiveClaudeBackgroundWork(parsedInput),
+                        nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                        store: sessionStore,
+                        telemetry: telemetry
+                    )
                     printClaudeHookAck()
                     return
                 }
@@ -25437,12 +25494,19 @@ struct CMUXCLI {
                     )
                 }
 
-                setAgentLifecycle(
+                emitAgentJournalEvent(
                     client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
+                    kind: .turnCompleted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    isSubagent: isNestedAgentSession,
+                    pendingWork: hasPendingBackgroundWork,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                    store: sessionStore,
+                    telemetry: telemetry
                 )
                 if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
@@ -25504,6 +25568,19 @@ struct CMUXCLI {
             ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .turnStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
@@ -25533,11 +25610,37 @@ struct CMUXCLI {
                 )
             guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionEnded,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
+                    detail: "superseded-stale",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .turnStarted,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: true,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
@@ -25580,12 +25683,17 @@ struct CMUXCLI {
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
-            setAgentLifecycle(
+            emitAgentJournalEvent(
                 client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .running,
+                kind: .turnStarted,
+                source: "claude",
+                agentKey: Self.claudeCodeStatusKey,
+                sessionId: parsedInput.sessionId,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
+                store: sessionStore,
+                telemetry: telemetry
             )
             try setClaudeStatus(
                 client: client,
@@ -25655,6 +25763,19 @@ struct CMUXCLI {
             ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .stateChanged,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
@@ -25682,17 +25803,47 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionEnded,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
+                    detail: "superseded-stale",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .stateChanged,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: true,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+            // A payload with no usable message reuses the summary the session
+            // saved at its last meaningful event (question text, plan summary,
+            // stop completion) instead of fabricating a body. The empty-body
+            // marker replaces the old localized-string comparison.
+            if summary.body.isEmpty,
+               let mappedSession,
+               let savedBody = mappedSession.lastBody, !savedBody.isEmpty {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
 
@@ -25766,7 +25917,47 @@ struct CMUXCLI {
                 )
             )
 
-            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
+            // Semantic kind for the journal: the structured notification_type
+            // decides first; the prose classifier's verdict is only the
+            // adapter fallback for older clients; nothing ever fabricates a
+            // needs-input state out of an unparseable message.
+            let journalKind: AgentJournalEventKind
+            switch notificationType {
+            case "permission_prompt":
+                journalKind = .approvalRequested
+            case "idle_prompt":
+                journalKind = suppressNeedsInputState ? .stateChanged : .questionRequested
+            default:
+                switch classifiedSubtitle {
+                case "Permission":
+                    journalKind = .approvalRequested
+                case "Waiting":
+                    journalKind = suppressNeedsInputState ? .stateChanged : .questionRequested
+                case "Completed":
+                    journalKind = .turnCompleted
+                case "Error":
+                    journalKind = .errorReported
+                default:
+                    journalKind = summary.body.isEmpty ? .stateChanged : .questionRequested
+                }
+            }
+            emitAgentJournalEvent(
+                client: client,
+                kind: journalKind,
+                source: "claude",
+                agentKey: Self.claudeCodeStatusKey,
+                sessionId: parsedInput.sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                isSubagent: isNestedAgentSession,
+                pendingWork: notifyPending,
+                nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
+                store: sessionStore,
+                telemetry: telemetry
+            )
+            let recordsNeedsInput = journalKind == .approvalRequested
+                || journalKind == .questionRequested
+            if let sessionId = parsedInput.sessionId, recordsNeedsInput, !summary.body.isEmpty {
                 _ = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -25779,14 +25970,7 @@ struct CMUXCLI {
                 )
             }
 
-            if !suppressNeedsInputState {
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
+            if recordsNeedsInput {
                 _ = try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -25796,7 +25980,11 @@ struct CMUXCLI {
                     color: "#4C8DFF", pid: claudePid
                 )
             }
-            _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            // A notification with nothing to show is state signal only: the
+            // journal recorded it; no banner is fabricated for it.
+            if !summary.body.isEmpty {
+                _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            }
             printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
@@ -25822,6 +26010,19 @@ struct CMUXCLI {
                 // can still clear the visible state this attempt could not.
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-end.unresolved")
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionEnded,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionEnd",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 printClaudeHookAck()
                 return
             }
@@ -25848,6 +26049,18 @@ struct CMUXCLI {
                     workspaceId = consumedSession.workspaceId
                     cleanupSurfaceId = consumedSession.surfaceId
                 }
+                emitAgentJournalEvent(
+                    client: client,
+                    kind: .sessionEnded,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: consumedSession.sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: cleanupSurfaceId,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionEnd",
+                    store: sessionStore,
+                    telemetry: telemetry
+                )
                 if !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -26017,12 +26230,18 @@ struct CMUXCLI {
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
-                setAgentLifecycle(
+                emitAgentJournalEvent(
                     client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    kind: toolName == "AskUserQuestion" ? .questionRequested : .planReviewRequested,
+                    source: "claude",
+                    agentKey: Self.claudeCodeStatusKey,
+                    sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
+                    surfaceId: existingSurfaceId,
+                    isSubagent: isNestedAgentSession,
+                    nativeEvent: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
+                    store: sessionStore,
+                    telemetry: telemetry
                 )
                 // In bypassPermissions (--dangerously-skip-permissions) mode no
                 // PermissionRequest or Notification hook follows, so this handler must
@@ -26086,12 +26305,18 @@ struct CMUXCLI {
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
-            setAgentLifecycle(
+            emitAgentJournalEvent(
                 client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .running,
+                kind: .turnStarted,
+                source: "claude",
+                agentKey: Self.claudeCodeStatusKey,
+                sessionId: parsedInput.sessionId,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                isSubagent: isNestedAgentSession,
+                nativeEvent: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
+                store: sessionStore,
+                telemetry: telemetry
             )
 
             let statusValue: String
@@ -26174,27 +26399,6 @@ struct CMUXCLI {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
-    }
-
-    private func setAgentLifecycle(
-        client: SocketClient,
-        key: String,
-        lifecycle: AgentHibernationLifecycleState,
-        workspaceId: String,
-        surfaceId: String?
-    ) {
-        guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
-            cliWriteStderr("Warning: unsupported agent lifecycle key\n")
-            return
-        }
-        do {
-            _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
-            )
-        } catch {
-            cliWriteStderr("Warning: failed to set agent lifecycle\n")
-        }
     }
 
     private func runAgentHibernation(
@@ -28181,7 +28385,10 @@ struct CMUXCLI {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
                 return classifyClaudeNotification(signal: fallback, message: fallback)
             }
-            return ("Waiting", "Claude is waiting for your input")
+            // No payload at all: nothing to say. An empty body tells the
+            // caller to reuse the stored session summary or skip the banner —
+            // never to fabricate a needs-attention message.
+            return ("Waiting", "")
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -28194,7 +28401,7 @@ struct CMUXCLI {
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        let message = messageCandidates.compactMap { $0 }.first ?? ""
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
@@ -28219,11 +28426,9 @@ struct CMUXCLI {
                     isFallback: false
                 )
             }
-            let body = String.localizedStringWithFormat(
-                String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
-                def.displayName
-            )
-            return classifyAgentHookNotification(def: def, signal: "", message: body, isFallback: true)
+            // No payload: an empty body tells the caller to reuse the stored
+            // session summary or skip the banner — never to fabricate one.
+            return classifyAgentHookNotification(def: def, signal: "", message: "", isFallback: true)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -28238,11 +28443,7 @@ struct CMUXCLI {
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
-        let fallbackBody = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
-            def.displayName
-        )
-        let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
+        let message = messageCandidates.compactMap { $0 }.first ?? ""
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = normalizedSingleLine(message)
         if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
@@ -28277,7 +28478,7 @@ struct CMUXCLI {
             def: def,
             signal: signal,
             message: normalizedMessage,
-            isFallback: message == fallbackBody
+            isFallback: normalizedMessage.isEmpty
         )
     }
 
@@ -28524,11 +28725,15 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
-        // Use the message directly if it's meaningful (not a generic placeholder).
-        if !message.isEmpty, message != "Claude needs your input" {
+        // Use the message directly when there is one. A payload with no
+        // usable message yields an empty body: callers reuse the stored
+        // session summary or skip the banner. The old "Claude needs your
+        // attention" fabrication (and the needs-input state it implied) is
+        // deliberately gone — an unparseable message is not a signal.
+        if !message.isEmpty {
             return ("Attention", message)
         }
-        return ("Attention", "Claude needs your attention")
+        return ("Attention", "")
     }
 
     private func sanitizeNotificationField(_ value: String) -> String {
@@ -31223,6 +31428,38 @@ export default CMUXSessionRestore;
         }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        // One structured semantic event per hook invocation: the append-only
+        // agent journal is what the sidebar reduces lifecycle state from, so
+        // every action lane below emits exactly one of these (attributed to
+        // the resolved target, or explicitly unattributed as a diagnostic).
+        func emitJournal(
+            _ kind: AgentJournalEventKind,
+            workspaceId: String?,
+            surfaceId: String?,
+            unattributedReason: String? = nil,
+            isSubagent: Bool = false,
+            pendingWork: Bool = false,
+            declaredPhase: AgentLifecyclePhase? = nil,
+            detail: String? = nil
+        ) {
+            emitAgentJournalEvent(
+                client: client,
+                kind: kind,
+                source: def.name,
+                agentKey: def.statusKey,
+                sessionId: sessionId.isEmpty ? nil : sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                unattributedReason: unattributedReason,
+                isSubagent: isSubagent,
+                pendingWork: pendingWork,
+                nativeEvent: reportedHookEventName(from: input) ?? subcommand,
+                declaredPhase: declaredPhase,
+                detail: detail,
+                store: store,
+                telemetry: telemetry
+            )
+        }
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.
@@ -31523,6 +31760,7 @@ export default CMUXSessionRestore;
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
+                emitJournal(.sessionStarted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -31651,12 +31889,11 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: .unknown,
+            emitJournal(
+                .sessionStarted,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                isSubagent: suppressVisibleMutations
             )
             if !suppressVisibleMutations {
                 if let owner = try? store.lookup(sessionId: sessionId) {
@@ -31674,6 +31911,7 @@ export default CMUXSessionRestore;
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
+                emitJournal(.turnStarted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -31726,48 +31964,44 @@ export default CMUXSessionRestore;
                     transcriptPath: latest.transcriptPath,
                     telemetry: telemetry
                 )
-                if let lifecycle = latest.agentLifecycle {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: lifecycle,
+                // A stale prompt-submit may have journaled a spurious
+                // turn-started before the turn was recognized as terminal.
+                // Assert the store's known-good phase explicitly so the
+                // reduced lifecycle converges back.
+                let correctedPhase: AgentLifecyclePhase?
+                switch latest.runtimeStatus {
+                case .running?: correctedPhase = .running
+                case .idle?: correctedPhase = .idle
+                case .needsInput?: correctedPhase = .needsInput
+                case .error?: correctedPhase = .error
+                case nil:
+                    switch latest.agentLifecycle {
+                    case .running?: correctedPhase = .running
+                    case .idle?: correctedPhase = .idle
+                    case .needsInput?: correctedPhase = .needsInput
+                    case .unknown?: correctedPhase = .unknown
+                    case nil: correctedPhase = nil
+                    }
+                }
+                if let correctedPhase {
+                    emitJournal(
+                        .stateChanged,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        declaredPhase: correctedPhase,
+                        detail: "stale-turn-corrected"
                     )
                 }
                 switch latest.runtimeStatus {
                 case .running?:
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .running,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 case .idle?:
-                    if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
-                        setAgentLifecycle(
-                            client: client,
-                            key: def.statusKey,
-                            lifecycle: .idle,
-                            workspaceId: workspaceId,
-                            surfaceId: surfaceId
-                        )
-                    }
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 case .needsInput?:
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .needsInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                         def.displayName
@@ -31777,13 +32011,6 @@ export default CMUXSessionRestore;
                         client: client
                     )
                 case .error?:
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .needsInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
@@ -31952,13 +32179,7 @@ export default CMUXSessionRestore;
                     stopStaleCodexPromptSubmit()
                     return
                 }
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .running,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
+                emitJournal(.turnStarted, workspaceId: workspaceId, surfaceId: surfaceId)
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
@@ -31978,6 +32199,12 @@ export default CMUXSessionRestore;
                 }
             } else {
                 telemetry.breadcrumb("\(def.name)-hook.prompt-submit.nested-suppressed")
+                emitJournal(
+                    .turnStarted,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: true
+                )
             }
             if def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
                 if codexPromptTurnWentTerminal() {
@@ -32027,6 +32254,7 @@ export default CMUXSessionRestore;
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
+                emitJournal(.turnCompleted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -32199,6 +32427,20 @@ export default CMUXSessionRestore;
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
+            // The journal records the turn boundary unconditionally: the
+            // reducer's per-session fold handles stale sessions (a newer
+            // running session outranks this one) and subagent tagging keeps
+            // nested sessions off the pane badge — no emit-side guessing.
+            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            emitJournal(
+                stopHadFailure ? .errorReported : .turnCompleted,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                isSubagent: isNestedAgentSession,
+                pendingWork: antigravityHasActiveBackgroundWork,
+                detail: stopHadFailure ? body : nil
+            )
+
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
@@ -32316,25 +32558,11 @@ export default CMUXSessionRestore;
             }
             if !suppressVisibleMutations {
                 if let codexFailure {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .needsInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 } else if antigravityFailure != nil {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .needsInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
@@ -32344,26 +32572,12 @@ export default CMUXSessionRestore;
                         client: client
                     )
                 } else if antigravityHasActiveBackgroundWork {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .running,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 } else {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .idle,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             }
@@ -32396,6 +32610,13 @@ export default CMUXSessionRestore;
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
+                emitJournal(
+                    .turnStarted,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    detail: "approval-response"
+                )
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -32446,14 +32667,16 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
+            // An approval response resumes the blocked turn: journal it as the
+            // turn running again.
+            emitJournal(
+                .turnStarted,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                isSubagent: suppressVisibleMutations,
+                detail: "approval-response"
+            )
             if !suppressVisibleMutations {
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .running,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
                 _ = try? sendV1Command(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -32471,6 +32694,7 @@ export default CMUXSessionRestore;
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
+                emitJournal(.stateChanged, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -32496,6 +32720,12 @@ export default CMUXSessionRestore;
                         env: env
                     )
 #endif
+                    emitJournal(
+                        .stateChanged,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        detail: "grok-internal-notification"
+                    )
                     print("{}")
                     return
                 }
@@ -32508,18 +32738,18 @@ export default CMUXSessionRestore;
                 env: env,
                 sessionId: input.sessionId ?? sessionId
             )
-            if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
-                // Rebuilt from the stored session record: a stale .idle status is
-                // still a completion re-notification, so keep it under the
-                // "Agent Finished" gate. A stale non-idle status cannot
-                // distinguish permission from waiting; the fresh permission
-                // alert already delivered, so re-notifications gate as waiting.
+            if summary.body.isEmpty, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
+                // A notification with no usable message reuses the stored
+                // session summary for DISPLAY only: no lifecycle status is
+                // adopted from stale disk state (the journal event decides
+                // state), and when there is no stored summary either the
+                // banner is skipped rather than fabricated.
                 summary = AgentHookNotificationSummary(
                     subtitle: mapped?.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
-                    status: mapped?.lastNotificationStatus,
+                    status: nil,
                     isFallback: false,
-                    notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : .idleReminder
+                    notifyCategory: .idleReminder
                 )
             }
             let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
@@ -32563,6 +32793,12 @@ export default CMUXSessionRestore;
                     env: env
                 )
 #endif
+                emitJournal(
+                    .turnCompleted,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    pendingWork: true
+                )
                 sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
                 print("{}")
                 return
@@ -32581,6 +32817,12 @@ export default CMUXSessionRestore;
                     env: env
                 )
 #endif
+                emitJournal(
+                    .turnCompleted,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    pendingWork: true
+                )
                 sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
                 print("{}")
                 return
@@ -32596,6 +32838,14 @@ export default CMUXSessionRestore;
                     env: env
                 )
 #endif
+                // The stale session's completion is still a fact; the
+                // reducer's per-session combine keeps the newer running
+                // session in charge of the pane badge.
+                emitJournal(
+                    .turnCompleted,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
                 sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
                 print("{}")
                 return
@@ -32657,12 +32907,35 @@ export default CMUXSessionRestore;
                 }
             }
 
+            // Journal the semantic event: the native hook event name maps
+            // first; the prose classifier's verdict is only the adapter
+            // fallback, and a pending waiting-nag never claims needs-input.
+            let mappedJournalKind = agentJournalNotificationKind(
+                def: def,
+                nativeEvent: reportedHookEventName(from: input),
+                toolName: nil,
+                summary: summary
+            )
+            let notificationJournalKind: AgentJournalEventKind =
+                suppressPendingWaitingState
+                    && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
+                    ? .stateChanged
+                    : mappedJournalKind
+            emitJournal(
+                notificationJournalKind,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                pendingWork: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
+                    && hasActiveAntigravityBackgroundWork(),
+                detail: notificationJournalKind == .errorReported ? summary.body : nil
+            )
+
             let notificationFingerprint = notificationDedupeFingerprint(
                 status: summary.status,
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            if shouldSendNotification(fingerprint: notificationFingerprint) {
+            if !summary.body.isEmpty, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
                 let notificationEventPID = preferredAgentHookEventPID(
@@ -32734,17 +33007,10 @@ export default CMUXSessionRestore;
 
             switch summary.status {
             case .needsInput? where suppressPendingWaitingState:
-                // Suppressed pending waiting cue: leave the Running pill and
-                // lifecycle in place; the fullyIdle turn boundary reconciles.
+                // Suppressed pending waiting cue: leave the Running pill in
+                // place; the fullyIdle turn boundary reconciles.
                 break
             case .needsInput?:
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                     def.displayName
@@ -32754,13 +33020,6 @@ export default CMUXSessionRestore;
                     client: client
                 )
             case .error?:
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                     def.displayName
@@ -32770,15 +33029,6 @@ export default CMUXSessionRestore;
                     client: client
                 )
             case .idle?:
-                if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .idle,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
-                }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
@@ -32791,6 +33041,15 @@ export default CMUXSessionRestore;
             }
             if def.sessionEndIsTurnBoundary {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                    // These providers use session-end as their per-turn
+                    // boundary (the cmux-tui mapping table's antigravity /
+                    // hermes special case), so it journals as a completed
+                    // turn, not a session teardown.
+                    emitJournal(
+                        .turnCompleted,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId
+                    )
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
@@ -32820,9 +33079,19 @@ export default CMUXSessionRestore;
                 break
             }
             // A non-turn-boundary session-end is a genuine teardown.
+            if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                emitJournal(.sessionEnded, workspaceId: ending.workspaceId, surfaceId: ending.surfaceId)
+            } else {
+                emitJournal(.sessionEnded, workspaceId: nil, surfaceId: nil, unattributedReason: "session-unknown")
+            }
             performAgentSessionTeardown()
 
         case .sessionFinalize:
+            if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                emitJournal(.sessionEnded, workspaceId: ending.workspaceId, surfaceId: ending.surfaceId)
+            } else {
+                emitJournal(.sessionEnded, workspaceId: nil, surfaceId: nil, unattributedReason: "session-unknown")
+            }
             performAgentSessionTeardown()
 
         case .noop:
