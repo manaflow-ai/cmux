@@ -168,17 +168,46 @@ pub fn default_child_term() -> String {
 /// keep the xterm-256color default; children there would be the least
 /// likely to have the entry anyway.
 fn terminfo_resolves(name: &str) -> bool {
+    terminfo_resolves_within(name, Duration::from_secs(2))
+}
+
+/// Bounded lookup: infocmp normally answers in milliseconds, but a wrapper
+/// script or a terminfo database on an unavailable filesystem must never
+/// stall surface creation (the result feeds `SurfaceOptions::default()`
+/// through a OnceLock every caller would wait on). At the deadline the
+/// child is killed and the lookup reports failure, so children fall back
+/// to the safe xterm-256color default.
+fn terminfo_resolves_within(name: &str, deadline: Duration) -> bool {
     if name.is_empty() {
         return false;
     }
-    std::process::Command::new("infocmp")
+    let Ok(mut child) = std::process::Command::new("infocmp")
         .arg(name)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .spawn()
+    else {
+        return false;
+    };
+    let end = Instant::now() + deadline;
+    loop {
+        // Deadline first, so a zero deadline is deterministically a failure.
+        if Instant::now() >= end {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }
 
 impl Default for SurfaceOptions {
@@ -7456,15 +7485,35 @@ mod tests {
         );
     }
 
-    /// The resolver is the real system one: a ubiquitous entry loads, a
-    /// nonexistent name does not, and the empty name is rejected without
-    /// spawning anything.
+    /// Negative answers hold on every host (a missing infocmp is itself a
+    /// negative answer); the positive path is asserted only when the host
+    /// can actually resolve the ubiquitous xterm entry, because running
+    /// without infocmp is a supported fallback state, not a failure.
     #[cfg(unix)]
     #[test]
     fn terminfo_resolver_matches_system_lookup() {
-        assert!(terminfo_resolves("xterm"), "every supported host ships the xterm entry");
         assert!(!terminfo_resolves("cmux-no-such-terminal-entry"));
         assert!(!terminfo_resolves(""));
+
+        let host_resolves_xterm = std::process::Command::new("infocmp")
+            .arg("xterm")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if host_resolves_xterm {
+            assert!(terminfo_resolves("xterm"));
+        }
+    }
+
+    /// The deadline is a hard bound: a resolver that cannot answer in time
+    /// reports failure instead of stalling surface creation.
+    #[cfg(unix)]
+    #[test]
+    fn terminfo_resolver_deadline_reports_failure() {
+        assert!(!terminfo_resolves_within("xterm", Duration::ZERO));
     }
 
     /// Children must advertise the embedded ghostty-vt terminal wherever its
