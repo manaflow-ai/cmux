@@ -45,7 +45,12 @@ public struct WindowAppearanceResolver {
                     WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity)
                 )
             ),
-            resolvedColorScheme: terminalAppearance.resolvedColorScheme
+            resolvedColorScheme: WindowAppearanceSnapshot.resolvedChromeColorScheme(
+                terminalScheme: terminalAppearance.resolvedColorScheme,
+                backgroundColor: terminalAppearance.backgroundColor,
+                opacity: terminalAppearance.backgroundOpacity,
+                ambientScheme: settings.colorScheme
+            )
         )
     }
 

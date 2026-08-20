@@ -461,6 +461,40 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         }
     }
 
+    /// Bonsplit derives fixed black/white tab-strip glyph colors from the hex
+    /// the workspace hands it, so that hex must match the rendered backdrop:
+    /// composited over the ambient base for translucent themes, the theme
+    /// color itself for opaque ones (issue #10477).
+    func testBonsplitChromeBackgroundColorMatchesRenderedBackdrop() {
+        let translucentDarkOverLight = Workspace.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: NSColor(hex: "#101820") ?? .black,
+            backgroundOpacity: 0.3,
+            terminalColorScheme: .dark,
+            ambientColorScheme: .light
+        )
+        XCTAssertEqual(
+            cmuxReadableColorScheme(for: translucentDarkOverLight),
+            .light,
+            "Translucent dark theme in a light window must hand Bonsplit a light hex so tab glyphs resolve dark"
+        )
+
+        let translucentDarkOverDark = Workspace.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: NSColor(hex: "#101820") ?? .black,
+            backgroundOpacity: 0.3,
+            terminalColorScheme: .dark,
+            ambientColorScheme: .dark
+        )
+        XCTAssertEqual(cmuxReadableColorScheme(for: translucentDarkOverDark), .dark)
+
+        let opaqueDarkOverLight = Workspace.resolvedTerminalChromeBackgroundColor(
+            backgroundColor: NSColor(hex: "#101820") ?? .black,
+            backgroundOpacity: 1.0,
+            terminalColorScheme: .dark,
+            ambientColorScheme: .light
+        )
+        XCTAssertEqual(cmuxReadableColorScheme(for: opaqueDarkOverLight), .dark)
+    }
+
     private func makeUserSettings(colorScheme: ColorScheme) -> WindowAppearanceUserSettingsSnapshot {
         WindowAppearanceUserSettingsSnapshot(
             unifySurfaceBackdrops: true,
