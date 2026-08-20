@@ -7426,10 +7426,10 @@ mod tests {
         loop {
             let text =
                 surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
-            if let Some(start) = text.find("CT=[") {
-                if let Some(len) = text[start..].find(']') {
-                    return text[start..=start + len].to_string();
-                }
+            if let Some(start) = text.find("CT=[")
+                && let Some(len) = text[start..].find(']')
+            {
+                return text[start..=start + len].to_string();
             }
             assert!(Instant::now() < deadline, "child never printed COLORTERM: {text:?}");
             std::thread::sleep(Duration::from_millis(5));
