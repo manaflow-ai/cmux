@@ -18,6 +18,7 @@ mod keys;
 mod layout_undo;
 mod localization;
 mod machine;
+mod machine_key;
 #[cfg(unix)]
 mod machine_agent;
 mod machine_provider_client;
