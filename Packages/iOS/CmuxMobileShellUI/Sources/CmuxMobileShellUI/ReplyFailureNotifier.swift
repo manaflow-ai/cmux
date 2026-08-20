@@ -1,6 +1,6 @@
 #if os(iOS)
-public import Foundation
-internal import UserNotifications
+import Foundation
+import UserNotifications
 
 /// Seam over the system notification center for the inline-reply failure
 /// notice, so a reply the app could not deliver is never dropped silently.

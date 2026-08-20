@@ -1,6 +1,6 @@
 #if os(iOS)
-public import Foundation
-internal import UIKit
+import Foundation
+import UIKit
 
 /// One held background task assertion, opaque to callers.
 public struct BackgroundReplyRuntimeAssertion: Equatable, Sendable {
