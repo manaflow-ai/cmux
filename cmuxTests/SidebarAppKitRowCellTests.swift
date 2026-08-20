@@ -13,6 +13,7 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
+        customColorHex: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -24,7 +25,7 @@ struct SidebarAppKitRowCellTests {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: nil,
+            customColorHex: customColorHex,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
@@ -62,6 +63,7 @@ struct SidebarAppKitRowCellTests {
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
+        customColorHex: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
@@ -75,6 +77,7 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
+                customColorHex: customColorHex,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks
             ),
@@ -105,6 +108,54 @@ struct SidebarAppKitRowCellTests {
             isMetadataExpanded: false,
             isMarkdownExpanded: isMarkdownExpanded
         )
+    }
+
+    /// Regression: on an inactive, custom-tinted `solidFill` row the background
+    /// is a vivid color, so the title and secondary/status text must derive a
+    /// readable foreground against that tint instead of the fixed semantic
+    /// colors, which fail WCAG 4.5:1 on a bright card. Repro of the sidebar
+    /// "white/blue text unreadable on a colored workspace" report.
+    @Test
+    func tintedSolidFillRowTextStaysLegibleOnBrightCard() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set("solidFill", forKey: "sidebarActiveTabIndicatorStyle")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+
+        // Radix yellow 9: a deliberately bright tint where fixed white / dimmed
+        // text is unreadable.
+        let tint = "#FFE629"
+        let model = Self.makeModel(
+            isActive: false,
+            settings: settings,
+            customColorHex: tint
+        )
+        let palette = SidebarRowPalette(model: model)
+
+        // The surface the row's text actually sits on: the solidFill tint at
+        // its drawn opacity, composited over the dark sidebar base.
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: tint,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        let drawnTint = try #require(style.color).withAlphaComponent(CGFloat(style.opacity))
+        let rowBackground = cmuxCompositedNSColor(
+            drawnTint,
+            over: sidebarRowTintBaseBackgroundNSColor(for: .dark)
+        )
+
+        func contrastOnRow(_ foreground: NSColor) -> CGFloat {
+            cmuxContrastRatio(
+                foreground: cmuxCompositedNSColor(foreground, over: rowBackground),
+                background: rowBackground
+            )
+        }
+
+        #expect(contrastOnRow(palette.primaryText) >= 4.5)
+        #expect(contrastOnRow(palette.secondary()) >= 4.5)
     }
 
     private static func makeSwiftUIRow(

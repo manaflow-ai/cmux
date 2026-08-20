@@ -171,6 +171,68 @@ func cmuxReadableForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
 }
 
+/// Least-opaque readable foreground (white or black chosen by `background`
+/// luminance) that meets `minimumContrast` against `background`, starting the
+/// search at `preferredOpacity` so softer text roles stay as soft as legibility
+/// allows. Returns full opacity when even that can't clear the bar.
+///
+/// Used for text on a custom-tinted sidebar row, where the row's background is a
+/// vivid color rather than the sidebar's own surface, so the fixed semantic /
+/// accent colors would fail contrast (https://github.com/manaflow-ai/cmux/issues/2586-adjacent).
+func cmuxReadableForegroundNSColor(
+    on background: NSColor,
+    meeting minimumContrast: CGFloat,
+    preferredOpacity: CGFloat
+) -> NSColor {
+    let base: NSColor = cmuxReadableColorScheme(for: background) == .dark ? .white : .black
+    var opacity = max(0, min(preferredOpacity, 1))
+    while opacity < 1 {
+        let composited = cmuxCompositedNSColor(base.withAlphaComponent(opacity), over: background)
+        if cmuxContrastRatio(foreground: composited, background: background) >= minimumContrast {
+            break
+        }
+        opacity = min(1, opacity + 0.04)
+    }
+    return base.withAlphaComponent(opacity)
+}
+
+/// Approximate surface the sidebar paints behind a workspace row: the window
+/// shows through the sidebar material, so a near-window neutral is a faithful
+/// enough base for the tinted-row contrast math. Only the ~30% not covered by
+/// the tint comes from here, so small errors do not flip the readable choice.
+func sidebarRowTintBaseBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
+    colorScheme == .dark
+        ? NSColor(srgbRed: 0.12, green: 0.12, blue: 0.13, alpha: 1)
+        : NSColor(srgbRed: 0.96, green: 0.96, blue: 0.97, alpha: 1)
+}
+
+/// The composited surface an INACTIVE, custom-tinted, `solidFill` row actually
+/// paints — i.e. the background its text sits on. `nil` when the row draws on
+/// the sidebar's own surface (leftRail, active, or no custom color), where the
+/// standard semantic/accent colors already apply and nothing should change.
+func sidebarWorkspaceRowTintedTextBackgroundNSColor(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    isActive: Bool,
+    isMultiSelected: Bool,
+    customColorHex: String?,
+    colorScheme: ColorScheme
+) -> NSColor? {
+    guard activeTabIndicatorStyle == .solidFill, !isActive, customColorHex != nil else {
+        return nil
+    }
+    let style = sidebarWorkspaceRowBackgroundStyle(
+        activeTabIndicatorStyle: .solidFill,
+        isActive: false,
+        isMultiSelected: isMultiSelected,
+        customColorHex: customColorHex,
+        colorScheme: colorScheme,
+        sidebarSelectionColorHex: nil
+    )
+    guard let tint = style.color, style.opacity > 0 else { return nil }
+    let drawn = tint.withAlphaComponent(style.opacity * tint.alphaComponent)
+    return cmuxCompositedNSColor(drawn, over: sidebarRowTintBaseBackgroundNSColor(for: colorScheme))
+}
+
 func cmuxCompositedNSColor(_ foreground: NSColor, over background: NSColor) -> NSColor {
     let fg = foreground.usingColorSpace(.sRGB) ?? foreground
     let bg = background.usingColorSpace(.sRGB) ?? background
