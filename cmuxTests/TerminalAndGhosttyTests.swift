@@ -4570,6 +4570,81 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testAuthoritativeWheelResponseIgnoresInterveningScrollbarPacket() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: bottomPacket]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidReceiveWheelScroll,
+            object: surfaceView,
+            userInfo: ["ghostty.requiresAuthoritativeWheelResponse": true]
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)
+            ]
+        )
+
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "An intervening passive packet must not move the viewport while wheel sync is awaiting its authoritative response"
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: bottomPacket,
+                "ghostty.isAuthoritativeWheelResponse": true
+            ]
+        )
+
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+    }
+
     func testScrollbackReviewSurvivesPaneResize() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
