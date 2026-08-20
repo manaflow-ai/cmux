@@ -1776,7 +1776,13 @@ mod unix {
             kitty_graphics_limits,
         };
 
-        let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
+        // Exec the daemon's own running build (open inode on Linux): after an
+        // in-place binary upgrade, resolving the executable path yields
+        // "<path> (deleted)" and exec fails, which broke every new tab/split
+        // on a long-lived daemon. This also guarantees daemon and host can
+        // never run skewed builds.
+        let binary = crate::platform::self_exe_for_spawn()
+            .context("resolve cmux-tui terminal-host binary")?;
         let mut command = Command::new(binary);
         command
             .args(["__terminal-host", "--bootstrap-stdio"])
