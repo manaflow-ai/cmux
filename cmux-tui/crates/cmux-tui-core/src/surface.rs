@@ -7475,11 +7475,8 @@ mod tests {
     /// without the entry keep the compatible xterm-256color.
     #[test]
     fn default_child_term_is_ghostty_iff_terminfo_resolves() {
-        let expected = if terminfo_resolves("xterm-ghostty") {
-            "xterm-ghostty"
-        } else {
-            "xterm-256color"
-        };
+        let expected =
+            if terminfo_resolves("xterm-ghostty") { "xterm-ghostty" } else { "xterm-256color" };
         assert_eq!(default_child_term(), expected);
     }
 
