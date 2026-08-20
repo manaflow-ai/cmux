@@ -57,9 +57,11 @@ extension MobileShellComposite {
             teamID: scope.teamID
         )
         await loadPairedMacs()
-        if connectedMacDeviceID == canonical {
-            recoverMobileConnection(trigger: .connectionMethodChanged)
-        }
+        // A method change affects dialing whether or not the Mac is currently
+        // connected — the OLD method may be exactly what disconnected it (for
+        // example Tailscale Only without a grant). Mirror the legacy app-wide
+        // observer and always run recovery, which redials with the new method.
+        recoverMobileConnection(trigger: .connectionMethodChanged)
     }
 
     /// Zero-touch discovery yields Iroh candidates only. It is pointless only
