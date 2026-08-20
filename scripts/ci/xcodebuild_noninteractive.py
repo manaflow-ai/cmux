@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import pty
 import re
 import select
 import signal
+import stat
 import sys
 import time
 from typing import BinaryIO
@@ -18,6 +20,37 @@ TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+
+
+def acquire_attempt_lease() -> int | None:
+    path = os.environ.get("CMUX_APP_HOST_ATTEMPT_LEASE")
+    if not path:
+        return None
+    if not os.path.isabs(path) or "\n" in path or "\r" in path:
+        print("FAIL: app-host attempt lease path is invalid", file=sys.stderr)
+        raise SystemExit(2)
+
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as error:
+        print(f"FAIL: app-host attempt lease could not be created: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+    try:
+        os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+            raise OSError("app-host attempt lease is not a private regular file")
+        fcntl.lockf(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        os.close(descriptor)
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        print(f"FAIL: app-host attempt lease could not be held: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+    return descriptor
 
 
 def child_exit_code(status: int) -> int:
@@ -135,7 +168,7 @@ def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) 
         view = view[written:]
 
 
-def main() -> int:
+def run_command() -> int:
     if len(sys.argv) < 2:
         print(
             "usage: xcodebuild_noninteractive.py <command> [args...]",
@@ -298,6 +331,15 @@ def main() -> int:
     if log_file is not None:
         log_file.close()
     return child_exit_code(status)
+
+
+def main() -> int:
+    lease_descriptor = acquire_attempt_lease()
+    try:
+        return run_command()
+    finally:
+        if lease_descriptor is not None:
+            os.close(lease_descriptor)
 
 
 if __name__ == "__main__":

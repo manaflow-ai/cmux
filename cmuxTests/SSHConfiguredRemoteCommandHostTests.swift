@@ -85,7 +85,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let captureResult = processSupport.runProcess(
+        let captureResult = runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -106,6 +106,40 @@ struct SSHConfiguredRemoteCommandHostTests {
             requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any]
         )
         let startupCommand = try #require(createParams["initial_command"] as? String)
+        let startupURL = URL(fileURLWithPath: startupCommand)
+        let startupArtifact: String
+        if FileManager.default.fileExists(atPath: startupURL.path) {
+            startupArtifact = try String(contentsOf: startupURL, encoding: .utf8)
+        } else if let payloadPrefix = startupCommand.range(of: "cmux_payload="),
+                  let lineEnd = startupCommand[payloadPrefix.upperBound...].firstIndex(of: "\n") {
+            let encodedScript = String(startupCommand[payloadPrefix.upperBound..<lineEnd])
+            let scriptData = try #require(Data(base64Encoded: encodedScript))
+            startupArtifact = try #require(String(data: scriptData, encoding: .utf8))
+        } else {
+            startupArtifact = startupCommand
+        }
+        var recoverySequenceCursor = startupArtifact.startIndex
+        for marker in [
+            "CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)",
+            "export CMUX_SSH_AUTH_GROUP_DIR",
+            "cmux_ssh_schedule_failed_auth_group_recovery",
+            "( cmux_ssh_foreground_auth )",
+        ] {
+            let range = try #require(
+                startupArtifact.range(
+                    of: marker,
+                    range: recoverySequenceCursor..<startupArtifact.endIndex
+                ),
+                "Foreground authentication must schedule recovery after group creation and before authentication starts"
+            )
+            recoverySequenceCursor = range.upperBound
+        }
+        #expect(
+            startupArtifact.contains(
+                "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi; cmux_ssh_status=255; break"
+            ),
+            "Authentication group creation failure must preserve a pending termination signal"
+        )
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
         )
@@ -164,7 +198,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             }
         }
 
-        let startupResult = processSupport.runProcess(
+        let startupResult = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
@@ -175,7 +209,14 @@ struct SSHConfiguredRemoteCommandHostTests {
             timeout: 10
         )
 
-        #expect(!startupResult.timedOut, Comment(rawValue: startupResult.stderr))
+        try #require(
+            !startupResult.timedOut,
+            "Startup timed out; stdout: \(startupResult.stdout); stderr: \(startupResult.stderr)"
+        )
+        try #require(
+            startupResult.status == 0,
+            "Startup exited \(startupResult.status); stdout: \(startupResult.stdout); stderr: \(startupResult.stderr)"
+        )
         #expect(
             !startupResult.stderr.contains("Cannot execute command-line and remote command."),
             "cmux-controlled ssh invocations must override a host-configured RemoteCommand; stderr: \(startupResult.stderr)"
@@ -186,9 +227,9 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
 
         let events = harness.recordedSSHEvents()
-        #expect(
+        try #require(
             events.contains("invocation kind=command override=none"),
-            "The foreground auth hop must pass -o RemoteCommand=none so a host-configured RemoteCommand cannot conflict with its command-line command; events: \(events)"
+            "The foreground auth hop must pass -o RemoteCommand=none; events: \(events); stdout: \(startupResult.stdout); stderr: \(startupResult.stderr)"
         )
         #expect(
             !events.contains("invocation kind=command override=absent"),
@@ -268,7 +309,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             "--ssh-option", "CmuxTestInvalidOption=yes",
             "cmux-config-unavailable-host",
         ]
-        let result = processSupport.runProcess(
+        let result = runProcess(
             executablePath: cliPath,
             arguments: arguments,
             environment: environment,
@@ -294,6 +335,10 @@ struct SSHConfiguredRemoteCommandHostTests {
         #expect(startupArtifact.contains("RemoteCommand=printf explicit-fallback"), "\(startupArtifact)")
         #expect(!startupArtifact.contains("ssh-pty-attach"), "\(startupArtifact)")
         #expect(!startupArtifact.contains("cmux_mosh"), "\(startupArtifact)")
+        #expect(
+            startupArtifact.contains("\ncmux_ssh_schedule_failed_auth_group_recovery\nwhile :; do\n"),
+            "Ordinary SSH startup must schedule durable failed-auth cleanup before its long-lived loop: \(startupArtifact)"
+        )
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
                 as? [String: Any]
@@ -359,7 +404,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let captureResult = processSupport.runProcess(
+        let captureResult = runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -398,7 +443,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
         let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
 
-        let startupResult = processSupport.runProcess(
+        let startupResult = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
@@ -474,9 +519,14 @@ struct SSHConfiguredRemoteCommandHostTests {
             alongside cmux's override; command: \(command)
             """
         )
+        let lifecycleUUIDAssignment = "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen"
         #expect(
-            command.components(separatedBy: "/usr/bin/uuidgen").count - 1 == 2,
-            "The restored wrapper needs one persistent lifecycle UUID and one per-attempt readiness UUID: \(command)"
+            command.components(separatedBy: lifecycleUUIDAssignment).count - 1 == 1,
+            "The restored wrapper needs one persistent lifecycle UUID: \(command)"
+        )
+        #expect(
+            command.components(separatedBy: "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen").count - 1 == 1,
+            "The restored wrapper needs one per-attempt readiness UUID: \(command)"
         )
         #expect(!command.contains("-$$"), Comment(rawValue: command))
         #expect(
@@ -484,6 +534,124 @@ struct SSHConfiguredRemoteCommandHostTests {
             Comment(rawValue: command)
         )
         #expect(command.contains("ssh-session-end --lifecycle-only"), Comment(rawValue: command))
+    }
+
+    private struct ProcessRunResult {
+        let status: Int32
+        let stdout: String
+        let stderr: String
+        let timedOut: Bool
+    }
+
+    /// Runs this Swift Testing suite's child processes without delegating exit
+    /// observation to the shared global queue. App-host work can starve a queued
+    /// `waitUntilExit` task after the child has already exited and create a false
+    /// timeout at the exact deadline.
+    private func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let stdinPipe = standardInput == nil ? nil : Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = isolatedChildEnvironment(environment)
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(
+                status: -1,
+                stdout: "",
+                stderr: String(describing: error),
+                timedOut: false
+            )
+        }
+        if let standardInput, let stdinPipe {
+            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+            try? stdinPipe.fileHandleForWriting.close()
+        }
+
+        let outputLock = NSLock()
+        var stdoutData = Data()
+        var stderrData = Data()
+        let outputGroup = DispatchGroup()
+
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stdoutData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stderrData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+
+        let exitDeadline = Date.now.addingTimeInterval(processSupport.processTimeout(timeout))
+        while process.isRunning, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let timedOut = process.isRunning
+        if timedOut {
+            process.terminate()
+            let terminationDeadline = Date.now.addingTimeInterval(1)
+            while process.isRunning, Date.now < terminationDeadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                let killDeadline = Date.now.addingTimeInterval(1)
+                while process.isRunning, Date.now < killDeadline {
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            }
+        }
+        if !process.isRunning {
+            process.waitUntilExit()
+        }
+
+        _ = outputGroup.wait(timeout: .now() + 2)
+        outputLock.lock()
+        let finalStdout = stdoutData
+        let finalStderr = stderrData
+        outputLock.unlock()
+        return ProcessRunResult(
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            stdout: String(data: finalStdout, encoding: .utf8) ?? "",
+            stderr: String(data: finalStderr, encoding: .utf8) ?? "",
+            timedOut: timedOut
+        )
+    }
+
+    private func isolatedChildEnvironment(_ environment: [String: String]) -> [String: String] {
+        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
+              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawHome.isEmpty else {
+            return environment
+        }
+
+        var resolved = environment
+        resolved["CFFIXED_USER_HOME"] = rawHome
+        resolved["XDG_CONFIG_HOME"] = URL(
+            fileURLWithPath: rawHome,
+            isDirectory: true
+        ).appendingPathComponent(".config", isDirectory: true).path
+        return resolved
     }
 
     // MARK: - Fake RemoteCommand-host harness
@@ -511,12 +679,36 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
             environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
             environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+            // The durable cleanup queue is process-external state. Keep this
+            // harness independent from other SSH tests and prior test runs.
+            environment["TMPDIR"] = root.path
             return environment
         }
 
         func startupCommandUsingFakeSSH(_ startupCommand: String) throws -> String {
             let systemSSHPath = "/usr/bin/ssh"
             let fakeSSHPath = binDirectory.appendingPathComponent("ssh").path
+            func replacingSystemSSH(
+                in command: String,
+                encodedRange: Range<String.Index>
+            ) -> String? {
+                let encodedScript = String(command[encodedRange])
+                guard let scriptData = Data(base64Encoded: encodedScript),
+                      let script = String(data: scriptData, encoding: .utf8),
+                      script.contains(systemSSHPath) else {
+                    return nil
+                }
+                let rewrittenScript = script.replacingOccurrences(
+                    of: systemSSHPath,
+                    with: fakeSSHPath
+                )
+                var rewrittenCommand = command
+                rewrittenCommand.replaceSubrange(
+                    encodedRange,
+                    with: Data(rewrittenScript.utf8).base64EncodedString()
+                )
+                return rewrittenCommand
+            }
             let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             let commandURL = URL(fileURLWithPath: trimmedCommand)
                 .standardizedFileURL
@@ -545,6 +737,17 @@ struct SSHConfiguredRemoteCommandHostTests {
             }
 
             guard startupCommand.contains(systemSSHPath) else {
+                let payloadPrefix = "cmux_payload="
+                if let prefixRange = startupCommand.range(of: payloadPrefix),
+                   let lineEnd = startupCommand[prefixRange.upperBound...].firstIndex(of: "\n") {
+                    let encodedRange = prefixRange.upperBound..<lineEnd
+                    if let rewrittenCommand = replacingSystemSSH(
+                        in: startupCommand,
+                        encodedRange: encodedRange
+                    ) {
+                        return rewrittenCommand
+                    }
+                }
                 let encodedPrefix = "(printf %s "
                 let encodedSuffix = " | base64"
                 if let prefixRange = startupCommand.range(of: encodedPrefix),
@@ -553,19 +756,10 @@ struct SSHConfiguredRemoteCommandHostTests {
                        range: prefixRange.upperBound..<startupCommand.endIndex
                    ) {
                     let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-                    let encodedScript = String(startupCommand[encodedRange])
-                    if let scriptData = Data(base64Encoded: encodedScript),
-                       let script = String(data: scriptData, encoding: .utf8),
-                       script.contains(systemSSHPath) {
-                        let rewrittenScript = script.replacingOccurrences(
-                            of: systemSSHPath,
-                            with: fakeSSHPath
-                        )
-                        var rewrittenCommand = startupCommand
-                        rewrittenCommand.replaceSubrange(
-                            encodedRange,
-                            with: Data(rewrittenScript.utf8).base64EncodedString()
-                        )
+                    if let rewrittenCommand = replacingSystemSSH(
+                        in: startupCommand,
+                        encodedRange: encodedRange
+                    ) {
                         return rewrittenCommand
                     }
                 }

@@ -136,7 +136,8 @@ cmux_app_host_confirmation_record() {
 }
 
 # Validate an old scope from its setup-authored record without sourcing it.
-# Callers must also bind the scope to a verified process receipt before removal.
+# This can authenticate observation of a prior process, but never authorizes
+# filesystem deletion. Only the current job's cleanup confirmation does that.
 cmux_validate_stale_app_host_confirmation() {
   local confirmation_file="$1"
   local system_temp_root="${2%/}"

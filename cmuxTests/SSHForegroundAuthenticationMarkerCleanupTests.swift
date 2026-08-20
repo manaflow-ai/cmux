@@ -11,14 +11,61 @@ import Testing
 
 @Suite(.serialized)
 struct SSHForegroundAuthenticationMarkerCleanupTests {
+    @Test func installsAttachSignalTrapsAfterAuthenticationCleanupFunction() throws {
+        let command = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: "ordering.example.test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                token: "foreground-auth-token"
+            )
+        )
+        let decodedCommand = command.replacingOccurrences(of: "'\"'\"'", with: "'")
+        let cleanupDefinition = try #require(
+            decodedCommand.range(of: "cmux_ssh_attach_remove_auth_group_dir()")
+        )
+        let firstSignalTrap = try #require(
+            decodedCommand.range(of: "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP")
+        )
+
+        #expect(cleanupDefinition.lowerBound < firstSignalTrap.lowerBound)
+    }
+
+    @Test func attachSignalUsesBoundedAuthenticationProcessWait() {
+        let command = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: "bounded-wait.example.test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                token: "foreground-auth-token"
+            )
+        )
+        let decodedCommand = command.replacingOccurrences(of: "'\"'\"'", with: "'")
+
+        #expect(
+            decodedCommand.contains(
+                "cmux_ssh_wait_for_auth_process_exit \"$cmux_ssh_attach_auth_pid\""
+            )
+        )
+        #expect(
+            !decodedCommand.contains(
+                "wait \"$cmux_ssh_attach_auth_pid\" 2>/dev/null || true"
+            )
+        )
+    }
+
     @Test func restoredAttachSignalTerminatesForegroundAuthenticationProcessTree() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-restored-auth-tree-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
-        let childPIDFile = root.appendingPathComponent("auth-child-pid")
-        let childSignalLog = root.appendingPathComponent("auth-child-signal")
+        let authRootPIDFile = root.appendingPathComponent("auth-root-pid")
+        let authDescendantPIDFile = root.appendingPathComponent("auth-descendant-pid")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -26,10 +73,12 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
-            "trap '' HUP INT",
-            "trap 'printf \"%s\\n\" term > \"${CMUX_TEST_AUTH_CHILD_SIGNAL:?}\"; exit 143' TERM",
-            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_CHILD_PID:?}\"",
-            "while :; do /bin/sleep 30; done",
+            "trap '' HUP INT TERM",
+            "/bin/sleep 30 &",
+            "cmux_test_auth_descendant=$!",
+            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_ROOT_PID:?}\"",
+            "printf '%s\\n' \"$cmux_test_auth_descendant\" > \"${CMUX_TEST_AUTH_DESCENDANT_PID:?}\"",
+            "wait \"$cmux_test_auth_descendant\"",
         ])
         for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -41,8 +90,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_AUTH_CHILD_PID"] = childPIDFile.path
-        environment["CMUX_TEST_AUTH_CHILD_SIGNAL"] = childSignalLog.path
+        environment["CMUX_TEST_AUTH_ROOT_PID"] = authRootPIDFile.path
+        environment["CMUX_TEST_AUTH_DESCENDANT_PID"] = authDescendantPIDFile.path
 
         let command = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
@@ -52,8 +101,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
-            )
-        ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+            ),
+            sshExecutable: fakeSSH.path
+        )
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "exec \(command)"]
@@ -63,13 +113,19 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         process.standardError = FileHandle.nullDevice
         try process.run()
 
-        #expect(Self.waitForFile(at: childPIDFile, containing: "\n", timeout: 3))
-        let childPID = try #require(Int32(
-            String(contentsOf: childPIDFile, encoding: .utf8)
+        #expect(Self.waitForFile(at: authRootPIDFile, containing: "\n", timeout: 3))
+        #expect(Self.waitForFile(at: authDescendantPIDFile, containing: "\n", timeout: 3))
+        let authRootPID = try #require(Int32(
+            String(contentsOf: authRootPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let authDescendantPID = try #require(Int32(
+            String(contentsOf: authDescendantPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer {
-            Darwin.kill(childPID, SIGKILL)
+            Darwin.kill(authRootPID, SIGKILL)
+            Darwin.kill(authDescendantPID, SIGKILL)
         }
         Darwin.kill(process.processIdentifier, SIGINT)
 
@@ -87,10 +143,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         if exited {
             #expect(process.terminationStatus == 130)
         }
-        #expect(
-            Self.waitForFile(at: childSignalLog, containing: "term", timeout: 3),
-            "Direct restored-attach signals must terminate the nested authentication process tree"
-        )
+        #expect(Self.waitForProcessExit(authRootPID, timeout: 3))
+        #expect(Self.waitForProcessExit(authDescendantPID, timeout: 3))
     }
 
     @Test func restoredAttachRetriesInitialForegroundAuthenticationFailure() throws {
@@ -154,8 +208,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
-            )
-        ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+            ),
+            sshExecutable: fakeSSH.path
+        )
         let result = try Self.runProcess(command: command, environment: environment)
 
         #expect(result.status == 253, Comment(rawValue: result.stderr))
@@ -250,8 +305,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: sshOptions,
                 token: "foreground-auth-token"
-            )
-        ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+            ),
+            sshExecutable: fakeSSH.path
+        )
         let result = try Self.runProcess(command: command, environment: environment)
 
         #expect(result.status == 253, Comment(rawValue: result.stderr))
@@ -281,8 +337,10 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
 
         try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"",
-            "exit 253",
+            "case \" $* \" in",
+            "  *\" ssh-pty-attach \"*) printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"; exit 253 ;;",
+            "  *) exit 0 ;;",
+            "esac",
         ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
@@ -317,8 +375,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                     identityFile: nil,
                     sshOptions: ["ControlMaster=no"],
                     token: "foreground-auth-token"
-                )
-            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
+                ),
+                sshExecutable: fakeSSH.path
+            ),
             environment: environment
         )
 
@@ -345,6 +404,19 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             Thread.sleep(forTimeInterval: 0.01)
         }
         return false
+    }
+
+    private static func waitForProcessExit(_ processID: Int32, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            errno = 0
+            if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        errno = 0
+        return Darwin.kill(processID, 0) == -1 && errno == ESRCH
     }
 
     private static func runProcess(

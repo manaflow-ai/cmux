@@ -160,13 +160,16 @@ cmux_read_app_host_receipt() {
     return 1
   fi
 
-  local line line_number receipt_version receipt_key receipt_pid receipt_executable receipt_fd
+  local line line_number receipt_version receipt_key receipt_pid receipt_executable
+  local receipt_fd receipt_lease receipt_lease_fd
   line_number=0
   receipt_version=""
   receipt_key=""
   receipt_pid=""
   receipt_executable=""
   receipt_fd=""
+  receipt_lease=""
+  receipt_lease_fd=""
   while IFS= read -r line || [ -n "$line" ]; do
     line_number=$((line_number + 1))
     case "$line_number" in
@@ -175,6 +178,8 @@ cmux_read_app_host_receipt() {
       3) receipt_pid="${line#pid=}"; [ "$line" != "$receipt_pid" ] || receipt_pid="" ;;
       4) receipt_executable="${line#executable=}"; [ "$line" != "$receipt_executable" ] || receipt_executable="" ;;
       5) receipt_fd="${line#receipt_fd=}"; [ "$line" != "$receipt_fd" ] || receipt_fd="" ;;
+      6) receipt_lease="${line#lease=}"; [ "$line" != "$receipt_lease" ] || receipt_lease="" ;;
+      7) receipt_lease_fd="${line#lease_fd=}"; [ "$line" != "$receipt_lease_fd" ] || receipt_lease_fd="" ;;
       *)
         echo "FAIL: app-host process receipt has unexpected fields" >&2
         return 1
@@ -182,7 +187,7 @@ cmux_read_app_host_receipt() {
     esac
   done < "$receipt_file"
 
-  if [ "$line_number" -ne 5 ] || [ "$receipt_version" != "2" ]; then
+  if [ "$line_number" -ne 7 ] || [ "$receipt_version" != "3" ]; then
     echo "FAIL: app-host process receipt version is invalid" >&2
     return 1
   fi
@@ -213,10 +218,33 @@ cmux_read_app_host_receipt() {
       return 1
       ;;
   esac
+  case "$receipt_lease" in
+    /*/app-host-attempt-*.lease) ;;
+    *)
+      echo "FAIL: app-host process receipt lease path is invalid" >&2
+      return 1
+      ;;
+  esac
+  if [ "$(dirname "$receipt_lease")" != "$(dirname "$receipt_file")" ]; then
+    echo "FAIL: app-host process receipt lease is outside its receipt directory" >&2
+    return 1
+  fi
+  case "$receipt_lease_fd" in
+    ''|0[0-9]*|*[!0-9]*)
+      echo "FAIL: app-host process receipt lease descriptor is invalid" >&2
+      return 1
+      ;;
+  esac
+  if [ "$receipt_lease_fd" = "$receipt_fd" ]; then
+    echo "FAIL: app-host process receipt descriptors must be distinct" >&2
+    return 1
+  fi
 
   CMUX_PARSED_APP_HOST_RECEIPT_PID="$receipt_pid"
   CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE="$receipt_executable"
   CMUX_PARSED_APP_HOST_RECEIPT_FD="$receipt_fd"
+  CMUX_PARSED_APP_HOST_RECEIPT_LEASE="$receipt_lease"
+  CMUX_PARSED_APP_HOST_RECEIPT_LEASE_FD="$receipt_lease_fd"
 }
 
 # Set CMUX_APP_HOST_PRIMARY_EXECUTABLE. Return 2 when the PID has no text vnode,
@@ -276,18 +304,20 @@ cmux_app_host_primary_executable() {
   CMUX_APP_HOST_PRIMARY_EXECUTABLE="${first_executable% (deleted)}"
 }
 
-# Prove that this process incarnation still owns the exact receipt it authored.
+# Prove that this process incarnation still owns one exact authority descriptor.
 # Return 2 if the PID disappeared during verification and 1 for a live process
 # without the recorded descriptor or for malformed lsof output.
-cmux_app_host_receipt_descriptor_is_open() {
+cmux_app_host_descriptor_is_open() {
   local pid="$1"
-  local receipt_fd="$2"
-  local receipt_file="$3"
+  local expected_fd="$2"
+  local expected_file="$3"
+  local expected_access="$4"
+  local descriptor_kind="$5"
   cmux_select_app_host_lsof || return 1
 
   local output status line reported_pid reported_fd reported_access reported_path
   if output="$(cmux_run_app_host_lsof \
-    -a -p "$pid" -d "$receipt_fd" -Fafn -- "$receipt_file")"; then
+    -a -p "$pid" -d "$expected_fd" -Fafn -- "$expected_file")"; then
     status=0
   else
     status=$?
@@ -296,7 +326,7 @@ cmux_app_host_receipt_descriptor_is_open() {
     if [ "$status" -eq 1 ] && ! /bin/kill -0 "$pid" 2>/dev/null; then
       return 2
     fi
-    echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
+    echo "FAIL: live app-host PID $pid does not hold its $descriptor_kind" >&2
     return 1
   fi
 
@@ -316,8 +346,8 @@ cmux_app_host_receipt_descriptor_is_open() {
       f*)
         if [ -z "$reported_pid" ] \
           || [ -n "$reported_fd" ] \
-          || [ "${line#f}" != "$receipt_fd" ]; then
-          echo "FAIL: lsof returned an unexpected receipt descriptor" >&2
+          || [ "${line#f}" != "$expected_fd" ]; then
+          echo "FAIL: lsof returned an unexpected $descriptor_kind descriptor" >&2
           return 1
         fi
         reported_fd="${line#f}"
@@ -327,8 +357,8 @@ cmux_app_host_receipt_descriptor_is_open() {
         # `f9` and `aw`; only the human-readable table combines them as `9w`.
         if [ -z "$reported_pid" ] \
           || [ -n "$reported_access" ] \
-          || [ "${line#a}" != "w" ]; then
-          echo "FAIL: lsof returned an unexpected receipt access mode" >&2
+          || [ "${line#a}" != "$expected_access" ]; then
+          echo "FAIL: lsof returned an unexpected $descriptor_kind access mode" >&2
           return 1
         fi
         reported_access="${line#a}"
@@ -337,39 +367,51 @@ cmux_app_host_receipt_descriptor_is_open() {
         if [ -z "$reported_fd" ] \
           || [ -z "$reported_access" ] \
           || [ -n "$reported_path" ]; then
-          echo "FAIL: lsof returned an unexpected receipt path" >&2
+          echo "FAIL: lsof returned an unexpected $descriptor_kind path" >&2
           return 1
         fi
         reported_path="${line#n}"
         ;;
       '') ;;
       *)
-        echo "FAIL: lsof returned malformed receipt descriptor data" >&2
+        echo "FAIL: lsof returned malformed $descriptor_kind descriptor data" >&2
         return 1
         ;;
     esac
   done < <(printf '%s\n' "$output")
   if [ "$reported_pid" != "$pid" ] \
-    || [ "$reported_fd" != "$receipt_fd" ] \
-    || [ "$reported_access" != "w" ] \
-    || [ "$reported_path" != "$receipt_file" ]; then
-    echo "FAIL: live app-host PID $pid does not hold its exact process receipt" >&2
+    || [ "$reported_fd" != "$expected_fd" ] \
+    || [ "$reported_access" != "$expected_access" ] \
+    || [ "$reported_path" != "$expected_file" ]; then
+    echo "FAIL: live app-host PID $pid does not hold its exact $descriptor_kind" >&2
     return 1
   fi
 }
 
+cmux_app_host_receipt_descriptor_is_open() {
+  cmux_app_host_descriptor_is_open "$1" "$2" "$3" w "process receipt"
+}
+
+cmux_app_host_lease_descriptor_is_open() {
+  cmux_app_host_descriptor_is_open "$1" "$2" "$3" u "attempt lease"
+}
+
 # Return 0 for an exact live identity, 2 for a stale receipt, and 1 for any
-# mismatch. Callers must never signal a PID after a 1 or 2 result.
+# mismatch. Callers only observe this identity while waiting for lease-driven
+# self-exit; they never signal its PID.
 cmux_verify_app_host_receipt() {
   local receipt_file="$1"
   local expected_key="$2"
   local derived_data_path="$3"
   cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
 
-  local receipt_pid receipt_executable receipt_fd primary_status receipt_status
+  local receipt_pid receipt_executable receipt_fd receipt_lease receipt_lease_fd
+  local primary_status receipt_status lease_status
   receipt_pid="$CMUX_PARSED_APP_HOST_RECEIPT_PID"
   receipt_executable="$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"
   receipt_fd="$CMUX_PARSED_APP_HOST_RECEIPT_FD"
+  receipt_lease="$CMUX_PARSED_APP_HOST_RECEIPT_LEASE"
+  receipt_lease_fd="$CMUX_PARSED_APP_HOST_RECEIPT_LEASE_FD"
   cmux_validate_app_host_executable_scope \
     "$derived_data_path" "$receipt_executable" || return 1
 
@@ -398,6 +440,18 @@ cmux_verify_app_host_receipt() {
     return 2
   fi
   if [ "$receipt_status" -ne 0 ]; then
+    return 1
+  fi
+  if cmux_app_host_lease_descriptor_is_open \
+    "$receipt_pid" "$receipt_lease_fd" "$receipt_lease"; then
+    lease_status=0
+  else
+    lease_status=$?
+  fi
+  if [ "$lease_status" -eq 2 ]; then
+    return 2
+  fi
+  if [ "$lease_status" -ne 0 ]; then
     return 1
   fi
   CMUX_VERIFIED_APP_HOST_PID="$receipt_pid"
@@ -530,9 +584,20 @@ cmux_app_host_verified_pids() {
 cmux_wait_for_app_host_exit() {
   local pid="$1"
   local expected_executable="$2"
-  local attempt primary_status
+  local attempt attempt_limit primary_status
+  attempt_limit=50
+  if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ] \
+    && [ -n "${CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS:-}" ]; then
+    case "$CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS" in
+      ''|0|*[!0-9]*)
+        echo "FAIL: app-host exit wait attempts are invalid" >&2
+        return 1
+        ;;
+    esac
+    attempt_limit="$CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS"
+  fi
   attempt=0
-  while [ "$attempt" -lt 50 ]; do
+  while [ "$attempt" -lt "$attempt_limit" ]; do
     if cmux_app_host_primary_executable "$pid"; then
       primary_status=0
     else
@@ -553,7 +618,7 @@ cmux_wait_for_app_host_exit() {
   return 2
 }
 
-cmux_terminate_one_verified_app_host() {
+cmux_wait_for_one_verified_app_host_exit() {
   local receipt_file="$1"
   local expected_key="$2"
   local derived_data_path="$3"
@@ -581,16 +646,6 @@ cmux_terminate_one_verified_app_host() {
   pid="$CMUX_VERIFIED_APP_HOST_PID"
   executable="$CMUX_VERIFIED_APP_HOST_EXECUTABLE"
 
-  /bin/kill -TERM "$pid" 2>/dev/null || {
-    if cmux_wait_for_app_host_exit "$pid" "$executable"; then
-      wait_status=0
-    else
-      wait_status=$?
-    fi
-    [ "$wait_status" -eq 0 ] && return 0
-    echo "FAIL: verified app-host PID $pid could not be terminated" >&2
-    return 1
-  }
   if cmux_wait_for_app_host_exit "$pid" "$executable"; then
     wait_status=0
   else
@@ -599,43 +654,12 @@ cmux_terminate_one_verified_app_host() {
   if [ "$wait_status" -eq 0 ]; then
     return 0
   fi
-  if [ "$wait_status" -ne 2 ]; then
-    return 1
-  fi
-
-  # Re-authenticate immediately before escalating the signal.
-  if [ -n "$missing_product_runner_root" ]; then
-    if cmux_verify_stale_app_host_receipt \
-      "$receipt_file" "$expected_key" "$missing_product_runner_root"; then
-      verify_status=0
-    else
-      verify_status=$?
-    fi
-  elif cmux_verify_app_host_receipt \
-    "$receipt_file" "$expected_key" "$derived_data_path"; then
-    verify_status=0
-  else
-    verify_status=$?
-  fi
-  if [ "$verify_status" -eq 2 ]; then
-    return 0
-  fi
-  if [ "$verify_status" -ne 0 ]; then
-    return 1
-  fi
-  /bin/kill -KILL "$pid" 2>/dev/null || true
-  if cmux_wait_for_app_host_exit "$pid" "$executable"; then
-    wait_status=0
-  else
-    wait_status=$?
-  fi
-  if [ "$wait_status" -ne 0 ]; then
-    echo "FAIL: verified app-host PID $pid remained live after SIGKILL" >&2
-    return 1
-  fi
+  [ "$wait_status" -eq 2 ] \
+    && echo "FAIL: verified app-host PID $pid did not exit after its attempt lease released" >&2
+  return 1
 }
 
-cmux_terminate_verified_app_hosts() {
+cmux_wait_for_verified_app_hosts_exit() {
   local receipt_dir="$1"
   local expected_key="$2"
   local derived_data_path="$3"
@@ -645,14 +669,14 @@ cmux_terminate_verified_app_hosts() {
 
   for pid in $verified_pids; do
     receipt_file="${receipt_dir%/}/app-host-$pid.receipt"
-    cmux_terminate_one_verified_app_host \
+    cmux_wait_for_one_verified_app_host_exit \
       "$receipt_file" "$expected_key" "$derived_data_path" || return 1
   done
 
   remaining_pids="$(cmux_app_host_verified_pids \
     "$receipt_dir" "$expected_key" "$derived_data_path")" || return 1
   if [ -n "$remaining_pids" ]; then
-    echo "FAIL: verified app-host processes remain after termination" >&2
+    echo "FAIL: verified app-host processes remain after their attempt leases released" >&2
     return 1
   fi
 }
@@ -718,10 +742,13 @@ cmux_verify_stale_app_host_receipt() {
   runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
   cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
 
-  local receipt_pid receipt_executable receipt_fd primary_status receipt_status
+  local receipt_pid receipt_executable receipt_fd receipt_lease receipt_lease_fd
+  local primary_status receipt_status lease_status
   receipt_pid="$CMUX_PARSED_APP_HOST_RECEIPT_PID"
   receipt_executable="$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"
   receipt_fd="$CMUX_PARSED_APP_HOST_RECEIPT_FD"
+  receipt_lease="$CMUX_PARSED_APP_HOST_RECEIPT_LEASE"
+  receipt_lease_fd="$CMUX_PARSED_APP_HOST_RECEIPT_LEASE_FD"
   if ! cmux_app_host_derived_data_from_executable \
     "$runner_root" "$receipt_executable"; then
     echo "FAIL: stale app-host receipt executable is outside the runner work root" >&2
@@ -752,6 +779,18 @@ cmux_verify_stale_app_host_receipt() {
     return 2
   fi
   if [ "$receipt_status" -ne 0 ]; then
+    return 1
+  fi
+  if cmux_app_host_lease_descriptor_is_open \
+    "$receipt_pid" "$receipt_lease_fd" "$receipt_lease"; then
+    lease_status=0
+  else
+    lease_status=$?
+  fi
+  if [ "$lease_status" -eq 2 ]; then
+    return 2
+  fi
+  if [ "$lease_status" -ne 0 ]; then
     return 1
   fi
 
@@ -878,7 +917,7 @@ cmux_app_host_scope_file_identity() {
 # The newest confirmation may belong to a job that has prepared its scope but
 # is still waiting for the canonical machine lock. Only authenticated v3 files
 # owned by this account with private permissions participate. Shared /tmp debris
-# cannot weaken newest-scope protection or authorize a process signal.
+# cannot weaken newest-scope protection or authenticate prior-process waiting.
 cmux_newest_app_host_confirmation_mtime() {
   local system_temp_root="$1"
   cmux_validate_app_host_runner_root "$system_temp_root" || return 1
@@ -1020,14 +1059,13 @@ cmux_validate_abandoned_app_host_scope() {
     fi
   done
 
-  CMUX_VALIDATED_ABANDONED_APP_HOST_HOME="$app_host_home"
   CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR="$app_host_receipt_dir"
   CMUX_VALIDATED_ABANDONED_APP_HOST_CONFIRMATION_FILE="$confirmation_file"
 }
 
 # Match one runner-scoped live PID to one old prior-run authority scope. This
 # is only an admission check. The caller completes a runner-wide preflight and
-# revalidates every admitted authority before any signal is sent.
+# revalidates every admitted authority before waiting for lease-driven self-exit.
 cmux_find_eligible_prior_app_host_receipt() {
   local runner_root="$1"
   local system_temp_root="$2"
@@ -1143,168 +1181,12 @@ cmux_find_eligible_prior_app_host_receipt() {
   CMUX_PRIOR_APP_HOST_CONFIRMATION_MTIME="$matched_confirmation_mtime"
 }
 
-# Reclaim only authenticated, process-free scopes older than the grace period.
-# The current key and every scope tied for newest confirmation are preserved.
-# All candidates are validated and previewed before the first deletion.
-cmux_reclaim_abandoned_app_host_scopes() {
-  local runner_root="$1"
-  local system_temp_root="$2"
-  local preserved_key="$3"
-  local now_epoch="$4"
-  local minimum_age_seconds="$5"
-  shift 5
-
-  cmux_validate_app_host_runner_root "$runner_root" || return 1
-  runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
-  cmux_validate_app_host_runner_root "$system_temp_root" || return 1
-  system_temp_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
-  cmux_validate_app_host_key "$preserved_key" || return 1
-  case "$now_epoch:$minimum_age_seconds" in
-    *[!0-9:]*|:*|*:)
-      echo "FAIL: abandoned app-host scope age inputs are invalid" >&2
-      return 1
-      ;;
-  esac
-
-  cmux_scan_runner_app_host_targets "$runner_root" || return 1
-  if [ "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" -ne 0 ]; then
-    echo "FAIL: refusing abandoned scope reclamation while an app host is live" >&2
-    return 1
-  fi
-
-  local current_uid confirmation_file confirmation_name key first_line
-  local seen_keys key_count key_index newest_mtime candidate_count
-  local mtime candidate_index scope_path
-  local -a scope_keys scope_mtimes scope_versions candidate_keys candidate_mtimes
-  current_uid="$(/usr/bin/id -u)" || {
-    echo "FAIL: abandoned app-host cleanup account is unavailable" >&2
-    return 1
-  }
-  scope_keys=()
-  scope_mtimes=()
-  scope_versions=()
-  candidate_keys=()
-  candidate_mtimes=()
-  seen_keys=""
-  key_count=0
-  cmux_newest_app_host_confirmation_mtime "$system_temp_root" || return 1
-  newest_mtime="$CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME"
-
-  if [ "$#" -gt 0 ]; then
-    for key in "$@"; do
-      case " $seen_keys " in *" $key "*) continue ;; esac
-      cmux_validate_app_host_key "$key" || return 1
-      seen_keys="${seen_keys:+$seen_keys }$key"
-      scope_keys[key_count]="$key"
-      key_count=$((key_count + 1))
-    done
-  else
-    for confirmation_file in "$system_temp_root"/cmux-ah-*.confirm; do
-      if [ ! -e "$confirmation_file" ] && [ ! -L "$confirmation_file" ]; then
-        continue
-      fi
-      confirmation_name="${confirmation_file##*/}"
-      key="${confirmation_name#cmux-ah-}"
-      key="${key%.confirm}"
-      case " $seen_keys " in *" $key "*) continue ;; esac
-      cmux_validate_app_host_key "$key" || return 1
-      seen_keys="${seen_keys:+$seen_keys }$key"
-      scope_keys[key_count]="$key"
-      key_count=$((key_count + 1))
-    done
-  fi
-
-  key_index=0
-  while [ "$key_index" -lt "$key_count" ]; do
-    key="${scope_keys[$key_index]}"
-    confirmation_file="$system_temp_root/cmux-ah-$key.confirm"
-    if [ -L "$confirmation_file" ]; then
-      echo "FAIL: abandoned app-host confirmation is a symlink" >&2
-      return 1
-    fi
-    if [ ! -f "$confirmation_file" ]; then
-      key_index=$((key_index + 1))
-      continue
-    fi
-    IFS= read -r first_line < "$confirmation_file" || {
-      echo "FAIL: abandoned app-host confirmation could not be read" >&2
-      return 1
-    }
-    cmux_app_host_scope_mtime "$confirmation_file" || return 1
-    mtime="$CMUX_APP_HOST_SCOPE_MTIME"
-    scope_mtimes[key_index]="$mtime"
-    if [ "$first_line" != "version=3" ]; then
-      echo "Preserving unsupported app-host confirmation: $confirmation_file"
-      key_index=$((key_index + 1))
-      continue
-    fi
-    scope_versions[key_index]=3
-    key_index=$((key_index + 1))
-  done
-
-  candidate_count=0
-  key_index=0
-  while [ "$key_index" -lt "$key_count" ]; do
-    key="${scope_keys[$key_index]}"
-    mtime="${scope_mtimes[$key_index]:-}"
-    cmux_classify_app_host_scope_recovery_eligibility \
-      "$key" "$preserved_key" "${scope_versions[$key_index]:-}" \
-      "$mtime" "$newest_mtime" "$now_epoch" "$minimum_age_seconds" \
-      || return 1
-    if [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -ne 1 ]; then
-      key_index=$((key_index + 1))
-      continue
-    fi
-    cmux_validate_abandoned_app_host_scope \
-      "$system_temp_root" "$key" "$current_uid" || return 1
-    candidate_keys[candidate_count]="$key"
-    candidate_mtimes[candidate_count]="$mtime"
-    candidate_count=$((candidate_count + 1))
-    echo "Confirmed abandoned app-host cleanup candidate: $system_temp_root/cmux-ah-$key"
-    key_index=$((key_index + 1))
-  done
-
-  # Recheck global liveness after candidate preflight and before mutation.
-  cmux_scan_runner_app_host_targets "$runner_root" || return 1
-  if [ "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" -ne 0 ]; then
-    echo "FAIL: an app host became live before abandoned scope reclamation" >&2
-    return 1
-  fi
-
-  candidate_index=0
-  while [ "$candidate_index" -lt "$candidate_count" ]; do
-    key="${candidate_keys[$candidate_index]}"
-    cmux_validate_abandoned_app_host_scope \
-      "$system_temp_root" "$key" "$current_uid" || return 1
-    confirmation_file="$CMUX_VALIDATED_ABANDONED_APP_HOST_CONFIRMATION_FILE"
-    cmux_app_host_scope_mtime "$confirmation_file" || return 1
-    if [ "$CMUX_APP_HOST_SCOPE_MTIME" != "${candidate_mtimes[$candidate_index]}" ]; then
-      echo "FAIL: abandoned app-host confirmation changed during cleanup" >&2
-      return 1
-    fi
-    rm -rf -- "$CMUX_VALIDATED_ABANDONED_APP_HOST_HOME"
-    rm -rf -- "$CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR"
-    rm -f -- "$confirmation_file"
-    for scope_path in \
-      "$CMUX_VALIDATED_ABANDONED_APP_HOST_HOME" \
-      "$CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR" \
-      "$confirmation_file"
-    do
-      if [ -e "$scope_path" ] || [ -L "$scope_path" ]; then
-        echo "FAIL: abandoned app-host scope remains after cleanup" >&2
-        return 1
-      fi
-    done
-    candidate_index=$((candidate_index + 1))
-  done
-}
-
 # Retry recovery always owns the immutable current run key. While holding the
 # canonical machine lock, it may also admit a prior-run owner whose confirmation
-# is authenticated, older than the current scope, and not newest. Every live PID
-# and admitted confirmation is preflighted twice before any signal. Process-free
-# scope deletion retains the reclamation grace and remains advisory after process
-# safety is established.
+# is authenticated, older than the current scope, and not newest. Every live
+# process and admitted confirmation is preflighted twice, then recovery only
+# waits for the app host's process-bound attempt lease to make it exit itself.
+# Filesystem deletion is reserved for the exact current-job cleanup confirmation.
 cmux_recover_owned_app_host_attempt() {
   local receipt_dir="$1"
   local expected_key="$2"
@@ -1312,9 +1194,7 @@ cmux_recover_owned_app_host_attempt() {
   local runner_root="$4"
   local system_temp_root="$5"
   local now_epoch="${6:-}"
-  local reclamation_minimum_age_seconds="${7:-21600}"
   local live_recovery_minimum_age_seconds=0
-  shift "$(( $# < 7 ? $# : 7 ))"
 
   if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" != "1" ] \
     && [ "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-0}" != "1" ]; then
@@ -1334,23 +1214,12 @@ cmux_recover_owned_app_host_attempt() {
   if [ -z "$now_epoch" ]; then
     now_epoch="$(/bin/date +%s)" || return 1
   fi
-  case "$now_epoch:$reclamation_minimum_age_seconds" in
-    *[!0-9:]*|:*|*:)
-      echo "FAIL: app-host recovery age inputs are invalid" >&2
+  case "$now_epoch" in
+    ''|*[!0-9]*)
+      echo "FAIL: app-host recovery timestamp is invalid" >&2
       return 1
       ;;
   esac
-
-  local requested_scope_count requested_scope_index
-  local -a requested_scope_keys
-  requested_scope_keys=()
-  requested_scope_count=$#
-  requested_scope_index=0
-  while [ "$requested_scope_index" -lt "$requested_scope_count" ]; do
-    requested_scope_keys[requested_scope_index]="$1"
-    shift
-    requested_scope_index=$((requested_scope_index + 1))
-  done
 
   local verified_pids verified_pid verified_pid_tokens
   local target_count target_index target_pid target_executable
@@ -1358,7 +1227,7 @@ cmux_recover_owned_app_host_attempt() {
   local -a initial_target_pids initial_target_executables
   local -a prior_pids prior_executables prior_receipts prior_keys
   local -a prior_derived_data prior_confirmations prior_confirmation_identities
-  local -a prior_confirmation_mtimes maintenance_keys
+  local -a prior_confirmation_mtimes
   verified_pids="$(cmux_app_host_verified_pids \
     "$receipt_dir" "$expected_key" "$derived_data_path")" || return 1
   verified_pid_tokens=""
@@ -1423,7 +1292,7 @@ cmux_recover_owned_app_host_attempt() {
 
   # Preparation can publish a waiting scope outside the machine lock. Recheck
   # both the complete live target set and the global newest confirmation before
-  # signaling current or prior owners.
+  # waiting for current or prior owners.
   cmux_scan_runner_app_host_targets "$runner_root" || return 1
   if [ "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" -ne "$target_count" ]; then
     echo "FAIL: runner app-host set changed before recovery" >&2
@@ -1506,11 +1375,11 @@ cmux_recover_owned_app_host_attempt() {
     target_index=$((target_index + 1))
   done
 
-  cmux_terminate_verified_app_hosts \
+  cmux_wait_for_verified_app_hosts_exit \
     "$receipt_dir" "$expected_key" "$derived_data_path" || return 1
   target_index=0
   while [ "$target_index" -lt "$prior_count" ]; do
-    cmux_terminate_one_verified_app_host \
+    cmux_wait_for_one_verified_app_host_exit \
       "${prior_receipts[$target_index]}" \
       "${prior_keys[$target_index]}" \
       "${prior_derived_data[$target_index]}" \
@@ -1522,40 +1391,6 @@ cmux_recover_owned_app_host_attempt() {
   if [ "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" -ne 0 ]; then
     echo "FAIL: an app host remained live after authenticated retry recovery" >&2
     return 1
-  fi
-
-  maintenance_keys=()
-  maintenance_keys[0]="$expected_key"
-  target_count=1
-  requested_scope_index=0
-  while [ "$requested_scope_index" -lt "$requested_scope_count" ]; do
-    maintenance_keys[target_count]="${requested_scope_keys[$requested_scope_index]}"
-    target_count=$((target_count + 1))
-    requested_scope_index=$((requested_scope_index + 1))
-  done
-  target_index=0
-  while [ "$target_index" -lt "$prior_count" ]; do
-    maintenance_keys[target_count]="${prior_keys[$target_index]}"
-    target_count=$((target_count + 1))
-    target_index=$((target_index + 1))
-  done
-
-  if [ "$requested_scope_count" -gt 0 ] \
-    || [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
-    cmux_reclaim_abandoned_app_host_scopes \
-      "$runner_root" "$system_temp_root" "$expected_key" \
-      "$now_epoch" "$reclamation_minimum_age_seconds" \
-      "${maintenance_keys[@]}" || {
-      echo "WARNING: abandoned app-host scope reclamation was skipped" >&2
-      return 0
-    }
-  else
-    cmux_reclaim_abandoned_app_host_scopes \
-      "$runner_root" "$system_temp_root" "$expected_key" \
-      "$now_epoch" "$reclamation_minimum_age_seconds" || {
-      echo "WARNING: abandoned app-host scope reclamation was skipped" >&2
-      return 0
-    }
   fi
 }
 

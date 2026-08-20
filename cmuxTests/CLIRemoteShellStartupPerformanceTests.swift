@@ -80,13 +80,104 @@ struct CLIRemoteShellStartupPerformanceTests {
         #expect(result.status == 0)
     }
 
+    @Test
+    func emptyAuthenticationRecoveryQueueDoesNotCreateWorkerState() throws {
+        let cliPath = try bundledCLIPath()
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-empty-recovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["TMPDIR"] = temporaryRoot.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__ssh-auth-recovery"],
+            environment: environment,
+            timeout: 5
+        )
+        let recoveryRoot = temporaryRoot
+            .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(
+            !FileManager.default.fileExists(atPath: recoveryRoot.path),
+            "An empty recovery queue must not create worker state"
+        )
+
+        try FileManager.default.createDirectory(at: recoveryRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryRoot.path)
+        let unrelatedEntry = recoveryRoot.appendingPathComponent("queue.not-an-index")
+        try "not queued work\n".write(to: unrelatedEntry, atomically: true, encoding: .utf8)
+        let unrelatedResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["__ssh-auth-recovery"],
+            environment: environment,
+            timeout: 5
+        )
+        let remainingEntries = try FileManager.default.contentsOfDirectory(atPath: recoveryRoot.path)
+
+        #expect(!unrelatedResult.timedOut)
+        #expect(unrelatedResult.status == 0)
+        #expect(remainingEntries == [unrelatedEntry.lastPathComponent])
+    }
+
+    @Test
+    func invalidAuthenticationRecoveryIndexFailsOpen() throws {
+        let cliPath = try bundledCLIPath()
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-invalid-recovery-index-\(UUID().uuidString)", isDirectory: true)
+        let recoveryRoot = temporaryRoot
+            .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(at: recoveryRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryRoot.path)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        try "invalid\n".write(
+            to: recoveryRoot.appendingPathComponent("read.index"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "invalid\n".write(
+            to: recoveryRoot.appendingPathComponent("write.index"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "queued\n".write(
+            to: recoveryRoot.appendingPathComponent("queue.7"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["TMPDIR"] = temporaryRoot.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__ssh-auth-recovery"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: recoveryRoot.appendingPathComponent("lock").path
+            ),
+            "Invalid indexes must start the secure recovery helper"
+        )
+    }
+
     private struct FakeRemoteShellRoot {
         let url: URL
         let home: URL
         let bin: URL
     }
 
-    private func generatedSSHStartupCommandForShellPerformance() throws -> String {
+    fileprivate func generatedSSHStartupCommandForShellPerformance() throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-perf")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -377,5 +468,26 @@ struct CLIRemoteShellStartupPerformanceTests {
         } catch {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false, duration: 0)
         }
+    }
+}
+
+@Suite(.serialized)
+struct SSHStartupCompactRecoveryTests {
+    @Test
+    func generatedSSHStartupUsesInstalledRecoveryHelper() throws {
+        let fixture = CLIRemoteShellStartupPerformanceTests()
+        let startupCommand = try fixture.generatedSSHStartupCommandForShellPerformance()
+        let script = try decodedReusableStartupScript(from: startupCommand)
+
+        #expect(script.contains("__ssh-auth-recovery"))
+        #expect(!script.contains("cmux_ssh_auth_kernel_process_identity()"))
+    }
+
+    private func decodedReusableStartupScript(from command: String) throws -> String {
+        let payloadPrefix = try #require(command.range(of: "cmux_payload="))
+        let payloadEnd = try #require(command[payloadPrefix.upperBound...].firstIndex(of: "\n"))
+        let encodedPayload = String(command[payloadPrefix.upperBound..<payloadEnd])
+        let payload = try #require(Data(base64Encoded: encodedPayload))
+        return try #require(String(data: payload, encoding: .utf8))
     }
 }

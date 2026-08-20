@@ -192,7 +192,6 @@ struct SSHStartupManualReconnectTests {
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
         let childPIDFile = root.appendingPathComponent("auth-child-pid")
-        let childSignalLog = root.appendingPathComponent("auth-child-signal")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -200,8 +199,7 @@ struct SSHStartupManualReconnectTests {
         try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
-            "trap '' HUP INT",
-            "trap 'printf \"%s\\n\" term > \"${CMUX_TEST_AUTH_CHILD_SIGNAL:?}\"; exit 143' TERM",
+            "trap '' HUP INT TERM",
             "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_CHILD_PID:?}\"",
             "kill -INT \"${CMUX_SSH_STARTUP_PID:?}\"",
             "while :; do /bin/sleep 30; done",
@@ -220,7 +218,6 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_AUTH_CHILD_PID"] = childPIDFile.path
-        environment["CMUX_TEST_AUTH_CHILD_SIGNAL"] = childSignalLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
         let result = Self.runProcess(
@@ -238,8 +235,23 @@ struct SSHStartupManualReconnectTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 130, Comment(rawValue: result.stderr))
         #expect(
-            Self.waitForFile(at: childSignalLog, containing: "term", timeout: 3),
-            "Direct startup signals must terminate the nested authentication process tree"
+            Self.waitForProcessExit(childPID, timeout: 3),
+            "Direct startup signals must force the nested authentication process tree to exit"
+        )
+    }
+
+    @Test func foregroundAuthenticationSignalUsesBoundedProcessWait() throws {
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+
+        #expect(
+            startupCommand.contains(
+                "cmux_ssh_wait_for_auth_process_exit \"$CMUX_SSH_AUTH_PID\""
+            )
+        )
+        #expect(
+            !startupCommand.contains(
+                "wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true"
+            )
         )
     }
 
@@ -1194,6 +1206,19 @@ struct SSHStartupManualReconnectTests {
             return true
         }
         return false
+    }
+
+    private static func waitForProcessExit(_ processID: Int32, timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            errno = 0
+            if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        errno = 0
+        return Darwin.kill(processID, 0) == -1 && errno == ESRCH
     }
 
     private static func stopAndCleanUp(_ prompt: TerminalExitPromptProcess) {

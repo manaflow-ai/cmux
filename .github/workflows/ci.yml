@@ -166,6 +166,9 @@ jobs:
       - name: Validate isolated app-host home cleanup
         run: bash tests/test_ci_app_host_home_cleanup.sh
 
+      - name: Validate app-host runner identity guard
+        run: bash tests/test_ci_app_host_runner_identity.sh
+
       - name: Validate cmux profiling support scripts
         run: ./tests/test_start_cmux_profiling.sh
 
@@ -489,10 +492,10 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
-    # full app-host suite with 0 unexpected failures, so route through the
-    # shared MACOS_RUNNER_15 var like the other macOS jobs.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # sessions. Strict v3 receipts intentionally have no unsafe PID migration,
+    # and exact-job cleanup never deletes another job's scope. Pin this job to
+    # the provider whose fresh VM boundary enforces both safety properties.
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -532,10 +535,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Verify ephemeral app-host runner
+        run: scripts/ci/validate-app-host-runner.sh
+
       - name: Select Xcode
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
+
+      - name: Validate production app-host lease watcher
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: bash tests/test_ci_app_host_processes.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision

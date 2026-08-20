@@ -99,7 +99,7 @@ if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   )
 fi
 
-kill_stale_app_host() {
+wait_for_prior_app_host_exit() {
   [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ] || return 0
   cmux_validate_app_host_derived_data "$CMUX_DERIVED_DATA_PATH" || return 1
   cmux_recover_owned_app_host_attempt \
@@ -144,6 +144,8 @@ validate_app_host_config_paths() {
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
       reported_path="${line#*path=}"
+      # The published /tmp identity and its canonical /private/tmp spelling
+      # were both authenticated above. Apple frameworks may log either form.
       case "$reported_path" in
         "$app_host_home"|"${app_host_home%/}/"* \
           |"$app_host_home_input"|"${app_host_home_input%/}/"*) ;;
@@ -178,19 +180,32 @@ validate_app_host_config_paths() {
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
+  attempt_lease_path=""
+  attempt_test_runner_environment=("${app_host_test_runner_environment[@]}")
+  if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
+    attempt_lease_path="${app_host_receipt_dir%/}/app-host-attempt-${attempt}-$$.lease"
+    attempt_test_runner_environment+=(
+      "TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE=$attempt_lease_path"
+    )
+  fi
   : >"$log_path"
-  # Recover only this run key's prior attempt. A live foreign key fails the
-  # complete preflight without signaling any PID, so one runner service cannot
-  # terminate another service's healthy app host.
-  kill_stale_app_host
+  # Observe only this run key's prior attempt. A live foreign key fails the
+  # complete preflight, and no recovery path sends a signal to a PID.
+  wait_for_prior_app_host_exit
   set +e
   env \
-    "${app_host_test_runner_environment[@]}" \
+    "${attempt_test_runner_environment[@]}" \
+    CMUX_APP_HOST_ATTEMPT_LEASE="$attempt_lease_path" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild \
       "${app_host_xcodebuild_arguments[@]}"
   status=$?
   set -e
+  # xcodebuild_noninteractive held the attempt lease until it returned. Its
+  # release makes any surviving app host exit itself on a kernel-blocked
+  # watcher. Do not start validation, retry, or release the machine lock until
+  # every authenticated host from this attempt is gone.
+  wait_for_prior_app_host_exit
 
   require_config_evidence=0
   if [ "$status" -eq 0 ]; then
@@ -227,7 +242,6 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
-      kill_stale_app_host
       attempt=$((attempt + 1))
       continue
     fi

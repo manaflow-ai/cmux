@@ -5,6 +5,191 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func finalAuthenticationCleanupRemovesEveryStateFile() {
+        let script = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        ).joined(separator: "\n")
+        for stateFileName in SSHForegroundAuthenticationRetryPolicy.groupStateFileNames {
+            #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/\(stateFileName)\""))
+        }
+        for stateFileName in SSHForegroundAuthenticationRetryPolicy.reaperLockStateFileNames {
+            #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock/\(stateFileName)\""))
+        }
+        #expect(script.contains(
+            "wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; " +
+                "cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir"
+        ))
+        #expect(script.contains("CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)"))
+    }
+
+    @Test func standaloneReauthenticationScriptProvidesAuthenticationGroupFactory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-standalone-auth-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_foreground_auth() { return 7; }",
+            "cmux_test_attach() { return 0; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 7, "Shell failed: \(result.stderr)")
+    }
+
+    @Test func schedulesRecoveryAfterNewAuthenticationGroupIsQueued() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-recovery-order-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let groupPath = "/tmp/cmux-ssh-auth-group.test"
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true,
+            retryLoopSetupLines: [
+                "cmux_ssh_auth_create_group_dir() { printf '%s\\n' create >> \"$CMUX_TEST_LOG\"; printf '%s\\n' \"$CMUX_TEST_GROUP\"; }",
+                "cmux_ssh_schedule_failed_auth_group_recovery() { printf 'schedule:%s\\n' \"${CMUX_SSH_AUTH_GROUP_DIR:-empty}\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_ssh_schedule_failed_auth_group_recovery",
+            ]
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_foreground_auth() { return 7; }",
+            "cmux_test_attach() { return 0; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: [
+            "CMUX_TEST_GROUP": groupPath,
+            "CMUX_TEST_LOG": logURL.path,
+        ])
+
+        #expect(result.status == 7, "Shell failed: \(result.stderr)")
+        let actualLog = try String(contentsOf: logURL, encoding: .utf8)
+        #expect(
+            actualLog ==
+                "schedule:empty\ncreate\nschedule:\(groupPath)\nschedule:empty\n",
+            "Unexpected recovery schedule: \(actualLog.debugDescription)"
+        )
+    }
+
+    @Test func retriesLocalRecoveryQueueCapacityBeforeAuthentication() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-capacity-retry-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let groupPath = "/tmp/cmux-ssh-auth-group.capacity-retry"
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true,
+            retryLoopSetupLines: [
+                """
+                cmux_ssh_auth_create_group_dir() {
+                  cmux_test_create_count=$(grep -c '^create$' "$CMUX_TEST_LOG" 2>/dev/null || true)
+                  printf 'create\n' >> "$CMUX_TEST_LOG"
+                  if [ "$cmux_test_create_count" -eq 0 ]; then return 75; fi
+                  printf '%s\n' "$CMUX_TEST_GROUP"
+                }
+                """,
+                "cmux_ssh_schedule_failed_auth_group_recovery() { printf 'schedule:%s\\n' \"${CMUX_SSH_AUTH_GROUP_DIR:-empty}\" >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_ssh_schedule_failed_auth_group_recovery",
+            ]
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
+            "cmux_ssh_attach_foreground_auth() { printf 'auth\\n' >> \"$CMUX_TEST_LOG\"; return 7; }",
+            "cmux_test_attach() { return 0; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: [
+            "CMUX_TEST_GROUP": groupPath,
+            "CMUX_TEST_LOG": logURL.path,
+        ])
+
+        #expect(result.status == 7, "Shell failed: \(result.stderr)")
+        let actualLog = try String(contentsOf: logURL, encoding: .utf8)
+        var cursor = actualLog.startIndex
+        for marker in [
+            "schedule:empty\n",
+            "create\n",
+            "schedule:empty\n",
+            "sleep:1\n",
+            "create\n",
+            "schedule:\(groupPath)\n",
+            "auth\n",
+        ] {
+            let range = try #require(actualLog.range(of: marker, range: cursor..<actualLog.endIndex))
+            cursor = range.upperBound
+        }
+    }
+
+    @Test func boundsLocalRecoveryQueueCapacityRetries() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-capacity-bound-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true,
+            retryLoopSetupLines: [
+                "cmux_ssh_auth_create_group_dir() { printf 'create\\n' >> \"$CMUX_TEST_LOG\"; return 75; }",
+                "cmux_ssh_schedule_failed_auth_group_recovery() { printf 'schedule\\n' >> \"$CMUX_TEST_LOG\"; }",
+                "cmux_ssh_schedule_failed_auth_group_recovery",
+            ]
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            """
+            sleep() {
+              printf 'sleep\n' >> "$CMUX_TEST_LOG"
+              cmux_test_sleep_count=$(grep -c '^sleep$' "$CMUX_TEST_LOG" 2>/dev/null || true)
+              if [ "$cmux_test_sleep_count" -gt 16 ]; then exit 96; fi
+            }
+            """,
+            "cmux_ssh_attach_foreground_auth() { printf 'auth\\n' >> \"$CMUX_TEST_LOG\"; return 7; }",
+            "cmux_test_attach() { return 0; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: ["CMUX_TEST_LOG": logURL.path])
+
+        #expect(result.status == 255, "Queue capacity retry did not fail closed: \(result.stderr)")
+        let events = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n")
+        #expect(events.filter { $0 == "sleep" }.count == 8)
+        #expect(events.filter { $0 == "create" }.count == 9)
+        #expect(!events.contains("auth"))
+    }
+
+    @Test func authenticationGroupCreationFailureHonorsPendingSignal() throws {
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true,
+            retryLoopSetupLines: [
+                "cmux_ssh_auth_create_group_dir() { return 1; }",
+                "cmux_ssh_attach_pending_signal=130",
+                "cmux_ssh_attach_pending_signal_name=INT",
+            ]
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() {",
+            "  if [ \"${cmux_ssh_attach_auth_launching:-0}\" = 1 ]; then exit 99; fi",
+            "  exit \"$1\"",
+            "}",
+            "cmux_ssh_attach_foreground_auth() { return 0; }",
+            "cmux_test_attach() { return 0; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: [:])
+
+        #expect(result.status == 130, "Shell failed: \(result.stderr)")
+    }
+
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-retry-\(UUID().uuidString)")

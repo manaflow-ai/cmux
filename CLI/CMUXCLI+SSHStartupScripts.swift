@@ -1,7 +1,82 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 
 extension CMUXCLI {
+    func runSSHAuthenticationRecovery(commandArgs: [String]) throws {
+        guard commandArgs.isEmpty else {
+            throw CLIError(message: "__ssh-auth-recovery takes no arguments", exitCode: 2)
+        }
+        guard sshAuthenticationRecoveryQueueMayHaveWork() else { return }
+
+        let recoveryProgram = [
+            SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction(),
+            "unset CMUX_SSH_AUTH_GROUP_DIR",
+            "cmux_ssh_schedule_failed_auth_group_recovery",
+        ].joined(separator: "\n")
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [],
+            stdinText: recoveryProgram
+        )
+        guard result.status == 0 else {
+            throw CLIError(message: "SSH authentication recovery helper failed", exitCode: result.status)
+        }
+    }
+
+    private func sshAuthenticationRecoveryQueueMayHaveWork() -> Bool {
+        let recoveryBase = ProcessInfo.processInfo.environment["TMPDIR"] ?? "/tmp"
+        let recoveryRoot = URL(fileURLWithPath: recoveryBase, isDirectory: true)
+            .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: recoveryRoot.path) else { return false }
+
+        guard
+            let readIndex = sshAuthenticationRecoveryQueueIndex(
+                at: recoveryRoot.appendingPathComponent("read.index")
+            ),
+            let writeIndex = sshAuthenticationRecoveryQueueIndex(
+                at: recoveryRoot.appendingPathComponent("write.index")
+            )
+        else {
+            return true
+        }
+        guard readIndex <= writeIndex else { return true }
+        if readIndex < writeIndex { return true }
+
+        let currentSegment = recoveryRoot.appendingPathComponent("queue.\(readIndex)")
+        guard FileManager.default.fileExists(atPath: currentSegment.path) else { return false }
+        do {
+            let values = try currentSegment.resourceValues(forKeys: [.fileSizeKey])
+            return (values.fileSize ?? 1) > 0
+        } catch {
+            // Fail open so the shell helper can apply its secure-path checks.
+            return true
+        }
+    }
+
+    private func sshAuthenticationRecoveryQueueIndex(at url: URL) -> UInt64? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: 14) ?? Data()
+            guard data.count < 14 else { return 0 }
+            let rawValue = String(decoding: data, as: UTF8.self)
+            let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+            guard
+                !value.isEmpty,
+                value.count <= 12,
+                value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+                let index = UInt64(value)
+            else {
+                return nil
+            }
+            return index
+        } catch {
+            return FileManager.default.fileExists(atPath: url.path) ? nil : 0
+        }
+    }
+
     func buildSSHStartupCommand(
         sshCommand: String,
         shellFeatures: String,
@@ -301,17 +376,24 @@ extension CMUXCLI {
         let trimmedOneTimeCommand = oneTimeCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasOneTimeCommand = trimmedOneTimeCommand?.isEmpty == false
         let authRetryPolicy = SSHForegroundAuthenticationRetryPolicy()
+        let authGroupCleanupBody = authRetryPolicy.authenticationGroupDirectoryCleanupShellBody(
+            terminatesPublishedGroup: hasOneTimeCommand
+        )
         let authenticationResult = authRetryPolicy.persistentAuthenticationResultShellLine(
             variablePrefix: "cmux_ssh",
             terminalFailureCommand: "break"
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
+        let executableCommand = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
         let terminalModeReset = shellQuote(SSHTerminalModeResetSequence().shellPrintfFormat)
         let terminalExitPrompt = shellQuote(sshTerminalExitPromptFormat())
         let terminalExitPromptCommand = [
-            shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux")),
+            executableCommand,
             "__ssh-terminal-exit-prompt",
         ].joined(separator: " ")
+        let authenticationRecoveryCommand = hasOneTimeCommand
+            ? "cmux_ssh_schedule_failed_auth_group_recovery"
+            : "\(executableCommand) __ssh-auth-recovery >/dev/null 2>&1 || true"
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -347,6 +429,11 @@ extension CMUXCLI {
         }
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
+        }
+        // A prior foreground-auth cleanup can outlive the session that created
+        // it. Foreground-auth startups need the local process-tree functions;
+        // other startups call the installed recovery helper with a small payload.
+        if hasOneTimeCommand {
             scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
@@ -376,25 +463,39 @@ extension CMUXCLI {
             "cmux_ssh_auth_succeeded=0",
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
-            "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
+            "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_AUTH_GROUP_DIR=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
+            "export CMUX_SSH_AUTH_GROUP_DIR",
         ] + backoffBuilder.stateInitializationLines + [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_reset_terminal_modes() { if [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi; }",
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
             "cmux_ssh_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attempt_registration_retry=0; while ! cmux_ssh_register_attempt; do cmux_ssh_attempt_registration_retry=$((cmux_ssh_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
-            "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$CMUX_SSH_AUTH_PID\" \"$CMUX_SSH_STARTUP_PID\"; wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true; CMUX_SSH_AUTH_PID=; \(backoffBuilder.signalHandlerBranches) elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; cmux_ssh_retire_for_signal \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_remove_auth_group_dir() { \(authGroupCleanupBody) }",
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_remove_auth_group_dir; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
+            "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_remove_auth_group_dir; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$CMUX_SSH_AUTH_PID\" \"$CMUX_SSH_STARTUP_PID\"; cmux_ssh_wait_for_auth_process_exit \"$CMUX_SSH_AUTH_PID\" || true; CMUX_SSH_AUTH_PID=; cmux_ssh_remove_auth_group_dir; \(backoffBuilder.signalHandlerBranches) elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; cmux_ssh_retire_for_signal \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
+            authenticationRecoveryCommand,
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            scriptLines += ["    ( cmux_ssh_foreground_auth ) <&0 &", "    CMUX_SSH_AUTH_PID=$!; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\" \"${CMUX_SSH_PENDING_SIGNAL_NAME:-TERM}\"; fi; wait \"$CMUX_SSH_AUTH_PID\"; cmux_ssh_status=$?; CMUX_SSH_AUTH_PID=; case \"$cmux_ssh_status\" in 129|130|143) cmux_ssh_retire_for_signal \"$cmux_ssh_status\" ;; esac; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi", "    \(authenticationResult)", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
+            let authenticationGroupCreation = authRetryPolicy.authenticationGroupCreationShellLine(
+                failureCommand: "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi; cmux_ssh_status=255; break",
+                capacityRetryInterruptionCondition: "[ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]"
+            )
+            scriptLines += [
+                "    \(authenticationGroupCreation)",
+                "    ( cmux_ssh_foreground_auth ) <&0 &",
+                "    CMUX_SSH_AUTH_PID=$!; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\" \"${CMUX_SSH_PENDING_SIGNAL_NAME:-TERM}\"; fi; wait \"$CMUX_SSH_AUTH_PID\"; cmux_ssh_status=$?; CMUX_SSH_AUTH_PID=; case \"$cmux_ssh_status\" in 129|130|143) cmux_ssh_retire_for_signal \"$cmux_ssh_status\" ;; esac; cmux_ssh_remove_auth_group_dir; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+                "    \(authenticationResult)",
+                "  fi",
+                "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then",
+            ]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {
@@ -497,15 +598,16 @@ extension CMUXCLI {
         let encodedLiteral = shellQuote(encodedScript)
         let wrapper = [
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
+            "cmux_payload=\(encodedLiteral)",
             "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
             "trap 'cmux_cleanup' EXIT HUP INT TERM",
-            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
+            "(printf %s \"$cmux_payload\" | base64 -d 2>/dev/null || printf %s \"$cmux_payload\" | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
             "/bin/sh \"$cmux_tmp\"",
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
+            "unset cmux_tmp cmux_payload cmux_status",
             "unset -f cmux_cleanup 2>/dev/null || true",
             "exit $cmux_status",
         ].joined(separator: "\n")

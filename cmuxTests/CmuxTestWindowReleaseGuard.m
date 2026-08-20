@@ -27,6 +27,7 @@
 #import <unistd.h>
 
 static int CmuxAppHostReceiptFD = -1;
+static int CmuxAppHostLeaseFD = -1;
 
 __attribute__((noreturn)) static void CmuxFailAppHostProcessReceipt(NSString *reason) {
     fprintf(stderr, "FAIL: app-host process receipt: %s\n", reason.UTF8String);
@@ -56,6 +57,27 @@ static void CmuxDiscardTemporaryAppHostReceipt(int descriptor, NSURL *temporaryU
     errno = savedErrno;
 }
 
+static int CmuxSetAppHostAttemptLeaseLock(int descriptor, int command) {
+    struct flock lock = {0};
+    lock.l_type = F_WRLCK;
+    lock.l_whence = SEEK_SET;
+    return fcntl(descriptor, command, &lock);
+}
+
+static void CmuxWatchAppHostAttemptLease(int descriptor) {
+    [NSThread detachNewThreadWithBlock:^{
+        while (CmuxSetAppHostAttemptLeaseLock(descriptor, F_SETLKW) != 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            fputs("FAIL: app-host attempt lease watcher failed\n", stderr);
+            fflush(stderr);
+            _exit(70);
+        }
+        _exit(0);
+    }];
+}
+
 static void CmuxWriteAppHostProcessReceipt(void) {
     NSDictionary<NSString *, NSString *> *environment = NSProcessInfo.processInfo.environment;
     if (![environment[@"CMUX_APP_HOST_ISOLATION_REQUIRED"] isEqualToString:@"1"]) {
@@ -64,8 +86,12 @@ static void CmuxWriteAppHostProcessReceipt(void) {
 
     NSString *receiptDirectory = environment[@"CMUX_APP_HOST_RECEIPT_DIR"];
     NSString *appHostKey = environment[@"CMUX_APP_HOST_KEY"];
-    if (receiptDirectory.length == 0 || appHostKey.length != 12) {
+    NSString *leasePath = environment[@"CMUX_APP_HOST_ATTEMPT_LEASE"];
+    if (receiptDirectory.length == 0 || appHostKey.length != 12 || leasePath.length == 0) {
         CmuxFailAppHostProcessReceipt(@"required identity is incomplete");
+    }
+    if ([leasePath rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound) {
+        CmuxFailAppHostProcessReceipt(@"attempt lease path is malformed");
     }
     NSCharacterSet *nonHex = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"] invertedSet];
     if ([appHostKey rangeOfCharacterFromSet:nonHex].location != NSNotFound) {
@@ -87,6 +113,34 @@ static void CmuxWriteAppHostProcessReceipt(void) {
         CmuxFailAppHostProcessReceipt(@"receipt directory is unavailable");
     }
 
+    NSURL *leaseURL = [NSURL fileURLWithPath:leasePath isDirectory:NO];
+    if (![leaseURL.URLByDeletingLastPathComponent.standardizedURL.path
+            isEqualToString:directoryURL.standardizedURL.path] ||
+        ![leaseURL.lastPathComponent hasPrefix:@"app-host-attempt-"] ||
+        ![leaseURL.lastPathComponent hasSuffix:@".lease"]) {
+        CmuxFailAppHostProcessReceipt(@"attempt lease is outside the receipt directory");
+    }
+    int leaseDescriptor = open(leaseURL.fileSystemRepresentation,
+                               O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+    if (leaseDescriptor < 0) {
+        CmuxFailAppHostProcessReceipt(@"attempt lease could not be opened safely");
+    }
+    struct stat leaseMetadata;
+    if (fstat(leaseDescriptor, &leaseMetadata) != 0 ||
+        !S_ISREG(leaseMetadata.st_mode) ||
+        (leaseMetadata.st_mode & 0777) != (S_IRUSR | S_IWUSR) ||
+        leaseMetadata.st_uid != getuid()) {
+        close(leaseDescriptor);
+        CmuxFailAppHostProcessReceipt(@"attempt lease identity is invalid");
+    }
+    if (CmuxSetAppHostAttemptLeaseLock(leaseDescriptor, F_SETLK) == 0) {
+        close(leaseDescriptor);
+        CmuxFailAppHostProcessReceipt(@"attempt lease has no live holder");
+    }
+    if (errno != EACCES && errno != EAGAIN) {
+        close(leaseDescriptor);
+        CmuxFailAppHostProcessReceipt(@"attempt lease state could not be verified");
+    }
     pid_t pid = getpid();
     NSURL *receiptURL = [directoryURL URLByAppendingPathComponent:
                          [NSString stringWithFormat:@"app-host-%d.receipt", pid]
@@ -117,8 +171,9 @@ static void CmuxWriteAppHostProcessReceipt(void) {
         CmuxFailAppHostProcessReceipt(@"receipt permissions could not be restricted");
     }
     NSString *receipt = [NSString stringWithFormat:
-                         @"version=2\nkey=%@\npid=%d\nexecutable=%@\nreceipt_fd=%d\n",
-                         appHostKey, pid, executablePath, descriptor];
+                         @"version=3\nkey=%@\npid=%d\nexecutable=%@\nreceipt_fd=%d\nlease=%@\nlease_fd=%d\n",
+                         appHostKey, pid, executablePath, descriptor,
+                         leasePath, leaseDescriptor];
     NSData *receiptData = [receipt dataUsingEncoding:NSUTF8StringEncoding];
     if (!CmuxWriteAll(descriptor, receiptData) || fsync(descriptor) != 0) {
         CmuxDiscardTemporaryAppHostReceipt(descriptor, temporaryURL);
@@ -129,7 +184,9 @@ static void CmuxWriteAppHostProcessReceipt(void) {
         CmuxDiscardTemporaryAppHostReceipt(descriptor, temporaryURL);
         CmuxFailAppHostProcessReceipt(@"receipt file could not be published atomically");
     }
+    CmuxWatchAppHostAttemptLease(leaseDescriptor);
     CmuxAppHostReceiptFD = descriptor;
+    CmuxAppHostLeaseFD = leaseDescriptor;
 }
 
 static void CmuxSwizzleWindowInitializer(SEL selector) {
