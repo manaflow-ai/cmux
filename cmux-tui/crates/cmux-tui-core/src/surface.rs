@@ -182,17 +182,40 @@ fn terminfo_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Whether `name` has a compiled terminfo entry under any of `dirs`,
-/// checking both directory layouts: first-letter (Linux ncurses) and
-/// first-letter-hex (macOS).
+/// Whether `name` has a loadable compiled terminfo entry under any of
+/// `dirs`, checking both directory layouts: first-letter (Linux ncurses) and
+/// first-letter-hex (macOS). A file only counts when it is readable and its
+/// header carries a compiled-terminfo magic number, so a stale, truncated,
+/// or unreadable file never makes us advertise a TERM children cannot load.
 fn terminfo_entry_exists_in(dirs: &[PathBuf], name: &str) -> bool {
     let Some(first) = name.chars().next() else {
         return false;
     };
     let letter = first.to_string();
     let hex = format!("{:x}", first as u32);
-    dirs.iter()
-        .any(|dir| dir.join(&letter).join(name).is_file() || dir.join(&hex).join(name).is_file())
+    dirs.iter().any(|dir| {
+        is_compiled_terminfo(&dir.join(&letter).join(name))
+            || is_compiled_terminfo(&dir.join(&hex).join(name))
+    })
+}
+
+/// Terminfo's legacy 16-bit magic (0432 octal) and ncurses 6 32-bit magic
+/// (01036 octal), little-endian on disk.
+const TERMINFO_MAGIC_LEGACY: u16 = 0o432;
+const TERMINFO_MAGIC_32BIT: u16 = 0o1036;
+
+/// A readable file whose header starts with a compiled-terminfo magic number
+/// and is at least as long as the 12-byte terminfo header.
+fn is_compiled_terminfo(path: &std::path::Path) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut header = [0u8; 12];
+    if file.read_exact(&mut header).is_err() {
+        return false;
+    }
+    let magic = u16::from_le_bytes([header[0], header[1]]);
+    magic == TERMINFO_MAGIC_LEGACY || magic == TERMINFO_MAGIC_32BIT
 }
 
 impl Default for SurfaceOptions {
@@ -7464,6 +7487,14 @@ mod tests {
         );
     }
 
+    /// A minimal compiled-terminfo blob: little-endian magic plus the rest
+    /// of the 12-byte header.
+    fn compiled_terminfo_bytes(magic: u16) -> Vec<u8> {
+        let mut bytes = magic.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&[0u8; 10]);
+        bytes
+    }
+
     #[test]
     fn terminfo_lookup_finds_letter_and_hex_layouts() {
         let base =
@@ -7472,8 +7503,16 @@ mod tests {
         let hex_dir = base.join("hex").join("78");
         std::fs::create_dir_all(&letter_dir).unwrap();
         std::fs::create_dir_all(&hex_dir).unwrap();
-        std::fs::write(letter_dir.join("xterm-ghostty"), b"").unwrap();
-        std::fs::write(hex_dir.join("xterm-ghostty"), b"").unwrap();
+        std::fs::write(
+            letter_dir.join("xterm-ghostty"),
+            compiled_terminfo_bytes(TERMINFO_MAGIC_LEGACY),
+        )
+        .unwrap();
+        std::fs::write(
+            hex_dir.join("xterm-ghostty"),
+            compiled_terminfo_bytes(TERMINFO_MAGIC_32BIT),
+        )
+        .unwrap();
 
         assert!(terminfo_entry_exists_in(&[base.join("letter")], "xterm-ghostty"));
         assert!(terminfo_entry_exists_in(&[base.join("hex")], "xterm-ghostty"));
@@ -7483,6 +7522,28 @@ mod tests {
             "xterm-ghostty"
         ));
         assert!(!terminfo_entry_exists_in(&[base.join("letter")], ""));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A file with the right name is not proof of a loadable entry: children
+    /// resolve TERM through ncurses, so an empty, truncated, or non-terminfo
+    /// file must never make cmux-tui advertise xterm-ghostty.
+    #[test]
+    fn terminfo_lookup_rejects_unloadable_entries() {
+        let base = std::env::temp_dir()
+            .join(format!("cmux-tui-terminfo-badtest-{}", std::process::id()));
+        let dir = base.join("x");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("xterm-ghostty"), b"").unwrap();
+        assert!(!terminfo_entry_exists_in(&[base.clone()], "xterm-ghostty"), "empty file");
+
+        std::fs::write(dir.join("xterm-ghostty"), b"\x1a\x01").unwrap();
+        assert!(!terminfo_entry_exists_in(&[base.clone()], "xterm-ghostty"), "truncated header");
+
+        std::fs::write(dir.join("xterm-ghostty"), b"not a compiled terminfo entry").unwrap();
+        assert!(!terminfo_entry_exists_in(&[base.clone()], "xterm-ghostty"), "wrong magic");
+
         std::fs::remove_dir_all(&base).ok();
     }
 
