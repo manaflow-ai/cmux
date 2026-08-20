@@ -4120,6 +4120,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class QueuedScrollbarPostingSurfaceView: GhosttyNSView {
+        var nextScrollbar: GhosttyScrollbar?
+
+        override func scrollWheel(with event: NSEvent) {
+            super.scrollWheel(with: event)
+            guard let nextScrollbar else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.enqueueScrollbarUpdate(nextScrollbar)
+            }
+        }
+    }
+
     private final class KeyStatusTestWindow: NSWindow {
         override var isKeyWindow: Bool { true }
     }
@@ -4483,6 +4495,78 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             500,
             accuracy: 0.01,
             "A passive bottom packet should not yank the viewport after an explicit wheel scroll into scrollback"
+        )
+    }
+
+    func testWheelResponseIsNotConsumedByQueuedPreexistingScrollbarPacket() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = QueuedScrollbarPostingSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: bottomPacket]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        // This packet represents a layout/output update that was queued before
+        // the wheel event. Its main-queue flush must not consume the wheel's
+        // explicit synchronization window.
+        surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        surfaceView.nextScrollbar = bottomPacket
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A queued pre-wheel packet must not consume explicit sync and suppress the wheel response"
         )
     }
 
