@@ -9,8 +9,11 @@ import Foundation
 /// Ordering: appends commit synchronously on the socket worker (the durable
 /// acknowledgement returned to the emitting hook), then flow through one
 /// FIFO operation stream alongside restore-alias recording and the startup
-/// replay request, so identity aliases recorded during session restore are
-/// always visible to the replay fold that follows them.
+/// replay request. The consumer awaits every main-actor application before
+/// taking the next operation, so sidebar assignments always apply in journal
+/// order — a startup replay can never land after a newer live event's
+/// assignment. The store itself is opened lazily off-main (see
+/// ``AgentJournalLazyStore``), so main-actor callers only ever enqueue.
 final class AgentJournalLifecycleCenter: Sendable {
     static let shared = AgentJournalLifecycleCenter()
 
@@ -20,10 +23,8 @@ final class AgentJournalLifecycleCenter: Sendable {
         case startupReplay
     }
 
-    private let store: AgentJournalStore?
+    private let lazyStore: AgentJournalLazyStore?
     private let operations: AsyncStream<Operation>.Continuation?
-    private let reducer = AgentLifecycleReducer()
-    private let replayPolicy = AgentJournalReplayPolicy()
     private let consumerTask: Task<Void, Never>?
 
     convenience init() {
@@ -31,53 +32,56 @@ final class AgentJournalLifecycleCenter: Sendable {
     }
 
     init(databaseURL: URL?) {
-        var openedStore: AgentJournalStore?
-        if let databaseURL {
-            do {
-                openedStore = try AgentJournalStore(databaseURL: databaseURL)
-            } catch {
-                CmuxEventBus.shared.publish(
-                    name: "agent.journal.open_failed",
-                    category: "agent",
-                    source: "journal",
-                    payload: ["error": String(describing: error)]
-                )
-            }
-        }
-        self.store = openedStore
-        guard let openedStore else {
+        guard let databaseURL else {
+            self.lazyStore = nil
             self.operations = nil
             self.consumerTask = nil
             return
         }
+        let lazyStore = AgentJournalLazyStore(databaseURL: databaseURL)
+        self.lazyStore = lazyStore
         var continuation: AsyncStream<Operation>.Continuation?
         let stream = AsyncStream<Operation>(bufferingPolicy: .unbounded) { continuation = $0 }
         self.operations = continuation
-        let reducer = self.reducer
-        let replayPolicy = self.replayPolicy
         self.consumerTask = Task.detached(priority: .utility) {
+            let reducer = AgentLifecycleReducer()
+            let replayPolicy = AgentJournalReplayPolicy()
             var state = AgentLifecycleReducerState()
             for await operation in stream {
+                guard let store = lazyStore.store() else { continue }
                 switch operation {
                 case .ingest(let event):
-                    Self.consumeIngest(
+                    if let application = Self.reduceIngest(
                         event,
-                        store: openedStore,
+                        store: store,
                         reducer: reducer,
                         state: &state
-                    )
+                    ) {
+                        // Await the application so assignments reach the
+                        // sidebar in journal-consumer order.
+                        await MainActor.run {
+                            Self.apply(application.assignment, workspaceHint: application.workspaceHint)
+                        }
+                    }
                 case .recordAliases(let workspaces, let surfaces):
-                    try? openedStore.recordRestoreAliases(
+                    try? store.recordRestoreAliases(
                         workspaceAliases: workspaces,
                         surfaceAliases: surfaces
                     )
                 case .startupReplay:
-                    Self.consumeStartupReplay(
-                        store: openedStore,
+                    let assignments = Self.reduceStartupReplay(
+                        store: store,
                         reducer: reducer,
                         replayPolicy: replayPolicy,
                         state: &state
                     )
+                    if !assignments.isEmpty {
+                        await MainActor.run {
+                            for assignment in assignments {
+                                Self.apply(assignment, workspaceHint: nil)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -86,11 +90,12 @@ final class AgentJournalLifecycleCenter: Sendable {
     deinit {
         consumerTask?.cancel()
         operations?.finish()
-        store?.close()
+        lazyStore?.close()
     }
 
-    /// Whether the journal opened; when false the verb reports unavailable.
-    var isAvailable: Bool { store != nil }
+    /// Whether the journal is usable (opens it if this is the first access;
+    /// callers must be off-main).
+    var isAvailable: Bool { lazyStore?.store() != nil }
 
     /// Full body of the `agent_journal_append` socket verb: decode, commit
     /// durably, enqueue reduction, and reply with the committed sequence.
@@ -98,7 +103,7 @@ final class AgentJournalLifecycleCenter: Sendable {
     /// Runs on the socket worker thread; the reply IS the emitting hook's
     /// durable acknowledgement, so the SQLite commit happens inline here.
     func handleAppendCommand(_ args: String) -> String {
-        guard let store, let operations else {
+        guard let store = lazyStore?.store(), let operations else {
             return "ERROR: agent journal unavailable"
         }
         let payload = args.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -164,40 +169,44 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     // MARK: - Consumer
 
-    private static func consumeIngest(
+    private struct LifecycleApplication: Sendable {
+        let assignment: AgentLifecycleAssignment
+        let workspaceHint: String?
+    }
+
+    private static func reduceIngest(
         _ event: AgentJournalEvent,
         store: AgentJournalStore,
         reducer: AgentLifecycleReducer,
         state: inout AgentLifecycleReducerState
-    ) {
+    ) -> LifecycleApplication? {
         let canonical = canonicalized(event, store: store)
         reducer.apply(canonical, to: &state)
         guard canonical.draft.unattributedReason == nil else {
             publishUnattributedDiagnostic(canonical)
-            return
+            return nil
         }
         guard let surfaceId = canonical.draft.surfaceId else {
             publishUnattributedDiagnostic(canonical)
-            return
+            return nil
         }
-        guard !canonical.draft.isSubagent else { return }
-        let assignment = AgentLifecycleAssignment(
-            surfaceId: surfaceId,
-            agentKey: canonical.agentKey,
-            phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
+        guard !canonical.draft.isSubagent else { return nil }
+        return LifecycleApplication(
+            assignment: AgentLifecycleAssignment(
+                surfaceId: surfaceId,
+                agentKey: canonical.agentKey,
+                phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
+            ),
+            workspaceHint: canonical.draft.workspaceId
         )
-        let workspaceHint = canonical.draft.workspaceId
-        Task { @MainActor in
-            Self.apply(assignment, workspaceHint: workspaceHint)
-        }
     }
 
-    private static func consumeStartupReplay(
+    private static func reduceStartupReplay(
         store: AgentJournalStore,
         reducer: AgentLifecycleReducer,
         replayPolicy: AgentJournalReplayPolicy,
         state: inout AgentLifecycleReducerState
-    ) {
+    ) -> [AgentLifecycleAssignment] {
         var cursor: Int64 = 0
         var folded = 0
         while true {
@@ -212,13 +221,12 @@ final class AgentJournalLifecycleCenter: Sendable {
             cursor = page[page.count - 1].sequence
         }
         let startup = replayPolicy.startupSnapshot(from: state.snapshot())
-        var assignments: [(AgentLifecycleAssignment, String?)] = []
+        var assignments: [AgentLifecycleAssignment] = []
         for (surfaceId, byAgent) in startup.phases {
             for (agentKey, phase) in byAgent {
-                assignments.append((
-                    AgentLifecycleAssignment(surfaceId: surfaceId, agentKey: agentKey, phase: phase),
-                    nil
-                ))
+                assignments.append(
+                    AgentLifecycleAssignment(surfaceId: surfaceId, agentKey: agentKey, phase: phase)
+                )
             }
         }
 #if DEBUG
@@ -227,12 +235,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                 "unattributed=\(state.unattributedEvents.count)"
         )
 #endif
-        guard !assignments.isEmpty else { return }
-        Task { @MainActor in
-            for (assignment, hint) in assignments {
-                Self.apply(assignment, workspaceHint: hint)
-            }
-        }
+        return assignments
     }
 
     /// Rewrites the event's identity through the restore alias chains so
