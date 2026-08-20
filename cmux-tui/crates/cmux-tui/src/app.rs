@@ -12712,6 +12712,31 @@ impl App {
         canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
     }
 
+    /// A scoped attach client mirrors the inner terminal's input modes onto
+    /// the host terminal, but the host can silently drop those modes without
+    /// the client ever seeing it: app-side session restore can write a reset
+    /// into the Ghostty surface after the client's capture-on burst, or the
+    /// host can re-initialize the surface on relaunch. The per-frame capture
+    /// (and cursor) sync is edge-triggered on the last applied state, so a
+    /// dropped mode is never re-asserted and the bridge tab loses mouse input
+    /// until the inner application happens to toggle modes (btop never does).
+    ///
+    /// Focus-in and resize are the two host-visible signals that the host may
+    /// have re-initialized: Ghostty emits a focus-in report on every window
+    /// re-activation and app reopen, and the reattached surface is resized to
+    /// the new window's geometry. Clearing the applied host bookkeeping on
+    /// those events forces the next frame to re-derive the canonical inner
+    /// state and re-emit it, recovering any mode the host silently dropped.
+    /// Scoped clients only: a full TUI owns the whole host surface and
+    /// re-emits its modes through its own lifecycle.
+    fn reassert_scoped_host_terminal_state(&mut self) {
+        if self.surface_only.is_none() {
+            return;
+        }
+        self.host_mouse_capture_applied = None;
+        self.applied_outer_cursor = None;
+    }
+
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
         self.desired_outer_cursor = OuterCursorSpec::Reset;
     }
@@ -14972,6 +14997,7 @@ impl App {
             TerminalInput::FocusGained => {
                 self.advance_pointer_focus_generation();
                 self.reassert_visible_surface_sizes();
+                self.reassert_scoped_host_terminal_state();
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
@@ -14986,6 +15012,7 @@ impl App {
                 self.refresh_cell_pixels();
                 self.render_states.clear();
                 self.sidebar_plugin_surface = None;
+                self.reassert_scoped_host_terminal_state();
                 Ok(RenderAction::Draw)
             }
         }
