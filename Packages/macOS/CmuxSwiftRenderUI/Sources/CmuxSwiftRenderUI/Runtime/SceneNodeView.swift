@@ -192,11 +192,13 @@ private struct SceneNodeContent: View {
         if doubleTappable || tappable {
             base
                 .contentShape(Rectangle())
-                // count:2 registered first so a double-click fires it instead
-                // of two single taps.
-                .onTapGesture(count: 2) {
+                // The single tap fires immediately on mouseup (no double-click
+                // disambiguation delay); a double-click fires the doubletap IN
+                // ADDITION to the taps of its two clicks. Selection stays
+                // instant and idempotent; rename composes on top.
+                .simultaneousGesture(TapGesture(count: 2).onEnded {
                     if doubleTappable { sink.send(node.id, "doubletap", [:]) }
-                }
+                })
                 .onTapGesture {
                     if tappable { sink.send(node.id, "tap", [:]) }
                 }
@@ -225,32 +227,68 @@ private struct SceneNodeContent: View {
     }
 }
 
-/// Editable one-line text field: focuses itself on appear, Return submits
-/// the current text as a "submit" event, Escape sends "cancel".
-private struct SceneTextFieldView: View {
+/// Editable one-line text field backed by NSTextField: grabs first responder
+/// and selects all its text the moment it mounts (type-over ready), Return
+/// submits, Escape cancels, and losing focus any other way (clicking outside)
+/// commits like Return. SwiftUI's TextField cannot express select-all or
+/// blur-commit, which is exactly the rename UX.
+private struct SceneTextFieldView: NSViewRepresentable {
     let node: SceneNode
     let sink: SceneEventSink
-    @State private var text = ""
-    @State private var seeded = false
-    @FocusState private var focused: Bool
 
-    var body: some View {
-        TextField(node.string("placeholder") ?? "", text: $text)
-            .textFieldStyle(.plain)
-            .focused($focused)
-            .onAppear {
-                if !seeded {
-                    seeded = true
-                    text = node.string("text") ?? ""
-                }
-                focused = true
+    func makeCoordinator() -> Coordinator {
+        Coordinator(nodeId: node.id, sink: sink)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: node.string("text") ?? "")
+        field.placeholderString = node.string("placeholder")
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.lineBreakMode = .byTruncatingTail
+        field.font = .systemFont(ofSize: CGFloat(node.props["font"]?.doubleValue ?? 13))
+        field.delegate = context.coordinator
+        // First responder can only be claimed once the field is in a window;
+        // hop one runloop turn (plain async, not a timed delay).
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
+        }
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        field.placeholderString = node.string("placeholder")
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        private let nodeId: String
+        private let sink: SceneEventSink
+        private var finished = false
+
+        init(nodeId: String, sink: SceneEventSink) {
+            self.nodeId = nodeId
+            self.sink = sink
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.cancelOperation(_:)) {
+                finished = true
+                sink.send(nodeId, "cancel", [:])
+                return true
             }
-            .onSubmit {
-                sink.send(node.id, "submit", ["text": text])
-            }
-            .onExitCommand {
-                sink.send(node.id, "cancel", [:])
-            }
+            return false
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            // Return AND focus loss (clicking outside) both land here; both
+            // commit. Escape set `finished` above and must not also submit.
+            guard !finished, let field = notification.object as? NSTextField else { return }
+            finished = true
+            sink.send(nodeId, "submit", ["text": field.stringValue])
+        }
     }
 }
 
