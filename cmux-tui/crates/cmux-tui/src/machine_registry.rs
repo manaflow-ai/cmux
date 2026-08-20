@@ -212,7 +212,9 @@ fn resolve_entry(raw: RawMachineProviderEntry) -> Option<MachineProviderEntry> {
             if other.is_empty() {
                 eprintln!("cmux-tui: ignoring machine_providers[{id}] because it has no kind");
             } else {
-                eprintln!("cmux-tui: ignoring machine_providers[{id}] with unknown kind \"{other}\"");
+                eprintln!(
+                    "cmux-tui: ignoring machine_providers[{id}] with unknown kind \"{other}\""
+                );
             }
             return None;
         }
