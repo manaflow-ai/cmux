@@ -3541,33 +3541,35 @@ impl Surface {
                                 identity.incarnation,
                                 replacement_sequence_boundary
                             );
-                            if let Err(error) = reconnect_mux.create_journal_checkpoint(
+                            // The checkpoint is a journal-replay optimization:
+                            // failing to capture one only means the next replay
+                            // starts from an older boundary. Capture races with
+                            // every other terminal's concurrent reconnect
+                            // appends, so retry it in place a few times - and
+                            // never tear down the freshly reconnected, healthy
+                            // host over it. The old path disconnected and re-ran
+                            // the full reconnect up to 16 times per terminal,
+                            // each attempt's journal writes re-poisoning the
+                            // other terminals' captures.
+                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
                                 "terminal_host_reconnect",
                                 &checkpoint_key,
-                            ) {
+                            );
+                            for attempt in 1u32..4 {
+                                if checkpoint.is_ok() {
+                                    break;
+                                }
+                                std::thread::sleep(Duration::from_millis(25 << attempt));
+                                checkpoint = reconnect_mux.create_journal_checkpoint(
+                                    "terminal_host_reconnect",
+                                    &checkpoint_key,
+                                );
+                            }
+                            if let Err(error) = checkpoint {
                                 reconnect_mux.emit(MuxEvent::Status(format!(
-                                    "could not checkpoint terminal {} reconnect: {error:#}",
+                                    "skipped terminal {} reconnect checkpoint (replay starts from the previous boundary): {error:#}",
                                     identity.terminal_id
                                 )));
-                                replacement_control_responses.fail_all();
-                                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
-                                    && host.identity() == identity
-                                {
-                                    host.disconnect();
-                                }
-                                pty.host_connection_state.store(
-                                    TerminalHostConnectionState::Reconnecting as u8,
-                                    Ordering::Release,
-                                );
-                                if !reconnect_mux
-                                    .terminal_host_connection_lost(surface.id, &identity)
-                                {
-                                    return;
-                                }
-                                if !retry.wait_or_fail(pty) {
-                                    return;
-                                }
-                                continue;
                             }
                         }
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
