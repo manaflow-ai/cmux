@@ -617,7 +617,10 @@ pub enum MachineUpdate {
     /// Provider-pushed connect-time step for one machine, forwarded without a
     /// snapshot reload so it renders while the provider's serialized control
     /// loop is still busy opening that machine.
-    ConnectionProgress { machine_id: String, message: String },
+    ConnectionProgress {
+        machine_id: String,
+        message: String,
+    },
 }
 
 /// A cancelable stream of provider-owned presentation snapshots.

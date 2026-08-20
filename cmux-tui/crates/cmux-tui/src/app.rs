@@ -22833,9 +22833,8 @@ mod tests {
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
         MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineController,
-        MachineCreationSource,
-        MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
-        MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
+        MachineCreationSource, MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest,
+        MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
         ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
         ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
         ProviderActionContext, ProviderActionDescriptor, ProviderActionFieldDescriptor,
