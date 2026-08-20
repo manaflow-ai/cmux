@@ -99418,6 +99418,74 @@
         }
       }
     },
+    "dialog.tuiQuitSessions.keepAndQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Sessions and Quit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを維持して終了"
+          }
+        }
+      }
+    },
+    "dialog.tuiQuitSessions.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui daemon keeps your shells running after cmux quits, and the next launch reattaches to them. Stopping ends every daemon-backed shell now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui デーモンは cmux の終了後もシェルを実行し続け、次回起動時に再接続します。停止すると、デーモンが管理するすべてのシェルが今すぐ終了します。"
+          }
+        }
+      }
+    },
+    "dialog.tuiQuitSessions.stopAndQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Sessions and Quit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを停止して終了"
+          }
+        }
+      }
+    },
+    "dialog.tuiQuitSessions.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Terminal Sessions Running?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルセッションを維持しますか？"
+          }
+        }
+      }
+    },
     "diffComments.bridge.notAllowed": {
       "extractionState": "manual",
       "localizations": {

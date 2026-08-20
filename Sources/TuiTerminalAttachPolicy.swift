@@ -124,6 +124,39 @@ enum TuiTerminalAttachPolicy {
         return Set(array.compactMap { $0["id"] as? String })
     }
 
+    /// Whether quitting the app should first ask keep-vs-stop for the daemon
+    /// session. Prompt only when the flag is on, no quit confirmation has
+    /// already been given in this terminate flow (a second dialog on one quit
+    /// is never acceptable), the daemon socket is alive, and it owns at least
+    /// one live terminal. Every other case quits normally.
+    static func shouldPromptToKeepDaemonSessionsOnQuit(
+        flagEnabled: Bool,
+        quitAlreadyConfirmed: Bool,
+        daemonSocketAlive: Bool,
+        liveTerminalIDs: Set<String>?
+    ) -> Bool {
+        guard flagEnabled,
+              !quitAlreadyConfirmed,
+              daemonSocketAlive,
+              let liveTerminalIDs,
+              !liveTerminalIDs.isEmpty
+        else { return false }
+        return true
+    }
+
+    /// The CLI argument lists that truly stop a daemon session, in order.
+    /// `server stop` alone does NOT end PTY hosts (they stay adoptable and a
+    /// later daemon re-adopts them), so every terminal is closed first, which
+    /// ends the session-owned shell process, and only then is the server
+    /// stopped.
+    static func sessionStopCommands(
+        sessionName: String,
+        terminalIDs: [String]
+    ) -> [[String]] {
+        terminalIDs.map { ["--session", sessionName, "terminal", $0, "close"] }
+            + [["server", "stop", "--session", sessionName]]
+    }
+
     private static func sanitizedSessionToken(_ raw: String) -> String {
         let token = raw
             .lowercased()

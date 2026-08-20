@@ -66,7 +66,7 @@ final class TuiTerminalAttachBridge {
         }
         guard ensureDaemonRunning(binary: binary) else { return nil }
         let session = sessionName
-        guard let output = runCLI(
+        guard let output = Self.runCLI(
             binary: binary,
             arguments: ["--session", session, "--json", "workspace", "create", "--name", "cmux-gui"],
             timeout: 10
@@ -112,6 +112,43 @@ final class TuiTerminalAttachBridge {
         )
         logSpike("restore.decision terminal=\(snapshotTerminalID) alive=\(daemonSocketAlive) decision=\(decision)")
         return decision
+    }
+
+    /// Quit-time inventory: whether the daemon session for this app instance
+    /// should be offered the keep-vs-stop choice. Cheap when the daemon is
+    /// down (one socket connect); one short CLI call otherwise.
+    func shouldPromptToKeepDaemonSessionsOnQuit(quitAlreadyConfirmed: Bool) -> Bool {
+        guard Self.isEnabled, !quitAlreadyConfirmed else { return false }
+        let daemonSocketAlive = Self.unixSocketAccepts(path: daemonSocketPath)
+        return TuiTerminalAttachPolicy.shouldPromptToKeepDaemonSessionsOnQuit(
+            flagEnabled: Self.isEnabled,
+            quitAlreadyConfirmed: quitAlreadyConfirmed,
+            daemonSocketAlive: daemonSocketAlive,
+            liveTerminalIDs: daemonSocketAlive ? liveTerminalIDs() : nil
+        )
+    }
+
+    /// Truly stops the daemon session for quit: closes every live terminal
+    /// (ending the session-owned shell processes), then stops the server.
+    /// Runs off the main actor; each CLI call is individually bounded, so a
+    /// wedged daemon cannot hang quit indefinitely.
+    func stopDaemonSessionForQuit() async {
+        let binary = Self.binaryPath
+        guard FileManager.default.isExecutableFile(atPath: binary) else { return }
+        let session = sessionName
+        let terminalIDs = (liveTerminalIDs() ?? []).sorted()
+        cachedTerminalIDs = nil
+        let commands = TuiTerminalAttachPolicy.sessionStopCommands(
+            sessionName: session,
+            terminalIDs: terminalIDs
+        )
+        logSpike("quitStop.begin session=\(session) terminals=\(terminalIDs.count)")
+        await Task.detached(priority: .userInitiated) {
+            for arguments in commands {
+                _ = TuiTerminalAttachBridge.runCLI(binary: binary, arguments: arguments, timeout: 10)
+            }
+        }.value
+        logSpike("quitStop.done session=\(session)")
     }
 
     /// The attach command for a terminal id this bridge (or a previous app
@@ -170,7 +207,7 @@ final class TuiTerminalAttachBridge {
         }
         let binary = Self.binaryPath
         guard FileManager.default.isExecutableFile(atPath: binary) else { return nil }
-        guard let output = runCLI(
+        guard let output = Self.runCLI(
             binary: binary,
             arguments: ["--session", sessionName, "--json", "terminal", "list"],
             timeout: 10
@@ -187,7 +224,7 @@ final class TuiTerminalAttachBridge {
     /// Runs one short cmux-tui CLI call, returning stdout. Bounded by
     /// `timeout` via a termination-handler semaphore; the process is killed
     /// on timeout.
-    private nonisolated func runCLI(binary: String, arguments: [String], timeout: TimeInterval) -> Data? {
+    private nonisolated static func runCLI(binary: String, arguments: [String], timeout: TimeInterval) -> Data? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments

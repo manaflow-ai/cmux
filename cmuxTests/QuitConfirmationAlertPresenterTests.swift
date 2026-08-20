@@ -174,6 +174,64 @@ struct QuitConfirmationAlertPresenterTests {
         alert.capturedSheetCompletion?(.alertFirstButtonReturn)
         #expect(cancellationCount == 0)
     }
+
+    @Test
+    func customCancelResponseGovernsCancellationActionForThreeButtonAlert() {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        // Second button (Stop Sessions and Quit) must not count as Cancel.
+        for (response, expectedCancellations) in [
+            (NSApplication.ModalResponse.alertSecondButtonReturn, 0),
+            (NSApplication.ModalResponse.alertThirdButtonReturn, 1),
+        ] {
+            let alert = QuitConfirmationAlertSpy()
+            alert.addButton(withTitle: "Cancel")
+            var cancellationCount = 0
+            var completedResponse: NSApplication.ModalResponse?
+            let presenter = QuitConfirmationAlertPresenter(
+                alert: alert,
+                cancelResponse: .alertThirdButtonReturn,
+                presentingWindowProvider: { hostWindow }
+            ) { response, _ in
+                completedResponse = response
+            }
+            presenter.present()
+            presenter.joinCancellationAction {
+                cancellationCount += 1
+            }
+            alert.capturedSheetCompletion?(response)
+            #expect(completedResponse == response)
+            #expect(cancellationCount == expectedCancellations)
+        }
+    }
+
+    @Test
+    func standaloneThirdButtonClickReportsThirdButtonResponse() {
+        let alert = QuitConfirmationAlertSpy()
+        alert.addButton(withTitle: "Cancel")
+
+        var completedResponse: NSApplication.ModalResponse?
+        let presenter = QuitConfirmationAlertPresenter(
+            alert: alert,
+            cancelResponse: .alertThirdButtonReturn,
+            presentingWindowProvider: { nil }
+        ) { response, _ in
+            completedResponse = response
+        }
+
+        presenter.present()
+        defer {
+            alert.window.orderOut(nil)
+            alert.window.close()
+        }
+
+        alert.buttons[2].performClick(nil)
+        #expect(completedResponse == .alertThirdButtonReturn)
+    }
 }
 
 private final class QuitConfirmationAlertSpy: NSAlert {

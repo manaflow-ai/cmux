@@ -216,6 +216,84 @@ struct TuiTerminalAttachSpikeTests {
         #expect(TuiTerminalAttachPolicy.terminalIDs(fromTerminalListJSON: Data("{}".utf8)) == nil)
     }
 
+    // MARK: - Quit prompt decision
+
+    @Test
+    func quitPromptsWhenFlagOnAndDaemonOwnsLiveTerminals() {
+        #expect(TuiTerminalAttachPolicy.shouldPromptToKeepDaemonSessionsOnQuit(
+            flagEnabled: true,
+            quitAlreadyConfirmed: false,
+            daemonSocketAlive: true,
+            liveTerminalIDs: ["term_a"]
+        ))
+    }
+
+    @Test
+    func quitDoesNotPromptWhenFlagIsOff() {
+        #expect(!TuiTerminalAttachPolicy.shouldPromptToKeepDaemonSessionsOnQuit(
+            flagEnabled: false,
+            quitAlreadyConfirmed: false,
+            daemonSocketAlive: true,
+            liveTerminalIDs: ["term_a"]
+        ))
+    }
+
+    @Test
+    func quitDoesNotPromptTwiceAfterConfirmation() {
+        #expect(!TuiTerminalAttachPolicy.shouldPromptToKeepDaemonSessionsOnQuit(
+            flagEnabled: true,
+            quitAlreadyConfirmed: true,
+            daemonSocketAlive: true,
+            liveTerminalIDs: ["term_a"]
+        ))
+    }
+
+    @Test
+    func quitDoesNotPromptWhenDaemonIsDead() {
+        #expect(!TuiTerminalAttachPolicy.shouldPromptToKeepDaemonSessionsOnQuit(
+            flagEnabled: true,
+            quitAlreadyConfirmed: false,
+            daemonSocketAlive: false,
+            liveTerminalIDs: ["term_a"]
+        ))
+    }
+
+    @Test
+    func quitDoesNotPromptWithoutLiveTerminals() {
+        for ids in [Set<String>(), nil] {
+            #expect(!TuiTerminalAttachPolicy.shouldPromptToKeepDaemonSessionsOnQuit(
+                flagEnabled: true,
+                quitAlreadyConfirmed: false,
+                daemonSocketAlive: true,
+                liveTerminalIDs: ids
+            ))
+        }
+    }
+
+    // MARK: - Session stop commands
+
+    @Test
+    func sessionStopClosesEveryTerminalThenStopsTheServer() {
+        let commands = TuiTerminalAttachPolicy.sessionStopCommands(
+            sessionName: "cmux-tuispk",
+            terminalIDs: ["term_a", "term_b"]
+        )
+        #expect(commands == [
+            ["--session", "cmux-tuispk", "terminal", "term_a", "close"],
+            ["--session", "cmux-tuispk", "terminal", "term_b", "close"],
+            ["server", "stop", "--session", "cmux-tuispk"],
+        ])
+    }
+
+    @Test
+    func sessionStopWithoutTerminalsOnlyStopsTheServer() {
+        let commands = TuiTerminalAttachPolicy.sessionStopCommands(
+            sessionName: "cmux-tuispk",
+            terminalIDs: []
+        )
+        #expect(commands == [["server", "stop", "--session", "cmux-tuispk"]])
+    }
+
     // MARK: - Snapshot round trip
 
     @Test

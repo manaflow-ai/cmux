@@ -7,15 +7,20 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     private let alert: NSAlert
     private let presentingWindowProvider: () -> NSWindow?
     private let completion: Completion
+    /// The response that means "do not quit". Second button for the default
+    /// two-button alert; the cmux-tui keep/stop alert passes its third button.
+    private let cancelResponse: NSApplication.ModalResponse
     private var didFinish = false
     private var joinedCancellationAction: (() -> Void)?
 
     init(
         alert: NSAlert? = nil,
+        cancelResponse: NSApplication.ModalResponse = .alertSecondButtonReturn,
         presentingWindowProvider: (() -> NSWindow?)? = nil,
         completion: @escaping Completion
     ) {
         self.alert = alert ?? Self.makeAlert()
+        self.cancelResponse = cancelResponse
         self.presentingWindowProvider = presentingWindowProvider ?? {
             NSApp.cmuxMainWindowForModalPresentation()
         }
@@ -58,14 +63,10 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
-        let buttons = alert.buttons
-        if buttons.indices.contains(0) {
-            buttons[0].target = self
-            buttons[0].action = #selector(confirmQuit)
-        }
-        if buttons.indices.contains(1) {
-            buttons[1].target = self
-            buttons[1].action = #selector(cancelQuit)
+        // AppKit assigns each alert button a tag of alertFirstButtonReturn + index.
+        for button in alert.buttons {
+            button.target = self
+            button.action = #selector(alertButtonClicked(_:))
         }
 
         let window = alert.window
@@ -75,16 +76,12 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func confirmQuit() {
-        finish(.alertFirstButtonReturn)
-    }
-
-    @objc private func cancelQuit() {
-        finish(.alertSecondButtonReturn)
+    @objc private func alertButtonClicked(_ sender: NSButton) {
+        finish(NSApplication.ModalResponse(rawValue: sender.tag))
     }
 
     func windowWillClose(_ notification: Notification) {
-        finish(.alertSecondButtonReturn)
+        finish(cancelResponse)
     }
 
     private func finish(_ response: NSApplication.ModalResponse) {
@@ -95,7 +92,7 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         alert.window.delegate = nil
         alert.window.orderOut(nil)
         completion(response, alert.suppressionButton?.state ?? .off)
-        if response != .alertFirstButtonReturn {
+        if response == cancelResponse {
             cancellationAction?()
         }
     }
