@@ -67,7 +67,7 @@ extension MobileShellComposite {
         var orderByKey: [String: Int] = [:]
 
         for (index, mac) in macs.enumerated() {
-            let key = mac.dialEndpointKey(
+            let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
             ) ?? "device:\(mac.id)"
@@ -171,11 +171,11 @@ extension MobileShellComposite {
                 instanceTag: instanceTag
             )
         }),
-              let key = target.dialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) else {
+              let key = target.scopedDialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) else {
             return [macDeviceID]
         }
         let matching = macs.filter {
-            $0.dialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) == key
+            $0.scopedDialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) == key
         }.map(\.macDeviceID)
         return matching.isEmpty ? [macDeviceID] : matching
     }
@@ -200,7 +200,7 @@ extension MobileShellComposite {
         var groupKeyByPairingID: [String: String] = [:]
         var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
-            let key = mac.dialEndpointKey(
+            let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
             ) ?? "device:\(mac.id)"
@@ -241,7 +241,7 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
         pairingIDs.insert(pairingID)
         unionFind.insert(pairingID)
 
-        if let dialEndpoint = mac.dialEndpointKey(
+        if let dialEndpoint = mac.scopedDialEndpointKey(
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ) {
@@ -290,7 +290,7 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
 
 private extension MobilePairedMac {
     @MainActor
-    func dialEndpointKey(
+    func unscopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool
     ) -> String? {
@@ -303,9 +303,8 @@ private extension MobilePairedMac {
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         )
-        let instanceScope = instanceTagScope
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased()):instance:\(instanceScope)"
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
             reconnectRoutes,
@@ -314,7 +313,21 @@ private extension MobilePairedMac {
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             return nil
         }
-        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased()):instance:\(instanceScope)"
+        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"
+    }
+
+    @MainActor
+    func scopedDialEndpointKey(
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> String? {
+        guard let endpointKey = unscopedDialEndpointKey(
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ) else {
+            return nil
+        }
+        return "instance:\(instanceTagScope):\(endpointKey)"
     }
 
     /// Presentation coalescing may join historical device ids for one app
