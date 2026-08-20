@@ -56,6 +56,20 @@ enum RightSidebarChromeMetrics {
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
+/// Geometry of the floating workspaces card: the rounded glass container
+/// the workspaces column renders inside. The machines rail floats directly
+/// on the window background with no panel of its own.
+enum SidebarFloatingCardMetrics {
+    static let cornerRadius: CGFloat = 12
+    static let leadingInset: CGFloat = 2
+    static let trailingInset: CGFloat = 6
+    static let topInset: CGFloat = 6
+    static let bottomInset: CGFloat = 6
+    /// How strongly the glass tints toward the resolved terminal theme.
+    static let themeTintOpacity: CGFloat = 0.55
+    static var horizontalInsets: CGFloat { leadingInset + trailingInset }
+}
+
 /// Shared layout language for every first-party sidebar list column.
 ///
 /// Machine, workspace, and future extension-owned columns use these values so
