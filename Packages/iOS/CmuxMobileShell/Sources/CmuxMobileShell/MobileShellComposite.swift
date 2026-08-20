@@ -5855,8 +5855,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> SecondaryMacEstablishmentOutcome {
         let flightKey = MacPairingKey(mac)
         if let existing = secondaryMacEstablishmentFlights[flightKey] {
+            MobileDebugLog.anchormux(
+                "CMUX_CONNECT secondary_dial_join mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "-")"
+            )
             return await existing.task.value
         }
+        let dialStart = ContinuousClock.now
+        MobileDebugLog.anchormux(
+            "CMUX_CONNECT secondary_dial_start mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "-") name=\(mac.displayName ?? "-")"
+        )
         let flightID = UUID()
         let task = Task { @MainActor [weak self] in
             defer {
@@ -5885,7 +5892,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mac: mac,
                 task: task
             )
-        return await task.value
+        let outcome = await task.value
+        let elapsed = dialStart.duration(to: .now)
+        // attoseconds (1e-18 s) -> milliseconds (1e-3 s): divide by 1e15.
+        let elapsedMilliseconds = elapsed.components.seconds * 1000
+            + elapsed.components.attoseconds / 1_000_000_000_000_000
+        MobileDebugLog.anchormux(
+            "CMUX_CONNECT secondary_dial_end mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "-") outcome=\(String(describing: outcome)) elapsed_ms=\(elapsedMilliseconds)"
+        )
+        return outcome
     }
 
     private func performSecondaryMacSubscriptionEstablishment(
@@ -5932,6 +5947,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .permanentFailure
         }
         let client = handle.client
+        MobileDebugLog.anchormux(
+            "CMUX_CONNECT secondary_client_connected mac=\(macID) tag=\(mac.instanceTag ?? "-")"
+        )
         // Re-check after the async client build so a concurrent refresh cannot
         // open a duplicate connection, AND so a sign-out / account/team switch
         // during the connect does not leave an old-scope connection live or write

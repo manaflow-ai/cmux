@@ -1,3 +1,4 @@
+internal import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
 import Foundation
 
@@ -133,6 +134,9 @@ extension MobileShellComposite {
         // `maximumLiveMacConnectionCount`.
         let admissionWidth = Self.maximumLiveMacConnectionCount
             - liveMacConnections.count
+        MobileDebugLog.anchormux(
+            "CMUX_CONNECT zero_touch_admission_start candidates=\(candidates.count) width=\(max(0, admissionWidth))"
+        )
         let admissionResults = await withTaskGroup(
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
@@ -182,6 +186,9 @@ extension MobileShellComposite {
             where result.establishmentOutcome == .transientFailure {
             transientFailureMacIDs.insert(result.macDeviceID)
         }
+        MobileDebugLog.anchormux(
+            "CMUX_CONNECT zero_touch_admission_end attempted=\(admissionResults.count(where: { $0.establishmentOutcome != nil })) transient=\(transientFailureMacIDs.count)"
+        )
         guard attemptedCandidate, await isScopeCurrent(scope) else { return }
         // Some authenticated rows can persist even if their first workspace
         // snapshot fails. Reload once after the bounded pass so every proven
@@ -212,6 +219,9 @@ extension MobileShellComposite {
               await isScopeCurrent(scope),
               connectionState == .connected,
               remoteClient != nil else {
+            MobileDebugLog.anchormux(
+                "CMUX_CONNECT secondary_admission_skipped mac=\(candidate.macDeviceID) tag=\(candidate.instanceTag ?? "-")"
+            )
             return SecondaryMacReconciliationResult(
                 macDeviceID: candidate.macDeviceID,
                 establishmentOutcome: nil
