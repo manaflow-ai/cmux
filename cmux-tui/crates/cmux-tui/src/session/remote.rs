@@ -684,6 +684,14 @@ impl RemoteSurface {
         let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
         fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         fresh.apply_vt_replay_parts(replay, replay_aliases, replay_state)?;
+        if daemon_replay {
+            // Daemons without the replay mouse-format suffix serialize the
+            // extended-coordinate mode flags in numeric order, losing the
+            // last-set-wins active encoding (SGR replayed before urxvt).
+            // Prefer SGR when the replay left both flagged, so forwarded
+            // clicks stay parseable by the inner app (btop reads only SGR).
+            fresh.normalize_replayed_mouse_format();
+        }
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
@@ -4408,6 +4416,198 @@ mod tests {
         .unwrap()
         .frame;
         assert_eq!((legacy.image_width, legacy.image_height), (320, 200));
+    }
+
+    #[test]
+    fn raw_output_decscusr_authors_cursor_and_daemon_replay_resets_provenance() {
+        let (session, surface) = test_unleased_view_surface(7);
+        assert!(!surface.cursor_style_authored(), "defaults are never authored");
+
+        // Raw inner-PTY output authors the cursor style.
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"\x1b[5 q");
+        session.handle_line(json!({"event": "output", "surface": 7, "data": encoded}));
+        assert!(surface.cursor_style_authored());
+
+        // The application resetting to the default clears authorship.
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"\x1b[0 q");
+        session.handle_line(json!({"event": "output", "surface": 7, "data": encoded}));
+        assert!(!surface.cursor_style_authored());
+
+        // A daemon-built vt-state replay carries resolved state with the
+        // session defaults baked in, so it must never count as authored,
+        // even when the replay bytes contain DECSCUSR.
+        surface.scan_cursor_provenance(b"\x1b[6 q");
+        assert!(surface.cursor_style_authored());
+        surface
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[5 q"), &[], None, None)
+            .unwrap();
+        assert!(!surface.cursor_style_authored());
+    }
+
+    #[test]
+    fn local_mirror_resize_preserves_cursor_authorship() {
+        let (_session, surface) = test_unleased_view_surface(9);
+        surface.scan_cursor_provenance(b"\x1b[3 q");
+        assert!(surface.cursor_style_authored());
+        surface.apply_stream_resize(100, 30, None, &[]).unwrap();
+        assert!(
+            surface.cursor_style_authored(),
+            "a client-side resize replays the same application state"
+        );
+    }
+
+    #[test]
+    fn daemon_replay_restores_inner_mouse_tracking_to_the_mirror() {
+        let (_session, surface) = test_unleased_view_surface(11);
+        assert!(!surface.term.lock().unwrap().mouse_tracking());
+        surface
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[?1002h"), &[], None, None)
+            .unwrap();
+        assert!(
+            surface.term.lock().unwrap().mouse_tracking(),
+            "reattach replay must restore the inner mouse mode that drives host capture mirroring"
+        );
+    }
+
+    /// Same contract against the daemon's REAL replay bytes, not a hand-written
+    /// DECSET: the terminal host serializes attach state with the bounded
+    /// theme-portable formatter, so this pins that its output still carries the
+    /// mouse-tracking modes and that they survive the client's replay apply all
+    /// the way to the pointer-semantics probe the App's host-capture mirroring
+    /// reads.
+    #[test]
+    fn daemon_theme_portable_replay_restores_mouse_tracking_to_the_attach_probe() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        // btop-shaped inner state: alt screen plus button-motion tracking with
+        // SGR and urxvt encodings, entered before any client attached.
+        host.vt_write(b"\x1b[?1049h\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        assert!(host.mouse_tracking());
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(12);
+        assert!(!surface.term.lock().unwrap().mouse_tracking());
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+        match surface.try_pointer_semantics() {
+            PointerSemanticProbe::Ready(semantics) => assert!(
+                semantics.mouse_tracking,
+                "the attach probe must observe the replay-restored mouse modes"
+            ),
+            PointerSemanticProbe::Contended => panic!("uncontended terminal probe blocked"),
+        }
+    }
+
+    fn forwarded_left_press_bytes(surface: &RemoteSurface) -> Vec<u8> {
+        let input = MouseInput {
+            action: ghostty_vt::MouseAction::Press,
+            button: Some(ghostty_vt::MouseButton::Left),
+            mods: Mods::default(),
+            position: (35.5, 20.5),
+            screen_size: (80, 24),
+            cell_size: (1, 1),
+            any_button_pressed: true,
+        };
+        let mut out = Vec::new();
+        surface.encode_mouse(input, &mut out).expect("uncontended encoders").unwrap();
+        out
+    }
+
+    /// Scoped reattach, real daemon serialization: the terminal host encodes
+    /// attach state with the bounded theme-portable formatter. When the inner
+    /// app (btop) enabled 1002h, 1015h, 1006h with SGR last, a click forwarded
+    /// after reattach must still be re-encoded for the inner PTY as SGR, not
+    /// urxvt. btop parses only SGR responses, so urxvt means dead clicks.
+    #[test]
+    fn daemon_replay_keeps_forwarded_clicks_sgr_when_inner_app_set_sgr_last() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1049h\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(13);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[<0;36;21M",
+            "reattach replay flipped the forwarded click encoding away from SGR"
+        );
+    }
+
+    /// Older daemons serialize mouse DECSETs as a numeric flag dump
+    /// (1002, 1006, 1015), losing last-set-wins. A client attached to such a
+    /// daemon must still prefer SGR over urxvt when both are flagged: every
+    /// known app that enables both sets SGR last and parses only SGR.
+    /// The SGR-preference fallback must not override an application that
+    /// deliberately set urxvt last: a fixed daemon's replay carries only the
+    /// active selector, so both flags are never left set together and the
+    /// fallback stays inert.
+    #[test]
+    fn daemon_replay_keeps_a_deliberate_urxvt_choice() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(15);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[32;36;21M",
+            "an application that chose urxvt last must keep urxvt after reattach"
+        );
+    }
+
+    #[test]
+    fn legacy_flag_dump_replay_still_forwards_sgr_clicks() {
+        let (_session, surface) = test_unleased_view_surface(14);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h"),
+                &[],
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[<0;36;21M",
+            "legacy numeric flag-dump replay must fall back to SGR, not urxvt"
+        );
     }
 
     #[test]
