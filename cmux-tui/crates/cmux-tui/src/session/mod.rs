@@ -649,9 +649,13 @@ impl Session {
                             }
                             _ => None,
                         };
+                        // Refresh unconditionally: when another attach won
+                        // between the first tree read and the raw snapshot,
+                        // no create runs here, and without this refresh the
+                        // cached tree would still show the pre-shell session.
+                        let refreshed = remote.refresh_tree()?;
                         if let Some(create_result) = create_result {
-                            let bootstrapped = remote
-                                .refresh_tree()?
+                            let bootstrapped = refreshed
                                 .workspaces
                                 .iter()
                                 .any(|workspace| !workspace.screens.is_empty());

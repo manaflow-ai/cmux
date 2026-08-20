@@ -5627,6 +5627,28 @@ mod tests {
     }
 
     #[test]
+    fn winner_between_snapshots_still_lands_in_the_cache() {
+        // The other attach creates the shell between the first tree read and
+        // the raw snapshot: no create runs here, and the final refresh must
+        // still deliver the winner's tree to this client's cache.
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(LostBootstrapRaceWriter {
+            session: session_slot.clone(),
+            list_requests: 1, // skip one bare read: the snapshot is populated
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "the stale bare tree survived in the cache"
+        );
+    }
+
+    #[test]
     fn losing_the_bare_session_bootstrap_race_is_not_a_startup_failure() {
         let session_slot = Arc::new(Mutex::new(None));
         let remote = test_session(Box::new(LostBootstrapRaceWriter {
