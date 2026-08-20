@@ -3664,9 +3664,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case .queued:
             if shouldReplacePendingRenderSubmission(with: submission) {
                 pendingRenderSubmission = submission
-                return true
             }
-            return false
+            // Queue admission, including an ordinary frame coalesced behind a
+            // pending replay, is successful. The gate transition that removes
+            // suppression will promote retained work; returning false here
+            // would keep `needsDraw` hot and retry this request every frame.
+            return true
         case .ignored, .idle:
             return false
         }
