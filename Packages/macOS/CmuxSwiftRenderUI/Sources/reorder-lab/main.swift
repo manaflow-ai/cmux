@@ -29,6 +29,7 @@ sidebar(() =>
               .padding(6)
               .frame({ maxWidth: "infinity" })
               .fixed()
+              .block(() => w().block ?? null)
               .onTap(() => log("tapped header " + w().id))
           : HStack({ spacing: 8 }, [
               Circle({ size: 7 }).fill("accent"),
@@ -39,6 +40,8 @@ sidebar(() =>
               .cornerRadius(6)
               .background("#7f7f7f26")
               .frame({ maxWidth: "infinity" })
+              .block(() => w().block ?? null)
+              .paddingLeading(() => (w().block ? 18 : 6))
               .onTap(() => log("tapped " + w().id)))
     ),
   ])
@@ -48,10 +51,10 @@ sidebar(() =>
 let items: SwiftValue = .array(
     (1...3).map { i in
         .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text")])
-    } + [.object(["id": .string("hdr"), "title": .string("Section"), "header": .bool(true)])]
-    + (4...6).map { i in
-        .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text")])
-    }
+    } + [.object(["id": .string("hdr"), "title": .string("Section"), "header": .bool(true), "block": .string("hdr")])]
+    + (4...5).map { i in
+        .object(["id": .string("row\(i)"), "title": .string("Row \(i) with some text"), "block": .string("hdr")])
+    } + [.object(["id": .string("row6"), "title": .string("Row 6 with some text")])]
 )
 
 @MainActor
