@@ -177,8 +177,8 @@ struct MobilePairingView: View {
             failure(message: message)
         case let .ready(ready):
             readyContent(ready)
-        case let .connected(ready):
-            connectedContent(ready)
+        case .connected:
+            connectedContent
         }
     }
 

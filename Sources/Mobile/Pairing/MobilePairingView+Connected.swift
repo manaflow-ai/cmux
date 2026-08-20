@@ -4,7 +4,7 @@ import SwiftUI
 
 extension MobilePairingView {
     @ViewBuilder
-    func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
+    var connectedContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .cmuxFont(size: 36)
