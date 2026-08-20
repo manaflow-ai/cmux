@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxBrowser
 import CmuxFoundation
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
@@ -72,14 +73,18 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
         switch self {
         case .bonsplitInactive:
             // Matches Bonsplit tab icon tint for inactive tabs.
-            return Color(nsColor: .secondaryLabelColor)
+            return .secondary
         case .bonsplitActive:
             // Matches Bonsplit tab icon tint for active tabs.
-            return Color(nsColor: .labelColor)
+            return .primary
         case .accent:
             return cmuxAccentColor()
         case .tertiary:
-            return Color(nsColor: .tertiaryLabelColor)
+            // SwiftUI's secondary style follows the resolved cmux color
+            // scheme injected by the browser/Dock root. Keep the tertiary
+            // option environment-driven instead of resolving AppKit's
+            // ambient `tertiaryLabelColor` here.
+            return Color.secondary.opacity(0.6)
         }
     }
 }
@@ -182,14 +187,14 @@ func resolvedBrowserChromeBackgroundColor(
 }
 
 func resolvedBrowserChromeColorScheme(
-    for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor,
-    windowBackgroundColor: NSColor = .windowBackgroundColor
+    for surfaceColorScheme: ColorScheme,
+    ambientColorScheme: ColorScheme? = nil
 ) -> ColorScheme {
-    let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
-        ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
-        : themeBackgroundColor
-    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
+    // Browser chrome is composed inside the already-resolved cmux surface.
+    // The inherited scheme can change when SwiftUI/AppKit hosting or focus
+    // changes, but it must not replace the surface authority.
+    _ = ambientColorScheme
+    return surfaceColorScheme
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(
@@ -212,7 +217,6 @@ func resolvedBrowserOmnibarPillBackgroundColor(
 
 private struct BrowserChromeStyle {
     let backgroundColor: NSColor
-    let colorScheme: ColorScheme
     let omnibarPillBackgroundColor: NSColor
 
     static func resolve(
@@ -225,17 +229,13 @@ private struct BrowserChromeStyle {
             themeBackgroundColor: themeBackgroundColor,
             drawsBackground: drawsBackground
         )
-        let chromeColorScheme = resolvedBrowserChromeColorScheme(
-            for: colorScheme,
-            themeBackgroundColor: themeBackgroundColor
-        )
+        let chromeColorScheme = resolvedBrowserChromeColorScheme(for: colorScheme)
         let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
             themeBackgroundColor: themeBackgroundColor
         )
         return BrowserChromeStyle(
             backgroundColor: backgroundColor,
-            colorScheme: chromeColorScheme,
             omnibarPillBackgroundColor: omnibarPillBackgroundColor
         )
     }
@@ -262,7 +262,12 @@ struct BrowserPanelView: View {
     /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
     /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
     let paneOwnershipOverride: Bool?
-    @Environment(\.colorScheme) private var colorScheme
+    private let resolvedColorScheme: ColorScheme
+    private let resolvedThemeBackgroundColor: NSColor
+    /// Appearance captured from the host before the parent injects the
+    /// surface-resolved scheme. It is observed only to refresh WebKit's system
+    /// theme and is never used to resolve browser toolbar colors.
+    private let inheritedColorScheme: ColorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
     /// Held detector instance used to summarize installed browsers rather than
@@ -326,7 +331,7 @@ struct BrowserPanelView: View {
     // browser toolbar share one consistent scale. Seeded from the cached config
     // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
     // and terminal panels use). See `BrowserChromeMetrics`.
-    @State private var tabBarFontSize: CGFloat = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+    @State private var tabBarFontSize: CGFloat = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
     // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
     // appearance view-state seed (the empty-state import list) so a spurious appear
@@ -345,6 +350,10 @@ struct BrowserPanelView: View {
     private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }
     private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
 
+    private var resolvedThemeBackgroundIdentity: String {
+        resolvedThemeBackgroundColor.hexString(includeAlpha: true)
+    }
+
     init(
         panel: BrowserPanel,
         paneId: PaneID,
@@ -352,6 +361,9 @@ struct BrowserPanelView: View {
         isVisibleInUI: Bool,
         portalPriority: Int,
         paneOwnershipOverride: Bool? = nil,
+        resolvedColorScheme: ColorScheme,
+        inheritedColorScheme: ColorScheme,
+        resolvedThemeBackgroundColor: NSColor,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -361,10 +373,13 @@ struct BrowserPanelView: View {
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
         self.paneOwnershipOverride = paneOwnershipOverride
+        self.resolvedColorScheme = resolvedColorScheme
+        self.inheritedColorScheme = inheritedColorScheme
+        self.resolvedThemeBackgroundColor = resolvedThemeBackgroundColor
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
-            for: .light,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            for: resolvedColorScheme,
+            themeBackgroundColor: resolvedThemeBackgroundColor,
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         ))
     }
@@ -445,16 +460,18 @@ struct BrowserPanelView: View {
         browserChromeStyle.backgroundColor
     }
 
-    private var browserChromeColorScheme: ColorScheme {
-        browserChromeStyle.colorScheme
-    }
-
     private var browserContentAccessibilityIdentifier: String {
         "BrowserPanelContent.\(panel.id.uuidString)"
     }
 
     private var omnibarPillBackgroundColor: NSColor {
         browserChromeStyle.omnibarPillBackgroundColor
+    }
+
+    private var browserChromeSeparatorColor: Color {
+        Color(nsColor: WindowChromeColorResolver().separatorColor(
+            forChromeBackground: browserChromeBackgroundColor
+        ))
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
@@ -488,7 +505,7 @@ struct BrowserPanelView: View {
         return BrowserPortalOmnibarSuggestionsConfiguration(
             panelId: panel.id,
             popupFrame: frame,
-            colorScheme: browserChromeColorScheme,
+            colorScheme: resolvedColorScheme,
             engineName: searchConfiguration.displayName,
             items: omnibarState.suggestions,
             selectedIndex: omnibarState.selectedSuggestionIndex,
@@ -811,7 +828,11 @@ struct BrowserPanelView: View {
         panel.setBrowserThemeMode(normalizedMode)
     }
 
-    private func handleSystemColorSchemeChange() {
+    private func handleInheritedColorSchemeChange() {
+        panel.refreshAppearanceDrivenColors()
+    }
+
+    private func handleResolvedColorSchemeChange() {
         refreshBrowserChromeStyle()
         panel.refreshAppearanceDrivenColors()
     }
@@ -983,7 +1004,7 @@ struct BrowserPanelView: View {
             .frame(width: omnibarPillFrame.width)
             .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
             .zIndex(1000)
-            .environment(\.colorScheme, browserChromeColorScheme)
+            .environment(\.colorScheme, resolvedColorScheme)
         }
     }
 
@@ -1041,7 +1062,7 @@ struct BrowserPanelView: View {
             handleBrowserWebViewClickIntent(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            tabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+            tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         }
         .onAppear {
             handleBrowserPanelAppear()
@@ -1049,10 +1070,10 @@ struct BrowserPanelView: View {
         .onDisappear {
             handleBrowserPanelDisappear()
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }
-        .onChange(of: panel.currentURL) { _ in
+        .onChange(of: panel.currentURL) { _, _ in
             handleCurrentURLChange()
         }
         .onChange(of: panel.shouldRenderWebView) { _, _ in
@@ -1061,13 +1082,19 @@ struct BrowserPanelView: View {
         .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
             refreshBrowserChromeStyle()
         }
-        .onChange(of: browserThemeModeRaw) { _ in
+        .onChange(of: browserThemeModeRaw) { _, _ in
             handleBrowserThemeModeRawChange()
         }
-        .onChange(of: colorScheme) { _ in
-            handleSystemColorSchemeChange()
+        .onChange(of: inheritedColorScheme) { _, _ in
+            handleInheritedColorSchemeChange()
         }
-        .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
+        .onChange(of: resolvedColorScheme) { _, _ in
+            handleResolvedColorSchemeChange()
+        }
+        .onChange(of: resolvedThemeBackgroundIdentity) { _, _ in
+            refreshBrowserChromeStyle()
+        }
+        .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: chromeState.isOmnibarVisible) { _, isVisible in
@@ -1083,16 +1110,16 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             handleCommandPaletteVisibilityChange(notification)
         }
-        .onChange(of: panel.profileID) { _ in
+        .onChange(of: panel.profileID) { _, _ in
             handleProfileChange()
         }
-        .onChange(of: isVisibleInUI) { visibleInUI in
+        .onChange(of: isVisibleInUI) { _, visibleInUI in
             handlePanelVisibilityChange(visibleInUI)
         }
-        .onChange(of: isFocused) { focused in
+        .onChange(of: isFocused) { _, focused in
             handlePanelFocusChange(focused)
         }
-        .onChange(of: addressBarFocused) { focused in
+        .onChange(of: addressBarFocused) { _, focused in
             handleAddressBarFocusedChange(focused)
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
@@ -1107,6 +1134,10 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshBrowserChromeStyle()
         }
+        // Keep every SwiftUI browser control on the resolved cmux surface
+        // scheme, even when this view is rehosted under an ambient AppKit
+        // appearance during a focus transition.
+        .environment(\.colorScheme, resolvedColorScheme)
     }
 
     private var addressBar: some View {
@@ -1173,7 +1204,7 @@ struct BrowserPanelView: View {
         }
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
-        .environment(\.colorScheme, browserChromeColorScheme)
+        .environment(\.colorScheme, resolvedColorScheme)
     }
 
     private var addressBarButtonBar: some View {
@@ -1389,7 +1420,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
-            browserProfilePopover.browserChromePopoverAppearance(browserChromeColorScheme)
+            browserProfilePopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
         .safeHelp(
             String(
@@ -1463,7 +1494,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
-            browserThemeModePopover.browserChromePopoverAppearance(browserChromeColorScheme)
+            browserThemeModePopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
         .safeHelp(
             String(
@@ -1493,7 +1524,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .popover(isPresented: $isBrowserImportHintPopoverPresented, arrowEdge: .bottom) {
-            browserImportHintPopover.browserChromePopoverAppearance(browserChromeColorScheme)
+            browserImportHintPopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
         .safeHelp(String(localized: "browser.import.hint.toolbar.help", defaultValue: "Import browser data"))
         .accessibilityIdentifier("BrowserImportHintToolbarChip")
@@ -1832,8 +1863,11 @@ struct BrowserPanelView: View {
 
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle.resolve(
-            for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            for: resolvedBrowserChromeColorScheme(
+                for: resolvedColorScheme,
+                ambientColorScheme: inheritedColorScheme
+            ),
+            themeBackgroundColor: resolvedThemeBackgroundColor,
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         )
     }
@@ -2119,11 +2153,11 @@ struct BrowserPanelView: View {
             .frame(maxWidth: 360, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+                    .fill(Color(nsColor: browserChromeBackgroundColor).opacity(0.9))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
-                    Color(nsColor: .separatorColor).opacity(0.45),
+                    browserChromeSeparatorColor.opacity(0.45),
                     lineWidth: 1
                 )
             )
@@ -2142,11 +2176,11 @@ struct BrowserPanelView: View {
                 .frame(maxWidth: 520, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.84))
+                        .fill(Color(nsColor: browserChromeBackgroundColor).opacity(0.84))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
-                        Color(nsColor: .separatorColor).opacity(0.35),
+                        browserChromeSeparatorColor.opacity(0.35),
                         lineWidth: 1
                     )
                 )
@@ -5113,22 +5147,22 @@ struct OmnibarSuggestionsView: View {
     private var listTextColor: Color {
         switch colorScheme {
         case .light:
-            return Color(nsColor: .labelColor)
+            return .primary
         case .dark:
             return Color.white.opacity(0.9)
         @unknown default:
-            return Color(nsColor: .labelColor)
+            return .primary
         }
     }
 
     private var badgeTextColor: Color {
         switch colorScheme {
         case .light:
-            return Color(nsColor: .secondaryLabelColor)
+            return .secondary
         case .dark:
             return Color.white.opacity(0.72)
         @unknown default:
-            return Color(nsColor: .secondaryLabelColor)
+            return .secondary
         }
     }
 

@@ -141,6 +141,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
+    static let panelArtifactCapability = "panel.artifact.v1"
     static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
@@ -197,6 +198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 correlationID: foregroundMacDeviceID,
                 count: connectionState == .connected ? 1 : 0
             )
+            recordForegroundTransportSelected()
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
@@ -278,8 +280,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var activeRoute: CmxAttachRoute? {
         didSet {
             guard oldValue != activeRoute, connectionState == .connected else { return }
+            recordForegroundTransportSelected()
             restartTerminalLanesForMountedSurfaces()
         }
+    }
+
+    /// Records which transport actually carries the foreground connection, so
+    /// a shared report states Iroh vs Tailscale usage explicitly instead of
+    /// leaving it implied by whichever dial events survived the ring.
+    ///
+    /// Hooked to both the connected transition and active-route changes: some
+    /// connect flows pin the route before flipping the state and others after,
+    /// and a mid-connection promotion swaps the route with no state change.
+    private func recordForegroundTransportSelected() {
+        guard connectionState == .connected, let route = activeRoute else { return }
+        recordAppEvent(
+            .foregroundTransportSelected,
+            correlationID: foregroundMacDeviceID,
+            count: DiagnosticTransportKind(route.kind).rawValue
+        )
     }
     /// Authenticated Mac app-instance identity for the foreground connection.
     /// `nil` only for a fresh/legacy host that has not reported one.
@@ -821,9 +840,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            if selectedWorkspaceID != oldValue {
+                selectedMacSurfaceID = nil
+            }
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// The Mac surface shown in the workspace detail instead of the selected
+    /// terminal, or nil when the terminal is visible. Independent of
+    /// ``selectedTerminalID`` (so dismissing the surface returns to the same
+    /// terminal and composer draft) and cleared when the workspace changes.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing
@@ -2371,7 +2398,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             return
         }
         let attemptID = beginPairingAttempt()
@@ -2395,7 +2422,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             // The pairing input field is an explicit in-app code entry (scan
             // or paste), the act that authorizes a compatibility Tailscale dial.
             await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
@@ -4662,15 +4689,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// separates network failures, which share the pool retry budget, from
     /// authority/build/route incompatibilities, which wait for a new external
     /// edge instead of polling forever.
+    ///
+    /// Route selection honors the user's connection method exactly like the
+    /// foreground dial: with Tailscale selected, a Mac without a device-local
+    /// Tailscale grant fails closed here instead of opening a background Iroh
+    /// control session over public paths and managed relays.
     func makeSecondaryClient(
         for mac: MobilePairedMac
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
-        let pinnedRoutes = Self.storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        let pinnedRoutes = orderedReconnectRoutes(
+            for: mac,
+            supportedKinds: supportedKinds
         )
         guard let firstRoute = pinnedRoutes.first else {
             return .permanentFailure
@@ -9785,11 +9816,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // per-Mac dots) derives from these per-Mac states, so without this the
         // just-disconnected Mac would keep showing a green connected dot. Downgrade
         // it to `.unavailable` to match the global connection state.
-        if var offline = workspacesByMac[offlineForegroundKey] {
+        let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
+        let keysToDowngrade = workspacesByMac.keys.filter { key in
+            key == offlineForegroundKey
+                || (!preservingOtherMacWorkspaceState
+                    && offlineForegroundKey != .anonymousForeground
+                    && key.canonicalMacDeviceID == offlineDeviceID)
+        }
+        var updatedWorkspacesByMac = workspacesByMac
+        for key in keysToDowngrade {
+            guard var offline = updatedWorkspacesByMac[key] else { continue }
             offline.status = .unavailable
             offline.workspaceGroupsAreAuthoritative = false
-            workspacesByMac[offlineForegroundKey] = offline
+            updatedWorkspacesByMac[key] = offline
         }
+        workspacesByMac = updatedWorkspacesByMac
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()

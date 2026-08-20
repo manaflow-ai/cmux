@@ -4836,6 +4836,9 @@ mod unix {
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
+        // Terminal-host children get the same truecolor guarantee as directly
+        // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
+        command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }

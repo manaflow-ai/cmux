@@ -90,6 +90,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "terminal": [
+                    "adaptiveDefaultTheme": SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue,
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "sessionContentMaxWidth": false,
@@ -199,6 +200,7 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                    "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,

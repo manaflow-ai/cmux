@@ -24,6 +24,70 @@ struct ClaudeHookLiveDeliveryTargetTests {
     private static let otherSurfaceId = "55555555-5555-5555-5555-555555555555"
     private static let fallbackSurfaceId = "44444444-4444-4444-4444-444444444444"
 
+    /// A Claude `SubagentStop` must remain telemetry even if an older or
+    /// duplicated hook configuration invokes the visible `stop` command for
+    /// that event. Only the parent `Stop` event may publish completion
+    /// attention or settle the parent lifecycle.
+    ///
+    /// https://github.com/manaflow-ai/cmux/issues/10233
+    @Test func subagentStopDoesNotPublishParentCompletionAttention() throws {
+        let context = try Harness.makeContext(name: "subagent-stop-parent-running")
+        defer { context.cleanup() }
+        let sessionId = "subagent-stop-parent-running-session"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path,
+            pid: 43209
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43209"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SubagentStop","cwd":"\#(context.root.path)","last_assistant_message":"subagent finished"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        let feedEventNames = commands.compactMap { command -> String? in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event["hook_event_name"] as? String
+        }
+
+        #expect(feedEventNames.contains("SubagentStop"), "Subagent completion must stay distinct telemetry; saw \(feedEventNames)")
+        #expect(!feedEventNames.contains("Stop"), "SubagentStop must not be rewritten as parent Stop; saw \(feedEventNames)")
+        #expect(
+            !commands.contains { $0.hasPrefix("notify_target_async ") },
+            "A subagent completion must not publish the parent's completion notification; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.hasPrefix("set_agent_lifecycle ") || $0.hasPrefix("set_status ") },
+            "A subagent completion must not settle the parent lifecycle/status; saw \(commands)"
+        )
+    }
+
     /// Two Claude agents in two workspaces: the session record for this agent
     /// was polluted to point at the OTHER agent's pane (issue #7391 drift).
     /// The live pid target must win and the record must self-heal.

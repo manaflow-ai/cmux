@@ -61,6 +61,7 @@ struct SessionIndexView: View {
     @State private var collapsedSections: Set<SectionKey> = []
     /// Single source of truth for both Vault popover variants.
     @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
+    let chromeBackgroundColor: NSColor
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -139,7 +140,7 @@ struct SessionIndexView: View {
             .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
@@ -702,8 +703,9 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     }
     if let resumeCommand = entry.copyResumeCommand {
         Button {
+            // Match the user's shell so the copied command pastes cleanly.
             GhosttyApp.terminalPasteboard.writeString(
-                resumeCommand,
+                TerminalStartupTypedShellCommand().typedInput(posixCommand: resumeCommand),
                 to: .general
             )
         } label: {

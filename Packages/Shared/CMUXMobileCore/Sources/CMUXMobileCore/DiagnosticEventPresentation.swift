@@ -213,6 +213,14 @@ public struct DiagnosticEventPresentation: Sendable {
         }
     }
 
+    /// Human-readable name of a configured connection method.
+    public func displayName(_ method: DiagnosticConnectionMethod) -> String {
+        switch method {
+        case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
+        case .tailscale: localized("diagnostics.connectionMethod.tailscale", defaultValue: "Tailscale Only")
+        }
+    }
+
     /// Human-readable name of a selected network path.
     public func displayName(_ kind: DiagnosticPathKind) -> String {
         switch kind {
@@ -681,6 +689,10 @@ public struct DiagnosticEventPresentation: Sendable {
                     return Field(key: "style", value: toastStyleName(raw))
                 case .toastDismissed:
                     return Field(key: "reason", value: toastDismissReasonName(raw))
+                case .connectionMethodPreferenceChanged, .connectionMethodConfigured:
+                    return Field(key: "method", value: connectionMethodName(raw))
+                case .foregroundTransportSelected:
+                    return Field(key: "transport", value: transportName(raw))
                 default:
                     if Self.appEventKindsWithValuePayload.contains(kind) {
                         return Field(key: "value", value: String(raw))
@@ -743,6 +755,11 @@ public struct DiagnosticEventPresentation: Sendable {
             ?? unknownPayloadName(raw)
     }
 
+    private func connectionMethodName(_ raw: Int) -> String {
+        DiagnosticConnectionMethod(rawValue: raw).map(displayName)
+            ?? unknownPayloadName(raw)
+    }
+
     private func unknownPayloadName(_ raw: Int) -> String {
         localized(
             "diagnostics.unknown.payload",
@@ -762,7 +779,6 @@ public struct DiagnosticEventPresentation: Sendable {
         .displayWorkspacePreviewLinesChanged,
         .terminalScrollbackRowsChanged,
         .telemetrySharingChanged,
-        .connectionMethodPreferenceChanged,
         .notificationPreferenceChanged,
         .terminalDraftStateChanged,
     ]
@@ -1388,6 +1404,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case "active_sessions": localized("diagnostics.field.activeSessions", defaultValue: "Active sessions")
         case "count": localized("diagnostics.field.count", defaultValue: "Count")
         case "value": localized("diagnostics.field.value", defaultValue: "Value")
+        case "method": localized("diagnostics.field.method", defaultValue: "Method")
         case "action": localized("diagnostics.field.action", defaultValue: "Action")
         case "tab": localized("diagnostics.field.tab", defaultValue: "Tab")
         case "scope": localized("diagnostics.field.scope", defaultValue: "Scope")

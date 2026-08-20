@@ -1,0 +1,366 @@
+name: cmux-tui Rust Testbox setup
+
+# Main-controlled broker. This workflow runs only from refs/heads/main and
+# hydrates only main, so no candidate branch can edit the guards that run
+# before begin-testbox exposes its auth token, and no candidate build script
+# executes inside this token-bearing job. A candidate revision reaches the
+# Testbox later, through `blacksmith testbox run`, which synchronizes a
+# maintainer's local worktree onto the already-warm VM.
+on:
+  workflow_dispatch:
+    inputs:
+      testbox_id:
+        description: "Testbox session ID supplied by blacksmith testbox warmup"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  # A Testbox is a mutable shared workspace. Serialize every request for the
+  # same ID so two dispatches cannot corrupt one cache.
+  group: cmux-tui-testbox-${{ inputs.testbox_id }}
+  cancel-in-progress: false
+
+jobs:
+  cmux-tui-rust:
+    name: cmux-tui Rust setup
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    environment:
+      # Configure this environment with required reviewers, no secrets, and a
+      # deployment branch rule of exactly `main`. Approval is evaluated before
+      # the first step, so it precedes begin-testbox.
+      name: blacksmith-testbox-trusted
+    permissions:
+      contents: read
+    # Hydration plus three sequential 20-minute bounded remote builds happen
+    # after setup. Keep the GitHub job alive long enough for all stages and
+    # cleanup; the Testbox itself still has its separate idle timeout.
+    timeout-minutes: 120
+    steps:
+      # Every check here is main-controlled. `blacksmith testbox warmup`
+      # resolves both this file and the hydrated source from the same --ref, so
+      # refusing any ref other than refs/heads/main is what keeps a candidate
+      # branch outside the trust boundary.
+      - name: Validate broker ref
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "::error::this Testbox lane is only valid for manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$EVENT_NAME" == "workflow_dispatch" ]] || {
+            echo "::error::Testbox setup must be dispatched manually, never from a PR event" >&2
+            exit 1
+          }
+          [[ "$DISPATCH_REF" == "refs/heads/main" ]] || {
+            echo "::error::this broker lane runs only from refs/heads/main, got $DISPATCH_REF; warm up with --ref main and sync the candidate through blacksmith testbox run" >&2
+            exit 1
+          }
+          [[ "$TESTBOX_ID" =~ ^tbx_[A-Za-z0-9_-]+$ ]] || {
+            echo "::error::malformed Testbox ID" >&2
+            exit 1
+          }
+
+      - name: Begin Testbox
+        uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043 # v2
+        with:
+          testbox_id: ${{ inputs.testbox_id }}
+
+      # main can move while a reviewer approves the deployment. Record which
+      # commit this job actually hydrates and fail closed if the dispatch ref
+      # changed under it.
+      - name: Revalidate broker identity after token exposure
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCH_REF" == "refs/heads/main" ]] || {
+            echo "::error::broker ref changed during setup" >&2
+            exit 1
+          }
+          [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::dispatch SHA is malformed" >&2
+            exit 1
+          }
+          printf 'hydrating main at %s\n' "$DISPATCH_SHA"
+
+      - name: Checkout hydration commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Require exact checkout and clean source
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_SHA" ]] || {
+            echo "::error::checked out $actual_sha, expected hydration SHA $EXPECTED_SHA" >&2
+            exit 1
+          }
+          [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::source checkout is dirty before hydration" >&2
+            git status --short >&2
+            exit 1
+          }
+          source_tree_sha="$(git rev-parse 'HEAD^{tree}')"
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+            echo "::error::HEAD:ghostty is not a gitlink" >&2
+            exit 1
+          }
+          ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
+          printf 'source_sha=%s\nsource_tree_sha=%s\nghostty_gitlink_sha=%s\n' \
+            "$actual_sha" "$source_tree_sha" "$ghostty_gitlink_sha"
+
+      - name: Initialize Ghostty source submodule
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 ghostty
+          [[ "$(git -C ghostty rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty" ]] || {
+            echo "::error::ghostty did not initialize as its own submodule checkout" >&2
+            exit 1
+          }
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+            echo "::error::HEAD:ghostty is not a gitlink" >&2
+            exit 1
+          }
+          expected_ghostty_sha="$(git rev-parse HEAD:ghostty)"
+          actual_ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          [[ "$actual_ghostty_sha" == "$expected_ghostty_sha" ]] || {
+            echo "::error::Ghostty checkout $actual_ghostty_sha does not match gitlink $expected_ghostty_sha" >&2
+            exit 1
+          }
+          [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::Ghostty submodule is dirty after initialization" >&2
+            git -C ghostty status --short >&2
+            exit 1
+          }
+          test -f ghostty/build.zig.zon
+
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Cache Zig package downloads
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: cmux-tui-zig-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: |
+            cmux-tui-zig-
+
+      - name: Install repository-pinned Zig
+        shell: bash
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch Ghostty Zig dependencies without compiling
+        working-directory: ghostty
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `--fetch` hydrates the package cache and exits before a build.
+          "$CMUX_ZIG" build --fetch
+
+      - name: Cache Cargo registry and git dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cmux-tui-cargo-${{ runner.os }}-${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml') }}
+          restore-keys: |
+            cmux-tui-cargo-${{ runner.os }}-
+
+      - name: Set up repository-pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Fetch Cargo dependencies without compiling
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --locked
+
+      - name: Record runner, toolchain, and Ghostty identity
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+          RUNNER_LABEL: blacksmith-32vcpu-ubuntu-2404
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_tree_sha="$(git rev-parse 'HEAD^{tree}')"
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || exit 1
+          ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
+          ghostty_head_sha="$(git -C ghostty rev-parse HEAD)"
+          [[ "$SOURCE_SHA" == "$(git rev-parse HEAD)" ]] || exit 1
+          [[ "$ghostty_gitlink_sha" == "$ghostty_head_sha" ]] || exit 1
+          [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]] || exit 1
+          [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]] || exit 1
+          pushd cmux-tui >/dev/null
+          cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/cmux-tui-cargo-metadata.json"
+          test -s "$RUNNER_TEMP/cmux-tui-cargo-metadata.json"
+          RUST_TOOLCHAIN="$(rustup show active-toolchain)"
+          RUSTC_VERSION="$(rustc --version)"
+          CARGO_VERSION="$(cargo --version)"
+          popd >/dev/null
+          mkdir -p testbox-benchmark
+          SOURCE_TREE_SHA="$source_tree_sha"
+          GHOSTTY_GITLINK_SHA="$ghostty_gitlink_sha"
+          GHOSTTY_HEAD_SHA="$ghostty_head_sha"
+          ZIG_VERSION="$("$CMUX_ZIG" version)"
+          ZIG_PATH="$CMUX_ZIG"
+          RUNNER_UNAME="$(uname -a)"
+          RUNNER_CPU_COUNT="$(nproc)"
+          [[ "$RUNNER_ARCH" == "X64" && "$RUNNER_CPU_COUNT" == "32" ]] || {
+            echo "::error::expected x64 32-vCPU runner, got arch=$RUNNER_ARCH cpu_count=$RUNNER_CPU_COUNT" >&2
+            exit 1
+          }
+          CARGO_METADATA_SHA256="$(sha256sum "$RUNNER_TEMP/cmux-tui-cargo-metadata.json" | cut -d ' ' -f 1)"
+          RUST_TOOLCHAIN_FILE_SHA256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
+          CARGO_LOCK_SHA256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"
+          GHOSTTY_ZON_SHA256="$(sha256sum ghostty/build.zig.zon | cut -d ' ' -f 1)"
+          export SOURCE_TREE_SHA GHOSTTY_GITLINK_SHA GHOSTTY_HEAD_SHA RUST_TOOLCHAIN RUSTC_VERSION CARGO_VERSION ZIG_VERSION ZIG_PATH RUNNER_UNAME RUNNER_CPU_COUNT CARGO_METADATA_SHA256 RUST_TOOLCHAIN_FILE_SHA256 CARGO_LOCK_SHA256 GHOSTTY_ZON_SHA256
+          python3 - <<'PY' > testbox-benchmark/setup-identity.json
+          import json
+          import os
+          import platform
+
+          print(json.dumps({
+              "schema": 3,
+              "source": {
+                  "ref": os.environ["SOURCE_REF"],
+                  "commit_sha": os.environ["SOURCE_SHA"],
+                  "tree_sha": os.environ["SOURCE_TREE_SHA"],
+                  "ghostty_gitlink_sha": os.environ["GHOSTTY_GITLINK_SHA"],
+                  "ghostty_head_sha": os.environ["GHOSTTY_HEAD_SHA"],
+              },
+              "broker": {
+                  "workflow_ref": os.environ["GITHUB_REF"],
+                  "workflow_sha": os.environ["SOURCE_SHA"],
+              },
+              "testbox": {
+                  "id": os.environ["TESTBOX_ID"],
+                  "setup_workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              },
+              "runner": {
+                  "label": os.environ["RUNNER_LABEL"],
+                  "name": os.environ.get("RUNNER_NAME"),
+                  "os": os.environ.get("RUNNER_OS"),
+                  "arch": os.environ.get("RUNNER_ARCH"),
+                  "hostname": platform.node(),
+                  "uname": os.environ["RUNNER_UNAME"],
+                  "cpu_count": int(os.environ["RUNNER_CPU_COUNT"]),
+              },
+              "toolchain": {
+                  "rust_toolchain": os.environ["RUST_TOOLCHAIN"],
+                  "rustc": os.environ["RUSTC_VERSION"],
+                  "cargo": os.environ["CARGO_VERSION"],
+                  "rust_toolchain_file_sha256": os.environ["RUST_TOOLCHAIN_FILE_SHA256"],
+                  "cargo_lock_sha256": os.environ["CARGO_LOCK_SHA256"],
+                  "cargo_metadata_sha256": os.environ["CARGO_METADATA_SHA256"],
+                  "zig_path": os.environ["ZIG_PATH"],
+                  "zig": os.environ["ZIG_VERSION"],
+                  "ghostty_build_zig_zon_sha256": os.environ["GHOSTTY_ZON_SHA256"],
+              },
+          }, sort_keys=True, indent=2))
+          PY
+          test -s testbox-benchmark/setup-identity.json
+          cat testbox-benchmark/setup-identity.json
+
+      - name: Require clean hydrated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::source became dirty during hydration" >&2
+            git status --short >&2
+            exit 1
+          }
+          [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::Ghostty became dirty during hydration" >&2
+            git -C ghostty status --short >&2
+            exit 1
+          }
+
+      - name: Upload setup identity JSON
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-testbox-setup-${{ github.run_id }}
+          path: testbox-benchmark/setup-identity.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Missing `/tmp/.testbox` means begin-testbox could not register the VM.
+      # No auth token or API URL exists, so neither this workflow nor the pinned
+      # action can report hydration_failed. Fail explicitly; the CLI's bounded
+      # readiness wait and receipt-aware cleanup remain the only safe recovery.
+      - name: Require Testbox registration state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -d /tmp/.testbox ]]; then
+            echo "::error::begin-testbox produced no registration state; hydration failure cannot be reported from this runner" >&2
+            exit 1
+          fi
+
+      - name: Confirm Testbox registration and mark setup ready
+        if: success()
+        env:
+          EXPECTED_TESTBOX_ID: ${{ inputs.testbox_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=/tmp/.testbox
+          rm -f /tmp/.testbox/cmux-tui-rust-setup-identity.json
+          for required_file in testbox_id installation_model_id auth_token api_url runner_host runner_ssh_port adopted_run_id ssh_public_key; do
+            test -s "$state/$required_file"
+          done
+          test -s "$state/working_directory"
+          test "$(<"$state/testbox_id")" = "$EXPECTED_TESTBOX_ID"
+          installation_model_id="$(<"$state/installation_model_id")"
+          [[ "$installation_model_id" =~ ^[0-9]+$ ]]
+          test -s "$state/ssh_public_key"
+          # begin-testbox deliberately continues after degraded phone-home.
+          # Validate the SSH handoff and install the identity marker before the
+          # pinned run-testbox action publishes ready. That action remains the
+          # sole readiness publisher, so a CLI run cannot race this marker.
+          marker="$state/cmux-tui-rust-setup-identity.json"
+          rm -f "$marker"
+          install -m 600 testbox-benchmark/setup-identity.json "$marker"
+          test -s "$marker"
+
+      # Keepalive is checked into this main-controlled workflow instead of
+      # importing an upstream composite that performs an unbounded duplicate
+      # ready curl. It reports
+      # hydration_failed on any failed setup or readiness path and bounds every
+      # phone-home request before entering its idle loop.
+      - name: Run trusted Testbox keepalive
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: ./scripts/blacksmith-testbox-keepalive.sh
