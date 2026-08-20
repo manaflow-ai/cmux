@@ -832,6 +832,21 @@ import Testing
         #expect(store.selectedWorkspaceMatches(remoteWorkspaceID: "row-a", macDeviceID: "mac-a"))
     }
 
+    @Test func macScopedSelectionDoesNotMatchAnUnownedWorkspace() {
+        let workspace = MobileWorkspacePreview(
+            id: "unowned-row",
+            name: "Unowned",
+            terminals: [MobileTerminalPreview(id: "terminal", name: "unowned")]
+        )
+        let store = MobileShellComposite(workspaces: [workspace])
+        store.selectedWorkspaceID = "unowned-row"
+
+        #expect(!store.selectedWorkspaceMatches(
+            remoteWorkspaceID: "unowned-row",
+            macDeviceID: "mac-a"
+        ))
+    }
+
     @Test func secondaryUnavailableDowngradeKeepsRowsVisibleButInactive() {
         let store = MobileShellComposite.preview()
         store.signIn()

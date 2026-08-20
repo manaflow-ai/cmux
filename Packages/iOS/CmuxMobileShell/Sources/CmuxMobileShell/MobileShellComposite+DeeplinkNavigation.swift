@@ -83,11 +83,13 @@ extension CMUXMobileShellStore {
               selectedWorkspace.rpcWorkspaceID.rawValue == remoteWorkspaceID else {
             return false
         }
-        guard let macDeviceID, !macDeviceID.isEmpty,
-              let selectedMacDeviceID = selectedWorkspace.macDeviceID else {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
             return selectedWorkspace.macDeviceID == nil
                 && selectedWorkspace.macInstanceTag == nil
                 && instanceTag == nil
+        }
+        guard let selectedMacDeviceID = selectedWorkspace.macDeviceID else {
+            return false
         }
         return MacPairingKey(
             macDeviceID: selectedMacDeviceID,
