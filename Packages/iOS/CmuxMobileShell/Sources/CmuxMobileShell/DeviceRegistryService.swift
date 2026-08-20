@@ -137,7 +137,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             evidence: evidence
         )
     }
-
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
     static func deviceID(
         store: any DeviceIdentityStoring,
@@ -223,7 +222,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         KeychainDeviceIdentityStore()
         #endif
     }
-
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
     static func durableDeviceID(
         store: any DeviceIdentityStoring,
@@ -751,6 +749,68 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 refreshToken: refreshToken,
                 teamID: teamID
             )
+        )
+    }
+}
+
+/// Provides Keychain-scoped device identities for one exact iOS app namespace.
+public extension MobileIOSAppNamespace {
+    /// Returns this app bundle's stable device-registry identity.
+    ///
+    /// The exact bundle namespace selects a device-only Keychain service. The
+    /// best-effort registry read may return a process-stable ephemeral value
+    /// when protected storage is unavailable, but that value is never used for
+    /// an Iroh binding.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func deviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard,
+        deviceWitness: String? = nil,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String {
+        DeviceRegistryService.deviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            evidence: evidence
+        )
+    }
+
+    /// Returns this app bundle's durable Iroh device identity.
+    ///
+    /// A `nil` result means protected storage is unavailable or a fresh value
+    /// could not be persisted. Callers must defer broker registration instead
+    /// of substituting an ephemeral identity.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func durableDeviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard,
+        deviceWitness: String? = nil,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String? {
+        DeviceRegistryService.durableDeviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            evidence: evidence
         )
     }
 }

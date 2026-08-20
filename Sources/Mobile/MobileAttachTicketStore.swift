@@ -67,6 +67,8 @@ final class MobileAttachTicketStore {
         for ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
         target: MobileAttachTarget? = nil,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved,
         now: Date = Date()
     ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
@@ -81,7 +83,8 @@ final class MobileAttachTicketStore {
         case nil:
             payload["attach_url"] = try attachURL(
                 for: disclosedTicket,
-                routeDisclosureMode: routeDisclosureMode
+                routeDisclosureMode: routeDisclosureMode,
+                pairingURLScheme: pairingURLScheme
             ).absoluteString
         case .ticketOnly:
             break
@@ -89,7 +92,8 @@ final class MobileAttachTicketStore {
             payload["attach_url"] = try attachURL(
                 for: disclosedTicket,
                 target: target,
-                routeDisclosureMode: routeDisclosureMode
+                routeDisclosureMode: routeDisclosureMode,
+                pairingURLScheme: pairingURLScheme
             ).absoluteString
         }
         // `expires_at` describes the minted attach token's lifetime (tickets
@@ -154,7 +158,8 @@ final class MobileAttachTicketStore {
 
     private func attachURL(
         for ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme?
     ) throws -> URL {
         // Frozen iOS builds predate either the compact short-key v1 payload or
         // the bare-route v2 grammar. Give those clients the original full-key
@@ -163,7 +168,10 @@ final class MobileAttachTicketStore {
         // targets still use the EndpointID-only representation below.
         if routeDisclosureMode == .legacyPrivateNetworkCompatibility,
            ticket.routes.contains(where: { $0.kind == .tailscale }) {
-            guard let url = try CmxLegacyPrivateNetworkPairingCode().encode(ticket) else {
+            guard let url = try CmxLegacyPrivateNetworkPairingCode().encode(
+                ticket,
+                pairingURLScheme: pairingURLScheme
+            ) else {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
             return url
@@ -171,7 +179,8 @@ final class MobileAttachTicketStore {
 
         if let pairingURL = CmxPairingQRCode().encode(
             ticket,
-            routeDisclosureMode: routeDisclosureMode
+            routeDisclosureMode: routeDisclosureMode,
+            pairingURLScheme: pairingURLScheme
         ), let url = URL(string: pairingURL) {
             return url
         }
@@ -188,8 +197,8 @@ final class MobileAttachTicketStore {
         // QR must open the matching iOS channel just like the v2 path in
         // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
         // phone a code the system camera routes to a dev build (or vice versa).
-        let rawURL = "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
-        guard let url = URL(string: rawURL) else {
+        guard let scheme = pairingURLScheme?.rawValue,
+              let url = URL(string: "\(scheme)://attach?v=\(ticket.version)&payload=\(payload)") else {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
@@ -198,7 +207,8 @@ final class MobileAttachTicketStore {
     private func attachURL(
         for ticket: CmxAttachTicket,
         target: MobileAttachTarget,
-        routeDisclosureMode _: CmxPairingRouteDisclosureMode
+        routeDisclosureMode _: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme?
     ) throws -> URL {
         switch target {
         case .ticketOnly:
@@ -207,7 +217,8 @@ final class MobileAttachTicketStore {
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 return try compactAttachURL(
                     for: ticket,
-                    routeDisclosureMode: .irohIdentityOnly
+                    routeDisclosureMode: .irohIdentityOnly,
+                    pairingURLScheme: pairingURLScheme
                 )
             }
             guard ticket.routes.allSatisfy({
@@ -217,13 +228,15 @@ final class MobileAttachTicketStore {
             }
             return try compactAttachURL(
                 for: ticket,
-                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 guard let pairingURL = CmxPairingQRCode().encode(
                     ticket,
-                    routeDisclosureMode: .irohIdentityOnly
+                    routeDisclosureMode: .irohIdentityOnly,
+                    pairingURLScheme: pairingURLScheme
                 ),
                 let url = URL(string: pairingURL),
                 let components = URLComponents(
@@ -242,7 +255,8 @@ final class MobileAttachTicketStore {
             }),
             let pairingURL = CmxPairingQRCode().encode(
                 ticket,
-                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                pairingURLScheme: pairingURLScheme
             ),
             let url = URL(string: pairingURL),
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -256,7 +270,8 @@ final class MobileAttachTicketStore {
 
     private func compactAttachURL(
         for ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme?
     ) throws -> URL {
         let coder = CmxAttachTicketCompactCoder()
         let data = try coder.encode(
@@ -264,8 +279,9 @@ final class MobileAttachTicketStore {
             routeDisclosureMode: routeDisclosureMode
         )
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(
-            string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        guard let scheme = pairingURLScheme?.rawValue,
+              let url = URL(
+            string: "\(scheme)://attach?v=\(ticket.version)&payload=\(payload)"
         ),
         let decoded = try? coder.decode(data),
         decoded.routes == ticket.routes,

@@ -47,6 +47,57 @@ struct MobileTaskModelCatalogClientTests {
         ])
     }
 
+    @Test func parsesEffortsOnlyFromTheirExactModel() throws {
+        let data = Data(#"{"schemaVersion":1,"providers":{"codex":{"models":[{"id":"gpt-large","label":"GPT Large","efforts":[{"value":"medium","label":"Medium","description":"Balanced"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"gpt-small","label":"GPT Small","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]}}}"#.utf8)
+
+        let models = try MobileTaskModelCatalogClient.models(
+            from: data,
+            provider: .codex
+        )
+
+        #expect(models == [
+            MobileTaskAgentModel(
+                id: "gpt-large",
+                displayName: "GPT Large",
+                efforts: [
+                    MobileTaskAgentEffort(
+                        id: "medium",
+                        displayName: "Medium",
+                        description: "Balanced"
+                    ),
+                    MobileTaskAgentEffort(id: "high", displayName: "High"),
+                ],
+                defaultEffortID: "medium"
+            ),
+            MobileTaskAgentModel(
+                id: "gpt-small",
+                displayName: "GPT Small",
+                efforts: [MobileTaskAgentEffort(id: "low", displayName: "Low")],
+                defaultEffortID: "low"
+            ),
+        ])
+    }
+
+    @Test func resolvesProviderDefaultModelEffortsWithoutInventingAPickerModel() throws {
+        let data = Data(#"{"schemaVersion":1,"providers":{"claude":{"defaultModel":"claude-default","models":[{"id":"claude-default","label":"Claude Default","efforts":[{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"claude-other","label":"Claude Other","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]}}}"#.utf8)
+
+        let result = try MobileTaskModelCatalogClient.result(
+            from: data,
+            provider: .claude
+        )
+
+        #expect(result.models.map(\.id) == ["claude-default", "claude-other"])
+        #expect(result.defaultModel == MobileTaskAgentModel(
+            id: "claude-default",
+            displayName: "Claude Default",
+            efforts: [
+                MobileTaskAgentEffort(id: "medium", displayName: "Medium"),
+                MobileTaskAgentEffort(id: "high", displayName: "High"),
+            ],
+            defaultEffortID: "medium"
+        ))
+    }
+
     @Test func sameInstalledClientObservesModelsReleasedAfterFirstRefresh() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
@@ -114,7 +165,15 @@ struct MobileTaskModelCatalogClientTests {
             [
                 MobileTaskAgentModel(
                     id: "host-next-999",
-                    displayName: "Host Next 999"
+                    displayName: "Host Next 999",
+                    efforts: [
+                        MobileTaskAgentEffort(
+                            id: "high",
+                            displayName: "High",
+                            description: "More reasoning"
+                        ),
+                    ],
+                    defaultEffortID: "high"
                 ),
             ],
             provider: .claude
@@ -139,7 +198,15 @@ struct MobileTaskModelCatalogClientTests {
         ) == [
             MobileTaskAgentModel(
                 id: "host-next-999",
-                displayName: "Host Next 999"
+                displayName: "Host Next 999",
+                efforts: [
+                    MobileTaskAgentEffort(
+                        id: "high",
+                        displayName: "High",
+                        description: "More reasoning"
+                    ),
+                ],
+                defaultEffortID: "high"
             ),
         ])
         #expect(store.taskModelListSource(
