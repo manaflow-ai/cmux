@@ -194,20 +194,28 @@ fn terminfo_resolves_within(name: &str, deadline: Duration) -> bool {
     loop {
         // Deadline first, so a zero deadline is deterministically a failure.
         if Instant::now() >= end {
-            let _ = child.kill();
-            let _ = child.wait();
-            return false;
+            return abandon(child);
         }
         match child.try_wait() {
             Ok(Some(status)) => return status.success(),
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
+            Err(_) => return abandon(child),
         }
     }
+}
+
+/// Kill and reap the probe off-thread, and report failure. A process stuck
+/// in an uninterruptible filesystem operation can survive SIGKILL until the
+/// operation returns, so waiting inline would reintroduce the unbounded
+/// stall on the surface-creation thread that the deadline exists to prevent.
+/// At most one probe runs per process (the result is cached in a OnceLock),
+/// so at most one reaper thread can ever be left behind.
+fn abandon(mut child: std::process::Child) -> bool {
+    let _ = child.kill();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    false
 }
 
 impl Default for SurfaceOptions {
