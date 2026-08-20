@@ -93,6 +93,11 @@ struct TitleUpdateAmplificationRegressionTests {
         // same value still emits the Dock/Spaces work that this regression is
         // about, so no-op writes must be skipped at the source.
         #expect(window.titleWriteCount == firstWriteCount)
+
+        window.title = "External title"
+        let externalMutationCount = window.titleWriteCount
+        manager.updateWindowTitleForSelectedTab()
+        #expect(window.titleWriteCount == externalMutationCount + 1)
     }
 
     @Test

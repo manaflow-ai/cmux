@@ -8,15 +8,8 @@ import AppKit
 /// an unchanged title from becoming another Dock/Spaces mutation.
 @MainActor
 final class WindowTitleWriter {
-    private weak var lastAppliedWindow: NSWindow?
-    private var lastAppliedTitle: String?
-
     func apply(_ title: String, to window: NSWindow) {
-        guard lastAppliedWindow !== window || lastAppliedTitle != title else {
-            return
-        }
+        guard window.title != title else { return }
         window.title = title
-        lastAppliedWindow = window
-        lastAppliedTitle = title
     }
 }
