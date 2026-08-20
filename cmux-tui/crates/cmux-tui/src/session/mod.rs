@@ -309,6 +309,22 @@ enum InitialBootstrap {
     LayoutIntact,
 }
 
+/// Idempotency identity for the bare-session bootstrap create. Uniqueness
+/// matters: a collision would make the daemon replay another client's create
+/// instead of applying the revision guard.
+fn bootstrap_mutation_id() -> anyhow::Result<String> {
+    use std::fmt::Write as _;
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("cannot allocate bootstrap mutation identity: {error}"))?;
+    let mut id = String::with_capacity(50);
+    id.push_str("attach-bootstrap_");
+    for byte in bytes {
+        let _ = write!(id, "{byte:02x}");
+    }
+    Ok(id)
+}
+
 fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
     if tree.workspaces.is_empty() {
         return InitialBootstrap::FirstWorkspace;
@@ -579,26 +595,62 @@ impl Session {
                         );
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
-                        let workspace = tree
-                            .workspaces
-                            .get(tree.active_workspace)
-                            .or_else(|| tree.workspaces.first())
-                            .expect("bare-session bootstrap requires at least one workspace");
-                        let mut request = json!({"cmd": "create-terminal"});
-                        if workspace.key.is_empty() {
-                            request["workspace"] = json!(workspace.id);
-                        } else {
-                            request["key"] = json!(workspace.key);
-                        }
-                        remote.request(with_size(request, size))?;
-                        anyhow::ensure!(
-                            remote
-                                .refresh_tree()?
-                                .workspaces
+                        // Re-read the tree raw so the create can carry the
+                        // terminal revision of the very snapshot it targets,
+                        // and re-verify bareness from that snapshot: when two
+                        // clients attach to one bare session, the daemon
+                        // rejects the guarded create whose revision already
+                        // moved, and the postcondition accepts the shell
+                        // whichever client created it.
+                        let snapshot = remote.request(json!({"cmd": "list-workspaces"}))?;
+                        let workspaces = snapshot["workspaces"].as_array();
+                        let bare = workspaces.is_some_and(|workspaces| {
+                            !workspaces.is_empty()
+                                && workspaces.iter().all(|workspace| {
+                                    workspace["screens"]
+                                        .as_array()
+                                        .is_none_or(|screens| screens.is_empty())
+                                })
+                        });
+                        let create_result = if bare {
+                            let workspaces = workspaces.expect("bareness implies an array");
+                            let target = workspaces
                                 .iter()
-                                .any(|workspace| !workspace.screens.is_empty()),
-                            "remote session did not expose the shell it created in its bare workspace"
-                        );
+                                .find(|workspace| workspace["active"].as_bool() == Some(true))
+                                .unwrap_or(&workspaces[0]);
+                            let mut request = json!({
+                                "cmd": "create-terminal",
+                                "origin": "attach-bare-session-bootstrap",
+                                "mutation_id": bootstrap_mutation_id()?,
+                            });
+                            match target["key"].as_str() {
+                                Some(key) if !key.is_empty() => request["key"] = json!(key),
+                                _ => request["workspace"] = target["id"].clone(),
+                            }
+                            if let Some(generation) = snapshot["generation"].as_str() {
+                                request["expected_generation"] = json!(generation);
+                            }
+                            if let Some(revision) = snapshot["terminal_revision"].as_u64() {
+                                request["expected_revision"] = json!(revision);
+                            }
+                            remote.request(with_size(request, size)).map(|_| ())
+                        } else {
+                            Ok(())
+                        };
+                        let bootstrapped = remote
+                            .refresh_tree()?
+                            .workspaces
+                            .iter()
+                            .any(|workspace| !workspace.screens.is_empty());
+                        if !bootstrapped {
+                            return Err(match create_result {
+                                Err(error) => error
+                                    .context("bare-session bootstrap could not create its shell"),
+                                Ok(()) => anyhow::anyhow!(
+                                    "remote session did not expose the shell it created in its bare workspace"
+                                ),
+                            });
+                        }
                     }
                     InitialBootstrap::LayoutIntact => {}
                 }
