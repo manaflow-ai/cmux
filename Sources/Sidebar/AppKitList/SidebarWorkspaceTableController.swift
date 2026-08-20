@@ -525,7 +525,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             containerView.tableView.reloadData()
             resetViewportToTop()
             mutationScheduler.stagePostUpdateActions(
-                postUpdateActions + [{ [weak self] in self?.resetViewportToTop() }]
+                postUpdateActions + [{ [weak self] in
+                    guard let self else { return }
+                    self.performWidthRemeasureNow()
+                    self.noteAllRowHeights()
+                    self.resetViewportToTop()
+                }]
             )
         } else if hasStructuralChanges {
             if heightChanges.isEmpty, isSmallPureReorder {
@@ -643,7 +648,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageApply(deferredInteractiveResizeApply)
         }
         performWidthRemeasureNow()
+        noteAllRowHeights()
         clampHorizontalScrollOrigin()
+    }
+
+    /// Re-notifies EVERY row height. The changed-set optimizations compare
+    /// against the cache's previous value, which misses rows whose cache
+    /// entry is already correct while the table still holds a height queried
+    /// mid-animation (a mode-flip reload during a width spring). Cheap for a
+    /// sidebar-sized list; used only at settle points.
+    private func noteAllRowHeights() {
+        guard let containerView, !rows.isEmpty else { return }
+        noteHeightOfRowsWithoutAnimation(
+            containerView.tableView,
+            IndexSet(integersIn: 0..<rows.count)
+        )
     }
 
     /// The sidebar never scrolls horizontally by design, but an animated
