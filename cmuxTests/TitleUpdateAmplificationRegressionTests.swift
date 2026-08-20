@@ -122,6 +122,20 @@ struct TitleUpdateAmplificationRegressionTests {
         #expect(intervalRecorder.value == .milliseconds(1_000))
     }
 
+    @Test
+    func productionTitleDeadlineDeliversThroughItsCallbackSignal() async {
+        let (events, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let deadline = GhosttyTitleUpdateDeadline(interval: .milliseconds(1)) {
+            continuation.yield(())
+            continuation.finish()
+        }
+        var iterator = events.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+        deadline.cancel()
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async {

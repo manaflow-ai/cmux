@@ -38,13 +38,11 @@ actor GhosttyTitleUpdateDispatcher {
         self.attachmentGeneration = attachmentGeneration
         minimumAttachmentGeneration = attachmentGeneration.loadRelaxed()
         self.schedule = schedule ?? { interval, action in
-            let task = Task {
-                // This cancellable delay is the intended title-publication window, not a readiness poll.
-                try? await ContinuousClock().sleep(for: interval)
-                guard !Task.isCancelled else { return }
-                await action()
-            }
-            return { task.cancel() }
+            let deadline = GhosttyTitleUpdateDeadline(
+                interval: interval,
+                action: action
+            )
+            return { deadline.cancel() }
         }
         self.publish = publish
     }
