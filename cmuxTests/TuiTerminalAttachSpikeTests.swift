@@ -185,6 +185,17 @@ struct TuiTerminalAttachSpikeTests {
     }
 
     @Test
+    func attachCommandPrefixesBridgeConfigEnvironment() {
+        let command = TuiTerminalAttachPolicy.attachCommand(
+            binaryPath: "/Users/x/.local/bin/cmux-tui-npm",
+            sessionName: "cmux-tuispk",
+            terminalID: "term_abc",
+            configPath: "/Users/x/Library/Application Support/cmux/tui-bridge.json"
+        )
+        #expect(command == "CMUX_TUI_CONFIG='/Users/x/Library/Application Support/cmux/tui-bridge.json' '/Users/x/.local/bin/cmux-tui-npm' attach --session 'cmux-tuispk' --terminal 'term_abc'")
+    }
+
+    @Test
     func daemonSocketPathFollowsTuiConvention() {
         let path = TuiTerminalAttachPolicy.daemonSocketPath(
             sessionName: "cmux-tuispk",

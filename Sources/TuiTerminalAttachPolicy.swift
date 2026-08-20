@@ -94,14 +94,24 @@ enum TuiTerminalAttachPolicy {
     static func attachCommand(
         binaryPath: String,
         sessionName: String,
-        terminalID: String
+        terminalID: String,
+        configPath: String? = nil
     ) -> String {
-        [
+        var tokens: [String] = []
+        if let configPath, !configPath.isEmpty {
+            // App-managed sessions must not parse the user's interactive
+            // cmux-tui config: schema drift between binaries prints warnings
+            // onto the surface (visible as a flash when the alt screen pops
+            // on quit) and couples the bridge to unrelated workstreams.
+            tokens.append("CMUX_TUI_CONFIG=\(shellQuoted(configPath))")
+        }
+        tokens.append(contentsOf: [
             shellQuoted(binaryPath),
             "attach",
             "--session", shellQuoted(sessionName),
             "--terminal", shellQuoted(terminalID),
-        ].joined(separator: " ")
+        ])
+        return tokens.joined(separator: " ")
     }
 
     /// Extracts the created terminal id from `workspace create --json` output

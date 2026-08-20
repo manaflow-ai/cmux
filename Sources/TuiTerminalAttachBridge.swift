@@ -39,6 +39,30 @@ final class TuiTerminalAttachBridge {
 
     private var cachedTerminalIDs: (ids: Set<String>, fetchedAt: Date)?
 
+    /// App-managed config for every bridge-spawned cmux-tui process (daemon,
+    /// CLI calls, attach clients). Isolates app sessions from the user's
+    /// interactive `~/.config/cmux/cmux-tui.json`, whose schema may belong to
+    /// a different binary version; parse warnings from that file print onto
+    /// the surface and flash when the alt screen pops on quit.
+    nonisolated static let bridgeConfigPath: String = {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = base.appendingPathComponent("cmux", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("tui-bridge.json")
+        if !FileManager.default.fileExists(atPath: file.path) {
+            try? Data("{}\n".utf8).write(to: file)
+        }
+        return file.path
+    }()
+
+    private nonisolated static var bridgeEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["CMUX_TUI_CONFIG"] = bridgeConfigPath
+        return env
+    }
+
     private var sessionName: String {
         TuiTerminalAttachPolicy.sessionName(
             controlSocketPath: TerminalController.shared.activeSocketPath(
@@ -157,7 +181,8 @@ final class TuiTerminalAttachBridge {
         TuiTerminalAttachPolicy.attachCommand(
             binaryPath: Self.binaryPath,
             sessionName: sessionName,
-            terminalID: terminalID
+            terminalID: terminalID,
+            configPath: Self.bridgeConfigPath
         )
     }
 
@@ -171,6 +196,7 @@ final class TuiTerminalAttachBridge {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = ["server", "start", "--session", session, "--headless"]
+        process.environment = Self.bridgeEnvironment
         let logPath = "/tmp/cmux-tui-\(session).log"
         FileManager.default.createFile(atPath: logPath, contents: nil)
         if let logHandle = FileHandle(forWritingAtPath: logPath) {
@@ -228,6 +254,7 @@ final class TuiTerminalAttachBridge {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
+        process.environment = bridgeEnvironment
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
