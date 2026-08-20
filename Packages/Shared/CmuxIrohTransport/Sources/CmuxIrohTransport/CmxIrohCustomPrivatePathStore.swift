@@ -217,7 +217,10 @@ public actor CmxIrohCustomPrivatePathStore {
               configuration.isEnabled,
               let profile = try? profile(
                   accountScope: scope,
-                  macAppInstanceID: configuration.id
+                  identity: CmxMacAppInstanceIdentity(
+                      macDeviceID: configuration.macDeviceID,
+                      instanceTag: configuration.instanceTag
+                  )
               ) else { return [] }
         return configuration.addresses.compactMap {
             try? CmxIrohCustomPrivatePathBootstrap(
@@ -299,7 +302,10 @@ public actor CmxIrohCustomPrivatePathStore {
         where configuration.isEnabled && !configuration.addresses.isEmpty {
             profiles.insert(try profile(
                 accountScope: scope,
-                macAppInstanceID: configuration.id
+                identity: CmxMacAppInstanceIdentity(
+                    macDeviceID: configuration.macDeviceID,
+                    instanceTag: configuration.instanceTag
+                )
             ))
         }
         return CmxIrohCustomPrivatePathSnapshot(
@@ -311,11 +317,22 @@ public actor CmxIrohCustomPrivatePathStore {
 
     private func profile(
         accountScope: String,
-        macAppInstanceID: String
+        identity: CmxMacAppInstanceIdentity
     ) throws -> CmxIrohNetworkProfileKey {
+        let namespace: String
+        let identityComponent: String
+        if identity.instanceTag == nil {
+            // Retain the original profile authority for persisted v1
+            // device-only configurations across the build-scoped upgrade.
+            namespace = "custom-private-path-v1"
+            identityComponent = identity.macDeviceID
+        } else {
+            namespace = "custom-private-path-v2"
+            identityComponent = identity.id
+        }
         let digest = SHA256.hash(
             data: Data(
-                "custom-private-path-v2\0\(accountScope)\0\(macAppInstanceID)".utf8
+                "\(namespace)\0\(accountScope)\0\(identityComponent)".utf8
             )
         )
         var encoded = [UInt8]()
