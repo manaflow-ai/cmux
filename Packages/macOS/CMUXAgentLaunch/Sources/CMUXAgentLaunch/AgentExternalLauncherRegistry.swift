@@ -272,11 +272,14 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
         }
         let directory = (shim as NSString).deletingLastPathComponent
         guard !directory.isEmpty else { return environment }
-        var updated = environment
-        let existingPath = environment["PATH"] ?? ""
+        // Only ever a prefix. The shim directory holds the agent shim and nothing else, so setting
+        // PATH to it alone would leave the wrapper itself unresolvable and turn a lost-hooks
+        // degradation into a failed resume.
+        guard let existingPath = environment["PATH"], !existingPath.isEmpty else { return environment }
         let components = existingPath.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
         guard components.first != directory else { return environment }
-        updated["PATH"] = existingPath.isEmpty ? directory : "\(directory):\(existingPath)"
+        var updated = environment
+        updated["PATH"] = "\(directory):\(existingPath)"
         return updated
     }
 

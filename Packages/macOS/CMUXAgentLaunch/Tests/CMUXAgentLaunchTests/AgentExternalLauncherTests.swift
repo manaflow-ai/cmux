@@ -335,6 +335,11 @@ import Testing
             ["node", "-e", "require('x')", "llm-gateway", "exec"],
             ["node", "--eval", "run()", "llm-gateway"],
             ["npx", "--call", "build", "llm-gateway"],
+            // A runner option that takes a value would otherwise make the value the "launcher".
+            ["npx", "--package", "some-pkg", "llm-gateway", "exec"],
+            ["pnpm", "--filter", "app", "llm-gateway"],
+            // An unknown env option is not guessed at either.
+            ["env", "--some-future-flag", "llm-gateway", "exec"],
             // An interpreter option can name a module or change resolution instead of carrying the
             // program inline; the search stops at the first option either way.
             ["python3", "-m", "runpy", "llm-gateway"],
@@ -540,6 +545,37 @@ import Testing
         #expect(
             withoutLauncher.preservingExternalLauncher(from: [nil, blankLauncher]) == withoutLauncher
         )
+    }
+
+    /// The shim directory holds one file, so making it the whole `PATH` would leave the wrapper
+    /// itself unresolvable — a failed resume instead of a resume without hooks.
+    @Test func shimRoutingOnlyEverPrefixesAnExistingPath() {
+        let shimmed = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+            ["CMUX_CLAUDE_WRAPPER_SHIM": "/tmp/shims/claude", "PATH": "/usr/bin:/bin"],
+            shimEnvironmentKey: "CMUX_CLAUDE_WRAPPER_SHIM",
+            isExecutableFile: { $0 == "/tmp/shims/claude" }
+        )
+        #expect(shimmed["PATH"] == "/tmp/shims:/usr/bin:/bin")
+
+        for environment in [
+            ["CMUX_CLAUDE_WRAPPER_SHIM": "/tmp/shims/claude"],
+            ["CMUX_CLAUDE_WRAPPER_SHIM": "/tmp/shims/claude", "PATH": ""],
+        ] {
+            let untouched = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                environment,
+                shimEnvironmentKey: "CMUX_CLAUDE_WRAPPER_SHIM",
+                isExecutableFile: { $0 == "/tmp/shims/claude" }
+            )
+            #expect(untouched == environment)
+        }
+
+        // Already first: left alone rather than duplicated.
+        let idempotent = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+            ["CMUX_CLAUDE_WRAPPER_SHIM": "/tmp/shims/claude", "PATH": "/tmp/shims:/usr/bin"],
+            shimEnvironmentKey: "CMUX_CLAUDE_WRAPPER_SHIM",
+            isExecutableFile: { $0 == "/tmp/shims/claude" }
+        )
+        #expect(idempotent["PATH"] == "/tmp/shims:/usr/bin")
     }
 
     @Test func wrappedResumeKeepsTheAgentShimReachableOnPath() throws {

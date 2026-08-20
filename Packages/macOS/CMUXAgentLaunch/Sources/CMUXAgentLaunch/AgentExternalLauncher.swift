@@ -338,21 +338,25 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
                 continue
             }
             guard word.hasPrefix("-") else { return cursor }
-            // An interpreter's options decide what the program is, so the first one ends the search
-            // rather than being classified.
+            // Only options whose shape is known are skipped; anything else ends the search. Guessing
+            // is what turns an option's value into a "launcher": `npx --package <pkg> wrapper` would
+            // otherwise attribute the session to `<pkg>`.
+            if forwardingCommand == "env" {
+                if environmentCommandFlagOptions.contains(word) {
+                    cursor += 1
+                } else if environmentCommandValueOptions.contains(word) {
+                    cursor += 2
+                } else {
+                    return argv.count
+                }
+                continue
+            }
+            // An interpreter's options decide what its program even is, so none of them are skipped.
             if interpreterCommands.contains(forwardingCommand) {
                 return argv.count
             }
-            // For a package runner, an option that carries the program inline (`npm -c call`) means
-            // every later word belongs to that program.
-            if inlineProgramOptions.contains(word) {
-                return argv.count
-            }
-            if optionsTakingASeparateValue.contains(word) {
-                cursor += 2
-            } else {
-                cursor += 1
-            }
+            guard packageRunnerFlagOptions.contains(word) else { return argv.count }
+            cursor += 1
         }
         return cursor
     }
@@ -372,17 +376,31 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
         "tsx", "ts-node",
     ]
 
-    /// Options whose value is the program itself, so nothing after them names an executable.
-    ///
-    /// Only consulted for non-interpreter forwarding commands, which stop at any option.
-    private static let inlineProgramOptions: Set<String> = [
-        "-c", "--command", "--call",
-        "-e", "--eval",
+    /// `env` options that stand alone, leaving the program in the next word.
+    private static let environmentCommandFlagOptions: Set<String> = [
+        "-i", "--ignore-environment",
+        "-0", "--null",
+        "-v", "--debug",
+        "--list-signal-handling",
     ]
 
-    private static let optionsTakingASeparateValue: Set<String> = [
-        "-u", "--unset", "-C", "--chdir", "-S", "--split-string",
-        "-e", "--eval", "-p", "--print", "-r", "--require", "-c",
+    /// `env` options whose value is the following word.
+    private static let environmentCommandValueOptions: Set<String> = [
+        "-u", "--unset",
+        "-C", "--chdir",
+        "-S", "--split-string",
+        "-P", "--default-signal", "--ignore-signal", "--block-signal",
+    ]
+
+    /// Package-runner options that stand alone, leaving the program in the next word.
+    ///
+    /// Anything outside this set ends the search rather than being guessed at: a runner option that
+    /// takes a value (`npx --package <pkg> wrapper`) would otherwise make the value look like the
+    /// program, and one that carries a command (`npm -c "…"`) would make an argument look like it.
+    private static let packageRunnerFlagOptions: Set<String> = [
+        "-y", "--yes",
+        "-q", "--quiet", "--silent",
+        "--offline", "--prefer-offline", "--no-install", "--ignore-existing",
     ]
 
     private static func isEnvironmentAssignment(_ word: String) -> Bool {
