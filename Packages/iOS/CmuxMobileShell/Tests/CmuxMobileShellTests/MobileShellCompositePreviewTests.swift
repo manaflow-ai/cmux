@@ -851,8 +851,11 @@ import Testing
         let suiteName = "computer-priority-migration-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        var sortStore = MobileWorkspaceSortStore(defaults: defaults)
-        sortStore.setComputerPriority(["mac-a"])
+        defaults.set(
+            Data(#"{"mode":"computerPriority","computerPriority":["mac-a"]}"#.utf8),
+            forKey: MobileWorkspaceSortStore.defaultsKey
+        )
+        let sortStore = MobileWorkspaceSortStore(defaults: defaults)
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [

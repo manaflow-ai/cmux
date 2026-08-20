@@ -827,7 +827,7 @@ extension MobileShellComposite {
     /// that physical device, preserving the user's order across Stable,
     /// Nightly, and untagged rows without making the bare id a new wildcard.
     func migrateLegacyWorkspaceComputerPriority(loadedMacs: [MobilePairedMac]) {
-        guard !workspaceComputerPriority.isEmpty else { return }
+        guard workspaceSortStore.needsComputerIdentityMigration else { return }
         var migrated: [String] = []
         for computerID in workspaceComputerPriority {
             let identity = CmxMacAppInstanceIdentity(id: computerID)
@@ -841,6 +841,10 @@ extension MobileShellComposite {
                     instanceTag: $0.instanceTag
                 ).macDeviceID == identity.macDeviceID
             }
+            if matches.contains(where: { $0.instanceTag == nil }) {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
             if matches.isEmpty {
                 if !migrated.contains(identity.id) { migrated.append(identity.id) }
                 continue
@@ -853,8 +857,7 @@ extension MobileShellComposite {
                 if !migrated.contains(pairingID) { migrated.append(pairingID) }
             }
         }
-        guard migrated != workspaceComputerPriority else { return }
-        workspaceSortStore.setComputerPriority(migrated)
+        workspaceSortStore.migrateLegacyComputerPriority(migrated)
         workspaceComputerPriority = migrated
     }
 

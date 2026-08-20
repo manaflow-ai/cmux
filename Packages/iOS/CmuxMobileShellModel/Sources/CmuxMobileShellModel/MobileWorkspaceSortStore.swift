@@ -11,6 +11,7 @@ public import Foundation
 public struct MobileWorkspaceSortStore: Sendable {
     /// The defaults key under which the mode + computer order payload is stored.
     public static let defaultsKey = "dev.cmux.mobile.workspaceList.sort.v1"
+    private static let currentComputerIdentityVersion = 2
 
     /// The persisted shape. `mode` stays a raw string so a value written by a
     /// newer build with more modes still decodes here (reading as `.automatic`
@@ -18,6 +19,7 @@ public struct MobileWorkspaceSortStore: Sendable {
     private struct Payload: Codable {
         var mode: String
         var computerPriority: [String]
+        var computerIdentityVersion: Int?
     }
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
@@ -35,7 +37,8 @@ public struct MobileWorkspaceSortStore: Sendable {
         } else {
             payload = Payload(
                 mode: MobileWorkspaceSortMode.automatic.rawValue,
-                computerPriority: []
+                computerPriority: [],
+                computerIdentityVersion: Self.currentComputerIdentityVersion
             )
         }
     }
@@ -52,6 +55,12 @@ public struct MobileWorkspaceSortStore: Sendable {
     /// temporarily offline computer retains its slot.
     public var computerPriority: [String] { payload.computerPriority }
 
+    /// Whether a pre-build-scoped order still needs one migration after the
+    /// paired-Mac rows are available to disambiguate bare device ids.
+    public var needsComputerIdentityMigration: Bool {
+        (payload.computerIdentityVersion ?? 1) < Self.currentComputerIdentityVersion
+    }
+
     /// Persist a mode choice. No-op when unchanged.
     public mutating func setMode(_ mode: MobileWorkspaceSortMode) {
         guard payload.mode != mode.rawValue else { return }
@@ -63,6 +72,15 @@ public struct MobileWorkspaceSortStore: Sendable {
     public mutating func setComputerPriority(_ computerIDs: [String]) {
         guard payload.computerPriority != computerIDs else { return }
         payload.computerPriority = computerIDs
+        payload.computerIdentityVersion = Self.currentComputerIdentityVersion
+        persist()
+    }
+
+    /// Persist a one-time upgrade of the legacy device-only priority format.
+    public mutating func migrateLegacyComputerPriority(_ computerIDs: [String]) {
+        guard needsComputerIdentityMigration else { return }
+        payload.computerPriority = computerIDs
+        payload.computerIdentityVersion = Self.currentComputerIdentityVersion
         persist()
     }
 
