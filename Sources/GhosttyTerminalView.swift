@@ -71,7 +71,7 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
         case .freshInstall:
             return String(
                 localized: "debug.startupAppearance.profile.freshInstall.detail",
-                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
+                defaultValue: "No user Ghostty settings, so cmux applies its managed default colors."
             )
         case .userThemePair:
             return String(
@@ -1043,6 +1043,18 @@ class GhosttyApp {
             }
         })
 
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: TerminalAdaptiveDefaultThemeSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            _ = MainActor.assumeIsolated {
+                self?.reloadConfiguration(
+                    source: "settings.terminal.adaptiveDefaultTheme"
+                )
+            }
+        })
+
         #endif
     }
 
@@ -1137,16 +1149,21 @@ class GhosttyApp {
         )
     }
 
-    /// Loads the user's resolved Ghostty config with cmux's managed default appearance
-    /// applied first, as the base: only an explicit user `theme` suppresses it, while
-    /// individual color keys override just those colors (issue #7161).
+    /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
+    /// default appearance is applied only if the config contains no directives;
+    /// otherwise Ghostty's own resolved colors are preserved.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
         themeColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
         let appearanceSummary = Self.userAppearanceConfigSummary()
-        if appearanceSummary.shouldApplyDefaultAppearance {
+        let adaptiveDefaultThemeEnabled =
+            TerminalAdaptiveDefaultThemeSettings().isEnabled
+        let shouldApplyManagedDefaultAppearance =
+            adaptiveDefaultThemeEnabled
+            && appearanceSummary.shouldApplyDefaultAppearance
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
         ghostty_config_load_default_files(config)
@@ -1156,12 +1173,12 @@ class GhosttyApp {
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. When the user set no appearance directives at all, re-assert
-        // the managed default so that skipped legacy file's colors cannot override it.
-        if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
+        // is non-empty. For an otherwise untouched config, re-assert the managed
+        // default so that skipped legacy-file colors cannot override it.
+        if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
-        hasUserGhosttyCommand = GhosttyConfig.load(
+        hasUserGhosttyCommand = GhosttyConfig.loadForCmux(
             preferredColorScheme: preferredColorScheme,
             useCache: false
         ).command != nil
@@ -1383,9 +1400,14 @@ class GhosttyApp {
     }
 
     static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        adaptiveDefaultThemeEnabled: Bool =
+            TerminalAdaptiveDefaultThemeSettings().isEnabled
     ) -> Bool {
-        configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        configDiscovery.shouldApplyManagedDefaultAppearance(
+            configPaths: configPaths,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+        )
     }
 
     static func userAppearanceConfigSummary(configPaths: [String]? = nil) -> GhosttyConfig.UserAppearanceConfigSummary {
@@ -2149,7 +2171,7 @@ class GhosttyApp {
 
         return WorkspaceTerminalFontConfigurationSnapshot(
             configuredRuntimePoints: Float32(
-                GhosttyConfig.load(
+                GhosttyConfig.loadForCmux(
                     globalFontMagnificationPercent:
                         magnificationPercent
                 ).fontSize
@@ -2417,10 +2439,26 @@ class GhosttyApp {
 
         let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
         let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
-        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
-        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
-        let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
-        let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
+        let resolvedCursor = ghosttyColorValue(
+            from: config,
+            key: "cursor-color",
+            fallback: resolvedForeground
+        )
+        let resolvedCursorText = ghosttyColorValue(
+            from: config,
+            key: "cursor-text",
+            fallback: resolvedColor
+        )
+        let resolvedSelectionBackground = ghosttyColorValue(
+            from: config,
+            key: "selection-background",
+            fallback: resolvedForeground
+        )
+        let resolvedSelectionForeground = ghosttyColorValue(
+            from: config,
+            key: "selection-foreground",
+            fallback: resolvedColor
+        )
         var opacity = baseline.backgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
@@ -2465,7 +2503,7 @@ class GhosttyApp {
         guard useOnDiskResolvedConfig else {
             return baseline
         }
-        let resolved = GhosttyConfig.load(
+        let resolved = GhosttyConfig.loadForCmux(
             preferredColorScheme: preferredColorScheme,
             useCache: false,
             globalFontMagnificationPercent:
@@ -3385,11 +3423,7 @@ class GhosttyApp {
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
             return performOnMain {
-                // Mark the dispatch before routing: this action fires
-                // synchronously inside `ghostty_surface_mouse_button`, and the
-                // release path must see it even when routing returns false
-                // (Ghostty then opens the URL with its own fallback).
-                surfaceView.noteGhosttyOpenURLActionDispatched()
+                surfaceView.recordCommandClickReleaseRuntimeOutcome(.openURL)
                 return TerminalLinkOpenCoordinator().open(request)
             }
         default:
@@ -3595,6 +3629,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
+    private var commandClickReleaseRoutingActive = false
+    private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -3793,14 +3830,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
-    /// Monotonic count of Ghostty `open_url` actions dispatched for this
-    /// surface. Ghostty fires that action synchronously inside
-    /// `ghostty_surface_mouse_button` when a release lands on a link, so the
-    /// release path snapshots this counter around the call: an advance means
-    /// Ghostty already routed the clicked link through
-    /// `TerminalLinkOpenCoordinator`, and the cmd-click word-path fallback
-    /// must not deliver the same click to a second handler (#10222).
-    private var ghosttyOpenURLDispatchCount: UInt64 = 0
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -4519,6 +4548,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
         }
         return true
+    }
+
+    func cancelKeyboardCopyMode() {
+        guard keyboardCopyModeActive else { return }
+        if let surface {
+            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        }
+        setKeyboardCopyModeActive(false)
     }
 
     private func setKeyboardCopyModeActive(_ active: Bool) {
@@ -5341,6 +5378,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
+            cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -6487,13 +6525,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    /// Records that Ghostty dispatched an `open_url` action for this surface.
-    /// Called by the runtime action handler so the in-flight mouse release can
-    /// tell that Ghostty owns the clicked link, whatever the routing outcome.
-    func noteGhosttyOpenURLActionDispatched() {
-        ghosttyOpenURLDispatchCount += 1
-    }
-
     @discardableResult
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
         if routeInputDuringClipboardRead(event) { return true }
@@ -6501,20 +6532,67 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let openURLCountBeforeRelease = ghosttyOpenURLDispatchCount
+        _ = dispatchCommandClickRelease(
+            surface: surface,
+            at: point,
+            modifierFlags: event.modifierFlags,
+            mouseMods: mouseModsFromEvent(event)
+        )
+        return true
+    }
+
+    private func beginCommandClickReleaseRouting() {
+        commandClickReleaseRoutingActive = true
+        commandClickReleaseRuntimeOutcome = nil
+    }
+
+    /// Records a URL action only while its originating mouse release is active.
+    /// Other Ghostty URL actions must not affect a later path fallback.
+    fileprivate func recordCommandClickReleaseRuntimeOutcome(
+        _ outcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
+    ) {
+        guard commandClickReleaseRoutingActive else { return }
+        commandClickReleaseRuntimeOutcome = outcome
+    }
+
+    private func finishCommandClickReleaseRouting(
+        ghosttyConsumed: Bool
+    ) -> TerminalCommandClickReleaseRouter.RuntimeOutcome {
+        defer {
+            commandClickReleaseRoutingActive = false
+            commandClickReleaseRuntimeOutcome = nil
+        }
+        guard commandClickReleaseRoutingActive else {
+            return ghosttyConsumed ? .consumed : .unhandled
+        }
+        return commandClickReleaseRuntimeOutcome ?? (ghosttyConsumed ? .consumed : .unhandled)
+    }
+
+    @discardableResult
+    private func dispatchCommandClickRelease(
+        surface: ghostty_surface_t,
+        at point: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        mouseMods: ghostty_input_mods_e
+    ) -> (
+        consumed: Bool,
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome,
+        resolution: WordPathResolution?
+    ) {
+        beginCommandClickReleaseRouting()
         let consumed = sendGhosttyMouseButton(
             surface,
             state: GHOSTTY_MOUSE_RELEASE,
             button: GHOSTTY_MOUSE_LEFT,
-            mods: mouseModsFromEvent(event)
+            mods: mouseMods
         )
-        _ = handleCommandClickRelease(
+        let runtimeOutcome = finishCommandClickReleaseRouting(ghosttyConsumed: consumed)
+        let resolution = handleCommandClickRelease(
             at: point,
-            modifierFlags: event.modifierFlags,
-            ghosttyConsumed: consumed,
-            ghosttyDispatchedOpenURL: ghosttyOpenURLDispatchCount != openURLCountBeforeRelease
+            modifierFlags: modifierFlags,
+            runtimeOutcome: runtimeOutcome
         )
-        return true
+        return (consumed, runtimeOutcome, resolution)
     }
 
     /// Attempt to open the word under the mouse cursor as a file path, resolved
@@ -6865,26 +6943,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleCommandClickRelease(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
-        ghosttyConsumed: Bool,
-        ghosttyDispatchedOpenURL: Bool
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
     ) -> WordPathResolution? {
         guard let surface else { return nil }
-        // Ghostty dispatched its open-url action for this release, so the
-        // clicked link is already being routed through
-        // TerminalLinkOpenCoordinator. Resolving and opening the word under
-        // the pointer as well would deliver the same click to two handlers —
-        // e.g. an image opening in both Preview and the preferred editor
-        // (#10222). `ghosttyConsumed` alone cannot gate this: Ghostty also
-        // consumes releases for mouse reporting and prompt clicks, where the
-        // snapshot fallback must keep working.
-        guard !ghosttyDispatchedOpenURL else {
-#if DEBUG
-            cmuxDebugLog("link.wordFallback skipped reason=ghostty_open_url_dispatched")
-#endif
-            return nil
-        }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
         let cmdHeld = modifierFlags.contains(.command)
+        let ghosttyConsumed = runtimeOutcome != .unhandled
         let resolvedPoint = preferredPointerPoint(from: point)
         guard cmdHeld, !suppressCommandPathHover else {
 #if DEBUG
@@ -6920,49 +6984,82 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else {
+        var resolvedPath: WordPathResolution?
+        let route = commandClickReleaseRouter.route(
+            commandHeld: cmdHeld,
+            pathFallbackSuppressed: suppressCommandPathHover,
+            runtimeOutcome: runtimeOutcome
+        ) { [self] in
+            guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else { return nil }
+            resolvedPath = resolution
+            return TerminalCommandClickReleaseRouter.ResolvedPath(
+                path: resolution.path,
+                source: resolution.source == .snapshot ? .snapshot : .quicklook
+            )
+        }
+
+        switch route {
+        case .runtimeOpenURL:
 #if DEBUG
             runtimeDebugLog(
-                hypothesisID: "h2",
+                hypothesisID: "h3",
                 name: "command_click_release",
-                expected: "cmd-click should resolve the token under the pointer",
-                actual: "no_resolution",
+                expected: "a runtime URL action exclusively owns the release",
+                actual: "runtime_open_url_owned",
                 data: [
+                    "flags": debugModifierString(modifierFlags),
+                    "ghostty_consumed": ghosttyConsumed,
+                    "point_x": point.x,
+                    "point_y": point.y
+                ]
+            )
+#endif
+            return nil
+        case .none:
+#if DEBUG
+            if let resolution = resolvedPath {
+                var payload: [String: Any] = [
                     "flags": debugModifierString(modifierFlags),
                     "ghostty_consumed": ghosttyConsumed,
                     "point_x": point.x,
                     "point_y": point.y,
                     "resolved_point_x": resolvedPoint?.x ?? -1,
-                    "resolved_point_y": resolvedPoint?.y ?? -1
+                    "resolved_point_y": resolvedPoint?.y ?? -1,
+                    "suppress_path_hover": suppressCommandPathHover
                 ]
-            )
-#endif
-            return nil
-        }
-        guard !ghosttyConsumed || resolution.source == .snapshot else {
-#if DEBUG
-            var payload: [String: Any] = [
-                "flags": debugModifierString(modifierFlags),
-                "ghostty_consumed": ghosttyConsumed,
-                "point_x": point.x,
-                "point_y": point.y,
-                "resolved_point_x": resolvedPoint?.x ?? -1,
-                "resolved_point_y": resolvedPoint?.y ?? -1,
-                "suppress_path_hover": suppressCommandPathHover
-            ]
-            for (key, value) in runtimeDebugResolutionPayload(resolution) {
-                payload[key] = value
+                for (key, value) in runtimeDebugResolutionPayload(resolution) {
+                    payload[key] = value
+                }
+                runtimeDebugLog(
+                    hypothesisID: "h3",
+                    name: "command_click_release",
+                    expected: "ghostty-consumed clicks should only skip fallback for real ghostty targets",
+                    actual: "consumed_quicklook_resolution_skipped",
+                    data: payload
+                )
+            } else {
+                runtimeDebugLog(
+                    hypothesisID: "h2",
+                    name: "command_click_release",
+                    expected: "cmd-click should resolve the token under the pointer",
+                    actual: "no_resolution",
+                    data: [
+                        "flags": debugModifierString(modifierFlags),
+                        "ghostty_consumed": ghosttyConsumed,
+                        "point_x": point.x,
+                        "point_y": point.y,
+                        "resolved_point_x": resolvedPoint?.x ?? -1,
+                        "resolved_point_y": resolvedPoint?.y ?? -1
+                    ]
+                )
             }
-            runtimeDebugLog(
-                hypothesisID: "h3",
-                name: "command_click_release",
-                expected: "ghostty-consumed clicks should only skip fallback for real ghostty targets",
-                actual: "consumed_quicklook_resolution_skipped",
-                data: payload
-            )
 #endif
             return nil
+        case .pathFallback:
+            break
         }
+
+        guard let resolution = resolvedPath else { return nil }
 
         #if DEBUG
         cmuxDebugLog(
@@ -7136,26 +7233,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mods
         )
-        let openURLCountBeforeRelease = ghosttyOpenURLDispatchCount
-        let releaseConsumed = sendGhosttyMouseButton(
-            surface,
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_LEFT,
-            mods: mods
-        )
-        let dispatchedOpenURL = ghosttyOpenURLDispatchCount != openURLCountBeforeRelease
-        let resolution = handleCommandClickRelease(
+        let release = dispatchCommandClickRelease(
+            surface: surface,
             at: clampedPoint,
             modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed,
-            ghosttyDispatchedOpenURL: dispatchedOpenURL
+            mouseMods: mods
         )
 
         var payload: [String: Any] = [
             "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
+            "releaseConsumed": release.consumed ? "1" : "0",
         ]
-        if let resolution {
+        if let resolution = release.resolution {
             payload["openedPath"] = resolution.path
             payload["resolutionSource"] = resolution.source.rawValue
             payload["rawToken"] = resolution.rawToken
@@ -7193,17 +7282,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: commandMods
         )
-        let releaseConsumed = sendGhosttyMouseButton(
-            surface,
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_LEFT,
-            mods: commandMods
+        let release = dispatchCommandClickRelease(
+            surface: surface,
+            at: clampedPoint,
+            modifierFlags: flags,
+            mouseMods: commandMods
         )
         flagsChanged(with: cmdUp)
 
         return [
             "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
+            "releaseConsumed": release.consumed ? "1" : "0",
         ]
     }
 
@@ -7856,8 +7945,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        executePreparedImageTransfer(
-            .fileURLs(urls),
+        let dragTypes = NSPasteboard(name: .drag).types ?? []
+        guard let durableURLs = GhosttyApp.terminalPasteboard.durableDroppedFileURLs(
+            urls,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
+                dragTypes
+            )
+        ) else {
+            return false
+        }
+        return executePreparedImageTransfer(
+            .fileURLs(durableURLs),
             onCancel: {}
         )
     }
@@ -9936,6 +10034,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard paneDropTargetView.dropContext != nil else { return nil }
         guard bounds.contains(localPoint) else { return nil }
         let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
         guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
@@ -10095,6 +10194,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setActive(_ active: Bool) {
         let wasActive = isActive
+        if !active {
+            surfaceView.cancelKeyboardCopyMode()
+        }
         isActive = active
 #if DEBUG
         if wasActive != active {

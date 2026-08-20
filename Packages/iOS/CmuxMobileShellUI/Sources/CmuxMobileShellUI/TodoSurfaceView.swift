@@ -10,6 +10,11 @@ import UIKit
 /// Native iOS renderer for a Mac workspace todo surface.
 struct TodoSurfaceView: View {
     let surface: MobileSurfacePreview
+    /// False while the owning Mac can't take todo mutations (reconnecting, or
+    /// a Mac without `todo.v1`): the last synced checklist stays readable and
+    /// every mutating control is disabled, mirroring the terminal's blocked
+    /// input during recovery.
+    let allowsMutations: Bool
     @State private var model: TodoSurfaceModel
     @State private var pendingItemText = ""
     @FocusState private var composerFocused: Bool
@@ -17,9 +22,11 @@ struct TodoSurfaceView: View {
     init(
         surface: MobileSurfacePreview,
         todo: MobileTodoSnapshot,
+        allowsMutations: Bool,
         mutate: @escaping @MainActor (MobileTodoMutation) async throws -> Void
     ) {
         self.surface = surface
+        self.allowsMutations = allowsMutations
         _model = State(initialValue: TodoSurfaceModel(snapshot: todo, mutate: mutate))
     }
 
@@ -34,7 +41,7 @@ struct TodoSurfaceView: View {
                 TodoStatusMenu(
                     status: snapshot.status,
                     statusHidden: snapshot.statusHidden,
-                    isEnabled: !model.isMutationPending,
+                    isEnabled: allowsMutations && !model.isMutationPending,
                     setStatus: { run(.setStatus($0)) }
                 )
             }
@@ -60,7 +67,7 @@ struct TodoSurfaceView: View {
                         TodoSurfaceRowView(
                             item: item,
                             displayIndex: index,
-                            isEnabled: !model.isMutationPending,
+                            isEnabled: allowsMutations && !model.isMutationPending,
                             actions: TodoSurfaceRowActions(
                                 cycleState: { run(.setState(itemID: item.id, state: item.state.next)) },
                                 edit: { run(.edit(itemID: item.id, text: $0)) },
@@ -161,7 +168,8 @@ struct TodoSurfaceView: View {
     }
 
     private var canAddPendingItem: Bool {
-        !model.isMutationPending
+        allowsMutations
+            && !model.isMutationPending
             && model.snapshot.items.count < MobileTodoSnapshot.maxItems
             && !pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -177,6 +185,7 @@ struct TodoSurfaceView: View {
     }
 
     private func run(_ mutation: MobileTodoMutation) {
+        guard allowsMutations else { return }
         Task { await model.perform(mutation) }
     }
 }

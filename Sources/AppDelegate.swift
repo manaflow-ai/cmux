@@ -840,6 +840,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
+    /// Applies MDM managed-policy transitions (browser/remote-control) while
+    /// the app runs. Installed once from `installManagedPolicyEnforcement()`.
+    var managedPolicyEnforcementObserver: ManagedPolicyEnforcementObserver?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -2354,6 +2357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
+        installManagedPolicyEnforcement()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
@@ -7710,6 +7714,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         bringWindowForward: Bool = false,
         debugSource: String = "mobileConnect"
     ) -> Workspace? {
+        // Shared chokepoint for every pairing-window entry (Settings, palette,
+        // menu): pairing is unavailable under a managed remote-control disable.
+        guard MobileRemoteControlPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("mobileConnect.blocked_managed_policy source=\(debugSource)")
+#endif
+            return nil
+        }
         guard !enforceFeatureFlag || CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else {
 #if DEBUG
             cmuxDebugLog("mobileConnect.blocked_flag source=\(debugSource)")
@@ -10252,7 +10264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
         let tab = tabManager.addTab()
-        let config = GhosttyConfig.load()
+        let config = GhosttyConfig.loadForCmux()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
         let minimumLineCount = 2000
@@ -18082,12 +18094,20 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        let shouldBypassPrintableOptionText = shortcutRoutingShouldBypassForPrintableOptionText(event: event)
+        // AppKit can send Option-only keys through a text/terminal fast path
+        // before the normal menu route. Give the shared configured-shortcut
+        // dispatcher first ownership for every Option-only event; an unmatched
+        // printable event still takes the text-input branch below.
+        if ShortcutRoutingPolicy.isOptionOnly(event),
+           !browserWebKitKeyDownReentry,
+           !firstResponderHasMarkedText,
+           !(firstResponderGhosttyView?.hasMarkedText() ?? false),
+           AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+            return true
+        }
+        if shouldBypassPrintableOptionText {
             if browserWebKitKeyDownReentry { return false }
-            if !firstResponderHasMarkedText,
-               AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
-                return true
-            }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder

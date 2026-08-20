@@ -163,12 +163,32 @@ extension TerminalSurface {
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
+            let manualIOContext = self.manualIOContext
+            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
+            let retiredRemoteOutputLane = retireRemoteOutputLane()
+            let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease
+            )
+            staleRuntimeResourceReleaseTicket = runtimeTeardown.enqueueRuntimeTeardownFence(
+                id: UUID(),
+                workspaceId: tabId,
+                reason: "stale",
+                fence: {
+                    await retiredRemoteOutputLane.drain()
+                },
+                onCompletion: {
+                    staleRuntimeResources.release()
+                }
+            )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
+            byteTee.dropSurface(surfaceID: id)
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -179,8 +199,6 @@ extension TerminalSurface {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            callbackContext?.release()
-            teeLease?.release()
             return nil
         }
         return surface
@@ -280,6 +298,7 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -320,6 +339,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 freeSurface: freeSurface
             )
             return
@@ -333,7 +355,10 @@ extension TerminalSurface {
             surface: surfaceToFree,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            byteTeeLease: teeLease,
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+            }
         )
     }
 
@@ -367,6 +392,7 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -417,6 +443,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
@@ -433,6 +462,9 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+            },
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
         )

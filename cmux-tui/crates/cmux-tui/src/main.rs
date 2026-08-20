@@ -412,7 +412,8 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: xterm-256color).
+  --term <value>     TERM for child shells (default: keep the outer terminal's
+                     xterm-ghostty, else xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -1054,6 +1055,17 @@ fn resolve_provider_launch(
     let launch = if let Some(socket) = &args.machine_provider {
         Some(ProviderLaunch::Unix(socket.clone()))
     } else if let Some(command) = &args.machine_provider_command {
+        Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
+    } else if let Some(command) =
+        // Config parity with --machine-provider-command. Any explicit CLI
+        // provider mode above wins; an explicit --cloud also wins below, so
+        // the config command only applies when the CLI chose nothing.
+        config
+            .machine_provider
+            .command
+            .as_ref()
+            .filter(|_| !args.cloud_cli_requested())
+    {
         Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
     } else if args.cloud_cli_requested() || config.machine_provider.cloud.enabled {
         let cloud = &config.machine_provider.cloud;

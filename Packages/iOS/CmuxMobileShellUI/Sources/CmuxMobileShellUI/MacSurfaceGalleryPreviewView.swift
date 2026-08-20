@@ -52,6 +52,7 @@ public struct MacSurfaceGalleryPreviewView: View {
             TodoSurfaceView(
                 surface: Self.todoSurface,
                 todo: Self.todoSnapshot,
+                allowsMutations: true,
                 mutate: { _ in }
             )
         }
@@ -86,6 +87,7 @@ public struct MacSurfaceGalleryPreviewView: View {
                         createTerminal: {},
                         openBrowser: {},
                         selectBrowserStream: { _ in },
+                        selectSimulatorStream: { _ in },
                         openTextSheet: {},
                         copyDebugLogs: {},
                         sendFeedback: {}
