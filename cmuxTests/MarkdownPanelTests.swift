@@ -514,9 +514,19 @@ final class MarkdownPanelTests: XCTestCase {
     func testMarkdownWebViewVisibilityRevealRepairsAfterHiddenTabLifecycle() async {
         let recorder = RenderingActionRecorder()
         var events = recorder.stream.makeAsyncIterator()
+        var isActuallyVisible = true
+        let visibilityGateReached = expectation(description: "hidden reveal reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
         let coordinator = MarkdownWebRenderingCoordinator(
             initialBoundsSize: CGSize(width: 640, height: 360),
-            isActuallyVisible: { true },
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
             applyAction: recorder.record
         )
         coordinator.viewDidMoveToWindow(isAttached: true)
@@ -527,12 +537,23 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(recorder.actions, [.hide(reason: "visibility.hidden")])
 
         recorder.reset()
+        isActuallyVisible = false
         coordinator.setVisibleInUI(true)
         XCTAssertTrue(recorder.actions.isEmpty, "A visibility reveal must cross the deferred boundary")
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(
+            didObserveHiddenVisibilityGate,
+            "A hidden reveal must wait for the actual AppKit visibility boundary"
+        )
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden reveal must not paint while its ancestor is hidden")
+
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
         _ = await events.next()
         XCTAssertEqual(
             recorder.actions,
-            [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)],
+            [.refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)],
             "A revealed markdown tab must receive a repaint pass"
         )
     }
@@ -541,16 +562,25 @@ final class MarkdownPanelTests: XCTestCase {
         var isActuallyVisible = false
         let recorder = RenderingActionRecorder()
         var events = recorder.stream.makeAsyncIterator()
+        let visibilityGateReached = expectation(description: "visibility settle reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
         let coordinator = MarkdownWebRenderingCoordinator(
             initialBoundsSize: CGSize(width: 640, height: 360),
-            isActuallyVisible: { isActuallyVisible },
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
             applyAction: recorder.record
         )
 
         coordinator.viewDidMoveToWindow(isAttached: true)
-        // Let the scheduled attempt run; it must stop at the visibility gate.
-        await Task.yield()
-        await Task.yield()
+        // Await the scheduler's actual visibility gate rather than guessing
+        // how many executor turns its queued task needs.
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
         XCTAssertTrue(recorder.actions.isEmpty, "A hidden ancestor must defer the first paint")
 
         // SwiftUI can call updateNSView with the same visible value after the
