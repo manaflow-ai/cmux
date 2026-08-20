@@ -340,8 +340,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
-    /// Device-local per-Computer connection method: the caller supplies the
-    /// exact tagged identity, so this forwards verbatim under the gate.
+    /// Device-local per-Computer connection method. The stored row's owner
+    /// key embeds this store's BUILD-SCOPED team id, so the team must go
+    /// through `scopedTeamID` exactly like `setCustomizationUnlocked` — a
+    /// verbatim team id updates zero rows.
     public func setConnectionMethod(
         macDeviceID: String,
         instanceTag: String?,
@@ -350,12 +352,26 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?
     ) async throws {
         try await mutationGate.withLock {
+            if normalizedTeamID(teamID) != nil {
+                let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+                let targetTeamID = selectedRows.contains {
+                    matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
+                } ? teamID : nil
+                try await inner.setConnectionMethod(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    rawValue: rawValue,
+                    stackUserID: stackUserID,
+                    teamID: scopedTeamID(targetTeamID)
+                )
+                return
+            }
             try await inner.setConnectionMethod(
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag,
                 rawValue: rawValue,
                 stackUserID: stackUserID,
-                teamID: teamID
+                teamID: scopedTeamID(teamID)
             )
         }
     }
