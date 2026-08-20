@@ -379,23 +379,30 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        let expectedID = CmxMacAppInstanceIdentity(
+        let expectedIdentity = CmxMacAppInstanceIdentity(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ).id
-        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first {
+        )
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID) == expectedIdentity.macDeviceID
+            }
+        if expectedIdentity.instanceTag == nil,
+           matches.contains(where: { $0.instanceTag != nil }) {
+            return false
+        }
+        let existing = matches.first {
                 CmxMacAppInstanceIdentity(
                     macDeviceID: $0.macDeviceID,
                     instanceTag: $0.instanceTag
-                ).id == expectedID
+                ).id == expectedIdentity.id
             }
         if let existing, existing.lastSeenAt >= now { return false }
         try await upsert(
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
-            instanceTag: instanceTag,
+            instanceTag: expectedIdentity.instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: teamID,
@@ -403,7 +410,7 @@ extension MobilePairedMacStoring {
         )
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
+            instanceTag: expectedIdentity.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
