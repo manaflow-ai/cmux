@@ -632,7 +632,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard !cancelled,
                   terminalPresentationIsActive,
                   let surfaceView,
-                  self.surfaceView === surfaceView else {
+                  self.surfaceView === surfaceView,
+                  surfaceView.window != nil else {
                 return
             }
             MobileDebugLog.anchormux(
@@ -800,6 +801,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                       self.outputTaskGeneration == generation,
                       self.terminalPresentationIsActive,
                       self.surfaceView === surfaceView,
+                      surfaceView.window != nil,
                       self.outputTask == nil else {
                     return
                 }
