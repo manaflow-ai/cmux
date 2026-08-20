@@ -66,13 +66,17 @@ enum AgentPaneState: String, CaseIterable, Sendable, Equatable {
 
 /// Resolves one pane's agent lifecycle states into a single border color.
 enum AgentPaneStateBorder {
-    /// Hex color for a pane whose agent is blocked on the user.
-    static let needsInputHex = "#FFD60A"
-    /// Hex color for a pane whose agent is working. Matches the hex the agent
-    /// hooks already emit for the "working" sidebar status pill.
-    static let runningHex = "#4C8DFF"
-    /// Hex color for a pane whose agent finished its turn.
-    static let idleHex = "#30D158"
+    // The palette matches the sidebar's agent status rows, so a pane and its
+    // sidebar row read as the same signal. These are the rendered sidebar
+    // colors rather than the raw `set_status --color` hexes the CLI hooks
+    // emit, which the sidebar does not display verbatim.
+
+    /// Hex color for a pane whose agent is blocked on the user (sidebar INPUT).
+    static let needsInputHex = "#EFA237"
+    /// Hex color for a pane whose agent is working (sidebar WORKING).
+    static let runningHex = "#4385F8"
+    /// Hex color for a pane whose agent finished its turn (sidebar READY).
+    static let idleHex = "#6DCE63"
 
     /// Collapses every agent reporting under `panelId` into the one state that
     /// should drive the border.
