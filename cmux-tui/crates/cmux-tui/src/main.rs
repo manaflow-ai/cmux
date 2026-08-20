@@ -1059,7 +1059,11 @@ fn resolve_provider_launch(
         // Config parity with --machine-provider-command. Any explicit CLI
         // provider mode above wins; an explicit --cloud also wins below, so
         // the config command only applies when the CLI chose nothing.
-        config.machine_provider.command.as_ref().filter(|_| !args.cloud_cli_requested())
+        config
+            .machine_provider
+            .command
+            .as_ref()
+            .filter(|_| !args.cloud_cli_requested())
     {
         Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
     } else if args.cloud_cli_requested() || config.machine_provider.cloud.enabled {

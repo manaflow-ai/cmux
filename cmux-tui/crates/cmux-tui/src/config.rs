@@ -6811,7 +6811,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             raw.machine_provider.command.as_deref(),
-            Some(["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice())
+            Some(
+                ["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice()
+            )
         );
 
         // An empty argv or blank program is ignored at apply time.
@@ -6820,9 +6822,7 @@ mod tests {
         assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c.is_empty()));
         let raw: RawConfig =
             serde_json::from_str(r#"{"machine_provider":{"command":["  "]}}"#).unwrap();
-        assert!(
-            raw.machine_provider.command.as_deref().is_some_and(|c| c[0].trim().is_empty())
-        );
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c[0].trim().is_empty()));
     }
 
     #[test]
