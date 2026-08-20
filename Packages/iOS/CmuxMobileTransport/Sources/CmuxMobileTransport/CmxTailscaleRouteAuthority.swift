@@ -1,4 +1,5 @@
 internal import CMUXMobileCore
+import CmuxMobileDiagnostics
 import Darwin
 import Foundation
 @preconcurrency import Network
@@ -50,6 +51,9 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
     }
 
     func prepare(request: CmxByteTransportRequest) async throws -> CmxPreparedTailscaleRoute {
+        MobileDebugLog.shared.append(
+            "tailscale.prepare.begin route=\(request.route.kind.rawValue)"
+        )
         // `currentPath` is not authoritative until NWPathMonitor has delivered
         // its first callback. Pairing can begin immediately after the scanner
         // returns, so gate the first proof on that callback instead of treating
@@ -60,15 +64,30 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
             generation: observed.generation,
             path: observed.path
         )
-        let proof = try CmxTailscaleRouteProofValidator().prepare(
-            request: request,
-            snapshot: snapshot
-        )
+        MobileDebugLog.shared.append(Self.logLine("tailscale.prepare.snapshot", snapshot: snapshot))
+        let proof: CmxTailscaleRouteProof
+        do {
+            proof = try CmxTailscaleRouteProofValidator().prepare(
+                request: request,
+                snapshot: snapshot
+            )
+        } catch {
+            MobileDebugLog.shared.append(
+                "tailscale.prepare.proof_failed error=\(String(describing: error))"
+            )
+            throw error
+        }
         guard let interface = observed.path.availableInterfaces.first(where: {
             $0.name == proof.interface.name && $0.index == proof.interface.index
         }) else {
+            MobileDebugLog.shared.append(
+                "tailscale.prepare.interface_failed proof_interface=\(proof.interface.name):\(proof.interface.index) snapshot_interfaces=\(Self.interfaceNames(observed.path))"
+            )
             throw CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable
         }
+        MobileDebugLog.shared.append(
+            "tailscale.prepare.success interface=\(proof.interface.name):\(proof.interface.index) generation=\(proof.generation)"
+        )
         return CmxPreparedTailscaleRoute(proof: proof, requiredInterface: interface)
     }
 
@@ -102,6 +121,11 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
         if pathState.path != path {
             pathState.generation = Self.nextGeneration(after: pathState.generation)
             pathState.path = path
+            let snapshot = Self.authoritySnapshot(
+                generation: pathState.generation,
+                path: path
+            )
+            MobileDebugLog.shared.append(Self.logLine("tailscale.path_update", snapshot: snapshot))
         }
         guard !hasReceivedInitialPathUpdate else { return }
         hasReceivedInitialPathUpdate = true
@@ -119,6 +143,26 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
                 initialPathWaiters.append(continuation)
             }
         }
+    }
+
+    private static func logLine(
+        _ prefix: String,
+        snapshot: CmxTailscaleAuthoritySnapshot
+    ) -> String {
+        let interfaces = snapshot.systemInterfaces.map { interface in
+            "\(interface.identity.name):\(interface.identity.index),up=\(interface.isUp),running=\(interface.isRunning),tailnet_addrs=\(interface.tailnetAddresses.count)"
+        }.sorted().joined(separator: ";")
+        return "\(prefix) generation=\(snapshot.generation) path_satisfied=\(snapshot.pathSatisfied) available_interfaces=\(interfaceNames(snapshot.availableInterfaces)) system_interfaces=\(interfaces)"
+    }
+
+    private static func interfaceNames(_ interfaces: Set<CmxNetworkInterfaceIdentity>) -> String {
+        interfaces.map { "\($0.name):\($0.index)" }.sorted().joined(separator: ",")
+    }
+
+    private static func interfaceNames(_ path: NWPath) -> String {
+        interfaceNames(Set(path.availableInterfaces.map {
+            CmxNetworkInterfaceIdentity(name: $0.name, index: $0.index)
+        }))
     }
 
     private static func nextGeneration(after generation: UInt64) -> UInt64 {

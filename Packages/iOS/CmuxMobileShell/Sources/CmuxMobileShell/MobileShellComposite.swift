@@ -4394,6 +4394,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         acceptedVersionWarning: Bool,
         userEnteredPairingCode: Bool = false
     ) async -> MobilePairingURLConnectionResult {
+        MobileDebugLog.shared.append(
+            "pairing.qr_connect.begin user_entered=\(userEnteredPairingCode) accepted_version_warning=\(acceptedVersionWarning)"
+        )
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
@@ -4407,6 +4410,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
+            MobileDebugLog.shared.append(
+                "pairing.qr_decode.success route_count=\(ticket.routes.count) route_kinds=\(ticket.routes.map(\.kind.rawValue).sorted().joined(separator: ","))"
+            )
             // The v2 grammar rejects loopback inside the decoder; the legacy
             // grammars must keep decoding loopback for the simulator dev flow
             // (where 127.0.0.1 IS the host Mac). On a physical phone no
@@ -4422,6 +4428,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
         } catch {
+            MobileDebugLog.shared.append(
+                "pairing.qr_decode.failed error=\(String(describing: error))"
+            )
             if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
                 // A scanned/pasted code that only points back at the Mac
                 // itself (127.0.0.1) would make the phone dial itself. Name
@@ -4451,6 +4460,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             isDevelopmentAuthEnvironment: identityProvider?.isDevelopmentAuthEnvironment ?? false
         )
         if let emailFailure = accountPreflight.failure(for: ticket) {
+            MobileDebugLog.shared.append(
+                "pairing.account_preflight.failed category=\(emailFailure)"
+            )
             applyPairingValidationFailure(emailFailure)
             if connectionState != .connected {
                 connectionState = .disconnected
@@ -4499,6 +4511,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: runtime?.supportedRouteKinds ?? [],
             userTailscalePairingAuthorizations: userTailscalePairingAuthorizations
         )
+        MobileDebugLog.shared.append(
+            "pairing.attempt.started route_count=\(candidateRoutes.count) supported_route_kinds=\(candidateRoutes.map(\.kind.rawValue).sorted().joined(separator: ","))"
+        )
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
@@ -4522,11 +4537,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 await loadPairedMacs()
                 guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
+                MobileDebugLog.shared.append("pairing.attempt.succeeded")
                 return .connected
             }
             // `connect()` returned without connecting and already set a
             // specific error; record without overwriting that message.
             recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
+            MobileDebugLog.shared.append(
+                "pairing.attempt.failed_without_throw category=\(noThrowFailure)"
+            )
             return .failed
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
@@ -4537,6 +4556,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
+            MobileDebugLog.shared.append(
+                "pairing.attempt.failed error=\(String(describing: error))"
+            )
             // Definitive auth failures drive the re-auth prompt rather than a
             // generic connection error (matches the manual-host path); the
             // helper records the analytics failure + guidance.

@@ -1,6 +1,7 @@
 internal import CMUXMobileCore
 import Foundation
 import os
+import CmuxMobileDiagnostics
 
 nonisolated private let tailscalePreparationLog = Logger(
     subsystem: "com.manaflow.cmux",
@@ -33,8 +34,17 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
     }
 
     func connect() async throws {
+        MobileDebugLog.shared.append("tailscale.transport.connect.begin")
         let transport = try await preparedTransport()
-        try await transport.connect()
+        do {
+            try await transport.connect()
+            MobileDebugLog.shared.append("tailscale.transport.connect.success")
+        } catch {
+            MobileDebugLog.shared.append(
+                "tailscale.transport.connect.failed error=\(String(describing: error))"
+            )
+            throw error
+        }
     }
 
     func receive() async throws -> Data? {
@@ -82,6 +92,9 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
             let connectTimeoutNanoseconds = connectTimeoutNanoseconds
             task = Task {
                 for attempt in 1...Self.maximumPreparationAttempts {
+                    MobileDebugLog.shared.append(
+                        "tailscale.prepare.attempt number=\(attempt)/\(Self.maximumPreparationAttempts)"
+                    )
                     do {
                         let prepared = try await authority.prepare(request: request)
                         try Task.checkCancellation()
@@ -97,6 +110,9 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
                     } catch let error as CmxTailscaleRouteProofError
                         where error.isTransientReadinessFailure
                     {
+                        MobileDebugLog.shared.append(
+                            "tailscale.prepare.transient_failure attempt=\(attempt) error=\(String(describing: error))"
+                        )
                         tailscalePreparationLog.debug(
                             "Tailscale preparation attempt \(attempt, privacy: .public)/\(Self.maximumPreparationAttempts, privacy: .public) deferred: \(String(describing: error), privacy: .public)"
                         )
@@ -107,6 +123,9 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
                         // authority actor before the next proof attempt.
                         await Task.yield()
                     } catch {
+                        MobileDebugLog.shared.append(
+                            "tailscale.prepare.permanent_failure error=\(String(describing: error))"
+                        )
                         tailscalePreparationLog.error(
                             "Tailscale preparation failed: \(String(describing: error), privacy: .public)"
                         )
