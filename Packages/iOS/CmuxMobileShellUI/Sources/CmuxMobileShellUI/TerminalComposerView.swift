@@ -337,7 +337,9 @@ struct TerminalComposerView: View {
                             systemImage: "folder"
                         )
                     }
-                    Button(action: pasteAttachment) {
+                    Button {
+                        _ = pasteAttachment()
+                    } label: {
                         Label(
                             L10n.string("mobile.composer.attach.paste", defaultValue: "Paste Attachment"),
                             systemImage: "doc.on.clipboard"
