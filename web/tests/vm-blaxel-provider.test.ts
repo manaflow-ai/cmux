@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { BlaxelProvider } from "../services/vms/drivers/blaxel";
+import {
+  BlaxelProvider,
+  resolveDaemonSource,
+  usablePrivatePreviewUrl,
+  verifyDaemonDigest,
+} from "../services/vms/drivers/blaxel";
 import { ProviderError, type WebSocketPtyEndpoint } from "../services/vms/drivers/types";
 import { providerEnabledEnvKey } from "../services/vms/config";
 import { providerImageEnvKey, resolveVmImage } from "../services/vms/images/resolver";
@@ -132,5 +138,99 @@ describe("BlaxelProvider configuration errors", () => {
   test("create requires a resolved image", async () => {
     const provider = new BlaxelProvider();
     await expect(provider.create({ image: "  " })).rejects.toThrow("create requires a resolved image");
+  });
+});
+
+function withDaemonEnv(
+  values: { path?: string; url?: string; sha256?: string },
+  run: () => void,
+): void {
+  const keys = [
+    "CMUX_VM_BLAXEL_DAEMON_PATH",
+    "CMUX_VM_BLAXEL_DAEMON_URL",
+    "CMUX_VM_BLAXEL_DAEMON_SHA256",
+  ] as const;
+  const previous = keys.map((key) => [key, process.env[key]] as const);
+  delete process.env.CMUX_VM_BLAXEL_DAEMON_PATH;
+  delete process.env.CMUX_VM_BLAXEL_DAEMON_URL;
+  delete process.env.CMUX_VM_BLAXEL_DAEMON_SHA256;
+  if (values.path !== undefined) process.env.CMUX_VM_BLAXEL_DAEMON_PATH = values.path;
+  if (values.url !== undefined) process.env.CMUX_VM_BLAXEL_DAEMON_URL = values.url;
+  if (values.sha256 !== undefined) process.env.CMUX_VM_BLAXEL_DAEMON_SHA256 = values.sha256;
+  try {
+    run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+describe("BlaxelProvider daemon binary integrity", () => {
+  const sha = createHash("sha256").update("cmuxd-remote-bytes").digest("hex");
+
+  test("a URL source without a sha256 pin fails closed before any download", () => {
+    withDaemonEnv({ url: "https://r2.example.com/cmuxd-remote" }, () => {
+      expect(() => resolveDaemonSource()).toThrow("requires CMUX_VM_BLAXEL_DAEMON_SHA256");
+    });
+  });
+
+  test("a URL source with a pin resolves and lowercases the digest", () => {
+    withDaemonEnv({ url: "https://r2.example.com/cmuxd-remote", sha256: sha.toUpperCase() }, () => {
+      expect(resolveDaemonSource()).toEqual({
+        kind: "url",
+        url: "https://r2.example.com/cmuxd-remote",
+        sha256: sha,
+      });
+    });
+  });
+
+  test("a local path may run unpinned but honors a pin when set", () => {
+    withDaemonEnv({ path: "/tmp/cmuxd-remote" }, () => {
+      expect(resolveDaemonSource()).toEqual({ kind: "path", path: "/tmp/cmuxd-remote", sha256: undefined });
+    });
+    withDaemonEnv({ path: "/tmp/cmuxd-remote", sha256: sha }, () => {
+      expect(resolveDaemonSource()).toEqual({ kind: "path", path: "/tmp/cmuxd-remote", sha256: sha });
+    });
+  });
+
+  test("a malformed pin is rejected", () => {
+    withDaemonEnv({ url: "https://r2.example.com/cmuxd-remote", sha256: "not-a-digest" }, () => {
+      expect(() => resolveDaemonSource()).toThrow("64 hex characters");
+    });
+  });
+
+  test("no source configured is a clear error", () => {
+    withDaemonEnv({}, () => {
+      expect(() => resolveDaemonSource()).toThrow("set CMUX_VM_BLAXEL_DAEMON_PATH");
+    });
+  });
+
+  test("verifyDaemonDigest accepts the pinned binary and rejects any other bytes", () => {
+    const binary = Buffer.from("cmuxd-remote-bytes");
+    expect(() => verifyDaemonDigest(binary, sha)).not.toThrow();
+    expect(() => verifyDaemonDigest(Buffer.from("tampered-bytes"), sha)).toThrow(ProviderError);
+    expect(() => verifyDaemonDigest(Buffer.from("tampered-bytes"), sha)).toThrow("sha256 mismatch");
+  });
+});
+
+describe("BlaxelProvider preview privacy", () => {
+  test("only a private preview URL is usable", () => {
+    const url = "https://abc123.us-pdx-1.preview.bl.run";
+    expect(usablePrivatePreviewUrl({ spec: { url } })).toBe(url);
+    expect(usablePrivatePreviewUrl({ spec: { url, public: false } })).toBe(url);
+  });
+
+  test("a public preview is treated as absent so callers replace or reject it", () => {
+    const url = "https://abc123.us-pdx-1.preview.bl.run";
+    expect(usablePrivatePreviewUrl({ spec: { url, public: true } })).toBeNull();
+  });
+
+  test("a missing preview or URL is not usable", () => {
+    expect(usablePrivatePreviewUrl(null)).toBeNull();
+    expect(usablePrivatePreviewUrl(undefined)).toBeNull();
+    expect(usablePrivatePreviewUrl({})).toBeNull();
+    expect(usablePrivatePreviewUrl({ spec: {} })).toBeNull();
   });
 });

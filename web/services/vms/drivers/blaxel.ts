@@ -1,5 +1,6 @@
 import { gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import {
   NotImplementedError,
   ProviderError,
@@ -111,6 +112,19 @@ type BlaxelProcess = {
   logs?: string;
 };
 
+type BlaxelPreview = { spec?: { url?: string; public?: boolean } };
+
+// The preview URL is the only ingress to cmuxd, and it must stay token-gated: a preview that
+// is (or has been flipped) public would expose the daemon's WebSocket endpoints to anyone
+// holding the URL, leaving the lease token as the sole barrier. Only a private preview's URL
+// is ever usable; a public one is treated as absent so callers replace or reject it.
+export function usablePrivatePreviewUrl(preview: BlaxelPreview | null | undefined): string | null {
+  const url = preview?.spec?.url;
+  if (!url) return null;
+  if (preview?.spec?.public === true) return null;
+  return url;
+}
+
 function env(name: string): string | undefined {
   return process.env[name]?.trim() || undefined;
 }
@@ -156,25 +170,68 @@ async function blaxelFetch<T>(
 // gzipped base64 payload the filesystem API write wants, so repeated creates don't refetch.
 let cachedDaemonB64: string | null = null;
 
+export type BlaxelDaemonSource =
+  | { kind: "path"; path: string; sha256?: string }
+  | { kind: "url"; url: string; sha256: string };
+
+// The injected daemon runs with root-equivalent access in every sandbox users pipe their
+// credentials and agent sessions through, so a remote fetch must be integrity-pinned: a URL
+// source without CMUX_VM_BLAXEL_DAEMON_SHA256 fails closed before any bytes are fetched.
+// A local path is a developer's own build and may run unpinned; the pin is honored there too
+// when set.
+export function resolveDaemonSource(): BlaxelDaemonSource {
+  const sha256 = env("CMUX_VM_BLAXEL_DAEMON_SHA256")?.toLowerCase();
+  if (sha256 && !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new ProviderError(
+      "blaxel",
+      "CMUX_VM_BLAXEL_DAEMON_SHA256 must be 64 hex characters (sha256 of the raw cmuxd-remote binary)",
+    );
+  }
+  const localPath = env("CMUX_VM_BLAXEL_DAEMON_PATH");
+  if (localPath) {
+    return { kind: "path", path: localPath, sha256 };
+  }
+  const url = env("CMUX_VM_BLAXEL_DAEMON_URL");
+  if (!url) {
+    throw new ProviderError(
+      "blaxel",
+      "set CMUX_VM_BLAXEL_DAEMON_PATH (local cmuxd-remote linux/amd64 build) or CMUX_VM_BLAXEL_DAEMON_URL",
+    );
+  }
+  if (!sha256) {
+    throw new ProviderError(
+      "blaxel",
+      "CMUX_VM_BLAXEL_DAEMON_URL requires CMUX_VM_BLAXEL_DAEMON_SHA256; the downloaded daemon runs in every sandbox, so the fetch must be integrity-pinned",
+    );
+  }
+  return { kind: "url", url, sha256 };
+}
+
+export function verifyDaemonDigest(binary: Buffer, expectedSha256: string): void {
+  const actual = createHash("sha256").update(binary).digest("hex");
+  if (actual !== expectedSha256) {
+    throw new ProviderError(
+      "blaxel",
+      `cmuxd-remote binary sha256 mismatch: expected ${expectedSha256}, got ${actual}; refusing to inject it into sandboxes`,
+    );
+  }
+}
+
 async function daemonBinaryBase64Gzip(): Promise<string> {
   if (cachedDaemonB64) return cachedDaemonB64;
-  const localPath = env("CMUX_VM_BLAXEL_DAEMON_PATH");
+  const source = resolveDaemonSource();
   let binary: Buffer;
-  if (localPath) {
-    binary = readFileSync(localPath);
+  if (source.kind === "path") {
+    binary = readFileSync(source.path);
   } else {
-    const url = env("CMUX_VM_BLAXEL_DAEMON_URL");
-    if (!url) {
-      throw new ProviderError(
-        "blaxel",
-        "set CMUX_VM_BLAXEL_DAEMON_PATH (local cmuxd-remote linux/amd64 build) or CMUX_VM_BLAXEL_DAEMON_URL",
-      );
-    }
-    const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+    const response = await fetch(source.url, { signal: AbortSignal.timeout(120_000) });
     if (!response.ok) {
-      throw new ProviderError("blaxel", `daemon download ${url} -> ${response.status}`);
+      throw new ProviderError("blaxel", `daemon download ${source.url} -> ${response.status}`);
     }
     binary = Buffer.from(await response.arrayBuffer());
+  }
+  if (source.sha256) {
+    verifyDaemonDigest(binary, source.sha256);
   }
   const gz = gzipSync(binary, { level: 9 }).toString("base64");
   cachedDaemonB64 = gz;
@@ -212,14 +269,14 @@ export class BlaxelProvider implements VMProvider {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
           await this.bootstrapDaemon(name, sandboxUrl);
-          const preview = await blaxelFetch<{ spec?: { url?: string } }>(
+          const preview = await blaxelFetch<BlaxelPreview>(
             "POST",
             `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(name)}/previews`,
             { metadata: { name: CMUXD_PREVIEW_NAME }, spec: { port: CMUXD_WS_PORT, public: false } },
           );
-          const previewUrl = preview.spec?.url;
+          const previewUrl = usablePrivatePreviewUrl(preview);
           if (!previewUrl) {
-            throw new Error("preview create response is missing spec.url");
+            throw new Error("preview create response is missing spec.url or came back public");
           }
           span.setAttribute("cmux.vm.id", name);
           return {
@@ -547,18 +604,23 @@ export class BlaxelProvider implements VMProvider {
 
   private async ensurePreview(vmId: string): Promise<string> {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
-    const existing = await blaxelFetch<{ spec?: { url?: string } }>(
+    const existing = await blaxelFetch<BlaxelPreview>(
       "GET",
       `${base}/${CMUXD_PREVIEW_NAME}`,
     ).catch(() => null);
-    if (existing?.spec?.url) return existing.spec.url;
-    const created = await blaxelFetch<{ spec?: { url?: string } }>("POST", base, {
+    const existingUrl = usablePrivatePreviewUrl(existing);
+    if (existingUrl) return existingUrl;
+    if (existing?.spec?.url) {
+      // The preview exists but is public; drop it and recreate private below.
+      await blaxelFetch("DELETE", `${base}/${CMUXD_PREVIEW_NAME}`);
+    }
+    const created = await blaxelFetch<BlaxelPreview>("POST", base, {
       metadata: { name: CMUXD_PREVIEW_NAME },
       spec: { port: CMUXD_WS_PORT, public: false },
     });
-    const url = created.spec?.url;
+    const url = usablePrivatePreviewUrl(created);
     if (!url) {
-      throw new ProviderError("blaxel", `preview create for ${vmId} returned no url`);
+      throw new ProviderError("blaxel", `preview create for ${vmId} returned no url or came back public`);
     }
     return url;
   }
@@ -611,7 +673,8 @@ async function ensureWebSocketHealthy(previewUrl: string, headers: Record<string
 }
 
 function randomSuffix(): string {
-  return Array.from({ length: 10 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]).join("");
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from(randomBytes(10), (byte) => alphabet[byte % alphabet.length]).join("");
 }
 
 function positiveIntEnv(name: string, fallback: number): number {
