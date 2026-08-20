@@ -122,6 +122,10 @@ final class MarkdownWebRenderingCoordinator {
     private func schedule(reason: String, forceLifecycleRefresh: Bool) {
         pendingRefreshReason = reason
         pendingForceLifecycleRefresh = pendingForceLifecycleRefresh || forceLifecycleRefresh
+        // The queued action reads the latest state when it runs. Keep one
+        // scheduler task for a resize/visibility burst instead of repeatedly
+        // cancelling and recreating MainActor tasks while AppKit is laying out.
+        guard !scheduler.isScheduled else { return }
         scheduler.schedule { [weak self] in
             self?.performPendingAction()
         }
