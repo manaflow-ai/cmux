@@ -3829,6 +3829,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 snapshot.sidebar.leadingColumnWidth
             )
         )
+        context.sidebarState.persistedLeadingColumnMode =
+            SidebarState.sanitizedColumnMode(snapshot.sidebar.leadingColumnMode)
+        context.sidebarState.persistedPrimaryColumnMode =
+            SidebarState.sanitizedColumnMode(snapshot.sidebar.primaryColumnMode)
         context.tabManager.restoreSidebarCreationContexts(
             snapshot.sidebar.creationContexts ?? [],
             selectedContextID: snapshot.sidebar.selectedCreationContextID,
@@ -4275,6 +4279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     ).rounded()
                 )
             )
+            hasher.combine(context.sidebarState.persistedLeadingColumnMode.rawValue)
+            hasher.combine(context.sidebarState.persistedPrimaryColumnMode.rawValue)
             hasher.combine(context.tabManager.selectedSidebarCreationContextID)
             for creationContext in context.tabManager.sidebarCreationContextSessionSnapshots() {
                 hasher.combine(creationContext.title)
@@ -4858,6 +4864,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 leadingColumnWidth: SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(
                     Double(context.sidebarState.persistedLeadingColumnWidth)
                 ),
+                leadingColumnMode: context.sidebarState.persistedLeadingColumnMode.rawValue,
+                primaryColumnMode: context.sidebarState.persistedPrimaryColumnMode.rawValue,
                 selectedCreationContextID: context.tabManager.selectedSidebarCreationContextID,
                 creationContexts: context.tabManager.sidebarCreationContextSessionSnapshots(),
                 creationContextOrder: context.tabManager.sidebarMachineCreationContextOrderIDs(),
@@ -9260,7 +9268,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ? false
                 : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
             persistedWidth: CGFloat(sidebarWidth),
-            persistedLeadingColumnWidth: CGFloat(sidebarLeadingColumnWidth)
+            persistedLeadingColumnWidth: CGFloat(sidebarLeadingColumnWidth),
+            persistedLeadingColumnMode: SidebarState.sanitizedColumnMode(
+                sessionWindowSnapshot?.sidebar.leadingColumnMode
+            ),
+            persistedPrimaryColumnMode: SidebarState.sanitizedColumnMode(
+                sessionWindowSnapshot?.sidebar.primaryColumnMode
+            )
         )
         let sidebarSelectionState = SidebarSelectionState(
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs

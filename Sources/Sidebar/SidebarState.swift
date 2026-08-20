@@ -7,13 +7,20 @@ final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
     @Published var persistedLeadingColumnWidth: CGFloat
+    /// Persisted display mode of the machines column. Unknown raw values
+    /// (future snapshots, hand-edited files) sanitize to `.regular`.
+    @Published var persistedLeadingColumnMode: SidebarColumnDisplayMode
+    /// Persisted display mode of the workspaces column.
+    @Published var persistedPrimaryColumnMode: SidebarColumnDisplayMode
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
 
     init(
         isVisible: Bool = true,
         persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
-        persistedLeadingColumnWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarLeadingColumnWidth)
+        persistedLeadingColumnWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarLeadingColumnWidth),
+        persistedLeadingColumnMode: SidebarColumnDisplayMode = .regular,
+        persistedPrimaryColumnMode: SidebarColumnDisplayMode = .regular
     ) {
         self.isVisible = isVisible
         let sanitized = SessionPersistencePolicy.sanitizedSidebarWidth(Double(persistedWidth))
@@ -23,6 +30,15 @@ final class SidebarState: ObservableObject {
                 Double(persistedLeadingColumnWidth)
             )
         )
+        self.persistedLeadingColumnMode = persistedLeadingColumnMode
+        self.persistedPrimaryColumnMode = persistedPrimaryColumnMode
+    }
+
+    static func sanitizedColumnMode(_ rawValue: String?) -> SidebarColumnDisplayMode {
+        guard let rawValue, let mode = SidebarColumnDisplayMode(rawValue: rawValue) else {
+            return .regular
+        }
+        return mode
     }
 
     func toggle() {

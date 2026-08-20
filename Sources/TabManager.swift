@@ -240,11 +240,12 @@ class TabManager: ObservableObject {
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
     /// Per-window parent column and default source for shared
-    /// workspace/surface creation actions.
-    @Published var sidebarCreationContextSelection: SidebarCreationContextSelection = .automatic
+    /// workspace/surface creation actions. The machines column lists places
+    /// only, so the default is This Mac; `.automatic` survives solely as a
+    /// legacy decode value that resolves to local.
+    @Published var sidebarCreationContextSelection: SidebarCreationContextSelection = .local
     var sidebarRemoteCreationContextOrder: [SidebarRemoteCreationContextKey] = []
-    /// User-defined order for machine rows. `Automatic` is a creation mode,
-    /// not a machine, so it remains fixed above this ordered collection.
+    /// User-defined order for machine rows.
     var sidebarMachineCreationContextOrder: [String] = [SidebarCreationContextSelection.localID]
     var sidebarRemoteCreationContexts: [
         SidebarRemoteCreationContextKey: SidebarRegisteredRemoteCreationContext
@@ -314,6 +315,7 @@ class TabManager: ObservableObject {
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
             rememberSelectedSidebarWorkspaceFocus()
+            followSidebarMachineSelectionForSelectedWorkspace()
             pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()

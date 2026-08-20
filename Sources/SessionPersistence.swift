@@ -18,10 +18,13 @@ enum SessionSnapshotSchema {
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
     static let defaultSidebarLeadingColumnWidth: Double = 168
-    /// Keeps the shared footer chrome and two-line machine rows readable at
-    /// the narrowest size. This intentionally matches the default width.
-    static let minimumSidebarLeadingColumnWidth: Double = 168
+    /// Narrowest REGULAR machines-column width. Below this the divider snaps
+    /// the column to the icon rail instead of clamping, so the minimum only
+    /// needs to keep single-line icon+name rows readable.
+    static let minimumSidebarLeadingColumnWidth: Double = 132
     static let maximumSidebarLeadingColumnWidth: Double = 320
+    /// Width of a column minimized to icons (both sidebar columns share it).
+    static let sidebarColumnIconRailWidth: Double = 52
     // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
     // The titlebar title tracks the sidebar's actual width only when it is wider than the
     // minimum, so a default above the minimum would make the folder/title shift when toggling the sidebar at the default width.
@@ -242,8 +245,15 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 struct SessionSidebarSnapshot: Codable, Sendable {
     var isVisible: Bool
     var selection: SessionSidebarSelection
+    /// Remembered REGULAR width of the workspaces column.
     var width: Double?
+    /// Remembered REGULAR width of the machines column.
     var leadingColumnWidth: Double?
+    /// Raw `SidebarColumnDisplayMode` of the machines column. Legacy
+    /// snapshots omit it and restore as regular.
+    var leadingColumnMode: String?
+    /// Raw `SidebarColumnDisplayMode` of the workspaces column.
+    var primaryColumnMode: String?
     var selectedCreationContextID: String?
     var creationContexts: [SessionSidebarCreationContextSnapshot]?
     var creationContextOrder: [String]?
@@ -254,6 +264,8 @@ struct SessionSidebarSnapshot: Codable, Sendable {
         selection: SessionSidebarSelection,
         width: Double?,
         leadingColumnWidth: Double? = nil,
+        leadingColumnMode: String? = nil,
+        primaryColumnMode: String? = nil,
         selectedCreationContextID: String? = nil,
         creationContexts: [SessionSidebarCreationContextSnapshot]? = nil,
         creationContextOrder: [String]? = nil,
@@ -263,6 +275,8 @@ struct SessionSidebarSnapshot: Codable, Sendable {
         self.selection = selection
         self.width = width
         self.leadingColumnWidth = leadingColumnWidth
+        self.leadingColumnMode = leadingColumnMode
+        self.primaryColumnMode = primaryColumnMode
         self.selectedCreationContextID = selectedCreationContextID
         self.creationContexts = creationContexts
         self.creationContextOrder = creationContextOrder

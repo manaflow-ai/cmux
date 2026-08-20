@@ -398,23 +398,7 @@ extension TabManager {
             resolvedSidebarCreationContextID(for: workspace)
                 == SidebarCreationContextSelection.localID ? workspace.id : nil
         }
-        let automatic = SidebarCreationContextSnapshot(
-            id: SidebarCreationContextSelection.automaticID,
-            title: String(localized: "sidebar.context.automatic.title", defaultValue: "Automatic"),
-            subtitle: String(
-                localized: "sidebar.context.automatic.subtitle",
-                defaultValue: "Keep each action's current behavior"
-            ),
-            systemImageName: "wand.and.stars",
-            isSelected: effectiveSelection == .automatic,
-            kind: .automatic,
-            workspaceCount: allWorkspaceIDs.count,
-            workspaceIDs: allWorkspaceIDs,
-            focusedWorkspaceID: selectedTabId,
-            capabilities: [],
-            connectionState: nil,
-            childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.automaticID)
-        )
+        _ = allWorkspaceIDs
         let local = SidebarCreationContextSnapshot(
             id: SidebarCreationContextSelection.localID,
             title: String(localized: "sidebar.context.local.title", defaultValue: "This Mac"),
@@ -442,7 +426,7 @@ extension TabManager {
                     workspaceCount: aggregate.workspaceCount
                 ),
                 systemImageName: aggregate.configuration.managedCloudVMID == nil
-                    ? "network"
+                    ? "server.rack"
                     : "cloud.fill",
                 isSelected: effectiveSelection == .remote(key),
                 kind: .remote,
@@ -461,7 +445,7 @@ extension TabManager {
             )
         }
         let machineOrder = reconciledSidebarMachineCreationContextOrder()
-        return [automatic] + machineOrder.compactMap { machinesByID[$0] }
+        return machineOrder.compactMap { machinesByID[$0] }
     }
 
     var selectedSidebarCreationContextID: String {
@@ -552,7 +536,9 @@ extension TabManager {
         rememberLiveSidebarRemoteCreationContexts()
         let nextSelection: SidebarCreationContextSelection
         if id == SidebarCreationContextSelection.automaticID {
-            nextSelection = .automatic
+            // Legacy id from old snapshots/RPC callers. The machines column
+            // lists places only, so the aggregate mode resolves to This Mac.
+            nextSelection = .local
         } else if id == SidebarCreationContextSelection.localID {
             nextSelection = .local
         } else if let context = sidebarRemoteContext(forID: id) {
@@ -701,6 +687,26 @@ extension TabManager {
         sidebarFocusedWorkspaceStableIDByCreationContextID[contextID] = selectedWorkspace.stableId
     }
 
+    /// Finder-style selection cascade: selecting a workspace by any means
+    /// (keyboard, palette, socket, sidebar click) highlights its machine in
+    /// the machines column and scopes the workspaces column to it. Without
+    /// this, a workspace selected via Cmd+1..9 could be invisible in the
+    /// currently scoped column.
+    func followSidebarMachineSelectionForSelectedWorkspace() {
+        guard let selectedWorkspace else { return }
+        let contextID = resolvedSidebarCreationContextID(for: selectedWorkspace)
+        guard contextID != sidebarCreationContextSelection.id else { return }
+        let nextSelection: SidebarCreationContextSelection
+        if contextID == SidebarCreationContextSelection.localID {
+            nextSelection = .local
+        } else if let context = sidebarRemoteContext(forID: contextID) {
+            nextSelection = .remote(context.key)
+        } else {
+            return
+        }
+        sidebarCreationContextSelection = nextSelection
+    }
+
     func focusedSidebarWorkspaceID(forCreationContextID contextID: String) -> UUID? {
         if contextID == SidebarCreationContextSelection.automaticID {
             return selectedTabId
@@ -766,10 +772,15 @@ extension TabManager {
     private func effectiveSidebarCreationContextSelection(
         availableRemoteKeys: Set<SidebarRemoteCreationContextKey>
     ) -> SidebarCreationContextSelection {
-        guard case let .remote(key) = sidebarCreationContextSelection else {
-            return sidebarCreationContextSelection
+        switch sidebarCreationContextSelection {
+        case .automatic:
+            // Legacy persisted mode; the column shows places only.
+            return .local
+        case .local:
+            return .local
+        case let .remote(key):
+            return availableRemoteKeys.contains(key) ? .remote(key) : .local
         }
-        return availableRemoteKeys.contains(key) ? .remote(key) : .automatic
     }
 
     private func preferredSidebarWorkspace(forCreationContextID contextID: String) -> Workspace? {

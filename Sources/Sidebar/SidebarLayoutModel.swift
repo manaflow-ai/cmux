@@ -13,19 +13,43 @@ import SwiftUI
 /// through `width` directly and register no dependency.
 @MainActor
 final class SidebarLayoutModel: ObservableObject {
+    /// Remembered REGULAR width of the machines column. Stays put while the
+    /// column is minimized to its icon rail so leaving icon mode restores the
+    /// user's width.
     @Published var leadingColumnWidth: CGFloat
+    /// Remembered REGULAR width of the workspaces column (same contract).
     @Published var width: CGFloat
+    @Published var leadingColumnMode: SidebarColumnDisplayMode
+    @Published var primaryColumnMode: SidebarColumnDisplayMode
 
     init(
         width: CGFloat,
-        leadingColumnWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarLeadingColumnWidth)
+        leadingColumnWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarLeadingColumnWidth),
+        leadingColumnMode: SidebarColumnDisplayMode = .regular,
+        primaryColumnMode: SidebarColumnDisplayMode = .regular
     ) {
         self.width = width
         self.leadingColumnWidth = leadingColumnWidth
+        self.leadingColumnMode = leadingColumnMode
+        self.primaryColumnMode = primaryColumnMode
+    }
+
+    /// Width the machines column occupies on screen right now.
+    var effectiveLeadingColumnWidth: CGFloat {
+        leadingColumnMode == .icons
+            ? SidebarColumnWidthProfile.machines.railWidth
+            : max(0, leadingColumnWidth)
+    }
+
+    /// Width the workspaces column occupies on screen right now.
+    var effectiveWidth: CGFloat {
+        primaryColumnMode == .icons
+            ? SidebarColumnWidthProfile.machines.railWidth
+            : max(0, width)
     }
 
     var regionWidth: CGFloat {
-        max(0, leadingColumnWidth) + max(0, width)
+        effectiveLeadingColumnWidth + effectiveWidth
     }
 }
 
@@ -39,7 +63,7 @@ struct SidebarWidthReader<Content: View>: View {
     @ViewBuilder let content: (CGFloat) -> Content
 
     var body: some View {
-        content(layout.width)
+        content(layout.effectiveWidth)
     }
 }
 
@@ -61,7 +85,7 @@ struct SidebarColumnWidthsReader<Content: View>: View {
     @ViewBuilder let content: (_ leading: CGFloat, _ primary: CGFloat, _ total: CGFloat) -> Content
 
     var body: some View {
-        content(layout.leadingColumnWidth, layout.width, layout.regionWidth)
+        content(layout.effectiveLeadingColumnWidth, layout.effectiveWidth, layout.regionWidth)
     }
 }
 
@@ -75,7 +99,7 @@ struct SidebarWidthFrameModifier: ViewModifier {
         // custom row using `.fixedSize()`). Keep that overflow attached to
         // the leading edge so the pane clips/truncates only at its trailing
         // edge instead of shifting every sibling left by the same amount.
-        content.frame(width: layout.width, alignment: .leading)
+        content.frame(width: layout.effectiveWidth, alignment: .leading)
     }
 }
 
@@ -87,7 +111,7 @@ struct SidebarWidthLeadingPaddingModifier: ViewModifier {
     let enabled: Bool
 
     func body(content: Content) -> some View {
-        content.padding(.leading, enabled ? layout.width : 0)
+        content.padding(.leading, enabled ? layout.effectiveWidth : 0)
     }
 }
 
