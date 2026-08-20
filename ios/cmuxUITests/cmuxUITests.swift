@@ -1593,7 +1593,8 @@ final class cmuxUITests: XCTestCase {
             minimumCount: 2
         )
         XCTAssertTrue(didDisableCaffeine)
-        XCTAssertEqual(await server.caffeineSetValues(), [true, false])
+        let caffeineSetValues = await server.caffeineSetValues()
+        XCTAssertEqual(caffeineSetValues, [true, false])
     }
 
     @MainActor
@@ -1650,6 +1651,48 @@ final class cmuxUITests: XCTestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testComputerOrderListsSiblingBuildsSeparately() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "computerPriority",
+        ])
+        defer { app.terminate() }
+
+        let filterButton = app.buttons["MobileWorkspaceFilterMenu"]
+        XCTAssertTrue(filterButton.waitForExistence(timeout: 8))
+        tap(filterButton, in: app)
+
+        let editOrder = app.descendants(matching: .any)[
+            "MobileWorkspaceSortEditOrder"
+        ]
+        XCTAssertTrue(editOrder.waitForExistence(timeout: 3))
+        tap(editOrder, in: app)
+
+        let nightlyRow = app.descendants(matching: .any).matching(
+            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}nightly"
+        ).firstMatch
+        let stableRow = app.descendants(matching: .any).matching(
+            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}stable"
+        ).firstMatch
+        let nightlyLabel = app.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Nightly"
+        )).firstMatch
+        let stableLabel = app.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Stable"
+        )).firstMatch
+        XCTAssertTrue(nightlyRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(stableRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(nightlyLabel.waitForExistence(timeout: 5))
+        XCTAssertTrue(stableLabel.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(nightlyRow.frame, stableRow.frame)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-order-sibling-builds"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

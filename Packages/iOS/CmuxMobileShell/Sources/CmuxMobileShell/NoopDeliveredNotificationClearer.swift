@@ -6,7 +6,7 @@
 /// ``MobileShellComposite/preview(runtime:)`` injects this instead of
 /// ``SystemDeliveredNotificationClearer``.
 struct NoopDeliveredNotificationClearer: DeliveredNotificationClearing {
-    func removeDelivered(ids: [String]) async {}
-    func deliveredIdentifiers() async -> [String] { [] }
+    func removeDelivered(ids: [String], macDeviceID: String?, instanceTag: String?) async {}
+    func deliveredIdentifiers(macDeviceID: String?, instanceTag: String?) async -> [String] { [] }
     func setBadgeCount(_ count: Int) {}
 }

@@ -17,7 +17,7 @@ extension WorkspaceListView {
     /// selection stays in its dedicated title picker). The icon fills while a
     /// narrowing filter is active, mirroring Mail.
     @ViewBuilder
-    func viewOptionsButton() -> some View {
+    func viewOptionsButton(orderMachines: [WorkspaceFilterMachine]) -> some View {
         Button {
             viewOptionsPresentation.present()
         } label: {
@@ -42,7 +42,7 @@ extension WorkspaceListView {
             WorkspaceListViewOptionsPopover(
                 filter: filter,
                 sortMode: workspaceSortMenuMode,
-                orderMachines: computerOrderSheetMachines,
+                orderMachines: orderMachines,
                 saveComputerOrder: setWorkspaceComputerPriority,
                 actions: workspaceListFilterMenuActions
             )
@@ -83,7 +83,11 @@ extension WorkspaceListView {
                                     dismiss: dismissMacUpdateHint
                                 )
                             }
-                            viewOptionsButton()
+                            viewOptionsButton(
+                                orderMachines: computerOrderSheetMachines(
+                                    machineSnapshots: machineSnapshots
+                                )
+                            )
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
                             }

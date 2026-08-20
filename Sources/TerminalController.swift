@@ -423,7 +423,8 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
-        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
+        self.panelArtifactAuthorizationStore =
+            panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
