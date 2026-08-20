@@ -300,19 +300,22 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B | Daytona |
-|-----------------------------|-----------|-----|---------|
-| `cmux vm new`               | yes       | yes | yes |
-| `cmux vm new --workspace`   | yes       | yes | yes |
-| `cmux vm new --detach`      | yes       | yes | yes |
-| `cmux vm attach <id>`       | yes       | yes | yes |
-| `cmux vm ssh <id>`          | yes       | yes | yes |
-| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) |
-| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
-| `cmux vm ls / rm`           | yes       | yes | yes |
+| Verb                        | Freestyle | E2B | Daytona | Blaxel |
+|-----------------------------|-----------|-----|---------|--------|
+| `cmux vm new`               | yes       | yes | yes | yes |
+| `cmux vm new --workspace`   | yes       | yes | yes | yes |
+| `cmux vm new --detach`      | yes       | yes | yes | yes |
+| `cmux vm attach <id>`       | yes       | yes | yes | yes |
+| `cmux vm ssh <id>`          | yes       | yes | yes | yes |
+| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) | no (WebSocket only) |
+| `cmux vm exec <id> -- ...`  | yes       | yes | yes | yes |
+| `cmux vm ls / rm`           | yes       | yes | yes | yes |
+| snapshot / restore          | yes       | yes | yes | not yet |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
+
+Blaxel needs no baked image: the driver bootstraps the stock `blaxel/base-image:latest` at create time by injecting the cmuxd-remote linux/amd64 binary through the sandbox filesystem API (gzip+base64, sub-second) and starting `serve --ws` as a `keepAlive` process. `keepAlive` is required — Blaxel freezes a sandbox ~15 s after the last connection otherwise, which would pause user workloads on disconnect; standby time is free, so a later "smart sleep while all PTYs are idle" optimization can reclaim the cost without changing the bootstrap. Config: `BL_API_KEY`, `BL_WORKSPACE`, and either `CMUX_VM_BLAXEL_DAEMON_PATH` (local linux/amd64 build) or `CMUX_VM_BLAXEL_DAEMON_URL` (R2 artifact). Attach dials the sandbox's private preview URL for port 7777 with a minted `X-Blaxel-Preview-Token` header (12 h expiry); the workspace API key never leaves the backend. Live driver E2E: `bun scripts/test-blaxel-vm-poc.ts`.
 
 E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 

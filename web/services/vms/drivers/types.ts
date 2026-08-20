@@ -2,7 +2,7 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
-export type ProviderId = "e2b" | "freestyle" | "daytona";
+export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
