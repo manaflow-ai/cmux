@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     VIEWPORT_SPLITS_CAPABILITY,
@@ -402,7 +402,92 @@ pub(crate) enum SurfaceAttach {
     Missing,
 }
 
+/// A client's focused pane and tab. Reported to the mux as memory only: a
+/// later attach adopts it (the same client through its own record, any other
+/// client through the session's last reported focus), and future follow-along
+/// clients can subscribe to it. Reports never move the live shared focus, so
+/// clients that are already attached stay where they are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ClientFocus {
+    pub(crate) pane: PaneId,
+    pub(crate) tab: usize,
+}
+
 impl Session {
+    /// Best-effort focus report: the client already navigated optimistically,
+    /// so failures are ignored and remote sends are never awaited. On the
+    /// local path and on a `client-focus-v1` server the report only writes
+    /// memory: the session's last reported focus (the adoption default for a
+    /// later attach) and, with a client id, this client's own record for its
+    /// reconnection. It never moves the live shared focus, so other attached
+    /// clients keep their own view. Only a remote server without the
+    /// capability degrades to `focus-pane` plus `select-tab`, which does move
+    /// the shared focus.
+    pub(crate) fn report_focus(
+        &self,
+        previous: Option<ClientFocus>,
+        focus: ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        let pane_changed = previous.map(|value| value.pane) != Some(focus.pane);
+        let tab_changed = previous != Some(focus);
+        if !pane_changed && !tab_changed {
+            return;
+        }
+        match self {
+            Session::Local(mux) => {
+                mux.record_session_focus(focus.pane, Some(focus.tab));
+                if let Some(client_id) = client_id {
+                    mux.remember_client_focus(client_id.to_string(), focus.pane, Some(focus.tab));
+                }
+            }
+            Session::Remote(remote) => {
+                let combined =
+                    client_id.filter(|_| remote.supports_capability(CLIENT_FOCUS_CAPABILITY));
+                if let Some(client_id) = combined {
+                    let _ = remote.notify(json!({
+                        "cmd": "report-focus",
+                        "client_id": client_id,
+                        "pane": focus.pane,
+                        "tab": focus.tab,
+                    }));
+                    return;
+                }
+                if pane_changed {
+                    let _ = remote.notify(json!({"cmd": "focus-pane", "pane": focus.pane}));
+                }
+                if tab_changed {
+                    let _ = remote.notify(
+                        json!({"cmd": "select-tab", "pane": focus.pane, "index": focus.tab}),
+                    );
+                }
+            }
+        }
+    }
+
+    /// This client's remembered focus on this session, falling back to the
+    /// session's last reported focus from any client, if the server has
+    /// either and its pane is still alive. The remote server applies the
+    /// same fallback inside the `client-focus` command.
+    pub(crate) fn client_focus(&self, client_id: &str) -> Option<ClientFocus> {
+        match self {
+            Session::Local(mux) => mux
+                .client_focus(client_id)
+                .or_else(|| mux.session_focus())
+                .map(|(pane, tab)| ClientFocus { pane, tab: tab.unwrap_or(0) }),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {
+                    return None;
+                }
+                let value =
+                    remote.request(json!({"cmd": "client-focus", "client_id": client_id})).ok()?;
+                let pane: PaneId = serde_json::from_value(value.get("pane")?.clone()).ok()?;
+                let tab = value.get("tab").and_then(|tab| tab.as_u64()).unwrap_or(0) as usize;
+                Some(ClientFocus { pane, tab })
+            }
+        }
+    }
+
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
             Session::Local(mux) => mux.allocate_in_process_resize_owner(),

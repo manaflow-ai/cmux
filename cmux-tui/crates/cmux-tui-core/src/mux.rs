@@ -1891,6 +1891,17 @@ impl fmt::Display for ConfigReloadError {
 
 impl std::error::Error for ConfigReloadError {}
 
+/// One client's most recently reported focus (client-focus-v1).
+#[derive(Clone)]
+struct ClientFocusRecord {
+    client_id: String,
+    pane: PaneId,
+    tab: Option<usize>,
+}
+
+/// Bounded size of the per-client focus memory.
+const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -1911,6 +1922,17 @@ pub struct Mux {
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
+    /// Per-client focus memory (client-focus-v1): the most recent focus each
+    /// client id reported, so a reconnecting client restores its own view
+    /// instead of the shared session focus. In-memory and bounded; a mux
+    /// restart degrades to the tree's own focus markers.
+    client_focus_memory: Mutex<Vec<ClientFocusRecord>>,
+    /// The session's most recently reported focus from any client
+    /// (client-focus-v1): the adoption default for a later attach that has
+    /// no per-client memory. Focus reports only write this record and the
+    /// per-client memory; they never move the live shared focus, so other
+    /// attached clients stay where they are.
+    last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -2265,6 +2287,8 @@ impl Mux {
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
+            client_focus_memory: Mutex::new(Vec::new()),
+            last_reported_focus: Mutex::new(None),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -14642,6 +14666,41 @@ impl Mux {
         let viewed = self.with_state(Self::active_surface_in_state);
         self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
+    }
+
+    /// Remember one client's reported focus for its own later reconnection.
+    /// Most-recent-first eviction keeps the memory bounded.
+    pub fn remember_client_focus(&self, client_id: String, pane: PaneId, tab: Option<usize>) {
+        let mut memory = self.client_focus_memory.lock().unwrap();
+        memory.retain(|record| record.client_id != client_id);
+        memory.push(ClientFocusRecord { client_id, pane, tab });
+        if memory.len() > CLIENT_FOCUS_MEMORY_LIMIT {
+            let excess = memory.len() - CLIENT_FOCUS_MEMORY_LIMIT;
+            memory.drain(..excess);
+        }
+    }
+
+    /// The remembered focus for one client, if its pane is still alive.
+    pub fn client_focus(&self, client_id: &str) -> Option<(PaneId, Option<usize>)> {
+        let record = {
+            let memory = self.client_focus_memory.lock().unwrap();
+            memory.iter().find(|record| record.client_id == client_id).cloned()?
+        };
+        self.with_state(|state| state.panes.contains_key(&record.pane))
+            .then_some((record.pane, record.tab))
+    }
+
+    /// Record the session's last reported focus from any client: the
+    /// adoption default for a later attach without per-client memory.
+    /// Never moves the live shared focus.
+    pub fn record_session_focus(&self, pane: PaneId, tab: Option<usize>) {
+        *self.last_reported_focus.lock().unwrap() = Some((pane, tab));
+    }
+
+    /// The session's last reported focus, if its pane is still alive.
+    pub fn session_focus(&self) -> Option<(PaneId, Option<usize>)> {
+        let record = (*self.last_reported_focus.lock().unwrap())?;
+        self.with_state(|state| state.panes.contains_key(&record.0)).then_some(record)
     }
 
     /// Select a workspace by index or relative delta.

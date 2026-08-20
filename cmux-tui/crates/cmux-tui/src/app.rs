@@ -2014,6 +2014,19 @@ impl OrderedSession {
         self.inner.tree()
     }
 
+    fn report_focus(
+        &self,
+        previous: Option<crate::session::ClientFocus>,
+        focus: crate::session::ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        self.inner.report_focus(previous, focus, client_id);
+    }
+
+    fn client_focus(&self, client_id: &str) -> Option<crate::session::ClientFocus> {
+        self.inner.client_focus(client_id)
+    }
+
     fn agents(&self) -> Vec<AgentInfo> {
         self.inner.agents()
     }
@@ -6688,6 +6701,12 @@ pub struct App {
     viewport_virtual_width: u64,
     viewport_offset: u64,
     pane_focus_history: PaneFocusHistory,
+    /// Last focus reported to the mux, None until a baseline is adopted from
+    /// the session's own tree so adoption never echoes back as a mutation.
+    reported_focus: Option<crate::session::ClientFocus>,
+    /// Durable identity for per-client focus memory on the mux
+    /// (client-focus-v1); None when no config directory is available.
+    client_focus_id: Option<String>,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -6835,6 +6854,35 @@ pub struct App {
 struct QueuedDurableNotice {
     notice: DurableProviderNotice,
     painted_at: Option<Instant>,
+}
+
+/// A durable random id naming this client install for per-client focus
+/// memory on the mux (client-focus-v1). Stored next to the TUI config;
+/// created on first use.
+fn client_focus_identity() -> Option<String> {
+    let path = crate::config::config_path().ok()?.parent()?.join("client-id");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let existing = existing.trim();
+        if !existing.is_empty()
+            && existing.len() <= 128
+            && existing.bytes().all(|byte| byte.is_ascii_graphic())
+        {
+            return Some(existing.to_string());
+        }
+    }
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    let mut id = String::with_capacity(39);
+    id.push_str("client-");
+    use std::fmt::Write as _;
+    for byte in bytes {
+        write!(&mut id, "{byte:02x}").ok()?;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, format!("{id}\n")).ok()?;
+    Some(id)
 }
 
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
@@ -8840,6 +8888,8 @@ fn run_with_machine_updates_inner(
         viewport_virtual_width: 0,
         viewport_offset: 0,
         pane_focus_history: PaneFocusHistory::default(),
+        reported_focus: None,
+        client_focus_id: client_focus_identity(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -10958,6 +11008,10 @@ impl App {
         self.viewport_offset = 0;
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
+        // The adopted tree's focus is the server's own; report only what the
+        // user changes afterwards.
+        self.reported_focus = self.current_client_focus();
+        self.restore_client_focus_from_session();
         self.rendered_terminal_sizes.clear();
         self.rendered_terminal_pointer_semantics.clear();
         self.rendered_pane_content_generations.clear();
@@ -12120,6 +12174,14 @@ impl App {
             .get(self.sidebar_workspace_selection)
             .map(|workspace| workspace.id);
         preserve_client_view(&self.tree, &mut tree);
+        let first_adoption = self.reported_focus.is_none();
+        if first_adoption {
+            // First adopted tree: its focus is the server's own baseline.
+            self.reported_focus = tree
+                .active_screen()
+                .and_then(|screen| screen.panes.iter().find(|pane| pane.id == screen.active_pane))
+                .map(|pane| crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab });
+        }
         if let Some(surface) = self.surface_only
             && !tree.select_surface(surface)
         {
@@ -12169,6 +12231,9 @@ impl App {
             && let Some(active) = self.active_pane()
         {
             self.pane_focus_history.record(active);
+        }
+        if first_adoption {
+            self.restore_client_focus_from_session();
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
@@ -15335,7 +15400,64 @@ impl App {
         self.tree.active_surface()
     }
 
+    /// Adopt this client's own remembered focus from the mux (or the
+    /// session's last reported focus when this client has none), when the
+    /// server has one whose pane still exists in the adopted tree; otherwise
+    /// the tree's own focus stays. Sets the report baseline either way.
+    fn restore_client_focus_from_session(&mut self) {
+        let Some(client_id) = self.client_focus_id.clone() else { return };
+        let Some(focus) = self.session.client_focus(&client_id) else { return };
+        let mut location = None;
+        for (workspace_index, workspace) in self.tree.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                if let Some(pane) = screen.panes.iter().find(|pane| pane.id == focus.pane) {
+                    let tab = focus.tab.min(pane.tabs.len().saturating_sub(1));
+                    location = Some((workspace_index, screen_index, pane.id, tab));
+                }
+            }
+        }
+        let Some((workspace_index, screen_index, pane_id, tab_index)) = location else { return };
+        self.tree.active_workspace = workspace_index;
+        if let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) {
+            workspace.active_screen = screen_index;
+            if let Some(screen) = workspace.screens.get_mut(screen_index) {
+                screen.active_pane = pane_id;
+                if let Some(pane) = screen.panes.iter_mut().find(|pane| pane.id == pane_id) {
+                    pane.active_tab = tab_index;
+                }
+            }
+        }
+        self.sidebar_workspace_selection =
+            workspace_index.min(self.tree.workspaces.len().saturating_sub(1));
+        self.pane_focus_history.record(pane_id);
+        self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
+    }
+
+    /// Report the client's focus (pane and tab; the server derives workspace
+    /// and screen at restore time) to the server's focus memory. The first
+    /// observation after adopting a tree is recorded as the baseline without
+    /// sending, so attaching never mutates the server; only later user
+    /// navigation does.
+    fn current_client_focus(&self) -> Option<crate::session::ClientFocus> {
+        let screen = self.tree.active_screen()?;
+        let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
+        Some(crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab })
+    }
+
+    fn report_client_focus(&mut self) {
+        let Some(focus) = self.current_client_focus() else { return };
+        match self.reported_focus {
+            None => self.reported_focus = Some(focus),
+            Some(previous) if previous == focus => {}
+            Some(previous) => {
+                self.session.report_focus(Some(previous), focus, self.client_focus_id.as_deref());
+                self.reported_focus = Some(focus);
+            }
+        }
+    }
+
     fn claim_active_terminal_geometry(&mut self, force: bool) {
+        self.report_client_focus();
         let terminal = self.tree.active_screen().and_then(|screen| {
             let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
             let tab = pane.tabs.get(pane.active_tab)?;
@@ -25177,7 +25299,10 @@ mod tests {
             app.handle(event).unwrap();
         }
         assert_eq!(app.active_pane(), Some(bottom_right));
+        // Focus reports only write the session's focus memory for later
+        // attaches; the live shared focus never follows client navigation.
         assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
@@ -26278,7 +26403,11 @@ mod tests {
         app.session.remote = true;
         app.select_screen_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        // Client navigation is optimistic and client-local; it records the
+        // session's focus memory for later attaches without moving the live
+        // shared focus.
         assert_eq!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
@@ -26309,12 +26438,87 @@ mod tests {
         app.session.remote = true;
         app.select_workspace_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        // Client navigation is optimistic and client-local; it records the
+        // session's focus memory for later attaches without moving the live
+        // shared focus.
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn client_navigation_records_the_session_focus_without_moving_the_mux() {
+        let mux = Mux::new("client-focus-report-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        // Adopting a tree records the baseline without reporting.
+        assert_eq!(mux.session_focus(), None);
+
+        app.select_workspace_for_client(Some(1), None);
+        // The report records the session's last focus for later attaches and
+        // leaves the live shared focus alone, so attached clients stay put.
+        let second_pane = app.tree.workspaces[1].screens[0].active_pane;
+        assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        assert_eq!(mux.session_focus(), Some((second_pane, Some(0))));
+
+        // A client with no memory of its own adopts the session's last
+        // reported focus on first attach.
+        let mut second = test_app(Session::Local(mux.clone()));
+        second.sidebar_visible = false;
+        second.client_focus_id = Some("bob".to_string());
+        second.replace_tree(second.session.tree());
+        assert_eq!(second.tree.active_workspace, 1);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn reconnecting_client_restores_its_own_focus() {
+        let mux = Mux::new("client-focus-reconnect-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+
+        let mut first = test_app(Session::Local(mux.clone()));
+        first.sidebar_visible = false;
+        first.client_focus_id = Some("alice".to_string());
+        first.replace_tree(first.session.tree());
+        first.select_workspace_for_client(Some(1), None);
+        drop(first);
+
+        // Another client later reports focus elsewhere, moving the session's
+        // last reported focus (the cross-client adoption default).
+        let mut other = test_app(Session::Local(mux.clone()));
+        other.sidebar_visible = false;
+        other.client_focus_id = Some("bob".to_string());
+        other.replace_tree(other.session.tree());
+        other.select_workspace_for_client(Some(0), None);
+        drop(other);
+
+        let mut second = test_app(Session::Local(mux.clone()));
+        second.sidebar_visible = false;
+        second.client_focus_id = Some("alice".to_string());
+        second.replace_tree(second.session.tree());
+        // Reconnection restores this client's own remembered focus, not the
+        // session focus another client reported afterwards.
+        assert_eq!(second.tree.active_workspace, 1);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -40862,6 +41066,8 @@ mod tests {
             viewport_virtual_width: 0,
             viewport_offset: 0,
             pane_focus_history: PaneFocusHistory::default(),
+            reported_focus: None,
+            client_focus_id: None,
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
