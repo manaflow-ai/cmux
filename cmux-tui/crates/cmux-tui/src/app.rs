@@ -8735,7 +8735,15 @@ fn run_with_machine_updates_inner(
             &mut stdout,
             terminal_restore.host_keyboard_protocol_mut(),
         )?;
-        stdout.write_all(host_startup_input_modes(surface_only.is_some()).as_bytes())?;
+        let startup_modes = host_startup_input_modes(surface_only.is_some());
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "startup.modes surface_only={} bytes={:?}",
+                surface_only.is_some(),
+                startup_modes
+            ));
+        }
+        stdout.write_all(startup_modes.as_bytes())?;
         stdout.flush()?;
         Ok(())
     })() {
@@ -8748,6 +8756,9 @@ fn run_with_machine_updates_inner(
     let input = host_input.producer(tx.clone());
     if let Err(error) = std::thread::Builder::new().name("input".into()).spawn(move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!("host.event.startup {event:?}"));
+            }
             if !input.send(event) {
                 return;
             }
@@ -8779,6 +8790,9 @@ fn run_with_machine_updates_inner(
                 }
             };
             for event in events {
+                if crate::debug_tap::enabled() {
+                    crate::debug_tap::line(format!("host.event {event:?}"));
+                }
                 if !input.send(event) {
                     break 'input;
                 }
@@ -9308,6 +9322,12 @@ fn with_panic_stdout_lock(stdout_lock: &Arc<StdoutLock>, restore: impl FnOnce())
 fn restore_terminal_unlocked(
     host_keyboard_protocol: &HostKeyboardProtocolOwnership,
 ) -> anyhow::Result<()> {
+    if crate::debug_tap::enabled() {
+        crate::debug_tap::line(format!(
+            "restore_terminal_unlocked (writes DisableMouseCapture) backtrace={}",
+            std::backtrace::Backtrace::force_capture()
+        ));
+    }
     let mut stdout = std::io::stdout();
     // A canceled or failed graphics write may have ended inside a Kitty APC.
     // CAN returns the outer parser to ground before any restoration sequence.
@@ -12619,16 +12639,48 @@ impl App {
             self.applied_outer_cursor = Some(self.desired_outer_cursor);
         }
         let desired_mouse_capture = self.desired_host_mouse_capture();
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::changed(
+                "capture.state",
+                format!(
+                    "applied={:?} desired={} probe={}",
+                    self.host_mouse_capture_applied,
+                    desired_mouse_capture,
+                    self.debug_pointer_probe_description()
+                ),
+            );
+        }
         if let Some(sequence) = host_mouse_capture_escape_if_changed(
             self.host_mouse_capture_applied,
             desired_mouse_capture,
         ) {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "capture.write applied={:?} -> {} bytes={:?}",
+                    self.host_mouse_capture_applied, desired_mouse_capture, sequence
+                ));
+            }
             let mut stdout = std::io::stdout();
             stdout.write_all(sequence.as_bytes())?;
             stdout.flush()?;
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
         }
         Ok(())
+    }
+
+    /// Debug-tap only: a re-probe of the scoped surface's pointer semantics
+    /// for logging. Can differ from the probe `desired_host_mouse_capture`
+    /// just took under contention.
+    fn debug_pointer_probe_description(&self) -> String {
+        let Some(surface_id) = self.surface_only else { return "full-tui".to_string() };
+        match self.session.surface(surface_id).map(|surface| surface.try_pointer_semantics()) {
+            None => "surface-missing".to_string(),
+            Some(None) => "no-probe".to_string(),
+            Some(Some(PointerSemanticProbe::Contended)) => "contended".to_string(),
+            Some(Some(PointerSemanticProbe::Ready(semantics))) => {
+                format!("ready(mouse_tracking={})", semantics.mouse_tracking)
+            }
+        }
     }
 
     /// Full-TUI clients always capture host mouse input. A scoped attach
@@ -19374,6 +19426,17 @@ impl App {
         replay_sequence: Option<u64>,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "mouse.handle kind={:?} at=({},{}) mods={:?} replay={:?} admission={}",
+                mouse.kind,
+                mouse.column,
+                mouse.row,
+                mouse.modifiers,
+                replay_sequence,
+                terminal_admission.is_some()
+            ));
+        }
         // A live physical sample supersedes retained motion. Replayed input
         // only supersedes motion that was retained earlier in the same
         // sequence, preserving newer samples until their chronological turn.
@@ -19586,21 +19649,49 @@ impl App {
             || self.prompt.is_some()
             || self.drag.is_some()
         {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=guard shift={} menu={} prompt={} drag={}",
+                    modifiers.contains(KeyModifiers::SHIFT),
+                    self.menu.is_some(),
+                    self.prompt.is_some(),
+                    self.drag.is_some()
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         }
         let Some(area) = self.pane_area_at(x, y).copied() else {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=no-pane-area at=({x},{y})"
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         };
         if !area.content.contains(x, y) || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
         {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=outside-content-or-not-pty at=({x},{y}) kind={:?}",
+                    self.surface_kind(area.surface)
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         }
         let content = self.canonical_pty_content(area.surface, area.logical_content_rect());
         let (logical_x, logical_y) = area.logical_content_point(x, y);
         if !content.contains(logical_x, logical_y) {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line(format!(
+                    "mouse.press.not-owned reason=outside-canonical-content logical=({logical_x},{logical_y}) content={content:?}"
+                ));
+            }
             return PtyMousePressResult::NotOwned;
         }
         let Some(handle) = self.session.surface(area.surface) else {
+            if crate::debug_tap::enabled() {
+                crate::debug_tap::line("mouse.press.consumed reason=surface-gone");
+            }
             return PtyMousePressResult::Consumed;
         };
         let semantics = terminal_admission.as_ref().map(|admission| admission.semantics).or_else(
@@ -19617,6 +19708,19 @@ impl App {
             modifiers,
             terminal_admission,
         );
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "mouse.press.prepared surface={:?} semantics={semantics:?} release={} owned={} accepted={}",
+                area.surface,
+                match &release_capture {
+                    PtyMouseReleaseCapture::Bytes(_) => "bytes",
+                    PtyMouseReleaseCapture::NotReported => "not-reported",
+                    PtyMouseReleaseCapture::Failed => "failed",
+                },
+                forwarded.owned,
+                forwarded.accepted
+            ));
+        }
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             self.active_pointer_buttons.remove(&button);
             return PtyMousePressResult::Consumed;
@@ -20280,6 +20384,12 @@ impl App {
             self.status_message =
                 Some(localization::catalog().terminal.pty_input_exited.to_string());
             return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        }
+        if crate::debug_tap::enabled() {
+            crate::debug_tap::line(format!(
+                "pty.enqueue surface={surface_id:?} kind={kind:?} bytes={}",
+                crate::debug_tap::hex_string(&bytes, 128)
+            ));
         }
         let (result, reservation_id) = self
             .pty_input

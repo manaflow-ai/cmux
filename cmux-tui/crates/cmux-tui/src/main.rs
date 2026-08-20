@@ -14,6 +14,7 @@ mod browser_input;
 mod cli;
 mod client_log;
 mod config;
+mod debug_tap;
 mod host_colors;
 mod keys;
 mod layout_undo;
