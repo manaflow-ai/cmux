@@ -138,6 +138,7 @@ fn parse_graphics_status(value: &Value) -> Option<GraphicsStatus> {
     }
 }
 
+
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     if ident.get("app").and_then(Value::as_str) != Some("cmux-tui") {
         anyhow::bail!("socket endpoint is not a cmux-tui session");
@@ -6052,6 +6053,77 @@ mod tests {
             events.recv_timeout(Duration::from_millis(200)).is_err(),
             "an identical repeated error must not spam status events"
         );
+    }
+
+    /// A daemon whose control channel goes mute while the socket stays open
+    /// (wedged writer, stalled event pump) must not leave a scoped attach
+    /// frozen on its last frame forever: the terminal-attach connection must
+    /// prove daemon liveness periodically and converge to a visible
+    /// disconnect. Observed in production as a bridge tab that accepted and
+    /// dropped input for six hours.
+    #[cfg(unix)]
+    #[test]
+    fn terminal_attach_detects_an_unresponsive_daemon_control_channel() {
+        // /tmp directly: macOS per-user temp dirs overflow SUN_LEN.
+        let dir = std::path::PathBuf::from(format!(
+            "/tmp/cmux-al-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket_path = dir.join("mux.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+        let peer = std::thread::spawn(move || {
+            let (server, _addr) = listener.accept().unwrap();
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+            // Go mute: keep the socket open but never answer again.
+            let mut line = String::new();
+            while peer.read_line(&mut line).map(|read| read > 0).unwrap_or(false) {
+                line.clear();
+            }
+        });
+
+        let session = RemoteSession::connect_for_terminal_attach(&socket_path).unwrap();
+        let events = session.subscribe();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(MuxEvent::Empty) => break,
+                Ok(_) => continue,
+                Err(_) => panic!(
+                    "an unresponsive daemon control channel never disconnected the attach session"
+                ),
+            }
+        }
+        let reason = session.transport_disconnect_reason();
+        assert!(
+            reason.as_deref().is_some_and(|reason| reason.contains("liveness")),
+            "the disconnect must say the daemon stopped answering (got {reason:?})"
+        );
+        drop(session);
+        let _ = peer.join();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
