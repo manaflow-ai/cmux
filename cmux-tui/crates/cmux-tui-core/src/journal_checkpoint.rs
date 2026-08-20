@@ -873,6 +873,74 @@ mod tests {
         assert_ne!(first["state_sha256"], second["state_sha256"]);
     }
 
+    /// A terminal-host reconnect creates its checkpoint while the rest of the
+    /// session keeps journaling. Capture reads the journal head and the public
+    /// session snapshot as its consistency cut; a record committed between
+    /// those two reads is a normal concurrent write, not a torn capture, and
+    /// must not abort the checkpoint with "session changed during checkpoint
+    /// capture". On a busy session that spurious abort made every reconnect
+    /// checkpoint fail and surfaced as repeated status toasts.
+    #[test]
+    fn reconnect_checkpoint_capture_tolerates_a_racing_journal_write() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-capture-race-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("checkpoint-race", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        let capture_mux = mux.clone();
+        let capture = std::thread::spawn(move || {
+            crate::resource_api::set_snapshot_before_projection_hook(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            capture_mux.create_journal_checkpoint("terminal_host_reconnect", "capture_race_1")
+        });
+        entered_rx.recv().unwrap();
+
+        // The capture thread is paused inside its snapshot cut. Commit a
+        // journal record from another writer before letting it proceed.
+        mux.put_journal_producer(
+            &JournalProducerManifest {
+                producer_id: "capture_race".into(),
+                namespace: "plugin.capture_race".into(),
+                manifest_version: 1,
+                max_sensitivity: JournalSensitivity::Metadata,
+                permissions: vec!["journal.append.plugin.capture_race".into()],
+                events: vec![JournalEventSchema {
+                    kind: "plugin.capture_race.event".into(),
+                    schema_version: 1,
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload_schema: json!({"type":"object"}),
+                }],
+            },
+            "client_test",
+            "capture_race_producer",
+        )
+        .unwrap();
+        let head_after_write = mux.session_journal_after(0, 1).unwrap().head_sequence;
+        release_tx.send(()).unwrap();
+
+        let commit = capture
+            .join()
+            .unwrap()
+            .expect("a journal write racing the snapshot cut must not abort checkpoint capture");
+        assert_eq!(
+            commit.checkpoint.source_sequence, head_after_write,
+            "the checkpoint cut must cover the racing journal write"
+        );
+        let preview = mux.journal_restore_preview("latest").unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn checkpoint_aligned_segments_remain_transparently_replayable() {
         let root = std::env::temp_dir().join(format!(

@@ -61,7 +61,7 @@ pub(crate) fn public_frontend_projection_snapshot(
 }
 
 #[cfg(test)]
-fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
+pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
     SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
         *slot.borrow_mut() = Some(Box::new(hook));
     });
