@@ -1417,6 +1417,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
+    /// Owner generation for the mounted UI consumer. The stream token tracks
+    /// delivery acknowledgements; this identity lets an older coordinator
+    /// distinguish intentional replacement from a failed stream.
+    private var terminalOutputConsumerOwnerIDsBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
     var terminalLaneOutputReadySurfaceIDs: Set<String>
@@ -1763,6 +1767,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
+        self.terminalOutputConsumerOwnerIDsBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         if let terminalLaneProvider = runtime?.terminalLaneProvider {
             self.terminalLaneCoordinator = MobileTerminalLaneCoordinator(
@@ -12664,7 +12669,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     private func registerTerminalOutput(
         surfaceID: String,
-        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
+        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation,
+        ownerID: UUID?
     ) -> UUID {
         // A replacement consumer can inherit an active replay barrier from
         // the stream it is replacing. Keep that barrier's deadline alive; a
@@ -12681,6 +12687,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let streamToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
+        terminalOutputConsumerOwnerIDsBySurfaceID[surfaceID] = ownerID
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -12760,12 +12767,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// to current state; ending iteration (or cancelling the consuming task)
     /// unregisters the surface and clears its viewport pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Parameter ownerID: Optional identity for the mounted UI consumer.
     /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
+    public func terminalOutputStream(
+        surfaceID: String,
+        ownerID: UUID? = nil
+    ) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             let streamToken = registerTerminalOutput(
                 surfaceID: surfaceID,
-                continuation: continuation
+                continuation: continuation,
+                ownerID: ownerID
             )
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
@@ -12776,6 +12788,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
+    }
+
+    /// Returns whether a mounted UI consumer still owns the current output
+    /// registration for a surface. A replacement stream intentionally leaves
+    /// the old stream's termination asynchronous, so callers must use this
+    /// identity instead of treating an un-cancelled iterator exit as failure.
+    public func isTerminalOutputConsumerOwner(
+        surfaceID: String,
+        ownerID: UUID
+    ) -> Bool {
+        terminalOutputConsumerOwnerIDsBySurfaceID[surfaceID] == ownerID
+    }
+
+    /// Releases an owner identity at an explicit mount teardown boundary. The
+    /// identity otherwise remains briefly after stream termination so the
+    /// owning coordinator can distinguish a genuine failure from replacement.
+    public func clearTerminalOutputConsumerOwner(
+        surfaceID: String,
+        ownerID: UUID
+    ) {
+        guard terminalOutputConsumerOwnerIDsBySurfaceID[surfaceID] == ownerID else {
+            return
+        }
+        terminalOutputConsumerOwnerIDsBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {

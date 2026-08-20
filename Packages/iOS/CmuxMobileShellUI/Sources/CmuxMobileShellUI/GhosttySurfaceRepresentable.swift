@@ -183,6 +183,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        private var outputConsumerOwnerID: UUID?
         /// Monotonic owner for the mounted output consumer. A stream can end
         /// independently of UIKit (for example when its continuation is
         /// replaced); the generation lets its exit handler restart only the
@@ -422,10 +423,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTaskGeneration &+= 1
             let taskGeneration = outputTaskGeneration
+            let ownerID = UUID()
+            outputConsumerOwnerID = ownerID
             outputTask = Task { @MainActor [weak self, weak store] in
                 defer {
                     self?.outputConsumerDidEnd(
                         generation: taskGeneration,
+                        ownerID: ownerID,
                         cancelled: Task.isCancelled
                     )
                 }
@@ -438,9 +442,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
-                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in store.terminalOutputStream(
+                    surfaceID: surfaceID,
+                    ownerID: ownerID
+                ) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
+                    guard store.isTerminalOutputConsumerOwner(
+                        surfaceID: surfaceID,
+                        ownerID: ownerID
+                    ) else {
+                        return
+                    }
                     guard let surfaceView = self.surfaceView,
                           self.terminalPresentationIsActive else { return }
                     // Window attachment is owned by the delegate callbacks
@@ -626,14 +639,23 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// mounted. The stream's continuation is the authoritative ownership
         /// edge, so a fresh consumer also requests a cold replay and restores
         /// any output missed between the two registrations.
-        private func outputConsumerDidEnd(generation: UInt64, cancelled: Bool) {
+        private func outputConsumerDidEnd(
+            generation: UInt64,
+            ownerID: UUID,
+            cancelled: Bool
+        ) {
             guard outputTaskGeneration == generation else { return }
             outputTask = nil
             guard !cancelled,
                   terminalPresentationIsActive,
                   let surfaceView,
                   self.surfaceView === surfaceView,
-                  surfaceView.window != nil else {
+                  surfaceView.window != nil,
+                  let store,
+                  store.isTerminalOutputConsumerOwner(
+                      surfaceID: surfaceID,
+                      ownerID: ownerID
+                  ) else {
                 return
             }
             MobileDebugLog.anchormux(
@@ -811,6 +833,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         private func stopMountedTasks() {
             let releasesViewport = outputTask != nil || viewportReportScheduler != nil
+            let ownerID = outputConsumerOwnerID
+            outputConsumerOwnerID = nil
             outputTaskGeneration &+= 1
             outputStartReady = false
             outputStartViewportTimeouts = 0
@@ -836,6 +860,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             liveFontTask = nil
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
+            if let ownerID {
+                store?.clearTerminalOutputConsumerOwner(
+                    surfaceID: surfaceID,
+                    ownerID: ownerID
+                )
+            }
             activeViewportPolicy = .natural
             if releasesViewport {
                 store?.clearTerminalViewport(surfaceID: surfaceID)
