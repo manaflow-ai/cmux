@@ -146,6 +146,11 @@ Rules of the runtime:
 - Containment: the context has no filesystem, network, or timers, and a
   runaway evaluation is terminated by a watchdog. Errors show in the sidebar
   with a line number.
+- Translucent "liquid glass" behind the sidebar comes from cmux's window
+  chrome, not the sidebar file: pick a glass preset in Settings under sidebar
+  appearance (e.g. Raycast Gray / HUD Glass). `sidebar(fn, { surface:
+  "glass" })` additionally drops the pane host's opaque backdrop fill when the
+  sidebar is opened as a Bonsplit pane.
 - There is no conditional view helper yet; model visibility with a binding
   that returns an empty string or a `null` background.
 
