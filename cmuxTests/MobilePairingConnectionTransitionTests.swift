@@ -15,7 +15,8 @@ struct MobilePairingConnectionTransitionTests {
         MobilePairingModel.Ready(
             attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             tailscaleLines: ["100.64.0.1:7777"],
-            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
+            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777),
+            reachableViaIroh: true
         )
     }
 

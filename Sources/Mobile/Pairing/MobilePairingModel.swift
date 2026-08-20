@@ -44,6 +44,9 @@ final class MobilePairingModel {
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
+        /// Whether this Mac's Iroh endpoint is registered, so signed-in
+        /// iPhones can discover it automatically without any QR.
+        let reachableViaIroh: Bool
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
@@ -199,7 +202,8 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     tailscaleLines: Self.tailscaleLines(status.routes),
-                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
+                    manualEntry: CmxManualPairingEntry.best(in: status.routes),
+                    reachableViaIroh: status.routes.contains { $0.kind == .iroh }
                 )
             )
             observeConnections()
@@ -252,12 +256,6 @@ final class MobilePairingModel {
         }
     }
 
-    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
-    /// ``refresh()`` when the coordinator's auth state settles.
-    func signIn() {
-        state = .loading
-        AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
-    }
     /// Cancels the connection observation. Call when the window closes.
     ///
     /// There is deliberately no timer to cancel: the displayed code never
