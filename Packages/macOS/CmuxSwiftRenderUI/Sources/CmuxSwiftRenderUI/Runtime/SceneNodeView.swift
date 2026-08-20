@@ -18,6 +18,10 @@ private struct SceneDraggedNodeKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
+private struct SceneHoveredKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     var sceneStore: SceneStore? {
         get { self[SceneStoreKey.self] }
@@ -35,6 +39,14 @@ extension EnvironmentValues {
     var sceneDraggedNodeId: String? {
         get { self[SceneDraggedNodeKey.self] }
         set { self[SceneDraggedNodeKey.self] = newValue }
+    }
+
+    /// Whether the nearest hover-tracking ancestor (a node with a
+    /// hoverBackground) is hovered. Drives `.showOnHover()`/`.hideOnHover()`
+    /// children like a row's close button, entirely host-side.
+    var sceneHovered: Bool {
+        get { self[SceneHoveredKey.self] }
+        set { self[SceneHoveredKey.self] = newValue }
     }
 }
 
@@ -59,6 +71,7 @@ private struct SceneNodeContent: View {
     let node: SceneNode
     @Environment(\.sceneStore) private var store
     @Environment(\.sceneEventSink) private var sink
+    @Environment(\.sceneHovered) private var ancestorHovered
 
     var body: some View {
         // A child of type "contextMenu" is the node's right-click menu, not
@@ -173,6 +186,10 @@ private struct SceneNodeContent: View {
     /// cornerRadius → border → frame → opacity → tap.
     @ViewBuilder
     private func styled(_ view: some View) -> some View {
+        // Hover-revealed children (a row's close button): present only while
+        // the hover-tracking ancestor is hovered. Opacity keeps layout stable.
+        let hoverVisible = !(node.bool("showOnHover") && !ancestorHovered)
+            && !(node.bool("hideOnHover") && ancestorHovered)
         let base = view
             .modifier(OptionalDSLFont(spec: fontSpec))
             .modifier(SceneTextStyle(node: node))
@@ -187,6 +204,8 @@ private struct SceneNodeContent: View {
                 node.double("layoutPriority")
                     ?? (node.type == "text" && node.props["lineLimit"] != nil ? 1 : 0)
             )
+            .opacity(hoverVisible ? 1 : 0)
+            .allowsHitTesting(hoverVisible)
         let doubleTappable = node.bool("doubleTappable")
         let tappable = node.bool("tappable")
         if doubleTappable || tappable {
@@ -389,6 +408,13 @@ private struct SceneBoxStyle: ViewModifier {
                 guard node.props["hoverBackground"] != nil else { return }
                 withAnimation(.easeOut(duration: 0.12)) {
                     isHovered = hovering
+                }
+            }
+            .transformEnvironment(\.sceneHovered) { value in
+                // Publish hover to descendants only from tracking nodes, so a
+                // non-tracking child doesn't reset an ancestor's state.
+                if node.props["hoverBackground"] != nil {
+                    value = isHovered && hoverAllowed
                 }
             }
     }

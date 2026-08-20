@@ -175,6 +175,7 @@
     "hoverBackground", "paddingHorizontal", "paddingVertical", "destructive",
     "paddingLeading", "paddingTrailing", "paddingTop", "paddingBottom",
     "fixed", "block", "layoutPriority", "marginLeading",
+    "showOnHover", "hideOnHover",
   ];
 
   function makeHandle(id) {
