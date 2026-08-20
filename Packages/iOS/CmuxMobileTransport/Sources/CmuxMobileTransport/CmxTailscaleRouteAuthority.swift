@@ -25,6 +25,8 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
     }
 
     private var pathState = PathState()
+    private var hasReceivedInitialPathUpdate = false
+    private var initialPathWaiters: [CheckedContinuation<Void, Never>] = []
     private let monitor: NWPathMonitor
 
     init() {
@@ -47,7 +49,12 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
         monitor.cancel()
     }
 
-    func prepare(request: CmxByteTransportRequest) throws -> CmxPreparedTailscaleRoute {
+    func prepare(request: CmxByteTransportRequest) async throws -> CmxPreparedTailscaleRoute {
+        // `currentPath` is not authoritative until NWPathMonitor has delivered
+        // its first callback. Pairing can begin immediately after the scanner
+        // returns, so gate the first proof on that callback instead of treating
+        // the monitor's startup snapshot as a real Tailscale outage.
+        await waitForInitialPathUpdate()
         let observed = observedPath()
         let snapshot = Self.authoritySnapshot(
             generation: observed.generation,
@@ -95,6 +102,22 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
         if pathState.path != path {
             pathState.generation = Self.nextGeneration(after: pathState.generation)
             pathState.path = path
+        }
+        guard !hasReceivedInitialPathUpdate else { return }
+        hasReceivedInitialPathUpdate = true
+        let waiters = initialPathWaiters
+        initialPathWaiters.removeAll(keepingCapacity: false)
+        waiters.forEach { $0.resume() }
+    }
+
+    private func waitForInitialPathUpdate() async {
+        guard !hasReceivedInitialPathUpdate else { return }
+        await withCheckedContinuation { continuation in
+            if hasReceivedInitialPathUpdate {
+                continuation.resume()
+            } else {
+                initialPathWaiters.append(continuation)
+            }
         }
     }
 
