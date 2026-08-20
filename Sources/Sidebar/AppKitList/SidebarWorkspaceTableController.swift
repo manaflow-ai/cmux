@@ -69,6 +69,44 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 #endif
 
+#if DEBUG
+    /// Weak registry so the debug socket can introspect live table state
+    /// (display mode plumbing, scroll origin, mounted cell classes).
+    static let debugInstances = NSHashTable<SidebarWorkspaceTableController>.weakObjects()
+
+    func debugColumnState() -> [String: Any] {
+        var state: [String: Any] = [
+            "rows": rows.count,
+            "lastAppliedDisplayMode": lastAppliedColumnDisplayMode.rawValue,
+            "rowDisplayModes": rows.prefix(8).map { $0.columnDisplayMode.rawValue },
+            "lastMeasuredWidth": lastMeasuredWidth,
+        ]
+        if let containerView {
+            let table = containerView.tableView
+            state["tableWidth"] = table.bounds.width
+            state["clipWidth"] = containerView.clipView.bounds.width
+            state["clipOrigin"] = [
+                containerView.clipView.bounds.origin.x,
+                containerView.clipView.bounds.origin.y,
+            ]
+            state["contentInsetTop"] = containerView.scrollView.contentInsets.top
+            state["mountedCellClasses"] = (0..<min(rows.count, 8)).map { row in
+                table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                    .map { String(describing: type(of: $0)) } ?? "nil"
+            }
+            if rows.count > 0, let cell = table.view(atColumn: 0, row: 0, makeIfNecessary: false) {
+                state["row0Frame"] = [
+                    cell.frame.origin.x, cell.frame.origin.y,
+                    cell.frame.width, cell.frame.height,
+                ]
+                state["row0Height"] = table.rect(ofRow: 0).height
+            }
+        }
+        state["isPresentationActive"] = isPresentationActive
+        return state
+    }
+#endif
+
     deinit {
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
@@ -81,6 +119,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
+#if DEBUG
+        Self.debugInstances.add(self)
+#endif
 
         let table = container.tableView
         table.workspaceController = self
@@ -477,11 +518,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if displayModeChanged {
             // Regular and icon presentations use different cell classes; an
             // in-place reconfigure would repaint the old class at the new
-            // height. Replace everything atomically.
+            // height. Replace everything atomically, and reset the viewport
+            // AFTER the post-reload geometry pass (a pre-layout reset gets
+            // overwritten by the animated width churn that follows).
             let postUpdateActions = detachLoadedCells()
             containerView.tableView.reloadData()
             resetViewportToTop()
-            mutationScheduler.stagePostUpdateActions(postUpdateActions)
+            mutationScheduler.stagePostUpdateActions(
+                postUpdateActions + [{ [weak self] in self?.resetViewportToTop() }]
+            )
         } else if hasStructuralChanges {
             if heightChanges.isEmpty, isSmallPureReorder {
                 // Stable-geometry reorder (drag-drop): move rows in place.
@@ -1339,6 +1384,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushViewportChange() {
         guard isPresentationActive else { return }
+        clampHorizontalScrollOrigin()
         let width = currentColumnWidth()
 #if DEBUG
         if width != lastMeasuredWidth {

@@ -365,6 +365,37 @@ extension TerminalController {
         }
     }
 
+#if DEBUG
+    /// Introspects live sidebar-column state: persisted modes plus each
+    /// mounted AppKit table's applied mode, cell classes, widths, and scroll
+    /// origin. Debug builds only; exists to make column-mode plumbing
+    /// diagnosable over the socket.
+    nonisolated func v2DebugSidebarColumnState(params: [String: Any]) -> V2CallResult {
+        v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params),
+                  let context = AppDelegate.shared?.mainWindowContext(for: tabManager)
+            else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            let tables = SidebarWorkspaceTableController.debugInstances.allObjects
+            return .ok([
+                "persisted_leading_mode": context.sidebarState.persistedLeadingColumnMode.rawValue,
+                "persisted_primary_mode": context.sidebarState.persistedPrimaryColumnMode.rawValue,
+                "persisted_width": Double(context.sidebarState.persistedWidth),
+                "persisted_leading_width": Double(context.sidebarState.persistedLeadingColumnWidth),
+                "tables": tables.map { $0.debugColumnState() },
+            ])
+        }
+    }
+#endif
+
     /// Debug/dogfood control for the Finder-style sidebar columns: flips one
     /// column between regular rows and the icon rail, same path as the
     /// divider snap (persisted mode drives the animated layout change).

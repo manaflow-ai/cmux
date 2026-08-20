@@ -2543,6 +2543,8 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         #if DEBUG
+        case "debug.sidebar.column_state":
+            return v2Result(id: id, self.v2DebugSidebarColumnState(params: params))
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
