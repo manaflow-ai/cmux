@@ -151,8 +151,7 @@ pub fn default_child_term() -> String {
     DEFAULT
         .get_or_init(|| {
             let outer = std::env::var("TERM").ok();
-            let resolves =
-                || terminfo_resolves_within("xterm-ghostty", Duration::from_secs(2));
+            let resolves = || terminfo_resolves_within("xterm-ghostty", Duration::from_secs(2));
             child_term_for(outer.as_deref(), resolves).into()
         })
         .clone()
