@@ -499,6 +499,7 @@ struct CMUXMobileRootView: View {
                     store: store,
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
+                    showComputers: showComputers,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
                     )

@@ -33,6 +33,11 @@ struct DisconnectedWorkspaceShellView: View {
     /// requirement is rendered in the empty state instead of a top banner.
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
+    /// Present the Computers management sheet. Essential while disconnected:
+    /// the per-Computer connection method lives in the Computer detail, and a
+    /// Computer stuck on an undialable method (Tailscale Only with no grant)
+    /// can ONLY be fixed from there.
+    var showComputers: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 
     #if os(iOS)
@@ -68,6 +73,18 @@ struct DisconnectedWorkspaceShellView: View {
                     #if os(iOS)
                     ToolbarItem(placement: .topBarLeading) {
                         settingsMenu
+                    }
+                    if let showComputers {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(action: showComputers) {
+                                Image(systemName: "desktopcomputer")
+                            }
+                            .accessibilityLabel(L10n.string(
+                                "mobile.connections.title",
+                                defaultValue: "Computers"
+                            ))
+                            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         addDeviceToolbarButton
