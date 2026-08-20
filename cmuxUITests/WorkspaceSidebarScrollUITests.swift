@@ -45,6 +45,18 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
             "Expected Cmd+1 to keep the first workspace below the titlebar controls"
         )
     }
+    func testAppKitSidebarRefreshHeaderDoesNotObscureFirstWorkspaceRow() {
+        let app = XCUIApplication.cmuxTestApplication()
+        configureLaunch(app)
+        app.launchArguments += ["-sidebarImplementation", "appKit"]
+        launchAndEnsureRunning(app)
+        let refresh = app.buttons["SidebarRefreshStatusButton"].firstMatch
+        XCTAssertTrue(refresh.waitForExistence(timeout: 8), "Expected the AppKit sidebar refresh button")
+        let firstRow = app.descendants(matching: .any)["WorkspaceRow-1"].firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 8), "Expected the first workspace row")
+        XCTAssertTrue(firstRow.isHittable, "Expected the first workspace row below the refresh header")
+        firstRow.click()
+    }
 
     func testCommandPaletteMoveWorkspaceToTopKeepsMovedWorkspaceVisible() {
         let app = XCUIApplication.cmuxTestApplication()

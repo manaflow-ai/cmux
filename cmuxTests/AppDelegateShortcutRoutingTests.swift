@@ -12236,6 +12236,95 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testLeaderZTogglePaneZoom() {
+        guard let appDelegate = AppDelegate.shared else { XCTFail("Expected app delegate"); return }
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let focused = workspace.focusedPanelId,
+              workspace.newTerminalSplit(from: focused, orientation: .horizontal, focus: false) != nil else {
+            XCTFail("Expected split workspace"); return
+        }
+        appDelegate.tabManager = manager
+        withTemporaryLeaderKeySettings {
+            guard let leader = makeKeyDownEvent(key: "b", modifiers: [.control], keyCode: 11, windowNumber: window.windowNumber),
+                  let zoom = makeKeyDownEvent(key: "z", modifiers: [], keyCode: 6, windowNumber: window.windowNumber) else {
+                XCTFail("Failed to construct leader events"); return
+            }
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leader))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: zoom))
+            XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leader))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: zoom))
+#endif
+        }
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertEqual(workspace.focusedPanelId, focused)
+    }
+
+    func testLeaderSecondStrokeUsesLayoutTranslationForEveryAction() {
+        guard let appDelegate = AppDelegate.shared else { XCTFail("Expected app delegate"); return }
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let window = window(withId: windowId) else { XCTFail("Expected window"); return }
+        let expected: [(String, UInt16)] = [("c", 8), ("h", 4), ("\\", 42), ("2", 19)]
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in expected.first { $0.1 == keyCode }?.0 }
+        withTemporaryLeaderKeySettings {
+            for (character, keyCode) in expected {
+                guard let leader = makeKeyDownEvent(key: "b", modifiers: [.control], keyCode: 11, windowNumber: window.windowNumber),
+                      let event = makeKeyDownEvent(key: "x", modifiers: [], keyCode: keyCode, windowNumber: window.windowNumber,
+                                                   charactersIgnoringModifiers: "非拉丁") else {
+                    XCTFail("Failed to construct \(character) events"); continue
+                }
+#if DEBUG
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leader))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#endif
+            }
+        }
+    }
+
+    func testLeaderCDispatchesAgainstOriginatingWindowAfterActiveContextChanges() {
+        guard let appDelegate = AppDelegate.shared else { XCTFail("Expected app delegate"); return }
+        let firstId = appDelegate.createMainWindow(), secondId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: firstId); closeWindow(withId: secondId) }
+        guard let first = window(withId: firstId), let second = window(withId: secondId),
+              let firstManager = appDelegate.tabManagerFor(windowId: firstId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondId),
+              let firstWorkspace = firstManager.selectedWorkspace,
+              let secondWorkspace = secondManager.selectedWorkspace else { XCTFail("Expected windows"); return }
+        second.makeKeyAndOrderFront(nil)
+        withTemporaryLeaderKeySettings {
+            guard let leader = makeKeyDownEvent(key: "b", modifiers: [.control], keyCode: 11, windowNumber: first.windowNumber),
+                  let create = makeKeyDownEvent(key: "c", modifiers: [], keyCode: 8, windowNumber: first.windowNumber) else { XCTFail("Expected events"); return }
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leader))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: create))
+#endif
+        }
+        XCTAssertEqual(firstWorkspace.panels.count, 2)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+    }
+
+    private func withTemporaryLeaderKeySettings(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let keys = [LeaderKeySettings.enabledKey, KeyboardShortcutSettings.Action.leaderKey.defaultsKey]
+            + LeaderKeySettings.LeaderAction.allCases.map(\.defaultsKey)
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(true, forKey: LeaderKeySettings.enabledKey)
+        defaults.removeObject(forKey: KeyboardShortcutSettings.Action.leaderKey.defaultsKey)
+        for action in LeaderKeySettings.LeaderAction.allCases { defaults.removeObject(forKey: action.defaultsKey) }
+        body()
+    }
+
     private func withTemporaryLeaderWorkspaceTagSettings(
         workspaceTagsEnabled: Bool,
         _ body: () -> Void
