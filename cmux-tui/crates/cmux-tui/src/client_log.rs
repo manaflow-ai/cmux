@@ -137,6 +137,12 @@ fn handle_is_current(_file: &File, path: &Path) -> bool {
     path.exists()
 }
 
+fn rollover_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".1");
+    path.with_file_name(name)
+}
+
 /// One record through the full multiprocess-safe path: lock, follow foreign
 /// rotations, append, rotate past the cap, unlock. Writer-thread only.
 fn write_record(sink: &mut Sink, record: &Record) {
