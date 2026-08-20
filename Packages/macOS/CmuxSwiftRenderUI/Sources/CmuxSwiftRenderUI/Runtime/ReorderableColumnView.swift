@@ -109,11 +109,13 @@ struct ReorderableColumnView: View {
                     dragGesture(childId: childId),
                     including: rowIsGrabbable(childId) ? .all : .subviews
                 )
-                // Accordion feel: rows appearing/disappearing (group
-                // collapse/expand) fade while the slot masks them (see the
-                // fixedSize + clipped pair in ReorderableRowView, which keeps
-                // each row's own height constant through the animation).
-                .transition(.opacity)
+                // Pure height accordion: rows stay fully opaque and are
+                // revealed/hidden ONLY by their slot's animating height (the
+                // fixedSize + clipped pair in ReorderableRowView masks them
+                // at constant row height). identity avoids the default fade;
+                // the end-of-animation removal happens at slot height zero,
+                // so nothing visibly pops.
+                .transition(.identity)
             }
         }
         // Animate DATA-driven structural changes (collapse/expand, external

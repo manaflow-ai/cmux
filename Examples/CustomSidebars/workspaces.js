@@ -195,10 +195,12 @@ function groupHeader(groupId) {
     // The chevron toggles collapse; clicking anywhere else selects the
     // group's anchor workspace (built-in sidebar behavior). Chevron only,
     // no folder icon.
+    // Fixed box: chevron.right and chevron.down have different intrinsic
+    // sizes, and letting them dictate layout changed the header height on
+    // every toggle.
     Image(() => (isCollapsed(g()) ? "chevron.right" : "chevron.down"))
       .font(10).weight("semibold").color("tertiary")
-      .frame({ width: 14 })
-      .paddingVertical(4)
+      .frame({ width: 14, height: 16 })
       .onTap(() => toggleCollapse(g())),
     Text(() => g().name).font(12).weight("semibold").lineLimit(1).truncation("tail")
       .color(() => (anchor()?.selected ? "primary" : "secondary")),
