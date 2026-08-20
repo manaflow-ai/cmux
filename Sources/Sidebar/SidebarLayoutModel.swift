@@ -13,6 +13,26 @@ import SwiftUI
 /// through `width` directly and register no dependency.
 @MainActor
 final class SidebarLayoutModel: ObservableObject {
+#if DEBUG
+    /// Weak registry so the debug socket can introspect live layout state.
+    static let debugInstances = NSHashTable<SidebarLayoutModel>.weakObjects()
+    /// Mirrors ContentView's isResizerDragging so stuck brackets are
+    /// observable over the socket.
+    var debugIsResizerDragging = false
+
+    func debugState() -> [String: Any] {
+        [
+            "leadingColumnMode": leadingColumnMode.rawValue,
+            "primaryColumnMode": primaryColumnMode.rawValue,
+            "leadingColumnWidth": Double(leadingColumnWidth),
+            "width": Double(width),
+            "effectiveLeading": Double(effectiveLeadingColumnWidth),
+            "effectiveWidth": Double(effectiveWidth),
+            "regionWidth": Double(regionWidth),
+            "isResizerDragging": debugIsResizerDragging,
+        ]
+    }
+#endif
     /// Remembered REGULAR width of the machines column. Stays put while the
     /// column is minimized to its icon rail so leaving icon mode restores the
     /// user's width.
@@ -32,6 +52,9 @@ final class SidebarLayoutModel: ObservableObject {
         self.leadingColumnWidth = leadingColumnWidth
         self.leadingColumnMode = leadingColumnMode
         self.primaryColumnMode = primaryColumnMode
+#if DEBUG
+        Self.debugInstances.add(self)
+#endif
     }
 
     /// Width the machines column occupies on screen right now.

@@ -1975,6 +1975,9 @@ struct ContentView: View {
             in: observedWindow
         )
         isResizerDragging = true
+#if DEBUG
+        sidebarLayout.debugIsResizerDragging = true
+#endif
         activateSidebarResizerCursor()
     }
 
@@ -1982,6 +1985,9 @@ struct ContentView: View {
         guard isResizerDragging else { return }
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
         isResizerDragging = false
+#if DEBUG
+        sidebarLayout.debugIsResizerDragging = false
+#endif
         activateSidebarResizerCursor()
         scheduleSidebarResizerCursorRelease()
     }

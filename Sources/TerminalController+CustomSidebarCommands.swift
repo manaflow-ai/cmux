@@ -385,7 +385,9 @@ extension TerminalController {
                 )
             }
             let tables = SidebarWorkspaceTableController.debugInstances.allObjects
+            let layouts = SidebarLayoutModel.debugInstances.allObjects
             return .ok([
+                "layouts": layouts.map { $0.debugState() },
                 "persisted_leading_mode": context.sidebarState.persistedLeadingColumnMode.rawValue,
                 "persisted_primary_mode": context.sidebarState.persistedPrimaryColumnMode.rawValue,
                 "persisted_width": Double(context.sidebarState.persistedWidth),
