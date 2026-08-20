@@ -332,7 +332,7 @@ Declare the wrapper here and cmux re-supplies it whenever that session resumes.
       {
         "id": "teamclaude",
         "kinds": ["claude"],
-        "detect": { "argvContains": ["teamclaude"] },
+        "detect": { "argvExecutables": ["teamclaude"] },
         "resumeArgvPrefix": ["teamclaude", "run", "--auto-fallback", "--"]
       }
     ]
@@ -341,14 +341,15 @@ Declare the wrapper here and cmux re-supplies it whenever that session resumes.
 ```
 
 - `id`: stable identifier recorded on the launch capture. Letters, numbers, dots, underscores, and hyphens.
-- `kinds` (or `kind` for a single value): built-in agent kinds the launcher wraps, e.g. `["claude"]`. Omit to match every kind.
-- `detect.argvContains`: substring, or list of substrings, that identifies the launcher process. Detection walks the agent's ancestor processes at capture time, nearest first, and stops after 8 levels.
+- `kinds` (or `kind` for a single value): built-in agent kinds the launcher wraps, e.g. `["claude"]`. Omit the key to match every kind — an empty array is treated as a mistake, not as "every kind".
+- `detect.argvExecutables`: executable names or paths that identify the launcher. A match requires one of the **first four argv words** of an ancestor process — or that word's last path component — to equal an entry exactly, so `node /usr/local/bin/teamclaude run` matches while `claude --add-dir ~/src/teamclaude-notes` does not. Detection walks the agent's ancestors at capture time, nearest first, and stops after 8 levels.
 - `resumeArgvPrefix`: argv words placed in front of the agent's own resume argv. cmux keeps every option it would have passed to the agent directly, so the wrapper never has to restate them.
 - `includesAgentExecutable`: keep the agent's `argv[0]` after the prefix. Default `false`, which suits wrappers that re-exec their own agent binary after a `--` separator; set it to `true` for `env`-style wrappers that take a full command.
 
 Behavior notes:
 
-- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `id`.
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `id`. The project file is resolved from the agent session's directory, not from wherever a CLI process happened to start.
 - Only resume is wrapped. Fresh launches already run under the wrapper because you started them there, and `cmux restore <kind> <checkpoint-id>` in direct mode is left untouched.
-- Removing a declaration is safe: a session captured under it resumes exactly as it did before, without the wrapper.
-- Session tracking is independent of this setting. If the wrapper bypasses cmux's `claude`/`codex` shim, install hooks once with `cmux hooks setup --agent claude` so the wrapped agent still reports sessions, notifications, and Feed events.
+- Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
+- Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
+- Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux hooks setup --agent claude`.

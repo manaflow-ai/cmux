@@ -11,7 +11,7 @@ import Testing
     private static let teamclaude = AgentExternalLauncher(
         id: "teamclaude",
         kinds: ["claude"],
-        argvContains: ["teamclaude"],
+        argvExecutables: ["teamclaude"],
         resumeArgvPrefix: ["teamclaude", "run", "--auto-fallback", "--"]
     )
 
@@ -27,7 +27,7 @@ import Testing
               {
                 "id": "teamclaude",
                 "kind": "claude",
-                "detect": { "argvContains": "teamclaude" },
+                "detect": { "argvExecutables": "teamclaude" },
                 "resumeArgvPrefix": ["teamclaude", "run", "--"]
               }
             ]
@@ -41,7 +41,7 @@ import Testing
 
         #expect(launcher.id == "teamclaude")
         #expect(launcher.kinds == ["claude"])
-        #expect(launcher.argvContains == ["teamclaude"])
+        #expect(launcher.argvExecutables == ["teamclaude"])
         #expect(launcher.resumeArgvPrefix == ["teamclaude", "run", "--"])
         #expect(launcher.includesAgentExecutable == false)
     }
@@ -49,22 +49,22 @@ import Testing
     @Test func declarationsThatCannotChangeARestoreAreDropped() {
         let missingDetect = AgentExternalLauncher(
             id: "no-detect",
-            argvContains: [],
+            argvExecutables: [],
             resumeArgvPrefix: ["wrapper", "--"]
         )
         let missingPrefix = AgentExternalLauncher(
             id: "no-prefix",
-            argvContains: ["wrapper"],
+            argvExecutables: ["wrapper"],
             resumeArgvPrefix: []
         )
         let missingID = AgentExternalLauncher(
             id: "  ",
-            argvContains: ["wrapper"],
+            argvExecutables: ["wrapper"],
             resumeArgvPrefix: ["wrapper"]
         )
         let invalidID = AgentExternalLauncher(
             id: "team claude",
-            argvContains: ["wrapper"],
+            argvExecutables: ["wrapper"],
             resumeArgvPrefix: ["wrapper"]
         )
 
@@ -90,7 +90,7 @@ import Testing
         let projectOverride = AgentExternalLauncher(
             id: "teamclaude",
             kinds: ["claude"],
-            argvContains: ["teamclaude"],
+            argvExecutables: ["teamclaude"],
             resumeArgvPrefix: ["teamclaude", "run", "--"]
         )
         let merged = registry(Self.teamclaude, projectOverride)
@@ -103,11 +103,11 @@ import Testing
         let outer = AgentExternalLauncher(
             id: "outer",
             kinds: ["claude"],
-            argvContains: ["outer-wrapper"],
+            argvExecutables: ["outer-wrapper"],
             resumeArgvPrefix: ["outer-wrapper", "--"]
         )
         let ancestors = [
-            ["/bin/sh", "-c", "teamclaude run"],
+            ["/bin/sh", "-c", "printf teamclaude"],
             ["node", "/usr/local/bin/teamclaude", "run", "--auto-fallback"],
             ["node", "/usr/local/bin/outer-wrapper"],
         ]
@@ -131,7 +131,7 @@ import Testing
     @Test func declarationWithoutKindsMatchesEveryAgent() throws {
         let anyKind = AgentExternalLauncher(
             id: "gateway",
-            argvContains: ["llm-gateway"],
+            argvExecutables: ["llm-gateway"],
             resumeArgvPrefix: ["llm-gateway", "exec", "--"]
         )
 
@@ -189,6 +189,153 @@ import Testing
         #expect(visited == [20])
     }
 
+    @Test func launcherIdentityRequiresAnExactExecutableMatch() {
+        let registry = registry(Self.teamclaude)
+
+        // The name appears only inside an unrelated path the agent was given.
+        #expect(
+            registry.detectedLauncher(
+                ancestorArgvs: [["claude", "--add-dir", "/Users/me/src/teamclaude-notes"]],
+                kind: "claude"
+            ) == nil
+        )
+        // A longer executable name that merely starts with the declared one is a different program.
+        #expect(
+            registry.detectedLauncher(
+                ancestorArgvs: [["/usr/local/bin/teamclaude-legacy", "run"]],
+                kind: "claude"
+            ) == nil
+        )
+        // The launcher itself, either bare or behind an interpreter, does match.
+        #expect(registry.detectedLauncher(ancestorArgvs: [["teamclaude", "run"]], kind: "claude") != nil)
+        #expect(
+            registry.detectedLauncher(
+                ancestorArgvs: [["node", "/usr/local/bin/teamclaude", "run", "--auto-fallback"]],
+                kind: "claude"
+            ) != nil
+        )
+    }
+
+    @Test func launcherIsIdentifiedOnlyInLeadingArgvWords() {
+        let trailing = ["/bin/zsh", "-lc", "--", "something", "teamclaude"]
+
+        #expect(registry(Self.teamclaude).detectedLauncher(ancestorArgvs: [trailing], kind: "claude") == nil)
+        #expect(trailing.count > AgentExternalLauncher.maximumIdentifyingArgvWords)
+    }
+
+    @Test func declaredButUnusableFieldsFailClosed() {
+        func launchers(_ body: String) -> [AgentExternalLauncher] {
+            AgentExternalLauncherRegistry
+                .decoding(sanitizedConfigJSON: Data("{ \"agents\": { \"launchers\": [\(body)] } }".utf8))
+                .launchers
+        }
+
+        let valid = """
+        { "id": "teamclaude", "detect": { "argvExecutables": ["teamclaude"] },
+          "resumeArgvPrefix": ["teamclaude", "run", "--"] }
+        """
+        #expect(launchers(valid).count == 1)
+
+        // An empty or blank kinds list must not widen the launcher to every agent.
+        #expect(launchers("""
+        { "id": "teamclaude", "kinds": [], "detect": { "argvExecutables": ["teamclaude"] },
+          "resumeArgvPrefix": ["teamclaude", "run", "--"] }
+        """).isEmpty)
+        #expect(launchers("""
+        { "id": "teamclaude", "kinds": ["  "], "detect": { "argvExecutables": ["teamclaude"] },
+          "resumeArgvPrefix": ["teamclaude", "run", "--"] }
+        """).isEmpty)
+        // Wrong types anywhere the user wrote something.
+        #expect(launchers("""
+        { "id": "teamclaude", "kind": 7, "detect": { "argvExecutables": ["teamclaude"] },
+          "resumeArgvPrefix": ["teamclaude", "run", "--"] }
+        """).isEmpty)
+        #expect(launchers("""
+        { "id": "teamclaude", "detect": { "argvExecutables": ["teamclaude"] },
+          "resumeArgvPrefix": "teamclaude run --" }
+        """).isEmpty)
+        #expect(launchers("""
+        { "id": "teamclaude", "detect": ["teamclaude"],
+          "resumeArgvPrefix": ["teamclaude", "run", "--"] }
+        """).isEmpty)
+        #expect(launchers("""
+        { "id": "teamclaude", "detect": { "argvExecutables": ["teamclaude"] },
+          "resumeArgvPrefix": ["teamclaude", "run", "--"], "includesAgentExecutable": "yes" }
+        """).isEmpty)
+        // One unusable declaration must not take the rest of the file down with it.
+        let mixed = launchers("""
+        { "id": "broken", "detect": { "argvExecutables": [] }, "resumeArgvPrefix": ["x"] },
+        \(valid)
+        """)
+        #expect(mixed.map(\.id) == ["teamclaude"])
+    }
+
+    @Test func wrappedResumeKeepsTheAgentShimReachableOnPath() throws {
+        func invocation(includesAgentExecutable: Bool) throws -> AgentRestoreInvocation {
+            let launcher = AgentExternalLauncher(
+                id: "teamclaude",
+                kinds: ["claude"],
+                argvExecutables: ["teamclaude"],
+                resumeArgvPrefix: ["teamclaude", "run", "--"],
+                includesAgentExecutable: includesAgentExecutable
+            )
+            let request = AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: "claude",
+                checkpointID: sessionID,
+                source: "agent-hook",
+                workingDirectory: "/tmp/work",
+                environment: [:],
+                launchCommand: AgentLaunchCommand(
+                    launcher: "claude",
+                    externalLauncher: "teamclaude",
+                    executablePath: "/opt/claude",
+                    arguments: ["/opt/claude"],
+                    workingDirectory: "/tmp/work",
+                    source: "environment"
+                ),
+                preparedArguments: nil,
+                observedPermissionMode: nil
+            )
+            return try #require(
+                AgentRestorePlanner(
+                    isExecutableFile: { $0 == "/tmp/shims/claude" },
+                    externalLaunchers: registry(launcher)
+                ).invocation(
+                    for: request,
+                    ambientEnvironment: [
+                        "CMUX_CLAUDE_WRAPPER_SHIM": "/tmp/shims/claude",
+                        "PATH": "/usr/bin:/bin",
+                    ]
+                )
+            )
+        }
+
+        // The prefix replaced the agent executable, so the wrapper's own `claude` lookup has to
+        // find cmux's shim or the resumed session runs without hooks.
+        let wrapped = try invocation(includesAgentExecutable: false)
+        #expect(wrapped.environment["PATH"] == "/tmp/shims:/usr/bin:/bin")
+
+        // The wrapper receives the shim path itself here, so PATH is left alone.
+        let passesExecutable = try invocation(includesAgentExecutable: true)
+        #expect(passesExecutable.environment["PATH"] == "/usr/bin:/bin")
+        #expect(passesExecutable.arguments.contains("/tmp/shims/claude"))
+    }
+
+    @Test func storedShellCommandDefersShimResolutionToReplayTime() {
+        let command = AgentExternalLauncherRegistry.portableShellCommandRoutingWrappedAgentThroughShim(
+            posixCommand: "teamclaude run -- --resume \(sessionID)",
+            shimEnvironmentKey: "CMUX_CLAUDE_WRAPPER_SHIM"
+        )
+
+        #expect(command.hasPrefix("/bin/sh -c "))
+        #expect(command.contains("PATH="))
+        // The shim directory is derived from the managed variable when the command runs, because a
+        // stored binding outlives the shim file it was created with.
+        #expect(command.contains("${CMUX_CLAUDE_WRAPPER_SHIM:+${CMUX_CLAUDE_WRAPPER_SHIM%/*}:}$PATH"))
+        #expect(command.contains("teamclaude run -- --resume \(sessionID)"))
+    }
+
     @Test func loadMergesUserAndProjectConfigsWithProjectWinning() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-external-launcher-\(UUID().uuidString)", isDirectory: true)
@@ -210,16 +357,16 @@ import Testing
         {
           // user level
           "agents": { "launchers": [
-            { "id": "teamclaude", "detect": { "argvContains": "teamclaude" },
+            { "id": "teamclaude", "detect": { "argvExecutables": "teamclaude" },
               "resumeArgvPrefix": ["teamclaude", "run", "--"] },
-            { "id": "gateway", "detect": { "argvContains": "llm-gateway" },
+            { "id": "gateway", "detect": { "argvExecutables": "llm-gateway" },
               "resumeArgvPrefix": ["llm-gateway", "exec", "--"] }
           ] }
         }
         """.utf8).write(to: home.appendingPathComponent(".config/cmux/cmux.json"))
         try Data("""
         { "agents": { "launchers": [
-          { "id": "teamclaude", "detect": { "argvContains": "teamclaude" },
+          { "id": "teamclaude", "detect": { "argvExecutables": "teamclaude" },
             "resumeArgvPrefix": ["teamclaude", "run", "--auto-fallback", "--"] }
         ] } }
         """.utf8).write(to: root.appendingPathComponent("project/.cmux/cmux.json"))
@@ -263,7 +410,7 @@ import Testing
         let envStyle = AgentExternalLauncher(
             id: "gateway",
             kinds: ["claude"],
-            argvContains: ["llm-gateway"],
+            argvExecutables: ["llm-gateway"],
             resumeArgvPrefix: ["llm-gateway", "exec", "--"],
             includesAgentExecutable: true
         )

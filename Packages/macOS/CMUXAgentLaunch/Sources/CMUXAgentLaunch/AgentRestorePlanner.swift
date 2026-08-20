@@ -109,14 +109,29 @@ public struct AgentRestorePlanner: Sendable {
                 environment: &environment
             )
         }
-        if request.mode == .resumeAgent {
+        if request.mode == .resumeAgent,
+           let externalLauncher = externalLaunchers.resolvedLauncher(
+               id: request.launchCommand?.externalLauncher,
+               kind: kind
+           ) {
             // After managed-wrapper routing, so the restore keeps its authorization environment and
             // its custom-executable hint even when the wrapper replaces argv[0] with its own binary.
             routedArguments = externalLaunchers.applyingResumePrefix(
                 to: routedArguments,
-                launcherID: request.launchCommand?.externalLauncher,
+                launcherID: externalLauncher.id,
                 kind: kind
             )
+            if !externalLauncher.includesAgentExecutable,
+               let restoreLaunch = AgentRestoreLaunch(kind: kind, sessionID: request.checkpointID) {
+                // The wrapper re-execs the agent by name, so the shim that managed-wrapper routing
+                // put in argv[0] is gone. Keep it reachable on PATH or the wrapped agent restores
+                // without cmux hooks.
+                environment = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                    environment,
+                    shimEnvironmentKey: restoreLaunch.wrapperShimEnvironmentKey,
+                    isExecutableFile: isExecutableFile
+                )
+            }
         }
         guard !routedArguments.isEmpty else { return nil }
 

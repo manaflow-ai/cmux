@@ -211,6 +211,20 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
         return detectedLauncher(ancestorArgvs: ancestorArgvs, kind: kind)
     }
 
+    /// The declaration that applies to a resume, or `nil` when the agent resumes unwrapped.
+    ///
+    /// - Parameters:
+    ///   - launcherID: The launcher id recorded on the launch capture.
+    ///   - kind: The built-in agent kind being resumed.
+    /// - Returns: The declaration to re-supply, or `nil` when the capture recorded none, the
+    ///   declaration is gone, or it does not wrap this kind.
+    public func resolvedLauncher(id launcherID: String?, kind: String) -> AgentExternalLauncher? {
+        guard let launcher = launcher(id: launcherID), launcher.wraps(kind: kind) else {
+            return nil
+        }
+        return launcher
+    }
+
     /// Re-supplies a captured external launcher around an agent's own resume argv.
     ///
     /// - Parameters:
@@ -223,14 +237,68 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
         launcherID: String?,
         kind: String
     ) -> [String] {
-        guard !argv.isEmpty,
-              let launcher = launcher(id: launcherID),
-              launcher.wraps(kind: kind) else {
-            return argv
+        guard let launcher = resolvedLauncher(id: launcherID, kind: kind) else { return argv }
+        return launcher.applyingResumePrefix(to: argv)
+    }
+
+    /// Puts cmux's agent wrapper shim first on `PATH` so a wrapped agent keeps its hooks.
+    ///
+    /// A wrapper that takes the agent's options after `--` re-execs the agent by name, so dropping
+    /// the agent executable also drops the per-surface shim cmux normally substitutes into the
+    /// resume argv — and with it `SessionStart`, notifications, and Feed events. The shim's own
+    /// directory carries only that shim, so putting it first lets the wrapper's `claude` lookup find
+    /// it while leaving every other command resolution alone.
+    ///
+    /// - Parameters:
+    ///   - environment: The restore environment being assembled.
+    ///   - shimEnvironmentKey: The managed variable holding the shim path, e.g.
+    ///     `CMUX_CLAUDE_WRAPPER_SHIM`.
+    ///   - isExecutableFile: Executable-path check for the shim.
+    /// - Returns: The environment, with `PATH` prefixed when a usable shim exists.
+    public static func environmentRoutingWrappedAgentThroughShim(
+        _ environment: [String: String],
+        shimEnvironmentKey: String,
+        isExecutableFile: (String) -> Bool
+    ) -> [String: String] {
+        guard let shim = environment[shimEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !shim.isEmpty,
+              isExecutableFile(shim) else {
+            return environment
         }
-        let agentArguments = launcher.includesAgentExecutable ? argv : Array(argv.dropFirst())
-        guard !agentArguments.isEmpty else { return argv }
-        return launcher.resumeArgvPrefix + agentArguments
+        let directory = (shim as NSString).deletingLastPathComponent
+        guard !directory.isEmpty else { return environment }
+        var updated = environment
+        let existingPath = environment["PATH"] ?? ""
+        let components = existingPath.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard components.first != directory else { return environment }
+        updated["PATH"] = existingPath.isEmpty ? directory : "\(directory):\(existingPath)"
+        return updated
+    }
+
+    /// The POSIX form of ``environmentRoutingWrappedAgentThroughShim(_:shimEnvironmentKey:isExecutableFile:)``
+    /// for a resume command that is stored as shell text and evaluated later.
+    ///
+    /// The shim path is not resolved here: a stored binding outlives the shim file (the temporary
+    /// directory is reaped after a few days), and the surface's managed variable is the only source
+    /// that is still correct at replay time. The expansion adds nothing when the variable is unset,
+    /// which is exactly the degradation the direct claude resume path already accepts.
+    ///
+    /// The prefix assignment and the parameter expansion are POSIX-only, and a stored binding is
+    /// evaluated by the user's login shell (fish and csh reject both), so the result is wrapped in
+    /// `/bin/sh -c` the same way the direct claude resume command is.
+    ///
+    /// - Parameters:
+    ///   - posixCommand: The already-quoted wrapped resume command.
+    ///   - shimEnvironmentKey: The managed variable holding the shim path.
+    /// - Returns: A portable command that puts the shim directory first on `PATH`.
+    public static func portableShellCommandRoutingWrappedAgentThroughShim(
+        posixCommand: String,
+        shimEnvironmentKey: String
+    ) -> String {
+        let assignment = "PATH=\"${\(shimEnvironmentKey):+${\(shimEnvironmentKey)%/*}:}$PATH\""
+        return AgentResumeArgv.portableClaudeResumeShellCommand(
+            posixCommand: "\(assignment) \(posixCommand)"
+        )
     }
 
     private struct ConfigFile: Decodable {

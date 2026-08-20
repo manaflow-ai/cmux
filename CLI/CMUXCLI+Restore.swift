@@ -167,7 +167,9 @@ extension CMUXCLI {
         )
         guard let invocation = AgentRestorePlanner(
             executableFileResolver: AgentRestoreExecutableFileResolver(),
-            externalLaunchers: Self.externalAgentLaunchers
+            externalLaunchers: externalAgentLaunchers(
+                workingDirectory: effectiveWorkingDirectory ?? record.launchCommand?.workingDirectory
+            )
         ).invocation(
             for: request,
             ambientEnvironment: processEnvironment

@@ -28912,14 +28912,17 @@ struct CMUXCLI {
 
     /// User-declared launchers that wrap a built-in agent (`agents.launchers` in `cmux.json`).
     ///
-    /// Read once per CLI process. Hook invocations are short-lived and sit on the agent's startup
-    /// path, so the config is not re-read per capture; a declaration added mid-session applies to
-    /// agents started after it, and removing one only stops the wrapper from being re-supplied.
-    static let externalAgentLaunchers: AgentExternalLauncherRegistry = AgentExternalLauncherRegistry.load(
-        homeDirectory: NSHomeDirectory(),
-        workingDirectory: FileManager.default.currentDirectoryPath,
-        sanitize: { try JSONCParser.preprocess(data: $0) }
-    )
+    /// The project directory is passed in rather than taken from this process: the project-level
+    /// config that applies belongs to the agent's session, and a hook or restore process can be
+    /// started from anywhere. Read per call, like the vault agent registry — a hook invocation is
+    /// short-lived, and one config read keeps a mid-session config edit from going stale.
+    func externalAgentLaunchers(workingDirectory: String?) -> AgentExternalLauncherRegistry {
+        AgentExternalLauncherRegistry.load(
+            homeDirectory: NSHomeDirectory(),
+            workingDirectory: workingDirectory,
+            sanitize: { try JSONCParser.preprocess(data: $0) }
+        )
+    }
 
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
@@ -28976,7 +28979,7 @@ struct CMUXCLI {
         // while the agent is still running and its launcher process is still alive; the id is
         // replayed through `agents.launchers` at resume time. #10494
         let externalLauncher = fallbackPID.flatMap { fallbackPID in
-            Self.externalAgentLaunchers.detectedLauncher(
+            externalAgentLaunchers(workingDirectory: workingDirectory).detectedLauncher(
                 agentPID: pid_t(fallbackPID),
                 kind: fallbackKind,
                 parentPID: { self.parentPID(of: $0) },
@@ -29262,17 +29265,27 @@ struct CMUXCLI {
         guard let argv, !argv.isEmpty else { return nil }
         // Re-supply a user-declared external launcher (#10494). Applied to the agent argv the
         // resolution above produced, so the wrapper receives exactly the options cmux would have
-        // passed to the agent directly.
-        let wrappedArgv = Self.externalAgentLaunchers.applyingResumePrefix(
-            to: argv,
-            launcherID: launchCommand?.externalLauncher,
-            kind: kind
-        )
+        // passed to the agent directly. The config is only read when a launcher was captured.
+        let resumeWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory
+        let externalLauncher = launchCommand?.externalLauncher.flatMap { launcherID in
+            externalAgentLaunchers(workingDirectory: resumeWorkingDirectory)
+                .resolvedLauncher(id: launcherID, kind: kind)
+        }
         return agentSurfaceResumeShellCommand(
-            argv: wrappedArgv,
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            argv: externalLauncher?.applyingResumePrefix(to: argv) ?? argv,
+            workingDirectory: resumeWorkingDirectory,
             kind: kind,
-            environment: environment
+            environment: environment,
+            // A wrapper that re-execs the agent by name loses the shim that would have been
+            // substituted into argv[0], and with it cmux's hooks; keep it first on PATH instead.
+            wrappedAgentShimEnvironmentKey: externalLauncher.flatMap { launcher in
+                launcher.includesAgentExecutable
+                    ? nil
+                    : AgentRestoreLaunch(
+                        kind: kind,
+                        sessionID: normalizedSessionId
+                    )?.wrapperShimEnvironmentKey
+            }
         )
     }
 
@@ -29280,7 +29293,8 @@ struct CMUXCLI {
         argv: [String],
         workingDirectory: String?,
         kind: String,
-        environment: [String: String]?
+        environment: [String: String]?,
+        wrappedAgentShimEnvironmentKey: String? = nil
     ) -> String {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
@@ -29308,6 +29322,12 @@ struct CMUXCLI {
                 command,
                 arguments: resumeCommandParts,
                 environment: environment
+            )
+        }
+        if let wrappedAgentShimEnvironmentKey {
+            command = AgentExternalLauncherRegistry.portableShellCommandRoutingWrappedAgentThroughShim(
+                posixCommand: command,
+                shimEnvironmentKey: wrappedAgentShimEnvironmentKey
             )
         }
         if let cwd {

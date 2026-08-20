@@ -194,32 +194,34 @@
               },
               "kind": {
                 "type": "string",
-                "description": "Single built-in agent kind this launcher wraps, for example claude. Omit to match every kind."
+                "pattern": "\\S",
+                "description": "Single built-in agent kind this launcher wraps, for example claude. Omit the key entirely to match every kind; an empty or blank value makes the declaration unusable rather than widening it."
               },
               "kinds": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "Built-in agent kinds this launcher wraps, for example [\"claude\"]. Omit to match every kind."
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "\\S" },
+                "description": "Built-in agent kinds this launcher wraps, for example [\"claude\"]. Omit the key entirely to match every kind; an empty array makes the declaration unusable rather than widening it."
               },
               "detect": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["argvContains"],
+                "required": ["argvExecutables"],
                 "description": "How the launcher process is recognized among an agent's ancestors.",
                 "properties": {
-                  "argvContains": {
+                  "argvExecutables": {
                     "oneOf": [
-                      { "type": "string", "minLength": 1 },
-                      { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+                      { "type": "string", "pattern": "\\S" },
+                      { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\S" } }
                     ],
-                    "description": "Substring or substrings that must appear in the launcher process argv."
+                    "description": "Executable names or paths identifying the launcher, for example [\"teamclaude\"]. A match requires one of the first four argv words of an ancestor process — or that word's last path component — to equal an entry exactly; substrings never match, so an unrelated path containing the name cannot claim the session."
                   }
                 }
               },
               "resumeArgvPrefix": {
                 "type": "array",
                 "minItems": 1,
-                "items": { "type": "string", "minLength": 1 },
+                "items": { "type": "string", "pattern": "\\S" },
                 "description": "Argv words prepended to the agent's own resume argv, for example [\"teamclaude\", \"run\", \"--auto-fallback\", \"--\"]."
               },
               "includesAgentExecutable": {

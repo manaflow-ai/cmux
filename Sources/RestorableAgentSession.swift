@@ -405,13 +405,28 @@ enum AgentResumeCommandBuilder {
             return nil
         }
 
+        let externalLauncher = externalLauncher(
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
         return shellCommand(
-            argv: argv,
+            argv: externalLauncher?.applyingResumePrefix(to: argv) ?? argv,
             kind: kind,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            // A wrapper that re-execs the agent by name never receives the shim token below, so
+            // keep the shim reachable on PATH or the wrapped agent resumes without cmux hooks.
+            wrappedAgentShimEnvironmentKey: externalLauncher.flatMap { launcher in
+                launcher.includesAgentExecutable
+                    ? nil
+                    : AgentRestoreLaunch(
+                        kind: kind.rawValue,
+                        sessionID: sessionId
+                    )?.wrapperShimEnvironmentKey
+            }
         )
     }
 
@@ -454,7 +469,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool
+        includeWorkingDirectoryPrefix: Bool,
+        wrappedAgentShimEnvironmentKey: String? = nil
     ) -> String {
         var commandParts: [String] = []
         let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
@@ -489,7 +505,7 @@ enum AgentResumeCommandBuilder {
         // The token is POSIX-only, so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse consistently from any user's login shell.
         // https://github.com/manaflow-ai/cmux/issues/5639
-        let shellCommand: String
+        var shellCommand: String
         switch kind {
         case .claude:
             shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
@@ -505,6 +521,12 @@ enum AgentResumeCommandBuilder {
             shellCommand = sanitizedCommandParts
                 .map(TerminalStartupShellQuoting.singleQuoted)
                 .joined(separator: " ")
+        }
+        if let wrappedAgentShimEnvironmentKey {
+            shellCommand = AgentExternalLauncherRegistry.portableShellCommandRoutingWrappedAgentThroughShim(
+                posixCommand: shellCommand,
+                shimEnvironmentKey: wrappedAgentShimEnvironmentKey
+            )
         }
         guard includeWorkingDirectoryPrefix else { return shellCommand }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
@@ -579,27 +601,33 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        guard let argv = agentResumeArguments(
+        agentResumeArguments(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
             observedPermissionMode: observedPermissionMode
-        ) else { return nil }
-        // A launcher cmux does not own was detected around this agent at capture time, so re-supply
-        // it: without the wrapper the restored pane talks to the provider directly and loses
-        // whatever the wrapper provided. #10494
-        guard let externalLauncher = launchCommand?.externalLauncher else { return argv }
+        )
+    }
+
+    /// The user-declared external launcher to re-supply around a resume, if any.
+    ///
+    /// Resolved at render time rather than inside ``resumeArguments(kind:sessionId:launchCommand:workingDirectory:customRegistration:observedPermissionMode:)``
+    /// so the binding's typed `prepared_arguments` stay the agent's own argv. `AgentRestorePlanner`
+    /// applies the prefix itself when it replays those, and wrapping them here as well would stack
+    /// the prefix twice. #10494
+    private static func externalLauncher(
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> AgentExternalLauncher? {
+        guard let launcherID = launchCommand?.externalLauncher else { return nil }
         return AgentExternalLauncherRegistry.load(
             homeDirectory: NSHomeDirectory(),
             workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
             sanitize: { try JSONCParser.preprocess(data: $0) }
-        ).applyingResumePrefix(
-            to: argv,
-            launcherID: externalLauncher,
-            kind: kind.rawValue
-        )
+        ).resolvedLauncher(id: launcherID, kind: kind.rawValue)
     }
 
     private static func agentResumeArguments(
