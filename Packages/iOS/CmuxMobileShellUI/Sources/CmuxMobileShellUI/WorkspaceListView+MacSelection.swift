@@ -163,12 +163,16 @@ extension WorkspaceListView {
                 machines: machineSnapshots.macPickerMachines,
                 canAddDevice: showAddDevice != nil,
                 labelWidth: 155,
-                statusLine: connectionChrome.statusLine
+                statusLine: connectionChrome.statusLine,
+                connectionMethod: connectionMethodStore?.method
             ),
             actions: WorkspaceMacTitlePickerActions(
                 select: { _ = handleMacTitlePickerSelection($0) },
                 addDevice: showAddDevice,
-                reconnect: reconnect
+                reconnect: reconnect,
+                selectConnectionMethod: connectionMethodStore.map { store in
+                    { store.method = $0 }
+                }
             )
         )
         .equatable()
@@ -249,6 +253,44 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                     )
                 }
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
+            }
+            // The same app-wide Connection Method choice as Settings, inline
+            // where connections are picked so switching costs no extra chrome.
+            if let method = value.connectionMethod,
+               let selectMethod = actions.selectConnectionMethod {
+                Section(L10n.string(
+                    "mobile.settings.connectionMethod",
+                    defaultValue: "Connection Method"
+                )) {
+                    Button {
+                        selectMethod(.automatic)
+                    } label: {
+                        menuRow(
+                            title: L10n.string(
+                                "mobile.settings.connectionMethod.automatic",
+                                defaultValue: "Auto-Connect"
+                            ),
+                            subtitle: nil,
+                            isSelected: method == .automatic
+                        )
+                    }
+                    .accessibilityAddTraits(method == .automatic ? .isSelected : [])
+                    .accessibilityIdentifier("MobileWorkspaceMacPickerMethodAutomatic")
+                    Button {
+                        selectMethod(.tailscale)
+                    } label: {
+                        menuRow(
+                            title: L10n.string(
+                                "mobile.settings.connectionMethod.tailscale",
+                                defaultValue: "Tailscale Only"
+                            ),
+                            subtitle: nil,
+                            isSelected: method == .tailscale
+                        )
+                    }
+                    .accessibilityAddTraits(method == .tailscale ? .isSelected : [])
+                    .accessibilityIdentifier("MobileWorkspaceMacPickerMethodTailscale")
+                }
             }
         } label: {
             WorkspaceMacTitlePickerLabel(

@@ -64,6 +64,10 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+    /// Feeds the picker menu's inline Connection Method group; the picker
+    /// stays value-driven, so the method flows through its Equatable value.
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -93,12 +97,16 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
                     labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
-                    statusLine: statusLine
+                    statusLine: statusLine,
+                    connectionMethod: connectionMethodStore?.method
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
                     addDevice: showAddDevice,
-                    reconnect: reconnect
+                    reconnect: reconnect,
+                    selectConnectionMethod: connectionMethodStore.map { store in
+                        { store.method = $0 }
+                    }
                 )
             )
             .equatable()
