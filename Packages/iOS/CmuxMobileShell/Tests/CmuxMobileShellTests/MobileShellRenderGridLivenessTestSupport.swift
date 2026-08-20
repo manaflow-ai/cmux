@@ -32,6 +32,7 @@ actor LivenessHostRouter {
         var title: String?
         var attachToken: String?
         var stackAccessToken: String?
+        var maxScrollbackRows: Int?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -131,7 +132,8 @@ actor LivenessHostRouter {
         action: String? = nil,
         title: String? = nil,
         attachToken: String? = nil,
-        stackAccessToken: String? = nil
+        stackAccessToken: String? = nil,
+        maxScrollbackRows: Int? = nil
     ) {
         recorded.append(RecordedRequest(
             method: method,
@@ -146,7 +148,8 @@ actor LivenessHostRouter {
             action: action,
             title: title,
             attachToken: attachToken,
-            stackAccessToken: stackAccessToken
+            stackAccessToken: stackAccessToken,
+            maxScrollbackRows: maxScrollbackRows
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -430,6 +433,18 @@ actor LivenessHostRouter {
         code: String = "subscribe_failed"
     ) {
         subscribeErrorCodesByRequestNumber[number] = code
+    }
+
+    /// Reject the next `count` `mobile.events.subscribe` acks (relative to the
+    /// requests already seen), modeling a host that accepts the transport dial
+    /// but never enables the subscription. This is the exact edge that drives
+    /// the `subscriptionStartFailed`/`eventStreamEnded` redial loop in
+    /// https://github.com/manaflow-ai/cmux/issues/10482.
+    func failNextSubscribeRequests(count: Int, code: String = "subscribe_failed") {
+        guard count > 0 else { return }
+        for offset in 1 ... count {
+            subscribeErrorCodesByRequestNumber[subscribeRequestCount + offset] = code
+        }
     }
 
     /// Return a malformed acknowledgement for the Nth unsubscribe request.
@@ -873,7 +888,8 @@ actor LivenessTransport: CmxByteTransport {
                 action: params?["action"] as? String,
                 title: params?["title"] as? String,
                 attachToken: auth?["attach_token"] as? String,
-                stackAccessToken: auth?["stack_access_token"] as? String
+                stackAccessToken: auth?["stack_access_token"] as? String,
+                maxScrollbackRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
