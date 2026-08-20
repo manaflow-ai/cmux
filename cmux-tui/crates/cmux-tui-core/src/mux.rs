@@ -1992,6 +1992,12 @@ pub struct Mux {
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
+    /// True once a skipped terminal-host reconnect checkpoint has been
+    /// surfaced as a status event. A machine resume reconnects every hosted
+    /// terminal at once, so per-terminal reporting would toast N times for
+    /// one underlying condition. Cleared when a reconnect checkpoint
+    /// succeeds again.
+    reconnect_checkpoint_skip_reported: AtomicBool,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2350,6 +2356,7 @@ impl Mux {
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
+            reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -5084,6 +5091,30 @@ impl Mux {
             self.publish_journal_event();
         }
         Ok(())
+    }
+
+    /// Reports a skipped terminal-host reconnect checkpoint at most once
+    /// until a later reconnect checkpoint succeeds. A checkpoint is a
+    /// journal-replay optimization: skipping one only moves the next replay
+    /// boundary back, so repeated skips are daemon-log noise, not per-toast
+    /// news.
+    pub(crate) fn report_skipped_reconnect_checkpoint(
+        &self,
+        terminal_id: impl std::fmt::Display,
+        error: &anyhow::Error,
+    ) {
+        let message = format!(
+            "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
+        );
+        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
+            eprintln!("cmux-tui: {message}");
+        } else {
+            self.emit(MuxEvent::Status(message));
+        }
+    }
+
+    pub(crate) fn note_reconnect_checkpoint_captured(&self) {
+        self.reconnect_checkpoint_skip_reported.store(false, Ordering::Release);
     }
 
     pub(crate) fn create_journal_checkpoint(
@@ -16454,6 +16485,44 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    /// A machine resume reconnects every hosted terminal at once. When
+    /// checkpoint capture keeps losing its consistency race on a busy
+    /// session, the skip must surface as one status event, not one toast per
+    /// terminal per reconnect. A later successful checkpoint re-arms the
+    /// report.
+    #[test]
+    fn reconnect_checkpoint_skip_status_is_reported_once_until_recovery() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let skip_statuses = |events: &MuxEventReceiver| {
+            events
+                .try_iter()
+                .filter(|event| {
+                    matches!(event, MuxEvent::Status(message)
+                        if message.contains("reconnect checkpoint"))
+                })
+                .count()
+        };
+
+        let error = anyhow::anyhow!("session changed during checkpoint capture");
+        mux.report_skipped_reconnect_checkpoint("term_one", &error);
+        mux.report_skipped_reconnect_checkpoint("term_two", &error);
+        mux.report_skipped_reconnect_checkpoint("term_one", &error);
+        assert_eq!(
+            skip_statuses(&events),
+            1,
+            "repeated checkpoint skips must collapse into one status event"
+        );
+
+        mux.note_reconnect_checkpoint_captured();
+        mux.report_skipped_reconnect_checkpoint("term_three", &error);
+        assert_eq!(
+            skip_statuses(&events),
+            1,
+            "a skip after a successful checkpoint is a new condition and reports again"
+        );
     }
 
     fn assert_terminal_view_detached(mux: &Mux, surface: SurfaceId) {

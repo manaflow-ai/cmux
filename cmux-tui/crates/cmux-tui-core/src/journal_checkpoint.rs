@@ -40,9 +40,13 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
     mux.flush_terminal_journal()?;
-    let head_before = mux.session_journal_after(0, 1)?.head_sequence;
-    let snapshot = crate::resource_api::public_session_snapshot(mux)
-        .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
+    // The snapshot and the journal head form one consistency cut, read under
+    // a single registry + state lock hold. A journal record committed before
+    // the cut is covered by the snapshot; the fence below only has to reject
+    // writes that land after it, while terminal content is being captured.
+    let (snapshot, head_before) =
+        crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
     let producers = mux.journal_producer_manifests()?;
     let hooks = mux
         .journal_hook_states()?
@@ -144,10 +148,12 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     }
 
     mux.flush_terminal_journal()?;
-    let head_after = mux.session_journal_after(0, 1)?.head_sequence;
-    let cursor_after = crate::resource_api::public_session_snapshot(mux)
-        .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?["cursor"]
-        .clone();
+    // Verify against one cut as well, so a write landing between two separate
+    // head and cursor reads cannot fail a capture that was in fact stable.
+    let (verify_snapshot, head_after) =
+        crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?;
+    let cursor_after = verify_snapshot["cursor"].clone();
     anyhow::ensure!(
         head_before == head_after && snapshot["cursor"] == cursor_after,
         "session changed during checkpoint capture"

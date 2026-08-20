@@ -3565,11 +3565,12 @@ impl Surface {
                                     &checkpoint_key,
                                 );
                             }
-                            if let Err(error) = checkpoint {
-                                reconnect_mux.emit(MuxEvent::Status(format!(
-                                    "skipped terminal {} reconnect checkpoint (replay starts from the previous boundary): {error:#}",
-                                    identity.terminal_id
-                                )));
+                            match checkpoint {
+                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
+                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
+                                    &identity.terminal_id,
+                                    &error,
+                                ),
                             }
                         }
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
