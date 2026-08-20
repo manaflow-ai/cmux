@@ -1438,7 +1438,7 @@ struct ContentView: View {
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
             let ratioCap = resolvedAvailableWidth * Self.maximumSidebarWidthRatio
             let terminalCap = resolvedAvailableWidth
-                - sidebarLeadingColumnWidth
+                - sidebarLayout.effectiveLeadingColumnWidth
                 - Self.minimumTerminalWidthWithLeftSidebar
             return max(minimumSidebarWidth, min(ratioCap, terminalCap))
         }
@@ -1631,7 +1631,7 @@ struct ContentView: View {
             point: pointInContent,
             contentBounds: contentView.bounds,
             isLeftSidebarVisible: sidebarState.isVisible,
-            leftDividerXs: [sidebarLeadingColumnWidth, sidebarRegionWidth],
+            leftDividerXs: [sidebarLayout.effectiveLeadingColumnWidth, sidebarRegionWidth],
             isRightSidebarVisible: rightSidebarVisible,
             rightDividerX: contentView.bounds.maxX - rightSidebarWidth
         )
