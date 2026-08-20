@@ -31,14 +31,27 @@ import Foundation
 /// option) is reused verbatim, so a wrapper never has to restate the agent's own flags and no
 /// second quoting layer is introduced.
 public struct AgentExternalLauncher: Codable, Equatable, Sendable {
-    /// How many leading argv words are considered when identifying a launcher process.
+    /// Commands that run another program named later in the same argv.
     ///
-    /// A launcher is the command being run, so it appears at the front of its own argv — either as
-    /// `argv[0]` (`teamclaude run …`) or just behind an interpreter or env prefix
-    /// (`node /usr/local/bin/teamclaude run …`, `env VAR=1 llm-gateway exec …`). Options and paths
-    /// further right belong to the launcher's own invocation (`--add-dir ~/src/teamclaude-notes`),
-    /// and matching them would attribute a session to a launcher that never started it.
-    public static let maximumIdentifyingArgvWords = 4
+    /// Identification follows the executable position through these, so a launcher invoked as
+    /// `node /usr/local/bin/teamclaude run` or `env VAR=1 VAR2=2 llm-gateway exec` is still found by
+    /// its own name. Shells are deliberately absent: `sh -c "…"` carries its command inside a single
+    /// string argument, and a shell that execs a program is replaced by it anyway, so the launcher
+    /// shows up as its own process with its own argv.
+    private static let executableForwardingCommands: Set<String> = [
+        "env",
+        "node", "nodejs", "bun", "bunx", "deno",
+        "npx", "pnpm", "pnpx", "yarn",
+        "python", "python3", "uv", "uvx", "pipx",
+        "ruby", "perl", "php",
+        "tsx", "ts-node",
+    ]
+
+    /// How many forwarding commands are followed before identification gives up.
+    ///
+    /// Two is enough for the real chains (`env … node script`, `npx … tsx script`); going deeper
+    /// only increases the chance of mistaking an ordinary argument for the launcher.
+    private static let maximumForwardingDepth = 2
 
     /// Stable identifier recorded on the launch capture and replayed at resume time.
     public var id: String
@@ -46,9 +59,11 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
     public var kinds: [String]
     /// Executable names or paths that identify the launcher process.
     ///
-    /// A match requires one of the leading argv words — or that word's last path component — to
-    /// equal an entry exactly. Substring matching is deliberately not used: an incidental
-    /// `teamclaude` inside an unrelated path would otherwise rewrite a session's resume command.
+    /// A match requires the argv's executable — or its last path component — to equal an entry
+    /// exactly. Substring matching is deliberately not used: an incidental `teamclaude` inside an
+    /// unrelated path would otherwise rewrite a session's resume command. Only the executable
+    /// position is considered, so an argument that happens to carry the launcher's name
+    /// (`--add-dir ~/src/teamclaude-notes`) never claims a session.
     public var argvExecutables: [String]
     /// Argv words prepended to the agent's own resume argv.
     public var resumeArgvPrefix: [String]
@@ -232,19 +247,83 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
     /// Whether `argv` is this launcher's own process.
     ///
     /// - Parameter argv: A candidate process argv.
-    /// - Returns: `true` when one of the leading argv words, or its last path component, equals a
-    ///   declared executable.
+    /// - Returns: `true` when the argv's executable, or its last path component, equals a declared
+    ///   executable.
     public func matches(argv: [String]) -> Bool {
         guard !argvExecutables.isEmpty else { return false }
-        for word in argv.prefix(Self.maximumIdentifyingArgvWords) {
-            let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let basename = (trimmed as NSString).lastPathComponent
-            for candidate in argvExecutables where trimmed == candidate || basename == candidate {
+        for word in Self.identifyingExecutables(in: argv) {
+            let basename = (word as NSString).lastPathComponent
+            for candidate in argvExecutables where word == candidate || basename == candidate {
                 return true
             }
         }
         return false
+    }
+
+    /// The words in `argv` that name a program being run.
+    ///
+    /// `argv[0]` always qualifies. When it is a command that runs another program named later in the
+    /// same argv (``executableForwardingCommands``), the scan skips that command's own environment
+    /// assignments and options and takes the next word too, up to
+    /// ``maximumForwardingDepth`` levels.
+    ///
+    /// - Parameter argv: A process argv.
+    /// - Returns: Executable words, outermost first.
+    static func identifyingExecutables(in argv: [String]) -> [String] {
+        var executables: [String] = []
+        var index = 0
+        var forwardsRemaining = maximumForwardingDepth
+
+        while index < argv.count {
+            let word = argv[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !word.isEmpty else {
+                index += 1
+                continue
+            }
+            executables.append(word)
+            guard forwardsRemaining > 0,
+                  executableForwardingCommands.contains((word as NSString).lastPathComponent) else {
+                return executables
+            }
+            forwardsRemaining -= 1
+            index = indexOfForwardedExecutable(in: argv, after: index)
+        }
+        return executables
+    }
+
+    /// The index of the program a forwarding command runs, skipping its own arguments.
+    private static func indexOfForwardedExecutable(in argv: [String], after index: Int) -> Int {
+        var cursor = index + 1
+        while cursor < argv.count {
+            let word = argv[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+            if word.isEmpty {
+                cursor += 1
+                continue
+            }
+            // `env`-style `NAME=value` assignments precede the program being run.
+            if isEnvironmentAssignment(word) {
+                cursor += 1
+                continue
+            }
+            guard word.hasPrefix("-"), word != "-", word != "--" else { return cursor }
+            // An option that takes a separate value (`env -u NAME`, `node -e code`) would otherwise
+            // leave that value looking like the program.
+            if optionsTakingASeparateValue.contains(word) {
+                cursor += 2
+            } else {
+                cursor += 1
+            }
+        }
+        return cursor
+    }
+
+    private static let optionsTakingASeparateValue: Set<String> = [
+        "-u", "--unset", "-C", "--chdir", "-S", "--split-string",
+        "-e", "--eval", "-p", "--print", "-r", "--require", "-c",
+    ]
+
+    private static func isEnvironmentAssignment(_ word: String) -> Bool {
+        word.range(of: "^[A-Za-z_][A-Za-z0-9_]*=", options: .regularExpression) != nil
     }
 
     /// Wraps an agent's own resume argv in this launcher.

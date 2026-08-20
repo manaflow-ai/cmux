@@ -216,11 +216,57 @@ import Testing
         )
     }
 
-    @Test func launcherIsIdentifiedOnlyInLeadingArgvWords() {
-        let trailing = ["/bin/zsh", "-lc", "--", "something", "teamclaude"]
+    @Test func launcherIsIdentifiedOnlyInTheExecutablePosition() {
+        let registry = registry(Self.teamclaude)
 
-        #expect(registry(Self.teamclaude).detectedLauncher(ancestorArgvs: [trailing], kind: "claude") == nil)
-        #expect(trailing.count > AgentExternalLauncher.maximumIdentifyingArgvWords)
+        // Not the executable: a shell's `-c` payload, or any later argument.
+        #expect(
+            registry.detectedLauncher(
+                ancestorArgvs: [["/bin/zsh", "-lc", "--", "something", "teamclaude"]],
+                kind: "claude"
+            ) == nil
+        )
+        #expect(
+            registry.detectedLauncher(
+                ancestorArgvs: [["claude", "--resume", "id", "--add-dir", "teamclaude"]],
+                kind: "claude"
+            ) == nil
+        )
+    }
+
+    /// A launcher can sit behind an env prefix or an interpreter, at any offset those imply, and
+    /// still be the program that was run. https://github.com/manaflow-ai/cmux/pull/10503
+    @Test(arguments: [
+        ["llm-gateway", "exec", "--", "claude"],
+        ["env", "VAR1=1", "VAR2=2", "VAR3=3", "llm-gateway", "exec", "--", "claude"],
+        ["/usr/bin/env", "-u", "NODE_OPTIONS", "VAR=1", "/opt/bin/llm-gateway", "exec"],
+        ["env", "VAR=1", "node", "/usr/local/lib/llm-gateway", "exec"],
+        ["npx", "--yes", "llm-gateway", "exec"],
+    ])
+    func forwardingCommandsDoNotHideTheLauncher(argv: [String]) throws {
+        let gateway = AgentExternalLauncher(
+            id: "gateway",
+            kinds: ["claude"],
+            argvExecutables: ["llm-gateway"],
+            resumeArgvPrefix: ["llm-gateway", "exec", "--"]
+        )
+
+        let detected = try #require(
+            registry(gateway).detectedLauncher(ancestorArgvs: [argv], kind: "claude")
+        )
+        #expect(detected.id == "gateway")
+    }
+
+    @Test func forwardingIsNotFollowedIndefinitely() {
+        // env -> node -> npx are two hops plus a third executable; `teamclaude` sits behind all of
+        // them, so it is out of reach and the session stays unwrapped rather than being attributed
+        // through an arbitrarily long chain.
+        let deep = ["env", "VAR=1", "node", "/usr/local/bin/npx", "teamclaude", "run"]
+        #expect(registry(Self.teamclaude).detectedLauncher(ancestorArgvs: [deep], kind: "claude") == nil)
+
+        // One hop shallower is still identified.
+        let reachable = ["env", "VAR=1", "/usr/local/bin/npx", "teamclaude", "run"]
+        #expect(registry(Self.teamclaude).detectedLauncher(ancestorArgvs: [reachable], kind: "claude") != nil)
     }
 
     @Test func declaredButUnusableFieldsFailClosed() {
