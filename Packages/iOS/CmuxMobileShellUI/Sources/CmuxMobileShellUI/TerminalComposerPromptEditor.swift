@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import UIKit
+import CmuxMobileSupport
 
 final class TerminalComposerPromptTextView: UITextView {
     var pasteAttachment: (() -> Bool)?
@@ -34,6 +35,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let isDisabled: Bool
+    let placeholder: String
     let pasteAttachment: () -> Bool
 
     func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
@@ -53,7 +55,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
         view.text = text
-        view.placeholderLabel.text = "Message"
+        view.placeholderLabel.text = placeholder
         view.placeholderLabel.textColor = .secondaryLabel
         view.placeholderLabel.font = view.font
         view.addSubview(view.placeholderLabel)
@@ -66,6 +68,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     func updateUIView(_ view: TerminalComposerPromptTextView, context: Context) {
         context.coordinator.update(text: $text, isFocused: $isFocused)
         view.pasteAttachment = pasteAttachment
+        view.placeholderLabel.text = placeholder
         if view.text != text { view.text = text }
         view.placeholderLabel.isHidden = !text.isEmpty
         if isFocused, !view.isFirstResponder {

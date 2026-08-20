@@ -366,6 +366,10 @@ struct TerminalComposerView: View {
                         text: $store.terminalInputText,
                         isFocused: $isFieldFocused,
                         isDisabled: dictation.locksComposerField,
+                        placeholder: L10n.string(
+                            "mobile.composer.placeholder",
+                            defaultValue: "Message"
+                        ),
                         pasteAttachment: pasteAttachment
                     )
                     // Opens at a single line and grows up to 14 lines so a long message has
