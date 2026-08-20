@@ -309,7 +309,15 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
                 cursor += 1
                 continue
             }
-            guard word.hasPrefix("-"), word != "-", word != "--" else { return cursor }
+            // `--` ends the forwarding command's own option list, and a bare `-` is `env`'s
+            // empty-environment shorthand. Neither is the program being run, so the program is the
+            // word after them — treating the separator as the program is how `env -- llm-gateway`
+            // lost its launcher.
+            if word == "--" || word == "-" {
+                cursor += 1
+                continue
+            }
+            guard word.hasPrefix("-") else { return cursor }
             // An option that takes a separate value (`env -u NAME`, `node -e code`) would otherwise
             // leave that value looking like the program.
             if optionsTakingASeparateValue.contains(word) {

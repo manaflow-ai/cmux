@@ -129,20 +129,31 @@ public struct AgentRestorePlanner: Sendable {
             // and after the preflights are built, so each of them is wrapped as a whole command
             // rather than inheriting the wrapper's own subcommand in place of the agent.
             routedArguments = externalLauncher.applyingResumePrefix(to: routedArguments)
+            // The wrapper re-execs the agent by name, so the shim that managed-wrapper routing put
+            // in argv[0] is gone. Keep it reachable on PATH — for the resumed agent and for every
+            // preflight, which runs the same agent through the same wrapper — or the wrapped
+            // commands lose cmux's hooks.
+            let shimEnvironmentKey = externalLauncher.includesAgentExecutable
+                ? nil
+                : AgentRestoreLaunch(kind: kind, sessionID: request.checkpointID)?
+                    .wrapperShimEnvironmentKey
             preflights = preflights.compactMap { preflight in
-                AgentRestorePreflightInvocation(
+                let preflightEnvironment = shimEnvironmentKey.map { key in
+                    AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                        preflight.environment,
+                        shimEnvironmentKey: key,
+                        isExecutableFile: isExecutableFile
+                    )
+                } ?? preflight.environment
+                return AgentRestorePreflightInvocation(
                     arguments: externalLauncher.applyingResumePrefix(to: preflight.arguments),
-                    environment: preflight.environment
+                    environment: preflightEnvironment
                 )
             }
-            if !externalLauncher.includesAgentExecutable,
-               let restoreLaunch = AgentRestoreLaunch(kind: kind, sessionID: request.checkpointID) {
-                // The wrapper re-execs the agent by name, so the shim that managed-wrapper routing
-                // put in argv[0] is gone. Keep it reachable on PATH or the wrapped agent restores
-                // without cmux hooks.
+            if let shimEnvironmentKey {
                 environment = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
                     environment,
-                    shimEnvironmentKey: restoreLaunch.wrapperShimEnvironmentKey,
+                    shimEnvironmentKey: shimEnvironmentKey,
                     isExecutableFile: isExecutableFile
                 )
             }

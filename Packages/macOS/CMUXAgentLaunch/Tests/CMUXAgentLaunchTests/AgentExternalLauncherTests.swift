@@ -242,6 +242,9 @@ import Testing
         ["/usr/bin/env", "-u", "NODE_OPTIONS", "VAR=1", "/opt/bin/llm-gateway", "exec"],
         ["env", "VAR=1", "node", "/usr/local/lib/llm-gateway", "exec"],
         ["npx", "--yes", "llm-gateway", "exec"],
+        // `--` ends env's own options; the program follows it.
+        ["env", "--", "llm-gateway", "exec"],
+        ["env", "-i", "VAR=1", "--", "/opt/bin/llm-gateway", "exec"],
     ])
     func forwardingCommandsDoNotHideTheLauncher(argv: [String]) throws {
         let gateway = AgentExternalLauncher(
@@ -377,9 +380,13 @@ import Testing
         )
 
         #expect(Array(invocation.arguments.prefix(3)) == ["teamhermes", "exec", "--"])
+        #expect(invocation.environment["PATH"] == "/shim:/usr/bin:/bin")
         #expect(invocation.preflightInvocations.isEmpty == false)
         for preflight in invocation.preflightInvocations {
             #expect(Array(preflight.arguments.prefix(3)) == ["teamhermes", "exec", "--"])
+            // Each preflight runs the same agent through the same wrapper, so it needs the shim on
+            // PATH too — otherwise the preflight's agent invocation loses cmux's hooks.
+            #expect(preflight.environment["PATH"] == "/shim:/usr/bin:/bin")
             // The profile pin and the `config set` verb survive after the prefix.
             #expect(preflight.arguments.contains("config"))
             #expect(preflight.arguments.contains("set"))
