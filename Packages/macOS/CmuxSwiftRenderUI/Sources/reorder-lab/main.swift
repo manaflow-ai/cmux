@@ -43,7 +43,8 @@ sidebar(() =>
               .frame({ maxWidth: "infinity" })
               .block(() => w().block ?? null)
               .paddingLeading(() => (w().block ? 18 : 6))
-              .onTap(() => log("tapped " + w().id)))
+              .onTap(() => log("tapped " + w().id))
+              .onDoubleTap(() => log("double " + w().id)))
     ),
   ])
 )
@@ -121,6 +122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func runAutoDrag(fromY: CGFloat, toY: CGFloat, durationMS: Double) {
         guard let window, let content = window.contentView else { return }
+        // SwiftUI tap recognizers stop firing when the app is inactive (the
+        // user clicked elsewhere while the drag was armed); AppKit buttons
+        // keep working, which masked this. Re-activate before injecting.
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         let x: CGFloat = content.bounds.midX
         // Content-top-relative Y -> window (bottom-left origin) coordinates.
         func windowPoint(_ yFromTop: CGFloat) -> NSPoint {
@@ -144,6 +150,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let downPoint = windowPoint(fromY)
         let hit = content.hitTest(content.convert(downPoint, from: nil))
         FileHandle.standardError.write(Data("lab hitTest at \(downPoint) -> \(hit.map { String(describing: type(of: $0)) } ?? "nil")\n".utf8))
+        // durationMS < 0 encodes a DOUBLE CLICK test: two click pairs
+        // 150 ms apart (clickCount 1 then 2, as AppKit generates them).
+        if durationMS < 0 {
+            send(.leftMouseDown, windowPoint(fromY))
+            send(.leftMouseUp, windowPoint(fromY))
+            let timer2 = Timer(timeInterval: 0.15, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    send(.leftMouseDown, windowPoint(fromY), clickCount: 2)
+                    send(.leftMouseUp, windowPoint(fromY), clickCount: 2)
+                    FileHandle.standardError.write(Data("lab doubleclick sent\n".utf8))
+                }
+            }
+            RunLoop.current.add(timer2, forMode: .common)
+            RunLoop.current.add(timer2, forMode: .eventTracking)
+            dragTimer = timer2
+            return
+        }
         let steps = max(2, Int(durationMS / 16.0))
         var step = 0
         FileHandle.standardError.write(Data("lab autodrag start fromY=\(fromY) toY=\(toY)\n".utf8))

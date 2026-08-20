@@ -109,6 +109,7 @@ struct ReorderableColumnView: View {
                     dragGesture(childId: childId),
                     including: rowIsGrabbable(childId) ? .all : .subviews
                 )
+
                 // Pure height accordion: rows stay fully opaque and are
                 // revealed/hidden ONLY by their slot's animating height (the
                 // fixedSize + clipped pair in ReorderableRowView masks them

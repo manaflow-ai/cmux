@@ -22,6 +22,8 @@ private struct SceneHoveredKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+
+
 extension EnvironmentValues {
     var sceneStore: SceneStore? {
         get { self[SceneStoreKey.self] }
@@ -48,6 +50,7 @@ extension EnvironmentValues {
         get { self[SceneHoveredKey.self] }
         set { self[SceneHoveredKey.self] = newValue }
     }
+
 }
 
 /// Renders one retained ``SceneNode`` by id.
@@ -72,6 +75,7 @@ private struct SceneNodeContent: View {
     @Environment(\.sceneStore) private var store
     @Environment(\.sceneEventSink) private var sink
     @Environment(\.sceneHovered) private var ancestorHovered
+    @State private var lastTapAt: Date?
 
     var body: some View {
         // A child of type "contextMenu" is the node's right-click menu, not
@@ -211,15 +215,25 @@ private struct SceneNodeContent: View {
         if doubleTappable || tappable {
             base
                 .contentShape(Rectangle())
-                // The single tap fires immediately on mouseup (no double-click
-                // disambiguation delay); a double-click fires the doubletap IN
-                // ADDITION to the taps of its two clicks. Selection stays
-                // instant and idempotent; rename composes on top.
-                .simultaneousGesture(TapGesture(count: 2).onEnded {
-                    if doubleTappable { sink.send(node.id, "doubletap", [:]) }
-                })
+                // One plain tap recognizer, zero latency: a count:2 recognizer
+                // (even simultaneous) makes SwiftUI hold single taps for the
+                // double-click disambiguation window, which reads as lag.
+                // Double-click is DERIVED instead: two taps within the
+                // system double-click interval fire the doubletap in addition
+                // to their taps (tap actions like selection are idempotent,
+                // so rename composes on top). Nested taps keep their native
+                // child-first exclusivity.
                 .onTapGesture {
+                    let now = Date()
                     if tappable { sink.send(node.id, "tap", [:]) }
+                    if doubleTappable {
+                        if let last = lastTapAt, now.timeIntervalSince(last) < NSEvent.doubleClickInterval {
+                            lastTapAt = nil
+                            sink.send(node.id, "doubletap", [:])
+                            return
+                        }
+                    }
+                    lastTapAt = now
                 }
         } else {
             base
