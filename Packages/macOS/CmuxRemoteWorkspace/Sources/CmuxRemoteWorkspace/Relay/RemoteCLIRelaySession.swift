@@ -305,7 +305,13 @@ extension RemoteCLIRelayServer {
 
         private static func looksLikeJSONRequest(_ commandLine: Data) -> Bool {
             guard let line = String(data: commandLine, encoding: .utf8) else { return false }
-            return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  object is [String: Any] else {
+                return false
+            }
+            return true
         }
 
         private static func isAllowedLegacyRelayCommand(_ commandLine: Data) -> Bool {

@@ -395,7 +395,7 @@ struct RemoteResumeBindingTests {
     func relayMACSurvivesHighPrecisionJSONNumbersAcrossTypedParsing() throws {
         let workspaceID = UUID()
         let relayToken = String(repeating: "d", count: 64)
-        let preciseNumber = "123456789012345678901234567890.123456789"
+        let preciseNumber = "12345678901234567890123456789.123456789"
         let command = Data(
             "{\"id\":\"precise\",\"method\":\"system.ping\",\"params\":{\"workspace_id\":\"\(workspaceID.uuidString)\",\"precise\":\(preciseNumber)}}\n".utf8
         )

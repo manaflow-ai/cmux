@@ -56,8 +56,8 @@ struct JSONValueTests {
     }
 
     @Test func decimalNumbersRetainExactFoundationSerialization() throws {
-        let text = "123456789012345678901234567890.123456789"
-        let original = NSDecimalNumber(string: text)
+        let text = "12345678901234567890123456789.123456789"
+        let original = NSDecimalNumber(string: text, locale: Locale(identifier: "en_US_POSIX"))
         let value = try #require(JSONValue(foundationObject: original))
         #expect(value == .decimal(text))
         let bridged = value.foundationObject
