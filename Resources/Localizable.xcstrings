@@ -138475,6 +138475,81 @@
         }
       }
     },
+    "mobile.pairing.irohInstruction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه. يتصل تلقائيًا — لا حاجة إلى رمز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Instalirajte cmux na svoj iPhone i prijavite se istim računom. Povezuje se automatski — kôd nije potreban." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Installer cmux på din iPhone, og log ind med den samme konto. Den forbinder automatisk — ingen kode nødvendig." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto an. Die Verbindung erfolgt automatisch — kein Code nötig." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta. Se conecta automáticamente: no se necesita código." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte. La connexion est automatique — aucun code nécessaire." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account. Si connette automaticamente — nessun codice necessario." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneにcmuxをインストールし、同じアカウントにサインインしてください。自動的に接続されます。コードは不要です。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលគណនីដូចគ្នា។ វាភ្ជាប់ដោយស្វ័យប្រវត្តិ — មិនត្រូវការកូដទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "iPhone에 cmux를 설치하고 동일한 계정으로 로그인하세요. 자동으로 연결되며 코드가 필요 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Installer cmux på iPhonen din og logg på med samme konto. Den kobler til automatisk — ingen kode nødvendig." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zainstaluj cmux na swoim iPhonie i zaloguj się na to samo konto. Łączy się automatycznie — kod nie jest potrzebny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Instale o cmux no seu iPhone e entre com a mesma conta. Ele conecta automaticamente — nenhum código necessário." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Установите cmux на iPhone и войдите в ту же учётную запись. Подключение происходит автоматически — код не нужен." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้ง cmux บน iPhone ของคุณและลงชื่อเข้าด้วยบัญชีเดียวกัน ระบบจะเชื่อมต่อโดยอัตโนมัติ — ไม่ต้องใช้โค้ด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "iPhone'unuza cmux'u yükleyin ve aynı hesapla oturum açın. Otomatik olarak bağlanır — kod gerekmez." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Установіть cmux на iPhone та увійдіть у той самий обліковий запис. Підключення відбувається автоматично — код не потрібен." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安装 cmux 并使用同一账户登录。它会自动连接——无需扫码。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上安裝 cmux 並使用同一帳戶登入。它會自動連線——無需掃碼。" } }
+      }
+    },
+    "mobile.pairing.subheading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "زامن مساحات عمل الطرفية مع جهاز iPhone الخاص بك." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sinhronizujte svoje terminalske radne prostore sa svojim iPhoneom." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Synkroniser dine terminal-arbejdsområder til din iPhone." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Synchronisiere deine Terminal-Arbeitsbereiche mit deinem iPhone." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Sync your terminal workspaces to your iPhone." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Sincroniza tus espacios de trabajo de terminal con tu iPhone." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Synchronisez vos espaces de travail de terminal avec votre iPhone." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sincronizza i tuoi spazi di lavoro del terminale con il tuo iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのワークスペースをiPhoneと同期します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ធ្វើសមកាលកម្មកន្លែងធ្វើការតឺមីណាល់របស់អ្នកទៅ iPhone របស់អ្នក។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "터미널 워크스페이스를 iPhone과 동기화하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Synkroniser terminalarbeidsområdene dine til iPhonen din." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Synchronizuj swoje terminalowe przestrzenie robocze z iPhone'em." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sincronize seus espaços de trabalho de terminal com o seu iPhone." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Синхронизируйте рабочие пространства терминала со своим iPhone." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซิงค์เวิร์กสเปซเทอร์มินัลของคุณไปยัง iPhone ของคุณ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Terminal çalışma alanlarınızı iPhone'unuzla eşitleyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Синхронізуйте робочі простори термінала зі своїм iPhone." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将您的终端工作区同步到 iPhone。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將您的終端機工作區同步到 iPhone。" } }
+      }
+    },
+    "mobile.pairing.transportPicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الاتصال" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Veza" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forbindelse" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verbindung" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Connection" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Conexión" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Connexion" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Connessione" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការតភ្ជាប់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "연결" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tilkobling" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Połączenie" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Conexão" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подключение" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การเชื่อมต่อ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bağlantı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підключення" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "連線" } }
+      }
+    },
     "mobile.pairing.getApp.badge.caption": {
       "extractionState": "manual",
       "localizations": {
@@ -138550,31 +138625,6 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "配對您的 iPhone" } }
       }
     },
-    "mobile.pairing.needsTransport.irohHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "لا يزال بإمكان أجهزة iPhone المسجّلة الدخول الاتصال تلقائيًا عبر Iroh. Tailscale مطلوب فقط للإقران عبر رمز QR." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Prijavljeni iPhone uređaji i dalje se mogu automatski povezati preko Iroha. Tailscale je potreban samo za QR uparivanje." } },
-        "da": { "stringUnit": { "state": "translated", "value": "iPhones, der er logget ind, kan stadig oprette forbindelse automatisk via Iroh. Tailscale er kun nødvendig til QR-parring." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Angemeldete iPhones können sich weiterhin automatisch über Iroh verbinden. Tailscale wird nur für die QR-Kopplung benötigt." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Signed-in iPhones can still connect automatically over Iroh. Tailscale is only needed for QR pairing." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Los iPhone con sesión iniciada pueden seguir conectándose automáticamente a través de Iroh. Tailscale solo es necesario para el emparejamiento por QR." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Les iPhone connectés peuvent toujours se connecter automatiquement via Iroh. Tailscale n'est nécessaire que pour le jumelage par QR." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Gli iPhone con l'accesso effettuato possono comunque connettersi automaticamente tramite Iroh. Tailscale serve solo per l'abbinamento via QR." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "サインイン済みのiPhoneは、引き続きIroh経由で自動的に接続できます。TailscaleはQRペアリングにのみ必要です。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "iPhone ដែលបានចូលគណនីនៅតែអាចភ្ជាប់ដោយស្វ័យប្រវត្តិតាមរយៈ Iroh បាន។ Tailscale ត្រូវការតែសម្រាប់ការផ្គូផ្គងតាម QR ប៉ុណ្ណោះ។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "로그인된 iPhone은 여전히 Iroh를 통해 자동으로 연결할 수 있습니다. Tailscale은 QR 페어링에만 필요합니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "iPhoner som er pålogget, kan fortsatt koble til automatisk via Iroh. Tailscale trengs bare til QR-paring." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zalogowane iPhone'y nadal mogą łączyć się automatycznie przez Iroh. Tailscale jest potrzebny tylko do parowania przez kod QR." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "iPhones conectados ainda podem se conectar automaticamente via Iroh. O Tailscale só é necessário para o emparelhamento por QR." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "iPhone, вошедшие в учётную запись, по-прежнему могут подключаться автоматически через Iroh. Tailscale нужен только для подключения по QR-коду." } },
-        "th": { "stringUnit": { "state": "translated", "value": "iPhone ที่ลงชื่อเข้าแล้วยังคงเชื่อมต่อโดยอัตโนมัติผ่าน Iroh ได้ Tailscale จำเป็นเฉพาะการจับคู่ด้วย QR เท่านั้น" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Oturum açmış iPhone'lar yine de Iroh üzerinden otomatik olarak bağlanabilir. Tailscale yalnızca QR ile eşleme için gereklidir." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "iPhone, що увійшли в обліковий запис, усе ще можуть підключатися автоматично через Iroh. Tailscale потрібен лише для підключення за QR-кодом." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已登录的 iPhone 仍可通过 Iroh 自动连接。仅在使用二维码配对时才需要 Tailscale。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已登入的 iPhone 仍可透過 Iroh 自動連線。僅在使用 QR Code 配對時才需要 Tailscale。" } }
-      }
-    },
     "mobile.pairing.scanInstruction": {
       "extractionState": "manual",
       "localizations": {
@@ -138623,31 +138673,6 @@
         "uk": { "stringUnit": { "state": "translated", "value": "Ви увійшли як %@" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "已登录为 %@" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "已登入為 %@" } }
-      }
-    },
-    "mobile.pairing.subheading": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "امسح الرمز باستخدام cmux على جهاز iPhone لإقران هذا الـ Mac عبر Tailscale." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Skenirajte kôd pomoću cmux-a na svom iPhoneu da biste uparili ovaj Mac preko Tailscalea." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Scan koden med cmux på din iPhone for at parre denne Mac via Tailscale." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Scanne den Code mit cmux auf deinem iPhone, um diesen Mac über Tailscale zu koppeln." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Scan the code with cmux on your iPhone to pair this Mac over Tailscale." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Escanea el código con cmux en tu iPhone para emparejar este Mac a través de Tailscale." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Scannez le code avec cmux sur votre iPhone pour jumeler ce Mac via Tailscale." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Scansiona il codice con cmux sul tuo iPhone per abbinare questo Mac tramite Tailscale." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneのcmuxでコードをスキャンすると、Tailscale経由でこのMacをペアリングできます。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ស្កេនកូដដោយប្រើ cmux នៅលើ iPhone របស់អ្នក ដើម្បីផ្គូផ្គង Mac នេះតាមរយៈ Tailscale។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "iPhone의 cmux로 코드를 스캔하면 Tailscale을 통해 이 Mac을 페어링할 수 있습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Skann koden med cmux på iPhonen din for å pare denne Macen via Tailscale." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zeskanuj kod za pomocą cmux na swoim iPhonie, aby sparować tego Maca przez Tailscale." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escaneie o código com o cmux no seu iPhone para emparelhar este Mac via Tailscale." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Отсканируйте код в cmux на iPhone, чтобы подключить этот Mac через Tailscale." } },
-        "th": { "stringUnit": { "state": "translated", "value": "สแกนโค้ดด้วย cmux บน iPhone ของคุณเพื่อจับคู่ Mac เครื่องนี้ผ่าน Tailscale" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Bu Mac'i Tailscale üzerinden eşlemek için kodu iPhone'unuzdaki cmux ile tarayın." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Відскануйте код у cmux на iPhone, щоб підключити цей Mac через Tailscale." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "使用 iPhone 上的 cmux 扫描该码，即可通过 Tailscale 配对这台 Mac。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用 iPhone 上的 cmux 掃描該代碼，即可透過 Tailscale 配對這台 Mac。" } }
       }
     },
     "mobile.pairing.transport.iroh.detail": {
