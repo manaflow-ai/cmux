@@ -4340,7 +4340,7 @@ final class SidebarCreationContextTests: XCTestCase {
         XCTAssertEqual(manager.sidebarCreationContextSessionSnapshots().count, 1)
     }
 
-    func testMachineRowsReorderIndependentlyFromAutomaticAndRestoreTheirOrder() throws {
+    func testMachineRowsReorderAndRestoreTheirOrder() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.tabs.first)
         firstWorkspace.remoteConfiguration = makeRemoteConfiguration(
@@ -4353,15 +4353,18 @@ final class SidebarCreationContextTests: XCTestCase {
             ownerWorkspaceID: secondWorkspace.id
         )
 
-        let initialMachines = manager.sidebarCreationContextSnapshots().filter { $0.kind != .automatic }
+        let initialMachines = manager.sidebarCreationContextSnapshots()
+        XCTAssertFalse(
+            initialMachines.contains { $0.kind == .automatic },
+            "The machines column lists places only"
+        )
         let movedID = try XCTUnwrap(initialMachines.last?.id)
         XCTAssertTrue(manager.reorderSidebarMachineCreationContext(id: movedID, toIndex: 0))
 
         let reordered = manager.sidebarCreationContextSnapshots()
-        XCTAssertEqual(reordered.first?.kind, .automatic)
-        XCTAssertEqual(reordered.dropFirst().first?.id, movedID)
+        XCTAssertEqual(reordered.first?.id, movedID)
         XCTAssertEqual(
-            reordered.dropFirst().map(\.id),
+            reordered.map(\.id),
             manager.sidebarMachineCreationContextOrderIDs()
         )
 
@@ -4372,7 +4375,7 @@ final class SidebarCreationContextTests: XCTestCase {
             machineOrder: manager.sidebarMachineCreationContextOrderIDs()
         )
         XCTAssertEqual(
-            restored.sidebarCreationContextSnapshots().dropFirst().map(\.id),
+            restored.sidebarCreationContextSnapshots().map(\.id),
             manager.sidebarMachineCreationContextOrderIDs()
         )
     }

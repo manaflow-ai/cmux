@@ -74,9 +74,7 @@ final class SidebarResizeUITests: XCTestCase {
         let outerResizer = elements["SidebarResizer"]
         let columnResizer = elements["SidebarColumnResizer"]
         let contextColumn = elements["SidebarContextColumn"]
-        let automaticContext = elements["SidebarContextRow.automatic"]
         let localContext = elements["SidebarContextRow.local"]
-        let automaticChildColumn = elements["SidebarChildColumn.automatic.children"]
         let workspaceColumn = elements["Sidebar"]
         let remoteContext = app.buttons["fixture@example.test"]
         let localWorkspace = app.cells.matching(
@@ -89,31 +87,32 @@ final class SidebarResizeUITests: XCTestCase {
         XCTAssertTrue(waitForElementHittable(outerResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(columnResizer, timeout: 5.0))
         XCTAssertTrue(contextColumn.waitForExistence(timeout: 5.0))
-        XCTAssertTrue(automaticContext.waitForExistence(timeout: 5.0))
         XCTAssertTrue(localContext.waitForExistence(timeout: 5.0))
-        XCTAssertTrue(automaticChildColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(workspaceColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(remoteContext.waitForExistence(timeout: 5.0))
         XCTAssertTrue(localWorkspace.waitForExistence(timeout: 5.0))
-        XCTAssertTrue(remoteWorkspace.waitForExistence(timeout: 5.0))
         XCTAssertTrue(footer.waitForExistence(timeout: 5.0))
+        XCTAssertFalse(
+            elements["SidebarContextRow.automatic"].exists,
+            "The machines column lists places only; Automatic is not a machine"
+        )
         XCTAssertLessThan(
-            automaticContext.frame.minY - contextColumn.frame.minY,
+            localContext.frame.minY - contextColumn.frame.minY,
             48,
-            "Creation contexts should start in the standard sidebar row band without a machine-only header"
+            "Machines should start in the standard sidebar row band without a machine-only header"
         )
         XCTAssertFalse(app.staticTexts["Machines"].exists)
         XCTAssertFalse(app.staticTexts["Sets defaults for ⌘N and ⌘T"].exists)
         XCTAssertGreaterThanOrEqual(
             columnResizer.frame.midX - contextColumn.frame.minX,
-            166,
-            "The leading column should keep enough width for shared footer chrome"
+            130,
+            "The leading column should start at a readable regular width"
         )
         XCTAssertGreaterThanOrEqual(footer.frame.minX, contextColumn.frame.minX - 2)
         XCTAssertLessThanOrEqual(
             footer.frame.maxX,
-            contextColumn.frame.maxX + 2,
-            "The shared footer should stay inside the left-most column"
+            workspaceColumn.frame.maxX + 2,
+            "The shared footer should stay inside the sidebar region"
         )
 
         localContext.click()
@@ -139,10 +138,8 @@ final class SidebarResizeUITests: XCTestCase {
             waitForElementUnavailable(localWorkspace, timeout: 5.0),
             "The remote must not render This Mac's workspace child"
         )
-        automaticContext.click()
-        XCTAssertTrue(automaticChildColumn.waitForExistence(timeout: 5.0))
+        localContext.click()
         XCTAssertTrue(localWorkspace.waitForExistence(timeout: 5.0))
-        XCTAssertTrue(remoteWorkspace.waitForExistence(timeout: 5.0))
 
         let initialInnerX = columnResizer.frame.midX
         let initialOuterX = outerResizer.frame.midX
@@ -180,6 +177,31 @@ final class SidebarResizeUITests: XCTestCase {
             outerResizer.frame.midX - outerAfterInnerX,
             28,
             "Expected the workspace column's outer edge to move independently"
+        )
+
+        // Dragging the machines divider far left snaps the column to its
+        // icon rail; dragging back out restores the remembered regular width.
+        let railStart = columnResizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let contextLeftX = contextColumn.frame.minX
+        let preRailWidth = columnResizer.frame.midX - contextLeftX
+        railStart.press(
+            forDuration: 0.1,
+            thenDragTo: railStart.withOffset(CGVector(dx: -(preRailWidth - 20), dy: 0))
+        )
+        XCTAssertLessThanOrEqual(
+            columnResizer.frame.midX - contextLeftX,
+            70,
+            "Dragging far below the minimum should snap the machines column to the icon rail"
+        )
+        let railExitStart = columnResizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        railExitStart.press(
+            forDuration: 0.1,
+            thenDragTo: railExitStart.withOffset(CGVector(dx: 160, dy: 0))
+        )
+        XCTAssertGreaterThanOrEqual(
+            columnResizer.frame.midX - contextLeftX,
+            130,
+            "Dragging back out should restore the regular machines column"
         )
 
         app.typeKey("b", modifierFlags: .command)

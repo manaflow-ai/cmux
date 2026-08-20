@@ -267548,20 +267548,6 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
     },
-    "sidebar.context.automatic.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Keep each action's current behavior" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "各操作の現在の動作を維持" } }
-      }
-    },
-    "sidebar.context.automatic.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Automatic" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動" } }
-      }
-    },
     "sidebar.context.local.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -267672,6 +267658,34 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Attach remote cmux sessions as terminal surfaces" } },
         "ja": { "stringUnit": { "state": "translated", "value": "リモート cmux セッションをターミナルサーフェスとして接続します" } }
+      }
+    },
+    "sidebar.group.hoverCard.collapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Collapsed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "折りたたみ中" } }
+      }
+    },
+    "sidebar.group.hoverCard.memberCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース %lld 件" } }
+      }
+    },
+    "sidebar.machine.hoverCard.focusedWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focused: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中: %@" } }
+      }
+    },
+    "sidebar.workspace.hoverCard.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld unread" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読 %lld 件" } }
       }
     },
     "sidebar.machine.addSSH": {

@@ -72,10 +72,15 @@ final class SidebarWidthPolicyTests: XCTestCase {
     }
 
     func testLeadingColumnWidthSanitizationUsesIndependentBounds() {
-        XCTAssertEqual(
+        XCTAssertLessThan(
             SessionPersistencePolicy.minimumSidebarLeadingColumnWidth,
             SessionPersistencePolicy.defaultSidebarLeadingColumnWidth,
-            "The leading column minimum must keep its shared footer chrome readable"
+            "The machines column shrinks below its default; the icon rail owns anything narrower"
+        )
+        XCTAssertLessThan(
+            SessionPersistencePolicy.sidebarColumnIconRailWidth,
+            SessionPersistencePolicy.minimumSidebarLeadingColumnWidth,
+            "The icon rail must be narrower than any regular width"
         )
         XCTAssertEqual(
             SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(nil),
