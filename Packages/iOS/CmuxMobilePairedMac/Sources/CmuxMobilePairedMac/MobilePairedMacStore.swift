@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 9
+    public static let currentSchemaVersion: Int32 = 10
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -114,7 +114,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 1:
             try transaction {
@@ -126,7 +127,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 2:
             try transaction {
@@ -137,7 +139,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 3:
             try transaction {
@@ -147,7 +150,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 4:
             try transaction {
@@ -156,7 +160,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 5:
             try transaction {
@@ -164,27 +169,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 6:
             try transaction {
                 try migrateToV7()
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 7:
             try transaction {
                 try migrateToV8()
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 8:
             try transaction {
                 try migrateToV9()
-                try setUserVersion(9)
+                try migrateToV10()
+                try setUserVersion(10)
             }
         case 9:
+            try transaction {
+                try migrateToV10()
+                try setUserVersion(10)
+            }
+        case 10:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -488,6 +502,15 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             ALTER TABLE legacy_tailscale_route_grants
             ADD COLUMN origin TEXT NOT NULL DEFAULT 'migration';
         """)
+    }
+
+    /// v10: this iPhone's per-Computer connection method ("iroh" or
+    /// "tailscale"). Additive and device-local: the column never rides the
+    /// account backup, and `NULL` means "use the app's default method".
+    private func migrateToV10() throws {
+        let columns = try tableColumns("paired_macs")
+        guard !columns.contains("connection_method") else { return }
+        try exec("ALTER TABLE paired_macs ADD COLUMN connection_method TEXT;")
     }
 
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
@@ -985,6 +1008,34 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             customColor.map(BindValue.text) ?? .null,
             customIcon.map(BindValue.text) ?? .null,
             .real(now.timeIntervalSince1970),
+            .text(macDeviceID),
+            .text(Self.ownerKey(
+                stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            )),
+        ])
+    }
+
+    /// Persist THIS iPhone's connection-method choice for one tagged paired
+    /// Mac ("iroh"/"tailscale", nil = revert to the app default). Deliberately
+    /// does NOT bump `last_seen_at`: the choice is device-local and must not
+    /// become the freshest write that LWW backup propagates to other devices.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        try exec("""
+            UPDATE paired_macs
+            SET connection_method = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            rawValue.map(BindValue.text) ?? .null,
             .text(macDeviceID),
             .text(Self.ownerKey(
                 stackUserID: stackUserID,

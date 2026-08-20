@@ -1,4 +1,3 @@
-import CmuxMobileShellModel
 import CoreGraphics
 
 struct WorkspaceMacTitlePickerValue: Equatable {
@@ -12,7 +11,4 @@ struct WorkspaceMacTitlePickerValue: Equatable {
     /// / "Not Connected"). `nil` while healthy or while other chrome owns the
     /// connection story.
     var statusLine: WorkspaceConnectionStatusLine?
-    /// The selected connection method, shown as a switchable group at the
-    /// bottom of the picker menu. `nil` hides the group (previews, no store).
-    var connectionMethod: MobileConnectionMethod?
 }

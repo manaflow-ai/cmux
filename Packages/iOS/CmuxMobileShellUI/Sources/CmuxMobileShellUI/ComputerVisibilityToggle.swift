@@ -17,7 +17,7 @@ struct ComputerVisibilityToggle: View {
         Toggle(
             L10n.string(
                 "mobile.connections.visibilityToggle",
-                defaultValue: "Show this connection on this iPhone"
+                defaultValue: "Show this computer on this iPhone"
             ),
             isOn: Binding(
                 get: { isVisible },

@@ -35,11 +35,11 @@ struct HiddenComputersPreviewView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.connections.footer",
-                        defaultValue: "A Mac appears once for each way this iPhone can connect to it. Turning a connection off hides that Mac's workspaces on this iPhone; it stays signed in to your account."
+                        defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
                     ))
                 }
             }
-            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Connections"))
+            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         }
         .overlay(alignment: .topLeading) {
             visibilityPersistenceMarkers

@@ -223,6 +223,29 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        try await inner.setConnectionMethod(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawValue: rawValue,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
+        )
+    }
+
     /// Remove one paired Mac in the selected team scope.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)

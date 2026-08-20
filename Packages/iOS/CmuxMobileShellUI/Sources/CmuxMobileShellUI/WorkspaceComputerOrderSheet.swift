@@ -56,7 +56,7 @@ struct WorkspaceComputerOrderSheet: View {
             .environment(\.editMode, .constant(.active))
             .navigationTitle(L10n.string(
                 "mobile.workspaces.sort.order.title",
-                defaultValue: "Connection Order"
+                defaultValue: "Computer Order"
             ))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

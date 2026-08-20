@@ -23,7 +23,7 @@ struct MobileConnectionMethodSection: View {
             ) {
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.automatic",
-                    defaultValue: "Auto-Connect"
+                    defaultValue: "Iroh"
                 ))
                 .tag(MobileConnectionMethod.automatic)
                 .accessibilityIdentifier("MobileSettingsConnectionMethodAutomatic")

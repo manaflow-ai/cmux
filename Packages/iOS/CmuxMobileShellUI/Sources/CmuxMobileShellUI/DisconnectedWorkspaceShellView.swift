@@ -167,18 +167,18 @@ struct DisconnectedWorkspaceShellView: View {
                     unhide: unhideComputer
                 )
             } header: {
-                Text(L10n.string("mobile.connections.savedTitle", defaultValue: "Your Connections"))
+                Text(L10n.string("mobile.connections.savedTitle", defaultValue: "Your Computers"))
             } footer: {
                 Text(L10n.string(
                     "mobile.connections.disconnected.listFooter",
-                    defaultValue: "Tap a shown connection to reconnect. Use its switch to show or hide it on this iPhone."
+                    defaultValue: "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
                 ))
             }
             Section {
                 if let showAddDevice {
                     Button(action: showAddDevice) {
                         Label(
-                            L10n.string("mobile.connections.add", defaultValue: "Add Connection"),
+                            L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                             systemImage: "plus"
                         )
                     }
@@ -210,7 +210,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label(
-                L10n.string("mobile.connections.emptyTitle", defaultValue: "No Connections"),
+                L10n.string("mobile.connections.emptyTitle", defaultValue: "No Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -229,7 +229,7 @@ struct DisconnectedWorkspaceShellView: View {
                 .accessibilityIdentifier("MobileDisconnectedScanPairingCode")
             } else if let showAddDevice {
                 Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.connections.add", defaultValue: "Add Connection"))
+                    Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
@@ -253,7 +253,7 @@ struct DisconnectedWorkspaceShellView: View {
         #endif
         return L10n.string(
             "mobile.devices.emptyDescription",
-            defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
         )
     }
 
@@ -331,12 +331,12 @@ struct DisconnectedWorkspaceShellView: View {
         guard showAddDevice != nil else {
             return L10n.string(
                 "mobile.connections.savedDescription.reconnectOnly",
-                defaultValue: "Tap a saved connection to reconnect."
+                defaultValue: "Tap a saved computer to reconnect."
             )
         }
         return L10n.string(
             "mobile.connections.savedDescription",
-            defaultValue: "Tap a saved connection to reconnect, or add another."
+            defaultValue: "Tap a saved computer to reconnect, or add another."
         )
     }
 
@@ -344,8 +344,8 @@ struct DisconnectedWorkspaceShellView: View {
         ContentUnavailableView {
             Label(
                 savedMacs.isEmpty
-                    ? L10n.string("mobile.connections.emptyTitle", defaultValue: "No Connections")
-                    : L10n.string("mobile.connections.savedTitle", defaultValue: "Your Connections"),
+                    ? L10n.string("mobile.connections.emptyTitle", defaultValue: "No Computers")
+                    : L10n.string("mobile.connections.savedTitle", defaultValue: "Your Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -353,7 +353,7 @@ struct DisconnectedWorkspaceShellView: View {
                 savedMacs.isEmpty
                     ? L10n.string(
                         "mobile.devices.emptyDescription",
-                        defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                        defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
                     )
                     : savedMacDescription
             )
@@ -383,8 +383,8 @@ struct DisconnectedWorkspaceShellView: View {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
-                            ? L10n.string("mobile.connections.add", defaultValue: "Add Connection")
-                            : L10n.string("mobile.connections.addAnother", defaultValue: "Add another Connection")
+                            ? L10n.string("mobile.connections.add", defaultValue: "Add Computer")
+                            : L10n.string("mobile.connections.addAnother", defaultValue: "Add another Computer")
                     )
                 }
                 .buttonStyle(.borderedProminent)
@@ -434,7 +434,7 @@ struct DisconnectedWorkspaceShellView: View {
             Button(action: showAddDevice) {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Connection"))
+            .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
             .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
         }
     }

@@ -2872,7 +2872,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            let irohReconnectIsBlocked = tailscaleOnly
+            let irohReconnectIsBlocked = connectionMethod(for: mac) == .tailscale
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -9591,8 +9591,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
-        // disconnected instead of silently switching to Iroh.
-        if connectionMethodStore?.method == .tailscale {
+        // disconnected instead of silently switching to Iroh. The method is
+        // the dialed Computer's own choice, falling back to the app default.
+        if connectionMethod(forMacDeviceID: ticket.macDeviceID, instanceTag: nil) == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,

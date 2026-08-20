@@ -340,6 +340,26 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Device-local per-Computer connection method: the caller supplies the
+    /// exact tagged identity, so this forwards verbatim under the gate.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await mutationGate.withLock {
+            try await inner.setConnectionMethod(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                rawValue: rawValue,
+                stackUserID: stackUserID,
+                teamID: teamID
+            )
+        }
+    }
+
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,

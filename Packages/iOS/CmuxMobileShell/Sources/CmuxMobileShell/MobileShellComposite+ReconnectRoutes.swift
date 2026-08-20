@@ -200,9 +200,12 @@ extension MobileShellComposite {
         return .pairingRequired
     }
 
-    /// Readiness of the currently selected Tailscale connection method.
+    /// Readiness of the Tailscale connection method wherever it is selected:
+    /// as the app default or as any stored Computer's per-pairing choice.
     public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
-        guard connectionMethodStore?.method == .tailscale else {
+        guard connectionMethodStore?.method == .tailscale
+            || pairedMacs.contains(where: { connectionMethod(for: $0) == .tailscale })
+        else {
             return .notSelected
         }
         return tailscaleSetupStatusWhenSelected
@@ -279,7 +282,7 @@ extension MobileShellComposite {
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: connectionMethodStore?.method == .tailscale
+            tailscaleRequirement: connectionMethod(for: mac) == .tailscale
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []

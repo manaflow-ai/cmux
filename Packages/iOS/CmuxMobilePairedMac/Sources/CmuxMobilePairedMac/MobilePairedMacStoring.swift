@@ -186,6 +186,18 @@ public protocol MobilePairedMacStoring: Sendable {
     /// Remove all paired Macs.
     func removeAll() async throws
 
+    /// Persist THIS device's connection-method choice for one tagged Mac
+    /// (an opaque raw value owned by the shell; `nil` clears the choice back
+    /// to the app default). Device-local: the value never syncs, never backs
+    /// up, and must not bump LWW freshness.
+    func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
     /// Record device-local authorization for Tailscale routes the user entered
     /// as a pairing code from their Mac.
     ///
@@ -204,6 +216,16 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// Compatibility no-op for stores that predate per-Computer connection
+    /// methods (test fixtures); the SQLite store and decorators override.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
     /// Compatibility fallback for stores that predate tagged row identity.
     public func setActive(
         macDeviceID: String,

@@ -22,7 +22,13 @@ struct MacComputerDetailView: View {
     /// The route kind of the Connections row that opened this detail; its
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
+    /// Present the Tailscale pairing-code scanner: choosing Tailscale for
+    /// this Computer without a usable grant launches it, so the choice never
+    /// silently strands the Computer as Disconnected.
+    var showPairingScanner: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.irohSettingsController) private var irohSettingsController
+    @State private var showsPrivatePathEditor = false
 
     /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
     /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
@@ -81,6 +87,7 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
+            connectionMethodSection
             appearanceSection
             connectionSection
             presenceSection
@@ -90,6 +97,14 @@ struct MacComputerDetailView: View {
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showsPrivatePathEditor) {
+            if let irohSettingsController {
+                MacComputerPrivatePathEditorHost(
+                    controller: irohSettingsController,
+                    macDeviceID: macDeviceID
+                )
+            }
+        }
         .onAppear {
             guard !didLoadEdits else { return }
             didLoadEdits = true
@@ -102,6 +117,70 @@ struct MacComputerDetailView: View {
                 customColorPick = color
             }
         }
+    }
+
+    // MARK: - Connection configuration
+
+    /// This Computer's own networking configuration: the connection method it
+    /// dials (Iroh or Tailscale) and its private network addresses. Both are
+    /// per (device, build) and local to this iPhone.
+    private var selectedMethod: MobileConnectionMethod {
+        pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
+    }
+
+    @ViewBuilder
+    private var connectionMethodSection: some View {
+        Section {
+            Picker(
+                L10n.string(
+                    "mobile.settings.connectionMethod",
+                    defaultValue: "Connection Method"
+                ),
+                selection: Binding(
+                    get: { selectedMethod },
+                    set: { applyConnectionMethod($0) }
+                )
+            ) {
+                Text(MobileConnectionMethod.automatic.mobileConnectionMethodName)
+                    .tag(MobileConnectionMethod.automatic)
+                Text(MobileConnectionMethod.tailscale.mobileConnectionMethodName)
+                    .tag(MobileConnectionMethod.tailscale)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("MobileComputerConnectionMethod")
+            if irohSettingsController != nil {
+                Button {
+                    showsPrivatePathEditor = true
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.connections.privateAddresses",
+                            defaultValue: "Private Network Addresses"
+                        ),
+                        systemImage: "network.badge.shield.half.filled"
+                    )
+                }
+                .accessibilityIdentifier("MobileComputerPrivateAddresses")
+            }
+        } header: {
+            Text(L10n.string(
+                "mobile.connections.section.configuration",
+                defaultValue: "Connection"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.connections.methodFooter",
+                defaultValue: "Applies to this computer on this iPhone only. Tailscale requires entering the pairing code shown on the Mac once."
+            ))
+        }
+    }
+
+    /// Persist the per-Computer method; choosing Tailscale without a usable
+    /// grant opens the pairing-code scanner so the switch can actually dial.
+    private func applyConnectionMethod(_ method: MobileConnectionMethod) {
+        let needsScanner = method == .tailscale && !store.hasUsableTailscaleAuthorization
+        Task { await store.setConnectionMethod(method, macDeviceID: macDeviceID, instanceTag: instanceTag) }
+        if needsScanner { showPairingScanner?() }
     }
 
     // MARK: - Appearance editing
@@ -468,6 +547,38 @@ struct MacComputerDetailView: View {
     private func endpointText(_ endpoint: CmxAttachEndpoint) -> String {
         if case let .hostPort(host, port) = endpoint { return "\(host):\(port)" }
         return "—"
+    }
+}
+
+/// Hosts the shared Iroh private-address editor scoped to ONE Computer's
+/// physical Mac: the same editor and save path as Settings › Networking, with
+/// the Mac fixed instead of user-picked.
+private struct MacComputerPrivatePathEditorHost: View {
+    let controller: any CmxIrohSettingsControlling
+    let macDeviceID: String
+    @State private var model: MobileIrohSettingsModel
+    @State private var snapshot: CmxIrohSettingsSnapshot?
+
+    init(controller: any CmxIrohSettingsControlling, macDeviceID: String) {
+        self.controller = controller
+        self.macDeviceID = macDeviceID
+        _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
+    }
+
+    var body: some View {
+        Group {
+            if let snapshot {
+                MobileIrohCustomPrivatePathEditor(
+                    path: snapshot.customPrivateNetworks.first { $0.macDeviceID == macDeviceID },
+                    availableMacs: snapshot.privateNetworkMacs.filter { $0.id == macDeviceID }
+                ) { path in
+                    await model.upsertCustomPrivatePath(path)
+                }
+            } else {
+                ProgressView()
+            }
+        }
+        .task { snapshot = await controller.irohSettingsSnapshot() }
     }
 }
 #endif

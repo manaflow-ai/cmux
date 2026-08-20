@@ -6,14 +6,12 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Connections screen: every way this iPhone can reach a Mac signed in to
-/// the user's account. A visible row is one connection — the identity is
-/// (device, build, route kind) — so a Mac advertising both Auto-Connect and
-/// Tailscale routes appears once in each method's section, each row showing
-/// that method's endpoint. The main workspace list owns the Mac picker; this
+/// The Computers screen: the user's Computers — paired Mac app instances
+/// (device + build) — each shown once, grouped under the connection method
+/// that Computer is configured to use (Iroh or Tailscale, set per Computer in
+/// its configuration). The main workspace list owns the Mac picker; this
 /// screen manages the saved set and lets users inspect one or choose whether
-/// it appears on this iPhone (visibility is per pairing: toggling any row of a
-/// Mac hides all of them). The data is the durable-object–backed device
+/// it appears on this iPhone. The data is the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -57,53 +55,17 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
-    /// The user's selected connection method as a route kind. Always set (the
-    /// setting defaults to Auto-Connect), it drives the pinned Active section:
-    /// only routes under it are attempted.
-    private var selectedConnectionKind: CmxAttachTransportKind {
-        connectionMethodStore?.method == .tailscale ? .tailscale : .iroh
-    }
-
-    /// The method carrying the phone's live foreground connection, nil while
-    /// disconnected. Drives per-row Connected vs Standby only.
-    private var carryingConnectionKind: CmxAttachTransportKind? {
-        store.connectionState == .connected ? store.activeRoute?.kind : nil
-    }
-
     var body: some View {
         NavigationStack {
             List {
-                // The same Connection Method control as Settings, up top where
-                // the Active section it drives is visible while switching.
-                if let connectionMethodStore {
-                    MobileConnectionMethodSection(
-                        store: connectionMethodStore,
-                        hasUsableTailscaleAuthorization: store.hasUsableTailscaleAuthorization,
-                        startPairingScanner: showPairingScanner
-                    )
-                }
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
-                    // One section per connection method, so two routes to the
-                    // same Mac are visibly two different ways to reach it. The
-                    // SELECTED method's section always leads marked Active —
-                    // only its routes are attempted — and the rest stay dimmed.
-                    let sections = MacComputerListSection.sections(
-                        from: computers,
-                        selectedKind: selectedConnectionKind,
-                        carryingKind: carryingConnectionKind
-                    )
-                    ForEach(sections) { section in
-                        let dimmed = !section.isActive
+                    // One row per Computer, grouped under the connection
+                    // method that Computer is configured to use. The method
+                    // itself is changed in the Computer's own configuration.
+                    ForEach(MacComputerListSection.sections(from: computers)) { section in
                         Section {
-                            if section.isActive && section.computers.isEmpty {
-                                Text(L10n.string(
-                                    "mobile.connections.section.emptyActive",
-                                    defaultValue: "No routes use this method yet."
-                                ))
-                                .foregroundStyle(.secondary)
-                            }
                             ComputerVisibilityRows(
                                 visibleComputers: section.computers,
                                 hiddenComputers: [],
@@ -112,9 +74,8 @@ struct DeviceTreeView: View {
                                 unhide: unhideComputer,
                                 forget: forgetComputer
                             )
-                            .opacity(dimmed ? 0.5 : 1)
                         } header: {
-                            sectionHeader(for: section, dimmed: dimmed)
+                            Text(section.title)
                         }
                     }
                     if !store.hiddenComputers.isEmpty {
@@ -130,7 +91,7 @@ struct DeviceTreeView: View {
                         } header: {
                             Text(L10n.string(
                                 "mobile.connections.hidden.title",
-                                defaultValue: "Hidden Connections"
+                                defaultValue: "Hidden Computers"
                             ))
                         }
                     }
@@ -141,7 +102,7 @@ struct DeviceTreeView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.connections.footer",
-                            defaultValue: "A Mac appears once for each way this iPhone can connect to it. Turning a connection off hides that Mac's workspaces on this iPhone; it stays signed in to your account."
+                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
                         ))
                     }
                 }
@@ -153,11 +114,12 @@ struct DeviceTreeView: View {
                         store: store,
                         macDeviceID: computer.deviceId,
                         instanceTag: computer.instanceTag,
-                        focusedRouteKind: ref.routeKind
+                        focusedRouteKind: ref.routeKind,
+                        showPairingScanner: showPairingScanner
                     )
                 }
             }
-            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Connections"))
+            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if showAddDevice != nil {
@@ -165,7 +127,7 @@ struct DeviceTreeView: View {
                         Button(action: addComputer) {
                             Image(systemName: "plus")
                         }
-                        .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Connection"))
+                        .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                         .accessibilityIdentifier("MobileComputersAddButton")
                     }
                 }
@@ -197,7 +159,7 @@ struct DeviceTreeView: View {
         .alert(
             L10n.string(
                 "mobile.connections.forget.failureTitle",
-                defaultValue: "Couldn't forget connection"
+                defaultValue: "Couldn't forget computer"
             ),
             isPresented: Binding(
                 get: { forgetFailureMessage != nil },
@@ -216,32 +178,13 @@ struct DeviceTreeView: View {
         }
     }
 
-    /// Section header: the method name, plus "Active" on the section carrying
-    /// the live connection and "Not in use" on the dimmed ones, so the state
-    /// is announced in text and not only through opacity.
-    @ViewBuilder
-    private func sectionHeader(for section: MacComputerListSection, dimmed: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text(section.title)
-            if section.isActive {
-                Text(L10n.string("mobile.connections.section.active", defaultValue: "Active"))
-                    .foregroundStyle(.green)
-            } else if dimmed {
-                Text(L10n.string("mobile.connections.section.notInUse", defaultValue: "Not in use"))
-                    .italic()
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .opacity(dimmed ? 0.5 : 1)
-    }
-
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
     /// scroll past their Macs can add another without scrolling back up. Same
     /// action path (`addComputer`) as the toolbar button.
     private var addComputerRow: some View {
         Button(action: addComputer) {
             Label(
-                L10n.string("mobile.connections.add", defaultValue: "Add Connection"),
+                L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                 systemImage: "plus"
             )
         }
@@ -279,11 +222,11 @@ struct DeviceTreeView: View {
         return showAddDevice != nil
             ? L10n.string(
                 "mobile.connections.empty",
-                defaultValue: "No connections yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                defaultValue: "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
             )
             : L10n.string(
                 "mobile.devices.emptyDescription",
-                defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
             )
     }
 

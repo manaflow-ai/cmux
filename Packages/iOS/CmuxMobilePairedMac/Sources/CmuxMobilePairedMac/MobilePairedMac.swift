@@ -63,6 +63,11 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// User's custom icon override, synced per user. `nil` = the automatic icon.
     /// An SF Symbol name (ASCII, e.g. `"desktopcomputer"`) or an emoji.
     public var customIcon: String?
+    /// THIS iPhone's connection-method choice for this Mac app instance
+    /// ("iroh" or "tailscale"). Device-local like the legacy grants: excluded
+    /// from ``CodingKeys`` so it never rides account backup to another device.
+    /// `nil` = fall back to the app's default method.
+    public var connectionMethodRawValue: String? = nil
 
     /// Stable identity of this saved app instance.
     ///
@@ -128,7 +133,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         customColor: String? = nil,
         customIcon: String? = nil,
         instanceTag: String? = nil,
-        legacyTailscaleRoutes: [CmxAttachRoute]? = nil
+        legacyTailscaleRoutes: [CmxAttachRoute]? = nil,
+        connectionMethodRawValue: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -143,5 +149,6 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.customIcon = customIcon
         self.instanceTag = instanceTag
         self.legacyTailscaleRoutes = legacyTailscaleRoutes
+        self.connectionMethodRawValue = connectionMethodRawValue
     }
 }

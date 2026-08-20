@@ -1,7 +1,71 @@
-import CmuxMobileShellModel
+internal import CMUXMobileCore
+public import CmuxMobilePairedMac
+public import CmuxMobileShellModel
+
+extension MobilePairedMac {
+    /// This iPhone's explicit connection-method choice for this pairing,
+    /// decoded from the device-local store column. `nil` = no explicit choice.
+    var storedConnectionMethod: MobileConnectionMethod? {
+        connectionMethodRawValue.flatMap(MobileConnectionMethod.init(rawValue:))
+    }
+}
 
 @MainActor
 extension MobileShellComposite {
+    /// The effective connection method for one pairing: its own stored choice,
+    /// else the app-wide default (legacy global setting), else automatic.
+    public func connectionMethod(for mac: MobilePairedMac) -> MobileConnectionMethod {
+        mac.storedConnectionMethod ?? connectionMethodStore?.method ?? .automatic
+    }
+
+    /// The effective connection method for a pairing identified by device and
+    /// optional tag. With a nil tag this resolves the device's first stored
+    /// pairing, matching the legacy device-level call sites.
+    public func connectionMethod(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileConnectionMethod {
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        let match = pairedMacs.first {
+            $0.macDeviceID == canonical
+                && (instanceTag == nil || $0.instanceTag == instanceTag)
+        } ?? pairedMacs.first { $0.macDeviceID == canonical }
+        return match.map(connectionMethod(for:))
+            ?? connectionMethodStore?.method
+            ?? .automatic
+    }
+
+    /// Persist the per-Computer connection method and, when the change affects
+    /// the foreground Mac, replace the live connection so the new method takes
+    /// effect immediately instead of on the next dial.
+    public func setConnectionMethod(
+        _ method: MobileConnectionMethod?,
+        macDeviceID: String,
+        instanceTag: String?
+    ) async {
+        guard let pairedMacStore else { return }
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        try? await pairedMacStore.setConnectionMethod(
+            macDeviceID: canonical,
+            instanceTag: instanceTag,
+            rawValue: method?.rawValue,
+            stackUserID: nil,
+            teamID: nil
+        )
+        await loadPairedMacs()
+        if connectedMacDeviceID == canonical {
+            recoverMobileConnection(trigger: .connectionMethodChanged)
+        }
+    }
+
+    /// Zero-touch discovery yields Iroh candidates only. It is pointless only
+    /// when the app default is Tailscale AND no stored pairing opted back into
+    /// the automatic method — a per-Computer Iroh choice keeps discovery alive.
+    var zeroTouchIrohDiscoveryDisabled: Bool {
+        guard connectionMethodStore?.method == .tailscale else { return false }
+        return pairedMacs.allSatisfy { connectionMethod(for: $0) == .tailscale }
+    }
+
     /// Observes the shared Settings/onboarding choice and replaces any live
     /// foreground connection whose route was selected under the old method.
     func startObservingConnectionMethodChanges() {

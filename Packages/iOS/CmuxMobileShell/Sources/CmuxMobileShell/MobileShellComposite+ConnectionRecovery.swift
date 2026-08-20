@@ -670,7 +670,10 @@ extension MobileShellComposite {
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: connectionMethodStore?.method == .tailscale
+            tailscaleRequirement: connectionMethod(
+                forMacDeviceID: pairedMacDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag
+            ) == .tailscale
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes

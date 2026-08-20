@@ -17,6 +17,7 @@ extension MobilePairedMacStore {
         var customName: String? = nil
         var customColor: String? = nil
         var customIcon: String? = nil
+        var connectionMethodRawValue: String? = nil
     }
 
     func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
@@ -211,7 +212,7 @@ extension MobilePairedMacStore {
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id, instance_tag
+                   custom_name, custom_color, custom_icon, team_id, instance_tag, connection_method
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -244,7 +245,8 @@ extension MobilePairedMacStore {
                 isActive: isActive,
                 customName: Self.readNullableText(statement, column: 7),
                 customColor: Self.readNullableText(statement, column: 8),
-                customIcon: Self.readNullableText(statement, column: 9)
+                customIcon: Self.readNullableText(statement, column: 9),
+                connectionMethodRawValue: Self.readNullableText(statement, column: 12)
             ))
         }
 
@@ -269,7 +271,8 @@ extension MobilePairedMacStore {
                 instanceTag: row.instanceTag,
                 legacyTailscaleRoutes: legacyTailscaleRoutes.isEmpty
                     ? nil
-                    : legacyTailscaleRoutes
+                    : legacyTailscaleRoutes,
+                connectionMethodRawValue: row.connectionMethodRawValue
             )
         }
     }

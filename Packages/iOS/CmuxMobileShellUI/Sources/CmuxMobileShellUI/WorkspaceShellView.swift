@@ -24,7 +24,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
-        title: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection"),
+        title: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer"),
         visibleSelection: .all,
         machines: []
     )
@@ -64,10 +64,6 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
-    /// Feeds the picker menu's inline Connection Method group; the picker
-    /// stays value-driven, so the method flows through its Equatable value.
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -96,15 +92,11 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
                     labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
-                    statusLine: statusLine,
-                    connectionMethod: connectionMethodStore?.method
+                    statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice,
-                    selectConnectionMethod: connectionMethodStore.map { store in
-                        { store.method = $0 }
-                    }
+                    addDevice: showAddDevice
                 )
             )
             .equatable()
@@ -113,7 +105,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             Button(action: openDevices) {
                 Image(systemName: "desktopcomputer")
             }
-            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Connections"))
+            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
     }
@@ -779,7 +771,7 @@ struct WorkspaceShellView: View {
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection")
+            fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
         )
         return WorkspaceShellRenderPresentation(
             selectionScope: scope,
@@ -803,11 +795,11 @@ struct WorkspaceShellView: View {
         let title: String
         switch visibleSelection {
         case .all, .automatic:
-            title = L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Connections")
+            title = L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Computers")
         case .machine(let id):
             title = machineSnapshots.macPickerTitle(
                 for: id,
-                fallback: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Connection")
+                fallback: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
             )
         }
         return WorkspaceRootToolbarRenderContext(

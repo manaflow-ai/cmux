@@ -196,6 +196,23 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        guard isCompatible(instanceTag: instanceTag) else { return }
+        try await inner.setConnectionMethod(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawValue: rawValue,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
     func remove(
         macDeviceID: String,
         stackUserID: String?,

@@ -533,6 +533,26 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     /// Persist customizations for one exact tagged pairing.
+    /// Device-local per-Computer connection method: forwarded verbatim and
+    /// deliberately NOT mirrored into the account backup.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        try await inner.setConnectionMethod(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawValue: rawValue,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,

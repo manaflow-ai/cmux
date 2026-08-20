@@ -3,12 +3,11 @@ import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
 
-/// Immutable per-computer snapshot for the Connections screen.
+/// Immutable per-Computer snapshot for the Computers screen.
 ///
-/// One snapshot is one paired Mac app instance (device + build). The screen
-/// shows it once per advertised connection method, so the visible row identity
-/// is (device, build, route kind); ``MacComputerListSection`` derives those
-/// per-kind rows from this snapshot's ``routes``.
+/// One snapshot is one Computer — a paired Mac app instance (device + build).
+/// Each Computer carries its own connection method, which decides the section
+/// it appears under and the route its row and detail lead with.
 struct MacComputerSnapshot: Equatable, Identifiable {
     let deviceId: String
     let instanceTag: String?
@@ -45,14 +44,11 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// still reconnect or remove it. Labeled so several identically named
     /// entries stop looking interchangeable.
     var isOlderDuplicate: Bool = false
-    /// True on a per-kind row whose Mac is connected, but over a DIFFERENT
-    /// method than this row's section. The row then reads "Standby" with a
-    /// neutral dot instead of claiming "Connected" for a route that is not
-    /// carrying the session. Set only by ``MacComputerListSection``.
-    var isStandbyRoute: Bool = false
-    /// The route kind this row represents inside a method section, completing
-    /// the connection identity tuple (device, build, route kind). `nil` on
-    /// pairing-level snapshots outside the sectioned list.
+    /// This Computer's effective connection method (its own stored choice,
+    /// falling back to the app default). Decides the list section.
+    var connectionMethod: MobileConnectionMethod?
+    /// The route kind this Computer's method dials; the row endpoint and the
+    /// detail view's leading route follow it.
     var routeKind: CmxAttachTransportKind?
 
     /// The pairing identity (device + build). Operations that are pairing
