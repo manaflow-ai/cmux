@@ -11,12 +11,12 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
-    private static func drainMainRunLoopTurn() async {
-        await withCheckedContinuation { continuation in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
-        }
+    private static func drainDeferredSchedulerTurn() async {
+        // MainActorDeferredActionScheduler enqueues a zero-delay MainActor
+        // task. Yield on that same executor so assertions observe the queued
+        // action, rather than relying on RunLoop ordering.
+        await Task.yield()
+        await Task.yield()
     }
 
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
@@ -440,7 +440,7 @@ final class MarkdownPanelTests: XCTestCase {
         // Establish the attached state, then model Bonsplit's remove/add
         // transition before the deferred action gets a chance to run.
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainMainRunLoopTurn()
+        await Self.drainDeferredSchedulerTurn()
         actions.removeAll()
         isActuallyVisible = false
         coordinator.viewDidMoveToWindow(isAttached: false)
@@ -453,9 +453,9 @@ final class MarkdownPanelTests: XCTestCase {
         )
 
         // The repair still has to happen once the originating callback has
-        // returned. A run-loop turn is the production scheduling boundary; no
-        // wall-clock delay is needed.
-        await Self.drainMainRunLoopTurn()
+        // returned. A MainActor yield is the production scheduling boundary;
+        // no wall-clock delay is needed.
+        await Self.drainDeferredSchedulerTurn()
         XCTAssertEqual(actions.count, 1)
         XCTAssertEqual(
             actions.first,
@@ -472,7 +472,7 @@ final class MarkdownPanelTests: XCTestCase {
             applyAction: { action in actions.append(action) }
         )
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainMainRunLoopTurn()
+        await Self.drainDeferredSchedulerTurn()
         actions.removeAll()
         // Both changes are smaller than the old half-point tolerance. Each is
         // still real divider geometry and must leave a deferred repair queued.
@@ -484,7 +484,7 @@ final class MarkdownPanelTests: XCTestCase {
             "A markdown resize must not flush WebKit synchronously from AppKit layout"
         )
 
-        await Self.drainMainRunLoopTurn()
+        await Self.drainDeferredSchedulerTurn()
         XCTAssertEqual(actions.count, 1)
         XCTAssertEqual(
             actions.first,
@@ -501,20 +501,45 @@ final class MarkdownPanelTests: XCTestCase {
             applyAction: { action in actions.append(action) }
         )
         coordinator.viewDidMoveToWindow(isAttached: true)
-        await Self.drainMainRunLoopTurn()
+        await Self.drainDeferredSchedulerTurn()
         actions.removeAll()
         coordinator.setVisibleInUI(false)
-        await Self.drainMainRunLoopTurn()
+        await Self.drainDeferredSchedulerTurn()
         XCTAssertEqual(actions, [.hide(reason: "visibility.hidden")])
 
         actions.removeAll()
         coordinator.setVisibleInUI(true)
         XCTAssertTrue(actions.isEmpty, "A visibility reveal must cross the deferred boundary")
-        await Self.drainMainRunLoopTurn()
+        await Self.drainDeferredSchedulerTurn()
         XCTAssertEqual(
             actions,
             [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)],
             "A revealed markdown tab must receive a repaint pass"
+        )
+    }
+
+    func testMarkdownRenderingCoordinatorRetriesWhenVisibilitySettles() async {
+        var isActuallyVisible = false
+        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { isActuallyVisible },
+            applyAction: { action in actions.append(action) }
+        )
+
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        await Self.drainDeferredSchedulerTurn()
+        XCTAssertTrue(actions.isEmpty, "A hidden ancestor must defer the first paint")
+
+        // SwiftUI can call updateNSView with the same visible value after the
+        // ancestor becomes visible. That callback must retry pending work.
+        isActuallyVisible = true
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(actions.isEmpty, "The visibility retry remains deferred")
+        await Self.drainDeferredSchedulerTurn()
+        XCTAssertEqual(
+            actions,
+            [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)]
         )
     }
 

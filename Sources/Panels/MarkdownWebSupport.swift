@@ -81,9 +81,16 @@ final class MarkdownWebRenderingCoordinator {
     /// Records an exact geometry change. Fractional-point divider movement is
     /// meaningful to WebKit, so no epsilon is applied here.
     func layoutDidChange(to boundsSize: CGSize) {
-        guard lastObservedBoundsSize != boundsSize else { return }
+        let sizeChanged = lastObservedBoundsSize != boundsSize
         lastObservedBoundsSize = boundsSize
-        schedule(reason: "boundsChanged", forceLifecycleRefresh: false)
+        if sizeChanged {
+            schedule(reason: "boundsChanged", forceLifecycleRefresh: false)
+        } else if needsRenderingReattach, desiredVisibility, attachedToWindow {
+            // SwiftUI can finish an opacity/hidden transition without changing
+            // the view's size. A settled layout callback is the platform signal
+            // that lets a previously hidden repair try again.
+            schedule(reason: "visibilitySettled", forceLifecycleRefresh: true)
+        }
     }
 
     /// Requests a lifecycle-aware repaint after an AppKit live resize ends.
@@ -93,11 +100,13 @@ final class MarkdownWebRenderingCoordinator {
 
     /// Records whether SwiftUI intends this keep-alive viewer to be visible.
     func setVisibleInUI(_ visible: Bool) {
-        guard desiredVisibility != visible else { return }
+        let changed = desiredVisibility != visible
         desiredVisibility = visible
         if visible {
-            schedule(reason: "visibility.visible", forceLifecycleRefresh: true)
-        } else {
+            if changed || needsRenderingReattach || renderingStateIsHidden || pendingWindowReentryNotification {
+                schedule(reason: "visibility.visible", forceLifecycleRefresh: true)
+            }
+        } else if changed {
             needsRenderingReattach = true
             schedule(reason: "visibility.hidden", forceLifecycleRefresh: false)
         }
@@ -335,27 +344,13 @@ final class MarkdownWebView: WKWebView {
                 callVoidSelectorIfAvailable("_endDeferringViewInWindowChangesSync")
             }
 
-            // WKWebView's backing layer is hosted below an internal scroll view.
-            // Mark and flush that WebKit-owned subtree as well as the web view;
-            // never ask an ancestor NSHostingView or the whole window to draw.
-            if let scrollView = enclosingScrollView {
-                scrollView.needsLayout = true
-                scrollView.needsDisplay = true
-                scrollView.setNeedsDisplay(scrollView.bounds)
-                scrollView.contentView.needsLayout = true
-                scrollView.contentView.needsDisplay = true
-            }
             needsLayout = true
             needsDisplay = true
             setNeedsDisplay(bounds)
-            if let scrollView = enclosingScrollView {
-                scrollView.layoutSubtreeIfNeeded()
-                scrollView.contentView.layoutSubtreeIfNeeded()
-                scrollView.displayIfNeeded()
-            }
             // This is deliberately below the deferred scheduler boundary. It
-            // flushes only the WebKit-owned subtree after SwiftUI/AppKit has
-            // unwound, so no NSHostingView ancestor is synchronously re-entered.
+            // flushes only the Markdown WebKit view after SwiftUI/AppKit has
+            // unwound, so no enclosing scroll view or NSHostingView is
+            // synchronously re-entered.
             layoutSubtreeIfNeeded()
             displayIfNeeded()
         }
