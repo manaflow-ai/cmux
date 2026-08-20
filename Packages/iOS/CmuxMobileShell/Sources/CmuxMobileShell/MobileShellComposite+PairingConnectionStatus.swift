@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import CmuxMobileShellModel
 import Foundation
 
@@ -5,10 +6,10 @@ extension MobileShellComposite {
     /// Refines a device-keyed connection status to one exact pairing row.
     ///
     /// `macConnectionStatuses` is keyed by physical device id, but "Connected"
-    /// is true of exactly one app instance at a time. A `.connected` device
-    /// status therefore only applies to the row whose instance tag matches the
-    /// connected pairing; a sibling build and a legacy untagged row must not
-    /// inherit it.
+    /// is true of exactly one app instance at a time. Only that ambiguous
+    /// status needs build-scoped refinement; all other statuses already belong
+    /// to the device row and must remain visible while it reconnects or is
+    /// unavailable.
     public static func exactPairingConnectionStatus(
         deviceStatus: MobileMacConnectionStatus?,
         connectedMacDeviceID: String?,
@@ -16,9 +17,16 @@ extension MobileShellComposite {
         rowMacDeviceID: String,
         rowInstanceTag: String?
     ) -> MobileMacConnectionStatus? {
-        guard connectedMacDeviceID == rowMacDeviceID else {
-            return rowInstanceTag == nil ? deviceStatus : nil
+        guard deviceStatus == .connected else { return deviceStatus }
+
+        let canonicalRowDeviceID = CmxMacAppInstanceIdentity(
+            macDeviceID: rowMacDeviceID,
+            instanceTag: nil
+        ).macDeviceID
+        let canonicalConnectedDeviceID = connectedMacDeviceID.map {
+            CmxMacAppInstanceIdentity(macDeviceID: $0, instanceTag: nil).macDeviceID
         }
+        guard canonicalConnectedDeviceID == canonicalRowDeviceID else { return nil }
         let normalizedConnectedTag = connectedMacInstanceTag.flatMap {
             let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
