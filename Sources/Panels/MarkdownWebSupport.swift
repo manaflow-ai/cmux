@@ -18,6 +18,142 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
+/// Owns the Markdown viewer's AppKit/WebKit lifecycle state.
+///
+/// `NSView` callbacks can arrive while SwiftUI is laying out an ancestor. The
+/// coordinator records those callbacks synchronously, then coalesces the one
+/// WebKit action that is safe to perform after the host transaction unwinds.
+/// Keeping the state machine here gives window, geometry, and tab-visibility
+/// transitions one owner and makes the transition contract independently
+/// testable without relying on WebKit's pixel output.
+@MainActor
+final class MarkdownWebRenderingCoordinator {
+    enum Action: Equatable {
+        case hide(reason: String)
+        case refresh(reason: String, forceLifecycleRefresh: Bool)
+    }
+
+    private let scheduler: MainActorDeferredActionScheduler
+    private let isActuallyVisible: @MainActor () -> Bool
+    private let applyAction: @MainActor (Action) -> Void
+    private let onReenterWindow: @MainActor () -> Void
+
+    private var attachedToWindow = false
+    private var desiredVisibility = true
+    private var needsRenderingReattach = false
+    private var renderingStateIsHidden = false
+    private var lastObservedBoundsSize: CGSize
+    private var pendingRefreshReason = "initial"
+    private var pendingForceLifecycleRefresh = false
+    private var pendingWindowReentryNotification = false
+
+    init(
+        initialBoundsSize: CGSize,
+        scheduler: MainActorDeferredActionScheduler = MainActorDeferredActionScheduler(),
+        isActuallyVisible: @escaping @MainActor () -> Bool,
+        applyAction: @escaping @MainActor (Action) -> Void,
+        onReenterWindow: @escaping @MainActor () -> Void = {}
+    ) {
+        self.scheduler = scheduler
+        self.isActuallyVisible = isActuallyVisible
+        self.applyAction = applyAction
+        self.onReenterWindow = onReenterWindow
+        lastObservedBoundsSize = initialBoundsSize
+    }
+
+    /// Records a view-to-window transition without entering WebKit inline.
+    func viewDidMoveToWindow(isAttached: Bool) {
+        attachedToWindow = isAttached
+        if isAttached {
+            // Reparenting can preserve SwiftUI identity while WebKit loses its
+            // in-window layer state. Always repair on the deferred turn.
+            pendingWindowReentryNotification = true
+            schedule(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
+        } else {
+            needsRenderingReattach = true
+            pendingWindowReentryNotification = false
+            schedule(reason: "viewDidMoveToWindow.hidden", forceLifecycleRefresh: false)
+        }
+    }
+
+    /// Records an exact geometry change. Fractional-point divider movement is
+    /// meaningful to WebKit, so no epsilon is applied here.
+    func layoutDidChange(to boundsSize: CGSize) {
+        guard lastObservedBoundsSize != boundsSize else { return }
+        lastObservedBoundsSize = boundsSize
+        schedule(reason: "boundsChanged", forceLifecycleRefresh: false)
+    }
+
+    /// Requests a lifecycle-aware repaint after an AppKit live resize ends.
+    func viewDidEndLiveResize() {
+        schedule(reason: "viewDidEndLiveResize", forceLifecycleRefresh: true)
+    }
+
+    /// Records whether SwiftUI intends this keep-alive viewer to be visible.
+    func setVisibleInUI(_ visible: Bool) {
+        guard desiredVisibility != visible else { return }
+        desiredVisibility = visible
+        if visible {
+            schedule(reason: "visibility.visible", forceLifecycleRefresh: true)
+        } else {
+            needsRenderingReattach = true
+            schedule(reason: "visibility.hidden", forceLifecycleRefresh: false)
+        }
+    }
+
+    /// Cancels a pending repair when the host view is being torn down.
+    func cancel() {
+        scheduler.cancel()
+    }
+
+    private func schedule(reason: String, forceLifecycleRefresh: Bool) {
+        pendingRefreshReason = reason
+        pendingForceLifecycleRefresh = pendingForceLifecycleRefresh || forceLifecycleRefresh
+        scheduler.schedule { [weak self] in
+            self?.performPendingAction()
+        }
+    }
+
+    private func performPendingAction() {
+        let forceLifecycleRefresh = pendingForceLifecycleRefresh
+        pendingForceLifecycleRefresh = false
+        let reason = pendingRefreshReason
+
+        guard desiredVisibility, attachedToWindow else {
+            applyHiddenAction(reason: reason)
+            return
+        }
+
+        guard isActuallyVisible() else {
+            // AppKit may still be completing the hide/unhide transaction. Keep
+            // the reattach intent; the next settled geometry/visibility callback
+            // will run this same state transition again.
+            needsRenderingReattach = true
+            pendingForceLifecycleRefresh = pendingForceLifecycleRefresh || forceLifecycleRefresh
+            return
+        }
+
+        let shouldReenter = forceLifecycleRefresh || needsRenderingReattach || renderingStateIsHidden
+        if shouldReenter {
+            needsRenderingReattach = false
+            renderingStateIsHidden = false
+        }
+        applyAction(.refresh(reason: reason, forceLifecycleRefresh: shouldReenter))
+
+        if pendingWindowReentryNotification {
+            pendingWindowReentryNotification = false
+            onReenterWindow()
+        }
+    }
+
+    private func applyHiddenAction(reason: String) {
+        guard !renderingStateIsHidden else { return }
+        renderingStateIsHidden = true
+        needsRenderingReattach = true
+        applyAction(.hide(reason: reason))
+    }
+}
+
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
@@ -31,27 +167,8 @@ final class MarkdownWebView: WKWebView {
     /// out of the window (e.g. a pane drag re-parented the hosting views).
     var onReenterWindow: (() -> Void)?
 
-#if DEBUG
-    /// Test-only observation point for the WebKit repaint pass. The callback
-    /// is intentionally attached to the actual subtree refresh rather than to
-    /// a scheduler so tests can distinguish an inline host re-entry flush from
-    /// the deferred repair turn.
-    var renderingRefreshProbeForTesting: (() -> Void)?
-#endif
-
-    /// AppKit/SwiftUI can invoke layout and move-to-window callbacks while an
-    /// ancestor `NSHostingView` is still rendering. Keep WebKit lifecycle and
-    /// subtree flushes behind this scheduler so those callbacks only invalidate
-    /// state and never synchronously re-enter the host hierarchy.
-    private let renderingRefreshScheduler = MainActorDeferredActionScheduler()
-    private var needsRenderingReattach = false
-    private var desiredVisibility = true
-    private var webKitRenderingStateIsHidden = false
-    private var lastObservedBoundsSize: CGSize = .zero
-    private var pendingRefreshReason = "initial"
-    private var pendingForceLifecycleRefresh = false
-    private var pendingWindowReentryNotification = false
-    private var windowResizeObserver: NSObjectProtocol?
+    /// The coordinator is the only owner of deferred WebKit lifecycle work.
+    private var renderingCoordinator: MarkdownWebRenderingCoordinator?
     private var editableFocusStateConfirmed = false
     private var editableElementFocused = false
     private let viewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
@@ -64,20 +181,13 @@ final class MarkdownWebView: WKWebView {
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         Self.installEditableFocusTracking(on: configuration.userContentController)
         super.init(frame: frame, configuration: configuration)
-        lastObservedBoundsSize = bounds.size
+        renderingCoordinator = makeRenderingCoordinator(initialBoundsSize: bounds.size)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         Self.installEditableFocusTracking(on: configuration.userContentController)
-        lastObservedBoundsSize = bounds.size
-    }
-
-    deinit {
-        if let windowResizeObserver {
-            NotificationCenter.default.removeObserver(windowResizeObserver)
-        }
-        renderingRefreshScheduler.cancel()
+        renderingCoordinator = makeRenderingCoordinator(initialBoundsSize: bounds.size)
     }
 
     private static func installEditableFocusTracking(on controller: WKUserContentController) {
@@ -168,41 +278,25 @@ final class MarkdownWebView: WKWebView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        removeWindowResizeObserver()
+        renderingCoordinator?.viewDidMoveToWindow(isAttached: window != nil)
         if window == nil {
-            // Leaving the window (the detach half of a pane re-parent) is only
-            // a state transition here. Calling WebKit's private lifecycle
-            // selectors inline can re-enter the surrounding NSHostingView.
-            needsRenderingReattach = true
-            pendingWindowReentryNotification = false
-            scheduleRenderingRefresh(reason: "viewDidMoveToWindow.hidden", forceLifecycleRefresh: false)
+            // This callback only records renderer health. All WebKit lifecycle
+            // selectors and layout/display work stay on the deferred path.
             onLeaveWindow?()
-        } else {
-            installWindowResizeObserver(for: window)
-            // A view can be reparented without changing its SwiftUI identity.
-            // Re-entering must therefore always get a deferred WebKit refresh;
-            // the coordinator callback is delivered in that same safe turn.
-            pendingWindowReentryNotification = true
-            scheduleRenderingRefresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
         }
     }
 
     override func layout() {
-        let previousSize = lastObservedBoundsSize
-        let currentSize = bounds.size
-        lastObservedBoundsSize = currentSize
         super.layout()
-
-        guard !Self.isApproximatelyEqual(previousSize, currentSize) else { return }
         // A divider/window resize can leave a live WKWebView with valid scroll
         // geometry but stale backing tiles. Invalidate and repair after this
         // layout callback returns; never flush the SwiftUI-owned ancestor here.
-        scheduleRenderingRefresh(reason: "boundsChanged", forceLifecycleRefresh: false)
+        renderingCoordinator?.layoutDidChange(to: bounds.size)
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
-        scheduleRenderingRefresh(reason: "viewDidEndLiveResize", forceLifecycleRefresh: true)
+        renderingCoordinator?.viewDidEndLiveResize()
     }
 
     /// Updates the SwiftUI visibility intent for this viewer. Workspace panes
@@ -210,104 +304,61 @@ final class MarkdownWebView: WKWebView {
     /// WebKit's in-window lifecycle or ProcessThrottler may park its process;
     /// the selected tab gets a deferred enter/paint pass on reveal.
     func setVisibleInUI(_ visible: Bool) {
-        guard desiredVisibility != visible else { return }
-        desiredVisibility = visible
-        if visible {
-            scheduleRenderingRefresh(reason: "visibility.visible", forceLifecycleRefresh: true)
-        } else {
-            needsRenderingReattach = true
-            scheduleRenderingRefresh(reason: "visibility.hidden", forceLifecycleRefresh: false)
-        }
+        renderingCoordinator?.setVisibleInUI(visible)
     }
 
-    private func scheduleRenderingRefresh(
-        reason: String,
-        forceLifecycleRefresh: Bool
-    ) {
-        pendingRefreshReason = reason
-        pendingForceLifecycleRefresh = pendingForceLifecycleRefresh || forceLifecycleRefresh
-        renderingRefreshScheduler.schedule { [weak self] in
-            guard let self else { return }
-            let forceLifecycleRefresh = self.pendingForceLifecycleRefresh
-            let reason = self.pendingRefreshReason
-            self.pendingForceLifecycleRefresh = false
-            self.performRenderingRefresh(
-                reason: reason,
-                forceLifecycleRefresh: forceLifecycleRefresh
-            )
-            if self.pendingWindowReentryNotification {
-                self.pendingWindowReentryNotification = false
-                self.onReenterWindow?()
+    private func makeRenderingCoordinator(initialBoundsSize: CGSize) -> MarkdownWebRenderingCoordinator {
+        MarkdownWebRenderingCoordinator(
+            initialBoundsSize: initialBoundsSize,
+            isActuallyVisible: { [weak self] in
+                guard let self else { return false }
+                return self.window != nil && !self.isHiddenOrHasHiddenAncestor
+            },
+            applyAction: { [weak self] action in
+                self?.applyRenderingAction(action)
+            },
+            onReenterWindow: { [weak self] in
+                self?.onReenterWindow?()
             }
-        }
+        )
     }
 
-    private func performRenderingRefresh(reason: String, forceLifecycleRefresh: Bool) {
-        guard desiredVisibility, window != nil else {
-            applyHiddenRenderingState(reason: reason)
-            return
-        }
-        guard !isHiddenOrHasHiddenAncestor else {
-            // `viewDidUnhide`/the next visibility update will retry once the
-            // SwiftUI opacity/hidden transition has completed.
-            needsRenderingReattach = true
-            return
-        }
-
-        let shouldReenter = forceLifecycleRefresh || needsRenderingReattach || webKitRenderingStateIsHidden
-        if shouldReenter {
-            callVoidSelectorIfAvailable("viewDidUnhide")
-            callVoidSelectorIfAvailable("_enterInWindow")
-            callVoidSelectorIfAvailable("_endDeferringViewInWindowChangesSync")
-            needsRenderingReattach = false
-            webKitRenderingStateIsHidden = false
-        }
-
-        needsLayout = true
-        needsDisplay = true
-        setNeedsDisplay(bounds)
-#if DEBUG
-        renderingRefreshProbeForTesting?()
-#endif
-        // This is deliberately below the deferred scheduler boundary. It
-        // flushes only the WebKit-owned subtree after SwiftUI/AppKit has
-        // unwound, so no NSHostingView ancestor is synchronously re-entered.
-        layoutSubtreeIfNeeded()
-        displayIfNeeded()
-    }
-
-    private func applyHiddenRenderingState(reason _: String) {
-        guard !webKitRenderingStateIsHidden else { return }
-        callVoidSelectorIfAvailable("viewDidHide")
-        callVoidSelectorIfAvailable("_exitInWindow")
-        needsRenderingReattach = true
-        webKitRenderingStateIsHidden = true
-    }
-
-    private func installWindowResizeObserver(for window: NSWindow?) {
-        guard let window else { return }
-        windowResizeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didEndLiveResizeNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.scheduleRenderingRefresh(
-                    reason: "windowDidEndLiveResize",
-                    forceLifecycleRefresh: true
-                )
+    private func applyRenderingAction(_ action: MarkdownWebRenderingCoordinator.Action) {
+        switch action {
+        case .hide:
+            callVoidSelectorIfAvailable("viewDidHide")
+            callVoidSelectorIfAvailable("_exitInWindow")
+        case let .refresh(_, forceLifecycleRefresh):
+            if forceLifecycleRefresh {
+                callVoidSelectorIfAvailable("viewDidUnhide")
+                callVoidSelectorIfAvailable("_enterInWindow")
+                callVoidSelectorIfAvailable("_endDeferringViewInWindowChangesSync")
             }
+
+            // WKWebView's backing layer is hosted below an internal scroll view.
+            // Mark and flush that WebKit-owned subtree as well as the web view;
+            // never ask an ancestor NSHostingView or the whole window to draw.
+            if let scrollView = enclosingScrollView {
+                scrollView.needsLayout = true
+                scrollView.needsDisplay = true
+                scrollView.setNeedsDisplay(scrollView.bounds)
+                scrollView.contentView.needsLayout = true
+                scrollView.contentView.needsDisplay = true
+            }
+            needsLayout = true
+            needsDisplay = true
+            setNeedsDisplay(bounds)
+            if let scrollView = enclosingScrollView {
+                scrollView.layoutSubtreeIfNeeded()
+                scrollView.contentView.layoutSubtreeIfNeeded()
+                scrollView.displayIfNeeded()
+            }
+            // This is deliberately below the deferred scheduler boundary. It
+            // flushes only the WebKit-owned subtree after SwiftUI/AppKit has
+            // unwound, so no NSHostingView ancestor is synchronously re-entered.
+            layoutSubtreeIfNeeded()
+            displayIfNeeded()
         }
-    }
-
-    private func removeWindowResizeObserver() {
-        guard let windowResizeObserver else { return }
-        NotificationCenter.default.removeObserver(windowResizeObserver)
-        self.windowResizeObserver = nil
-    }
-
-    private static func isApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize, epsilon: CGFloat = 0.5) -> Bool {
-        abs(lhs.width - rhs.width) <= epsilon && abs(lhs.height - rhs.height) <= epsilon
     }
 
     /// Calls a private WKWebView lifecycle selector when present. Guarded by

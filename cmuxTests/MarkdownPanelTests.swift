@@ -427,41 +427,28 @@ final class MarkdownPanelTests: XCTestCase {
     }
 
     func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
-        let frame = NSRect(x: 0, y: 0, width: 640, height: 360)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+        var isActuallyVisible = true
+        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        var reentryCount = 0
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { isActuallyVisible },
+            applyAction: { action in actions.append(action) },
+            onReenterWindow: { reentryCount += 1 }
         )
-        let webView = MarkdownWebView(
-            frame: frame,
-            configuration: WKWebViewConfiguration()
-        )
-        var refreshCount = 0
-        webView.renderingRefreshProbeForTesting = {
-            refreshCount += 1
-        }
-        window.contentView = webView
-        window.orderFrontRegardless()
+
+        // Establish the attached state, then model Bonsplit's remove/add
+        // transition before the deferred action gets a chance to run.
+        coordinator.viewDidMoveToWindow(isAttached: true)
         await Self.drainMainRunLoopTurn()
-        defer {
-            webView.renderingRefreshProbeForTesting = nil
-            webView.removeFromSuperview()
-            window.close()
-        }
+        actions.removeAll()
+        isActuallyVisible = false
+        coordinator.viewDidMoveToWindow(isAttached: false)
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
 
-        // Reparenting the view is the same lifecycle transition that occurs
-        // when Bonsplit moves a tab between columns. The host callback must
-        // not synchronously enter WebKit's layout/display subtree: doing so
-        // re-enters the surrounding NSHostingView layout pass on macOS 15.
-        webView.removeFromSuperview()
-        refreshCount = 0
-        window.contentView = webView
-
-        XCTAssertEqual(
-            refreshCount,
-            0,
+        XCTAssertTrue(
+            actions.isEmpty,
             "A markdown viewer re-entry must not flush WebKit while the host layout callback is active"
         )
 
@@ -469,92 +456,64 @@ final class MarkdownPanelTests: XCTestCase {
         // returned. A run-loop turn is the production scheduling boundary; no
         // wall-clock delay is needed.
         await Self.drainMainRunLoopTurn()
+        XCTAssertEqual(actions.count, 1)
         XCTAssertEqual(
-            refreshCount,
-            1,
-            "A reattached markdown viewer must repaint on the deferred turn"
+            actions.first,
+            .refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
         )
+        XCTAssertEqual(reentryCount, 2, "The initial attach and reattach each complete once")
     }
 
     func testMarkdownWebViewResizeRefreshCoalescesOutsideLayoutCallback() async {
-        let initialFrame = NSRect(x: 0, y: 0, width: 640, height: 360)
-        let window = NSWindow(
-            contentRect: initialFrame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { true },
+            applyAction: { action in actions.append(action) }
         )
-        let webView = MarkdownWebView(
-            frame: initialFrame,
-            configuration: WKWebViewConfiguration()
-        )
-        var refreshCount = 0
-        webView.renderingRefreshProbeForTesting = {
-            refreshCount += 1
-        }
-        window.contentView = webView
-        window.orderFrontRegardless()
+        coordinator.viewDidMoveToWindow(isAttached: true)
         await Self.drainMainRunLoopTurn()
-        defer {
-            webView.renderingRefreshProbeForTesting = nil
-            webView.removeFromSuperview()
-            window.close()
-        }
+        actions.removeAll()
+        coordinator.layoutDidChange(to: CGSize(width: 500.25, height: 320.25))
+        coordinator.layoutDidChange(to: CGSize(width: 460, height: 300))
 
-        refreshCount = 0
-        webView.setFrameSize(NSSize(width: 500, height: 320))
-        window.contentView?.layoutSubtreeIfNeeded()
-        webView.setFrameSize(NSSize(width: 460, height: 300))
-        window.contentView?.layoutSubtreeIfNeeded()
-
-        XCTAssertEqual(
-            refreshCount,
-            0,
+        XCTAssertTrue(
+            actions.isEmpty,
             "A markdown resize must not flush WebKit synchronously from AppKit layout"
         )
 
         await Self.drainMainRunLoopTurn()
+        XCTAssertEqual(actions.count, 1)
         XCTAssertEqual(
-            refreshCount,
-            1,
+            actions.first,
+            .refresh(reason: "boundsChanged", forceLifecycleRefresh: false),
             "Repeated geometry callbacks should coalesce into one deferred repaint"
         )
     }
 
     func testMarkdownWebViewVisibilityRevealRepairsAfterHiddenTabLifecycle() async {
-        let frame = NSRect(x: 0, y: 0, width: 640, height: 360)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+        var actions: [MarkdownWebRenderingCoordinator.Action] = []
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { true },
+            applyAction: { action in actions.append(action) }
         )
-        let webView = MarkdownWebView(
-            frame: frame,
-            configuration: WKWebViewConfiguration()
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        await Self.drainMainRunLoopTurn()
+        actions.removeAll()
+        coordinator.setVisibleInUI(false)
+        await Self.drainMainRunLoopTurn()
+        XCTAssertEqual(actions, [.hide(reason: "visibility.hidden")])
+
+        actions.removeAll()
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(actions.isEmpty, "A visibility reveal must cross the deferred boundary")
+        await Self.drainMainRunLoopTurn()
+        XCTAssertEqual(
+            actions,
+            [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)],
+            "A revealed markdown tab must receive a repaint pass"
         )
-        var refreshCount = 0
-        webView.renderingRefreshProbeForTesting = {
-            refreshCount += 1
-        }
-        window.contentView = webView
-        window.orderFrontRegardless()
-        await Self.drainMainRunLoopTurn()
-        defer {
-            webView.renderingRefreshProbeForTesting = nil
-            webView.removeFromSuperview()
-            window.close()
-        }
-
-        refreshCount = 0
-        webView.setVisibleInUI(false)
-        await Self.drainMainRunLoopTurn()
-        XCTAssertEqual(refreshCount, 0, "A hidden markdown tab must not be repainted")
-
-        webView.setVisibleInUI(true)
-        XCTAssertEqual(refreshCount, 0, "A visibility reveal must cross the deferred boundary")
-        await Self.drainMainRunLoopTurn()
-        XCTAssertEqual(refreshCount, 1, "A revealed markdown tab must receive a repaint pass")
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
