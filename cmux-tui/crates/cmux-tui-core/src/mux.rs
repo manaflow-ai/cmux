@@ -9269,7 +9269,7 @@ impl Mux {
                         Err(error) => {
                             failed_operations.insert(pending.surface_id);
                             failed_surface_ids.insert(pending.surface_id);
-                            failures.push(format!("surface {}: {error}", pending.surface_id));
+                            failures.push(format!("surface {}: {error:#}", pending.surface_id));
                         }
                     }
                 }
@@ -9393,7 +9393,7 @@ impl Mux {
                         DeadlineMapResult::Complete(Err(error)) => {
                             retry_expansion |= *expanding;
                             failed_surface_ids.insert(*id);
-                            failures.push(format!("surface {id}: {error}"));
+                            failures.push(format!("surface {id}: {error:#}"));
                         }
                         DeadlineMapResult::Pending(result) => {
                             pending_operations.push(PendingKittyImageBudgetOperation {
