@@ -118,6 +118,43 @@ enum ReorderMath {
         return visualY - newTop
     }
 
+    /// The leading indent the dragged row will have at `targetIndex`, derived
+    /// from its post-drop neighbors, or `nil` when there is no evidence
+    /// (empty list edge cases). Rule: adopt the indent of the row that ends up
+    /// directly above; if that row is fixed (a group header), adopt the indent
+    /// of the first non-fixed row below it (the group's members); at the very
+    /// top, adopt the first non-fixed row's indent.
+    ///
+    /// Drives the Arc-style X preview while dragging into or out of a group:
+    /// the dragged row slides horizontally to the nesting level of its
+    /// projected slot before the drop commits.
+    static func projectedIndent(
+        indents: [CGFloat],
+        fixed: [Bool],
+        sourceIndex: Int,
+        targetIndex: Int
+    ) -> CGFloat? {
+        guard indents.count == fixed.count,
+              indents.indices.contains(sourceIndex),
+              indents.indices.contains(targetIndex) else { return nil }
+        func firstNonFixed(after start: Int) -> Int? {
+            var i = start
+            while i < indents.count {
+                if i != sourceIndex, !fixed[i] { return i }
+                i += 1
+            }
+            return nil
+        }
+        let above = targetIndex > sourceIndex ? targetIndex : targetIndex - 1
+        if above < 0 || (above == sourceIndex && above == 0) {
+            return firstNonFixed(after: 0).map { indents[$0] }
+        }
+        if fixed[above] {
+            return firstNonFixed(after: above + 1).map { indents[$0] }
+        }
+        return indents[above]
+    }
+
     /// `order` with the element at `sourceIndex` moved to `targetIndex`.
     static func reordered<T>(_ order: [T], from sourceIndex: Int, to targetIndex: Int) -> [T] {
         guard order.indices.contains(sourceIndex), order.indices.contains(targetIndex),

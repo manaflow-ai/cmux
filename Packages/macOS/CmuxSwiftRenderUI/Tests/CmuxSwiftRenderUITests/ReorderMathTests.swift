@@ -76,6 +76,24 @@ struct ReorderMathTests {
         #expect(ReorderMath.settleResidual(heights: heights, sourceIndex: 1, targetIndex: 1, translation: 12) == 12)
     }
 
+    @Test func projectedIndentFollowsTheTargetSlot() {
+        // Layout: [row(10), header(8, fixed), member(22), member(22), row(10)]
+        let indents: [CGFloat] = [10, 8, 22, 22, 10]
+        let fixed = [false, true, false, false, false]
+        // Dragging row 0 down under the header: adopt the member indent.
+        #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 0, targetIndex: 2) == 22)
+        // Further down, above a member: still the member indent.
+        #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 0, targetIndex: 3) == 22)
+        // Past the group, above the ungrouped row: base indent.
+        #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 0, targetIndex: 4) == 10)
+        // Dragging a member (index 2) up to the very top: first non-fixed row.
+        #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 2, targetIndex: 0) == 10)
+        // Member dragged below the last ungrouped row: base indent.
+        #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 2, targetIndex: 4) == 10)
+        // Member staying in place: neighbor above is the header -> member indent.
+        #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 2, targetIndex: 2) == 22)
+    }
+
     @Test func reorderedMovesElement() {
         #expect(ReorderMath.reordered(["a", "b", "c"], from: 0, to: 2) == ["b", "c", "a"])
         #expect(ReorderMath.reordered(["a", "b", "c"], from: 2, to: 0) == ["c", "a", "b"])

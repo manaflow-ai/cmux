@@ -24,6 +24,15 @@ private final class ReorderDragModel {
     /// True between drop commit and settle completion: the shadow/scale lift
     /// eases out with the settle spring instead of vanishing on mouse-up.
     var isSettling = false
+    /// The leading indent of the projected drop slot (Arc-style X preview):
+    /// while dragging toward a group the row slides to the member indent,
+    /// dragging out it slides back. `nil` = no evidence, keep current X.
+    var projectedIndent: CGFloat?
+    /// The last drop's row and projected indent, kept after the drag ends so
+    /// the X preview holds until the authoritative data lands (the row's own
+    /// indent prop then matches the projection and the offset becomes zero).
+    var settledId: String?
+    var settledIndent: CGFloat?
 }
 
 /// A vertically reorderable column of scene rows with Arc-style drag feedback:
@@ -121,6 +130,9 @@ struct ReorderableColumnView: View {
                     model.sourceIndex = sourceIndex
                     model.targetIndex = sourceIndex
                     model.draggedHeight = rowHeights[childId] ?? 0
+                    model.projectedIndent = nil
+                    model.settledId = nil
+                    model.settledIndent = nil
                     Self.debugLog("lift id=\(childId) source=\(sourceIndex) height=\(model.draggedHeight) heights=\(order.map { rowHeights[$0] ?? 0 })")
                 }
                 guard model.draggedId == childId else { return }
@@ -137,8 +149,17 @@ struct ReorderableColumnView: View {
                 )
                 if target != model.targetIndex {
                     Self.debugLog("cross translation=\(value.translation.height) target \(model.targetIndex) -> \(target)")
+                    // The X preview animates in the same spring as the gap:
+                    // the dragged row slides to the indent of its new slot.
+                    let projected = ReorderMath.projectedIndent(
+                        indents: order.map { rowIndent($0) },
+                        fixed: order.map { store?.node($0)?.bool("fixed") == true },
+                        sourceIndex: model.sourceIndex,
+                        targetIndex: target
+                    )
                     withAnimation(Self.gapSpring) {
                         model.targetIndex = target
+                        model.projectedIndent = projected
                     }
                 }
             }
@@ -193,10 +214,25 @@ struct ReorderableColumnView: View {
             model.draggedId = nil
             model.isSettling = false
         }
+        // Hold the X preview past the settle: the offset formula
+        // (projected - own indent prop) self-zeroes when the authoritative
+        // data updates the row's indent, so there is never a horizontal jump.
+        model.settledId = childId
+        model.settledIndent = model.projectedIndent
 
         Self.debugLog("drop source=\(source) target=\(target) translation-residual=\(residual)")
         guard target != source else { return }
         sink.send(node.id, "move", ["id": itemKey(forChildAt: target, in: newOrder), "index": target])
+    }
+
+    /// A row's resolved leading indent, read from its style props.
+    private func rowIndent(_ id: String) -> CGFloat {
+        guard let node = store?.node(id) else { return 0 }
+        let value = node.double("paddingLeading")
+            ?? node.double("paddingHorizontal")
+            ?? node.double("padding")
+            ?? 0
+        return CGFloat(value)
     }
 
     /// The item key for the row at `index` of `order`, from the `itemKeys`
@@ -226,6 +262,8 @@ private struct ReorderableRowView: View {
     let model: ReorderDragModel
     let spacing: CGFloat
 
+    @Environment(\.sceneStore) private var store
+
     var body: some View {
         // Read discrete fields first; `translation` is only read on the
         // dragged row's branch, so other rows never depend on it.
@@ -233,7 +271,7 @@ private struct ReorderableRowView: View {
         let isDragged = draggedId == childId
         let lifted = isDragged && !model.isSettling
         SceneNodeView(nodeId: childId)
-            .offset(y: offset(isDragged: isDragged, dragging: draggedId != nil))
+            .offset(x: xOffset(isDragged: isDragged), y: offset(isDragged: isDragged, dragging: draggedId != nil))
             .zIndex(isDragged ? 2 : 0)
             // No scale zoom on lift (dogfood feedback): the shadow alone
             // carries the lifted affordance.
@@ -242,6 +280,28 @@ private struct ReorderableRowView: View {
                 radius: lifted ? 8 : 0,
                 y: lifted ? 3 : 0
             )
+    }
+
+    /// Arc-style X preview: the dragged row slides to the projected slot's
+    /// indent; after the drop the offset holds until the row's own indent
+    /// prop catches up (projected - current then equals zero).
+    private func xOffset(isDragged: Bool) -> CGFloat {
+        let projected: CGFloat?
+        if isDragged {
+            projected = model.projectedIndent
+        } else if model.settledId == childId {
+            projected = model.settledIndent
+        } else {
+            projected = nil
+        }
+        guard let projected, let node = store?.node(childId) else { return 0 }
+        let current = CGFloat(
+            node.double("paddingLeading")
+                ?? node.double("paddingHorizontal")
+                ?? node.double("padding")
+                ?? 0
+        )
+        return projected - current
     }
 
     private func offset(isDragged: Bool, dragging: Bool) -> CGFloat {
