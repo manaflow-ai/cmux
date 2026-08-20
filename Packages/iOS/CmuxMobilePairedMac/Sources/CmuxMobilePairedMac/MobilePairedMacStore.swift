@@ -724,14 +724,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     teamID: teamID
                 )) else { return }
             }
-            if onlyIfOlder, instanceTag == nil {
+            if onlyIfOlder, recordInstanceTag == nil {
                 guard !(try hasClaimedSibling(
                     macDeviceID: macDeviceID,
                     stackUserID: stackUserID,
                     teamID: teamID
                 )) else { return }
             }
-            if onlyIfOlder, instanceTag == nil, current?.instanceTag != nil {
+            if onlyIfOlder, recordInstanceTag == nil, current?.instanceTag != nil {
                 // An authority-less backup cannot identify the process that
                 // supplied its host tuple. Reject the whole tuple instead of
                 // combining its routes or freshness with retained authority.
