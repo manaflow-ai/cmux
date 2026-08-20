@@ -60,7 +60,8 @@ use crate::config::{
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+    MachineConnectRoute,
     MachineConnectionPhase, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
     MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdate,
     MachineUpdateStream, ManagedMachineDescriptor, ManagedMachineStatus,
@@ -6772,6 +6773,12 @@ pub struct App {
     selection_generation: u64,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
+    /// The last status message written to the client log, so a message that
+    /// stays on screen across frames is recorded once.
+    logged_status_message: Option<String>,
+    /// The most recent informational provider notice routed through the
+    /// status line, so the client log records it as INFO, not ERROR.
+    status_notice_text: Option<String>,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -8630,6 +8637,12 @@ fn run_with_machine_updates_inner(
         .transpose()?;
 
     enable_raw_mode()?;
+    // The TUI owns the terminal now: stray stderr writes (panics, libraries)
+    // would corrupt the raw-mode screen, so route fd 2 into the client log.
+    crate::client_log::redirect_stderr_into_log();
+    // One line per launch, so every stretch of the log names the build that
+    // produced it.
+    crate::client_log::info("startup", &crate::version_string());
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
@@ -8905,6 +8918,8 @@ fn run_with_machine_updates_inner(
         selection_generation: 0,
         status_selection: None,
         rendered_status_message: None,
+        logged_status_message: None,
+        status_notice_text: None,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -9089,6 +9104,9 @@ impl Drop for TerminalRestoreGuard {
             with_panic_stdout_lock(&self.stdout_lock, || {
                 let _ = restore_terminal_unlocked(&self.host_keyboard_protocol);
             });
+            // The terminal is the user's again; exit-time diagnostics should
+            // reach it instead of the client log.
+            crate::client_log::restore_stderr_from_log();
         }
     }
 }
@@ -10758,6 +10776,7 @@ impl App {
         if let Some(error) = guard_error {
             self.status_message = Some(error);
         } else if let Some(notice) = notice {
+            self.status_notice_text = Some(notice.clone());
             self.status_message = Some(notice);
         }
         RenderAction::Draw
@@ -10785,6 +10804,12 @@ impl App {
             self.schedule_machine_provider_reconnect();
             return RenderAction::None;
         }
+        let level = match notice.level {
+            DurableNoticeLevel::Error => "ERROR",
+            DurableNoticeLevel::Warning => "WARN",
+            DurableNoticeLevel::Info => "INFO",
+        };
+        crate::client_log::log(level, "provider-notice", &notice.message);
         self.durable_notices.push_back(QueuedDurableNotice { notice, painted_at: None });
         RenderAction::Draw
     }
@@ -15668,6 +15693,9 @@ impl App {
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
         self.rendered_status_message = None;
+        // A message that reappears after dismissal is a new event; log it
+        // again.
+        self.logged_status_message = None;
     }
 
     pub(crate) fn present_status_message(&mut self, rect: Rect, text: String) {
@@ -15677,11 +15705,23 @@ impl App {
                 self.drag = None;
             }
         }
+        // Every visible status message passes through here; persist each new
+        // one so warnings survive the session in the client log. Provider
+        // notices ("VM created") share the status line but are not errors.
+        if self.logged_status_message.as_deref() != Some(text.as_str()) {
+            if self.status_notice_text.as_deref() == Some(text.as_str()) {
+                crate::client_log::info("status", &text);
+            } else {
+                crate::client_log::error("status", &text);
+            }
+            self.logged_status_message = Some(text.clone());
+        }
         self.rendered_status_message = Some(RenderedStatusMessage { rect, text });
     }
 
     pub(crate) fn hide_status_message(&mut self) {
         self.rendered_status_message = None;
+        self.logged_status_message = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
             self.drag = None;
@@ -21013,6 +21053,7 @@ impl App {
     }
 
     fn show_toast(&mut self, text: String) {
+        crate::client_log::info("toast", &text);
         self.toast = Some(Toast { text, deadline: Instant::now() + Duration::from_millis(1500) });
     }
 
@@ -40927,6 +40968,8 @@ mod tests {
             selection_generation: 0,
             status_selection: None,
             rendered_status_message: None,
+            logged_status_message: None,
+            status_notice_text: None,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),
