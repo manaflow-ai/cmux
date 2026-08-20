@@ -606,39 +606,72 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         private func queueOutputConsumerRecoveryAlert(surfaceView: GhosttySurfaceView) {
             guard outputConsumerRecoveryPresentationTask == nil else { return }
+            let clock = outputConsumerRecoveryClock
             outputConsumerRecoveryPresentationTask = Task { @MainActor [weak self, weak surfaceView] in
                 defer {
                     self?.outputConsumerRecoveryPresentationTask = nil
                 }
-                while !Task.isCancelled {
-                    guard let self,
-                          let surfaceView,
-                          self.surfaceView === surfaceView,
-                          self.terminalPresentationIsActive,
-                          surfaceView.window != nil,
-                          self.outputConsumerRestartBlocked,
-                          self.outputConsumerRecoveryAlert == nil else {
+                for _ in 0..<Self.maximumOutputConsumerRecoveryPresentationAttempts {
+                    guard !Task.isCancelled else {
                         return
                     }
-                    if let presenter = self.presentingController(for: surfaceView),
-                       !(presenter is UIAlertController),
-                       presenter.viewIfLoaded?.window != nil {
-                        self.presentOutputConsumerRecoveryAlert(
-                            on: surfaceView,
-                            from: presenter
-                        )
+                    let presentationComplete: Bool
+                    if let surfaceView {
+                        // Resolve the weak coordinator only for this
+                        // synchronous presenter attempt. The local surface
+                        // reference leaves scope before the clock sleep.
+                        presentationComplete = self?.presentOutputConsumerRecoveryAlertIfPossible(
+                            on: surfaceView
+                        ) ?? true
+                    } else {
+                        return
+                    }
+                    if presentationComplete {
                         return
                     }
                     do {
-                        try await self.outputConsumerRecoveryClock.sleep(
-                            for: .milliseconds(250),
+                        try await clock.sleep(
+                            for: Self.outputConsumerRecoveryPresentationRetryInterval,
                             tolerance: nil
                         )
                     } catch {
                         return
                     }
                 }
+                guard !Task.isCancelled,
+                      let self,
+                      let surfaceView,
+                      self.surfaceView === surfaceView,
+                      self.terminalPresentationIsActive,
+                      surfaceView.window != nil,
+                      self.outputConsumerRestartBlocked else { return }
+                MobileDebugLog.anchormux(
+                    "terminal.output.recovery_alert_deferred surface=\(self.surfaceID)"
+                )
             }
+        }
+
+        /// Returns `true` when presentation is complete or no longer applies.
+        /// `false` means UIKit is still transitioning and the bounded queue may
+        /// try again after its next clock interval.
+        private func presentOutputConsumerRecoveryAlertIfPossible(
+            on surfaceView: GhosttySurfaceView
+        ) -> Bool {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil,
+                  outputConsumerRestartBlocked,
+                  outputConsumerRecoveryAlert == nil else { return true }
+            guard let presenter = presentingController(for: surfaceView),
+                  !(presenter is UIAlertController),
+                  presenter.viewIfLoaded?.window != nil else {
+                return false
+            }
+            presentOutputConsumerRecoveryAlert(
+                on: surfaceView,
+                from: presenter
+            )
+            return true
         }
 
         private func presentOutputConsumerRecoveryAlert(
@@ -674,7 +707,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     "mobile.terminal.outputRecovery.dismiss",
                     defaultValue: "Dismiss"
                 ),
-                style: .cancel
+                style: .cancel,
+                // Dismissing the only recovery affordance must not strand a
+                // mounted terminal behind the permanent restart latch. Treat
+                // the cancel action as an explicit retry boundary as well.
+                handler: { [weak self, weak surfaceView] _ in
+                    guard let self, let surfaceView else { return }
+                    self.retryMountedOutputConsumer(surfaceView: surfaceView)
+                }
             ))
             alert.view.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
             outputConsumerRecoveryAlert = alert

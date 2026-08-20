@@ -212,6 +212,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private static let maximumOutputConsumerRestartAttempts =
             outputConsumerRestartDelays.count
         private static let outputConsumerStabilityDuration: Duration = .seconds(2)
+        /// UIKit can take a few run-loop turns to finish a sheet transition.
+        /// Keep presenter discovery bounded so a surface that never gets a
+        /// presenter cannot retain its coordinator forever.
+        static let maximumOutputConsumerRecoveryPresentationAttempts = 20
+        static let outputConsumerRecoveryPresentationRetryInterval: Duration =
+            .milliseconds(250)
         private static let outputStartViewportTimeout: Duration = .seconds(1)
         private static let maximumOutputStartViewportTimeouts = 3
         /// The first viewport report gates the initial stream registration so
