@@ -220,7 +220,7 @@ extension MobileShellComposite {
               connectionState == .connected,
               remoteClient != nil else {
             MobileDebugLog.anchormux(
-                "CMUX_CONNECT secondary_admission_skipped mac=\(candidate.macDeviceID) tag=\(candidate.instanceTag ?? "-")"
+                "CMUX_CONNECT secondary_admission_skipped mac=\(candidate.macDeviceID.prefix(8)) tag=\(candidate.instanceTag ?? "-")"
             )
             return SecondaryMacReconciliationResult(
                 macDeviceID: candidate.macDeviceID,

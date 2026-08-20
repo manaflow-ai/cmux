@@ -5856,13 +5856,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let flightKey = MacPairingKey(mac)
         if let existing = secondaryMacEstablishmentFlights[flightKey] {
             MobileDebugLog.anchormux(
-                "CMUX_CONNECT secondary_dial_join mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "-")"
+                "CMUX_CONNECT secondary_dial_join mac=\(mac.macDeviceID.prefix(8)) tag=\(mac.instanceTag ?? "-")"
             )
             return await existing.task.value
         }
         let dialStart = ContinuousClock.now
         MobileDebugLog.anchormux(
-            "CMUX_CONNECT secondary_dial_start mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "-") name=\(mac.displayName ?? "-")"
+            "CMUX_CONNECT secondary_dial_start mac=\(mac.macDeviceID.prefix(8)) tag=\(mac.instanceTag ?? "-")"
         )
         let flightID = UUID()
         let task = Task { @MainActor [weak self] in
@@ -5898,7 +5898,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let elapsedMilliseconds = elapsed.components.seconds * 1000
             + elapsed.components.attoseconds / 1_000_000_000_000_000
         MobileDebugLog.anchormux(
-            "CMUX_CONNECT secondary_dial_end mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "-") outcome=\(String(describing: outcome)) elapsed_ms=\(elapsedMilliseconds)"
+            "CMUX_CONNECT secondary_dial_end mac=\(mac.macDeviceID.prefix(8)) tag=\(mac.instanceTag ?? "-") outcome=\(String(describing: outcome)) elapsed_ms=\(elapsedMilliseconds)"
         )
         return outcome
     }
@@ -5948,7 +5948,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let client = handle.client
         MobileDebugLog.anchormux(
-            "CMUX_CONNECT secondary_client_connected mac=\(macID) tag=\(mac.instanceTag ?? "-")"
+            "CMUX_CONNECT secondary_client_connected mac=\(macID.prefix(8)) tag=\(mac.instanceTag ?? "-")"
         )
         // Re-check after the async client build so a concurrent refresh cannot
         // open a duplicate connection, AND so a sign-out / account/team switch
