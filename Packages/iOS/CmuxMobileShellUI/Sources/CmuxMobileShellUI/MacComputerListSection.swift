@@ -13,16 +13,19 @@ import Foundation
 /// snapshot `id` stays the pairing id, so visibility toggles and connection
 /// state affect every row of the same pairing consistently.
 ///
-/// When the phone has a live foreground connection, the section whose kind is
-/// carrying it (`activeKind`) sorts first and is marked ``isActive``; every
-/// other section renders dimmed so the list reads "this is the method in use
-/// right now". With no live connection nothing is dimmed and sections keep
-/// dial-preference order.
+/// The section for the user's SELECTED connection method (`selectedKind`,
+/// always set: it mirrors the Settings "Connection Method" choice) is always
+/// present — even with no matching routes — pinned to the top and marked
+/// ``isActive``: "this is the method you selected; only its routes are
+/// attempted". Every other section renders dimmed. Row-level Connected vs
+/// Standby is keyed separately to `carryingKind`, the route actually holding
+/// the live session, so a fallback connection outside the selected method
+/// still displays truthfully.
 struct MacComputerListSection: Equatable, Identifiable {
     /// The connection method, or `nil` for the trailing no-route section.
     let kind: CmxAttachTransportKind?
     let computers: [MacComputerSnapshot]
-    /// Whether this section's method carries the phone's live connection.
+    /// Whether this section is the user's selected connection method.
     var isActive: Bool = false
 
     var id: String { kind?.rawValue ?? "no-route" }
@@ -49,13 +52,15 @@ struct MacComputerListSection: Equatable, Identifiable {
     }
 
     /// Group per-Mac snapshots into route-kind sections, preserving the input
-    /// (last-seen-newest-first) order within each section. Only non-empty
-    /// sections are returned. `activeKind` is the method carrying the phone's
-    /// live connection (nil when disconnected): its section is flagged active
-    /// and pinned to the top.
+    /// (last-seen-newest-first) order within each section. The selected
+    /// method's section is always returned (empty when nothing advertises it)
+    /// and pinned first; other sections appear only when non-empty.
+    /// `carryingKind` is the route kind holding the live foreground session
+    /// (nil when disconnected) and only affects per-row Connected/Standby.
     static func sections(
         from snapshots: [MacComputerSnapshot],
-        activeKind: CmxAttachTransportKind? = nil,
+        selectedKind: CmxAttachTransportKind,
+        carryingKind: CmxAttachTransportKind? = nil,
         includeDebug: Bool = Self.includesDebugSection
     ) -> [MacComputerListSection] {
         var byKind: [CmxAttachTransportKind: [MacComputerSnapshot]] = [:]
@@ -75,27 +80,32 @@ struct MacComputerListSection: Equatable, Identifiable {
                     for: snapshot.routes,
                     kind: kind
                 )
-                // A connected Mac's session rides exactly one method; its rows
+                // A connected Mac's session rides exactly one route; its rows
                 // under every other method are standby routes, not live ones.
                 // (The store only exposes the foreground connection's route, so
-                // secondary-connected Macs inherit the same global activeKind.)
-                if let activeKind,
-                   kind != activeKind,
+                // secondary-connected Macs inherit the same carrying kind.)
+                if let carryingKind,
+                   kind != carryingKind,
                    snapshot.connectionStatus == .connected {
                     row.isStandbyRoute = true
                 }
                 byKind[kind, default: []].append(row)
             }
         }
+        // The selected method's section always exists, so the Active marker
+        // has somewhere to live even before any matching route is stored.
+        if byKind[selectedKind] == nil {
+            byKind[selectedKind] = []
+        }
         var sections = kindOrder.compactMap { kind in
             byKind[kind].map {
-                MacComputerListSection(kind: kind, computers: $0, isActive: kind == activeKind)
+                MacComputerListSection(kind: kind, computers: $0, isActive: kind == selectedKind)
             }
         }
         if !routeless.isEmpty {
             sections.append(MacComputerListSection(kind: nil, computers: routeless))
         }
-        // The live method always leads, whatever the dial preference says.
+        // The selected method always leads, whatever the dial order says.
         // Partition (not sort) so the remaining order stays deterministic.
         return sections.filter(\.isActive) + sections.filter { !$0.isActive }
     }

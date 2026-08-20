@@ -19798,6 +19798,7 @@
     "mobile.connections.method.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale"}}}},
     "mobile.connections.method.websocket": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"WebSocket"}},"ja":{"stringUnit":{"state":"translated","value":"WebSocket"}}}},
     "mobile.connections.section.active": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Active"}},"ja":{"stringUnit":{"state":"translated","value":"使用中"}}}},
+    "mobile.connections.section.emptyActive": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No routes use this method yet."}},"ja":{"stringUnit":{"state":"translated","value":"この方法を使うルートはまだありません。"}}}},
     "mobile.connections.section.notInUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not in use"}},"ja":{"stringUnit":{"state":"translated","value":"未使用"}}}},
     "mobile.connections.section.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Route"}},"ja":{"stringUnit":{"state":"translated","value":"ルートなし"}}}},
     "mobile.connections.standby": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Standby"}},"ja":{"stringUnit":{"state":"translated","value":"待機中"}}}},

@@ -53,9 +53,16 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
+    /// The user's selected connection method as a route kind. Always set (the
+    /// setting defaults to Auto-Connect), it drives the pinned Active section:
+    /// only routes under it are attempted.
+    private var selectedConnectionKind: CmxAttachTransportKind {
+        connectionMethodStore?.method == .tailscale ? .tailscale : .iroh
+    }
+
     /// The method carrying the phone's live foreground connection, nil while
-    /// disconnected. Drives the active-section pin and inactive dimming.
-    private var activeConnectionKind: CmxAttachTransportKind? {
+    /// disconnected. Drives per-row Connected vs Standby only.
+    private var carryingConnectionKind: CmxAttachTransportKind? {
         store.connectionState == .connected ? store.activeRoute?.kind : nil
     }
 
@@ -67,16 +74,23 @@ struct DeviceTreeView: View {
                 } else {
                     // One section per connection method, so two routes to the
                     // same Mac are visibly two different ways to reach it. The
-                    // live method's section leads undimmed; the rest dim while
-                    // a connection is up so "in use right now" is unambiguous.
+                    // SELECTED method's section always leads marked Active —
+                    // only its routes are attempted — and the rest stay dimmed.
                     let sections = MacComputerListSection.sections(
                         from: computers,
-                        activeKind: activeConnectionKind
+                        selectedKind: selectedConnectionKind,
+                        carryingKind: carryingConnectionKind
                     )
-                    let dimsInactive = sections.contains(where: \.isActive)
                     ForEach(sections) { section in
-                        let dimmed = dimsInactive && !section.isActive
+                        let dimmed = !section.isActive
                         Section {
+                            if section.isActive && section.computers.isEmpty {
+                                Text(L10n.string(
+                                    "mobile.connections.section.emptyActive",
+                                    defaultValue: "No routes use this method yet."
+                                ))
+                                .foregroundStyle(.secondary)
+                            }
                             ComputerVisibilityRows(
                                 visibleComputers: section.computers,
                                 hiddenComputers: [],

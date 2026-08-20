@@ -23,7 +23,7 @@ import Testing
             ]
         )
 
-        let sections = MacComputerListSection.sections(from: [mac])
+        let sections = MacComputerListSection.sections(from: [mac], selectedKind: .iroh)
 
         #expect(sections.map(\.kind) == [.iroh, .tailscale])
         #expect(sections.allSatisfy { $0.computers.map(\.id) == [mac.id] })
@@ -45,7 +45,7 @@ import Testing
         )
         let stale = snapshot(deviceId: "mac-2", routes: [])
 
-        let sections = MacComputerListSection.sections(from: [reachable, stale])
+        let sections = MacComputerListSection.sections(from: [reachable, stale], selectedKind: .tailscale)
 
         #expect(sections.map(\.kind) == [.tailscale, nil])
         #expect(sections[1].computers.map(\.deviceId) == ["mac-2"])
@@ -74,7 +74,7 @@ import Testing
         )
 
         // Input order is tailscale-first; sections still lead with Auto-Connect.
-        let sections = MacComputerListSection.sections(from: [tailscaleOnly, irohOnly])
+        let sections = MacComputerListSection.sections(from: [tailscaleOnly, irohOnly], selectedKind: .iroh)
 
         #expect(sections.map(\.kind) == [.iroh, .tailscale])
         #expect(sections[0].computers.map(\.deviceId) == ["mac-iroh"])
@@ -98,7 +98,7 @@ import Testing
             ]
         )
 
-        let sections = MacComputerListSection.sections(from: [mac])
+        let sections = MacComputerListSection.sections(from: [mac], selectedKind: .tailscale)
 
         #expect(sections.map(\.kind) == [.tailscale])
         #expect(sections[0].computers.count == 1)
@@ -122,14 +122,14 @@ import Testing
             ]
         )
 
-        // Tailscale carries the live connection: it outranks dial preference.
-        let sections = MacComputerListSection.sections(from: [mac], activeKind: .tailscale)
+        // Tailscale is the selected method: it outranks dial preference.
+        let sections = MacComputerListSection.sections(from: [mac], selectedKind: .tailscale)
 
         #expect(sections.map(\.kind) == [.tailscale, .iroh])
         #expect(sections.map(\.isActive) == [true, false])
     }
 
-    @Test func noActiveKindKeepsDialPreferenceOrderAndFlagsNothing() throws {
+    @Test func selectedMethodIsAlwaysFlaggedEvenWhileDisconnected() throws {
         let mac = snapshot(
             deviceId: "mac-1",
             routes: [
@@ -146,10 +146,10 @@ import Testing
             ]
         )
 
-        let sections = MacComputerListSection.sections(from: [mac], activeKind: nil)
+        let sections = MacComputerListSection.sections(from: [mac], selectedKind: .iroh, carryingKind: nil)
 
         #expect(sections.map(\.kind) == [.iroh, .tailscale])
-        #expect(sections.allSatisfy { !$0.isActive })
+        #expect(sections.map(\.isActive) == [true, false])
     }
 
     @Test func debugRoutesRenderNoSectionWhenExcluded() throws {
@@ -169,7 +169,7 @@ import Testing
             ]
         )
 
-        let sections = MacComputerListSection.sections(from: [mac], includeDebug: false)
+        let sections = MacComputerListSection.sections(from: [mac], selectedKind: .tailscale, includeDebug: false)
 
         #expect(sections.map(\.kind) == [.tailscale])
     }
@@ -186,10 +186,12 @@ import Testing
             ]
         )
 
-        let sections = MacComputerListSection.sections(from: [mac], includeDebug: false)
+        let sections = MacComputerListSection.sections(from: [mac], selectedKind: .tailscale, includeDebug: false)
 
-        #expect(sections.map(\.kind) == [nil])
-        #expect(sections[0].computers.map(\.deviceId) == ["mac-1"])
+        // The selected method's section still renders (empty) ahead of No Route.
+        #expect(sections.map(\.kind) == [.tailscale, nil])
+        #expect(sections[0].computers.isEmpty)
+        #expect(sections[1].computers.map(\.deviceId) == ["mac-1"])
     }
 
     private func snapshot(deviceId: String, routes: [CmxAttachRoute]) -> MacComputerSnapshot {
