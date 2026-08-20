@@ -15528,16 +15528,42 @@ struct TabItemView: View, Equatable {
         isActive
     }
 
+    /// Non-nil only for an inactive, custom-tinted `solidFill` row: the vivid
+    /// surface the row's text sits on, so text derives a readable foreground
+    /// against it instead of `.primary` / `.secondary`, which fail contrast on a
+    /// bright card. Mirrors the AppKit `SidebarRowPalette.tintedTextBackground`.
+    private var tintedTextBackgroundNSColor: NSColor? {
+        sidebarWorkspaceRowTintedTextBackgroundNSColor(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            isActive: isActive,
+            isMultiSelected: isMultiSelected,
+            customColorHex: workspaceSnapshot.customColorHex,
+            colorScheme: colorScheme
+        )
+    }
+
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
+        }
+        if let background = tintedTextBackgroundNSColor {
+            return Color(nsColor: cmuxReadableForegroundNSColor(on: background, meeting: 4.5, preferredOpacity: 1.0))
+        }
+        return .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
-            : .secondary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+        }
+        if let background = tintedTextBackgroundNSColor {
+            return Color(nsColor: cmuxReadableForegroundNSColor(
+                on: background,
+                meeting: 4.5,
+                preferredOpacity: max(CGFloat(opacity), 0.6)
+            ))
+        }
+        return .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
@@ -15886,6 +15912,7 @@ struct TabItemView: View, Equatable {
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
+                        inactiveTintBackgroundNSColor: tintedTextBackgroundNSColor,
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
                     )
@@ -16569,6 +16596,9 @@ private struct SidebarMetadataRows: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
+    /// Vivid card surface behind an inactive tinted `solidFill` row; text
+    /// derives a readable foreground against it instead of `.secondary`.
+    var inactiveTintBackgroundNSColor: NSColor? = nil
     let fontScale: CGFloat
     let onFocus: () -> Void
 
@@ -16582,6 +16612,7 @@ private struct SidebarMetadataRows: View {
                     entry: entry,
                     isActive: isActive,
                     activeForegroundColor: activeForegroundColor,
+                    inactiveTintBackgroundNSColor: inactiveTintBackgroundNSColor,
                     fontScale: fontScale,
                     onFocus: onFocus
                 )
@@ -16622,6 +16653,7 @@ private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
     let activeForegroundColor: Color
+    var inactiveTintBackgroundNSColor: NSColor? = nil
     let fontScale: CGFloat
     let onFocus: () -> Void
 
@@ -16667,9 +16699,23 @@ private struct SidebarMetadataEntryRow: View {
             return activeForegroundColor
         }
         if let raw = entry.color, let explicit = Color(hex: raw) {
+            // On a tinted card the explicit status hue (e.g. blue "Running")
+            // must stay legible; fall back to a readable foreground when it
+            // fails contrast against the vivid tint.
+            if !isActive, let background = inactiveTintBackgroundNSColor, let ns = NSColor(hex: raw) {
+                return Color(nsColor: cmuxReadableForegroundNSColor(
+                    preferred: ns,
+                    on: background,
+                    minimumContrast: 4.5
+                ))
+            }
             return explicit
         }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        if isActive { return activeForegroundColor.opacity(0.84) }
+        if let background = inactiveTintBackgroundNSColor {
+            return Color(nsColor: cmuxReadableForegroundNSColor(on: background, meeting: 4.5, preferredOpacity: 0.75))
+        }
+        return .secondary
     }
 
     private var iconView: AnyView? {

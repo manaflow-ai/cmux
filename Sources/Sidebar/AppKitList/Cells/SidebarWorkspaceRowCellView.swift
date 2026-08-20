@@ -753,7 +753,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)
             } else {
-                entryColor = explicitColor ?? palette.secondary()
+                // On a custom-tinted row the explicit status hue (e.g. the blue
+                // "Running") must stay legible against the vivid card; fall back
+                // to a readable foreground when it fails contrast.
+                entryColor = explicitColor.map { palette.legibleOnTint($0) } ?? palette.secondary()
             }
             metadataRows[index].configureMetadataEntry(
                 entry,
