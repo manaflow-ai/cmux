@@ -1,0 +1,357 @@
+import CmuxAgentJournal
+import Foundation
+
+/// App-side owner of the agent journal: the single writer for
+/// `agent_journal_append`, the ordered consumer that reduces committed events
+/// into sidebar lifecycle state, and the startup replayer that reproduces
+/// badges from history instead of the last painted state.
+///
+/// Ordering: appends commit synchronously on the socket worker (the durable
+/// acknowledgement returned to the emitting hook), then flow through one
+/// FIFO operation stream alongside restore-alias recording and the startup
+/// replay request, so identity aliases recorded during session restore are
+/// always visible to the replay fold that follows them.
+final class AgentJournalLifecycleCenter: Sendable {
+    static let shared = AgentJournalLifecycleCenter()
+
+    private enum Operation: Sendable {
+        case ingest(AgentJournalEvent)
+        case recordAliases(workspaces: [String: String], surfaces: [String: String])
+        case startupReplay
+    }
+
+    private let store: AgentJournalStore?
+    private let operations: AsyncStream<Operation>.Continuation?
+    private let reducer = AgentLifecycleReducer()
+    private let replayPolicy = AgentJournalReplayPolicy()
+    private let consumerTask: Task<Void, Never>?
+
+    convenience init() {
+        self.init(databaseURL: Self.defaultDatabaseURL())
+    }
+
+    init(databaseURL: URL?) {
+        var openedStore: AgentJournalStore?
+        if let databaseURL {
+            do {
+                openedStore = try AgentJournalStore(databaseURL: databaseURL)
+            } catch {
+                CmuxEventBus.shared.publish(
+                    name: "agent.journal.open_failed",
+                    category: "agent",
+                    source: "journal",
+                    payload: ["error": String(describing: error)]
+                )
+            }
+        }
+        self.store = openedStore
+        guard let openedStore else {
+            self.operations = nil
+            self.consumerTask = nil
+            return
+        }
+        var continuation: AsyncStream<Operation>.Continuation?
+        let stream = AsyncStream<Operation>(bufferingPolicy: .unbounded) { continuation = $0 }
+        self.operations = continuation
+        let reducer = self.reducer
+        let replayPolicy = self.replayPolicy
+        self.consumerTask = Task.detached(priority: .utility) {
+            var state = AgentLifecycleReducerState()
+            for await operation in stream {
+                switch operation {
+                case .ingest(let event):
+                    Self.consumeIngest(
+                        event,
+                        store: openedStore,
+                        reducer: reducer,
+                        state: &state
+                    )
+                case .recordAliases(let workspaces, let surfaces):
+                    try? openedStore.recordRestoreAliases(
+                        workspaceAliases: workspaces,
+                        surfaceAliases: surfaces
+                    )
+                case .startupReplay:
+                    Self.consumeStartupReplay(
+                        store: openedStore,
+                        reducer: reducer,
+                        replayPolicy: replayPolicy,
+                        state: &state
+                    )
+                }
+            }
+        }
+    }
+
+    deinit {
+        consumerTask?.cancel()
+        operations?.finish()
+        store?.close()
+    }
+
+    /// Whether the journal opened; when false the verb reports unavailable.
+    var isAvailable: Bool { store != nil }
+
+    /// Full body of the `agent_journal_append` socket verb: decode, commit
+    /// durably, enqueue reduction, and reply with the committed sequence.
+    ///
+    /// Runs on the socket worker thread; the reply IS the emitting hook's
+    /// durable acknowledgement, so the SQLite commit happens inline here.
+    func handleAppendCommand(_ args: String) -> String {
+        guard let store, let operations else {
+            return "ERROR: agent journal unavailable"
+        }
+        let payload = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty, let data = payload.data(using: .utf8) else {
+            return "ERROR: Usage: agent_journal_append <event-json>"
+        }
+        let draft: AgentJournalEventDraft
+        do {
+            draft = try JSONDecoder().decode(AgentJournalEventDraft.self, from: data)
+        } catch {
+            return "ERROR: invalid agent journal event: \(error.localizedDescription)"
+        }
+        do {
+            let outcome = try store.append(draft)
+            operations.yield(
+                .ingest(
+                    AgentJournalEvent(
+                        sequence: outcome.sequence,
+                        committedAtMs: outcome.committedAtMs,
+                        draft: draft
+                    )
+                )
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "agentJournal.append kind=\(draft.kind.rawValue) agent=\(draft.agentKey) " +
+                    "seq=\(outcome.sequence) replayed=\(outcome.replayed ? 1 : 0) " +
+                    "attributed=\(draft.unattributedReason == nil ? 1 : 0)"
+            )
+#endif
+            return outcome.replayed ? "OK \(outcome.sequence) replayed" : "OK \(outcome.sequence)"
+        } catch {
+            return "ERROR: agent journal append failed: \(String(describing: error))"
+        }
+    }
+
+    /// Records the workspace/panel identity remaps produced by one restored
+    /// workspace, so journaled history re-attaches to the restored panels.
+    func noteRestoredIdentityAliases(
+        oldWorkspaceId: UUID?,
+        newWorkspaceId: UUID,
+        oldToNewPanelIds: [UUID: UUID]
+    ) {
+        guard let operations else { return }
+        var workspaces: [String: String] = [:]
+        if let oldWorkspaceId, oldWorkspaceId != newWorkspaceId {
+            workspaces[oldWorkspaceId.uuidString] = newWorkspaceId.uuidString
+        }
+        var surfaces: [String: String] = [:]
+        for (old, new) in oldToNewPanelIds where old != new {
+            surfaces[old.uuidString] = new.uuidString
+        }
+        guard !workspaces.isEmpty || !surfaces.isEmpty else { return }
+        operations.yield(.recordAliases(workspaces: workspaces, surfaces: surfaces))
+    }
+
+    /// Requests a replay of the journal into sidebar lifecycle state. Called
+    /// once session restore has settled (aliases recorded); idempotent — the
+    /// fold deduplicates by sequence, and only replay-safe phases repaint.
+    func noteStartupReplayReady() {
+        operations?.yield(.startupReplay)
+    }
+
+    // MARK: - Consumer
+
+    private static func consumeIngest(
+        _ event: AgentJournalEvent,
+        store: AgentJournalStore,
+        reducer: AgentLifecycleReducer,
+        state: inout AgentLifecycleReducerState
+    ) {
+        let canonical = canonicalized(event, store: store)
+        reducer.apply(canonical, to: &state)
+        guard canonical.draft.unattributedReason == nil else {
+            publishUnattributedDiagnostic(canonical)
+            return
+        }
+        guard let surfaceId = canonical.draft.surfaceId else {
+            publishUnattributedDiagnostic(canonical)
+            return
+        }
+        guard !canonical.draft.isSubagent else { return }
+        let assignment = AgentLifecycleAssignment(
+            surfaceId: surfaceId,
+            agentKey: canonical.agentKey,
+            phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
+        )
+        let workspaceHint = canonical.draft.workspaceId
+        Task { @MainActor in
+            Self.apply(assignment, workspaceHint: workspaceHint)
+        }
+    }
+
+    private static func consumeStartupReplay(
+        store: AgentJournalStore,
+        reducer: AgentLifecycleReducer,
+        replayPolicy: AgentJournalReplayPolicy,
+        state: inout AgentLifecycleReducerState
+    ) {
+        var cursor: Int64 = 0
+        var folded = 0
+        while true {
+            guard let page = try? store.events(afterSequence: cursor, limit: 2_048),
+                  !page.isEmpty else {
+                break
+            }
+            for event in page {
+                reducer.apply(canonicalized(event, store: store), to: &state)
+            }
+            folded += page.count
+            cursor = page[page.count - 1].sequence
+        }
+        let startup = replayPolicy.startupSnapshot(from: state.snapshot())
+        var assignments: [(AgentLifecycleAssignment, String?)] = []
+        for (surfaceId, byAgent) in startup.phases {
+            for (agentKey, phase) in byAgent {
+                assignments.append((
+                    AgentLifecycleAssignment(surfaceId: surfaceId, agentKey: agentKey, phase: phase),
+                    nil
+                ))
+            }
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "agentJournal.replay folded=\(folded) painted=\(assignments.count) " +
+                "unattributed=\(state.unattributedEvents.count)"
+        )
+#endif
+        guard !assignments.isEmpty else { return }
+        Task { @MainActor in
+            for (assignment, hint) in assignments {
+                Self.apply(assignment, workspaceHint: hint)
+            }
+        }
+    }
+
+    /// Rewrites the event's identity through the restore alias chains so
+    /// sessions that span an app relaunch reduce under one canonical surface.
+    private static func canonicalized(
+        _ event: AgentJournalEvent,
+        store: AgentJournalStore
+    ) -> AgentJournalEvent {
+        var draft = event.draft
+        if let surfaceId = draft.surfaceId,
+           let resolved = try? store.resolvedSurfaceId(surfaceId) {
+            draft.surfaceId = resolved
+        }
+        if let workspaceId = draft.workspaceId,
+           let resolved = try? store.resolvedWorkspaceId(workspaceId) {
+            draft.workspaceId = resolved
+        }
+        return AgentJournalEvent(
+            sequence: event.sequence,
+            committedAtMs: event.committedAtMs,
+            draft: draft
+        )
+    }
+
+    private static func publishUnattributedDiagnostic(_ event: AgentJournalEvent) {
+        CmuxEventBus.shared.publish(
+            name: "agent.journal.unattributed",
+            category: "agent",
+            source: "journal",
+            payload: [
+                "sequence": event.sequence,
+                "kind": event.kind.rawValue,
+                "agent": event.draft.source,
+                "agent_key": event.agentKey,
+                "native_event": event.draft.nativeEvent ?? "",
+                "reason": event.draft.unattributedReason ?? "missing-surface",
+            ]
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "agentJournal.unattributed seq=\(event.sequence) kind=\(event.kind.rawValue) " +
+                "agent=\(event.draft.source) reason=\(event.draft.unattributedReason ?? "missing-surface")"
+        )
+#endif
+    }
+
+    @MainActor
+    private static func apply(_ assignment: AgentLifecycleAssignment, workspaceHint: String?) {
+        guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
+        guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
+        let owner: ControlSidebarPanelOwner?
+        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelId) }) {
+            owner = .dock(dock)
+        } else if let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelId,
+            preferredWorkspaceId: workspaceHint.flatMap(UUID.init(uuidString:))
+        ) {
+            owner = .workspace(located.workspace)
+        } else {
+            owner = nil
+        }
+        guard let owner else {
+#if DEBUG
+            cmuxDebugLog(
+                "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +
+                    "key=\(assignment.agentKey) reason=panelGone"
+            )
+#endif
+            return
+        }
+        if let phase = assignment.phase {
+            owner.setAgentLifecycle(
+                key: assignment.agentKey,
+                panelId: panelId,
+                lifecycle: Self.lifecycle(for: phase)
+            )
+        } else {
+            owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
+        }
+    }
+
+    /// Projects the journal phase onto the sidebar's lifecycle enum. The
+    /// sidebar has no dedicated error rendering yet, so `error` uses the
+    /// needs-input treatment (matching the pre-journal pipeline) while the
+    /// journal retains the honest phase.
+    private static func lifecycle(for phase: AgentLifecyclePhase) -> AgentHibernationLifecycleState {
+        switch phase {
+        case .unknown: .unknown
+        case .running: .running
+        case .needsInput: .needsInput
+        case .idle: .idle
+        case .error: .needsInput
+        }
+    }
+
+    private static func defaultDatabaseURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> URL? {
+        if let override = ProcessInfo.processInfo.environment["CMUX_AGENT_JOURNAL_PATH"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        guard !isRunningUnderAutomatedTests else { return nil }
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let bundleID = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBundleID = bundleID?.isEmpty == false ? bundleID! : "com.cmuxterm.app"
+        let safeBundleID = resolvedBundleID.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        return appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("agent-journal-\(safeBundleID).sqlite3", isDirectory: false)
+    }
+}

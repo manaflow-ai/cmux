@@ -339,6 +339,14 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        // Record the identity remap for the agent journal: events journaled
+        // against the previous run's runtime workspace/panel UUIDs re-attach
+        // to the restored panels during replay through these aliases.
+        AgentJournalLifecycleCenter.shared.noteRestoredIdentityAliases(
+            oldWorkspaceId: snapshot.workspaceId,
+            newWorkspaceId: id,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
         syncUnreadBadgeStateForAllPanels()
         if startupRestoreCommitOwner == .workspaceTopology {
             terminalStartupRestoreCoordinator.commitPendingRestores()
