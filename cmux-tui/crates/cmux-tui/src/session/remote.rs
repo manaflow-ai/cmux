@@ -91,6 +91,16 @@ fn remote_write_timeout() -> Duration {
     })
 }
 #[cfg(not(test))]
+fn attach_liveness_interval() -> Duration {
+    Duration::from_secs(30)
+}
+
+#[cfg(test)]
+fn attach_liveness_interval() -> Duration {
+    Duration::from_millis(50)
+}
+
+#[cfg(not(test))]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
@@ -136,6 +146,35 @@ fn parse_graphics_status(value: &Value) -> Option<GraphicsStatus> {
         }
         _ => None,
     }
+}
+
+
+/// Watches the daemon control channel from a scoped attach: a periodic
+/// lightweight request proves the daemon still answers this connection, so a
+/// wedged (half-open, stalled) stream converges to a visible disconnect
+/// instead of an indefinitely frozen bridge surface.
+pub(crate) fn spawn_attach_liveness_monitor(session: &Arc<RemoteSession>, interval: Duration) {
+    let weak = Arc::downgrade(session);
+    let _ = std::thread::Builder::new().name("attach-liveness".into()).spawn(move || {
+        loop {
+            std::thread::sleep(interval);
+            let Some(session) = weak.upgrade() else { return };
+            if session.shutdown.load(Ordering::Acquire) {
+                return;
+            }
+            if session.request(json!({"cmd": "identify"})).is_err() {
+                if session.shutdown.load(Ordering::Acquire) {
+                    // Normal teardown raced the probe; nothing to report.
+                    return;
+                }
+                session.disconnect_transport_with_reason(Some(
+                    "the session daemon stopped answering liveness checks".to_string(),
+                ));
+                session.emit(MuxEvent::Empty);
+                return;
+            }
+        }
+    });
 }
 
 
@@ -1768,7 +1807,9 @@ impl RemoteSession {
     }
 
     pub fn connect_for_terminal_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, false)
+        let session = Self::connect_path(path, false)?;
+        spawn_attach_liveness_monitor(&session, attach_liveness_interval());
+        Ok(session)
     }
 
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
