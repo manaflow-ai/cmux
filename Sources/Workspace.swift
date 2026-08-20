@@ -1411,13 +1411,46 @@ extension Workspace {
                 persistentPTYSessionID: restoredRemotePTYSessionID,
                 restoresRemoteTerminal: restoresRemoteWorkspaceTerminalSnapshot
             )
+            // Tier-1 hookless remote resume (#7989): a remote agent without
+            // relayed hooks leaves no resume binding, so a persistent-SSH
+            // restore reattaches the PTY but never resumes the agent when the
+            // PTY is gone. When the snapshot still knows the agent kind and
+            // remote working directory, synthesize a directory-scoped
+            // continue binding. An existing binding (agent-hook / cli /
+            // process-detected) always wins; the synthesized one only fills
+            // the gap.
+            let synthesizedRemoteContinueBinding: SurfaceResumeBindingSnapshot? = {
+                guard locatedResumeBinding == nil,
+                      restoresRemoteWorkspaceTerminalSnapshot,
+                      shouldAutoResumeAgent,
+                      let restoredRemotePTYSessionID,
+                      let restorableAgent else {
+                    return nil
+                }
+                return RemoteAgentContinueSynthesizer.binding(
+                    kind: restorableAgent.kind,
+                    remoteWorkingDirectory: restorableAgent.workingDirectory
+                        ?? restorableAgent.launchCommand?.workingDirectory
+                        ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory),
+                    remoteContext: SurfaceResumeRemoteContext(
+                        workspaceID: restoredResumeSnapshotWorkspaceID,
+                        surfaceID: snapshot.id,
+                        persistentPTYSessionID: restoredRemotePTYSessionID
+                    )
+                )
+            }()
             let resumeBinding = Self.resumeBindingForSessionRestore(
-                locatedResumeBinding,
+                locatedResumeBinding ?? synthesizedRemoteContinueBinding,
                 restorableAgent: restorableAgent
             )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
-                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true) ||
+                // A synthesized continue binding is only as fresh as the
+                // wasAgentRunning evidence captured with the snapshot; once
+                // the remote agent exited (or auto-resume is disabled), a
+                // previously persisted synthesized binding must not replay.
+                (resumeBinding?.isRemoteSynthesized == true && !shouldAutoResumeAgent)
                     ? nil
                     : resumeBinding
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
@@ -1582,7 +1615,8 @@ extension Workspace {
                 localWorkingDirectory ?? hostShellWorkingDirectory
             let restoredAgentWillRunStartupCommand =
                 restoredPersistentSSHResumeCommand != nil &&
-                resumeBinding?.isAgentHookBinding == true
+                (resumeBinding?.isAgentHookBinding == true ||
+                    resumeBinding?.isRemoteSynthesized == true)
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
@@ -5819,6 +5853,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ])
         }
         return try controller.listPTYSessions()
+    }
+
+    /// Lists the remote daemon's ended-session foreground tombstones (#7989).
+    func listEndedRemotePTYSessions() throws -> [[String: Any]] {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        return try controller.listEndedPTYSessions()
     }
 
     func closeRemotePTYSession(sessionID: String) throws {

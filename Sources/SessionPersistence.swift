@@ -374,6 +374,12 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "cli"
     }
 
+    /// A directory-scoped continue binding synthesized by
+    /// `RemoteAgentContinueSynthesizer` for a hookless remote agent (#7989).
+    var isRemoteSynthesized: Bool {
+        source == "remote-synthesized"
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
     }

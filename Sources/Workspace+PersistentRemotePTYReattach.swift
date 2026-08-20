@@ -63,6 +63,14 @@ extension Workspace {
                     panelID: panelId,
                     persistentPTYSessionID: sessionID
                 )
+                // A synthesized directory-level continue command (#7989) has no
+                // session checkpoint the remote once-guard could reconcile
+                // against, so only inject it once the PTY is confirmed ended;
+                // a live PTY is attach-only.
+                let injectableResumeCommand =
+                    resumeBinding?.isRemoteSynthesized == true && !sessionEnded
+                        ? nil
+                        : approvedResumeCommand
                 let restartedShellCommand = sessionEnded
                     ? configuration.relayPort.map {
                         SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
@@ -71,10 +79,16 @@ extension Workspace {
                         )
                     }
                     : nil
+                // An ended session with no binding keeps `--require-existing`:
+                // the replacement wrapper then confirms the loss itself and
+                // owns the tombstone-backed hookless synthesis (#7989) before
+                // degrading to the same replacement shell. Only a binding the
+                // app can already inject skips that round trip.
+                let delegatesSessionLossToWrapper = sessionEnded && injectableResumeCommand == nil
                 command = remotePTYAttachStartupCommand(
                     sessionID: sessionID,
-                    remoteCommand: approvedResumeCommand ?? restartedShellCommand,
-                    requireExisting: !sessionEnded
+                    remoteCommand: injectableResumeCommand ?? restartedShellCommand,
+                    requireExisting: !sessionEnded || delegatesSessionLossToWrapper
                 )
             } else {
                 guard let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration) else {

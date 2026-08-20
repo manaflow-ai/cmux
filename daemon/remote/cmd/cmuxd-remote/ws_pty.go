@@ -114,6 +114,8 @@ const (
 	defaultPTYExitDrainTimeout                = time.Second
 	maxConcurrentPTYSessionStartOwnersPerHub  = 16
 	maxConcurrentPTYSessionStartWaitersPerHub = 64
+	maxEndedPTYSessionTombstones              = 64
+	foregroundSampleInterval                  = 5 * time.Second
 	standardExecutablePath                    = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
@@ -217,6 +219,10 @@ type wsPTYSession struct {
 	// initialClaims counts the start owner and live joiners that must consume
 	// this exact generation rather than interpreting an early exit as absence.
 	initialClaims int
+	// foregroundCommand and foregroundCwd hold the most recent foreground
+	// process sampled from the PTY (guarded by hub mu).
+	foregroundCommand string
+	foregroundCwd     string
 }
 
 type wsPTYSessionStart struct {
@@ -238,6 +244,11 @@ type wsPTYSessionStartWaiter struct {
 type wsPTYHub struct {
 	mu       sync.Mutex
 	sessions map[wsPTYSessionKey]*wsPTYSession
+	// endedSessions retains the last sampled foreground process for persistent
+	// sessions that already left `sessions`, so a later restore can resume an
+	// agent the daemon watched die (#7989). Bounded FIFO; guarded by mu.
+	endedSessions     map[string]wsPTYEndedSession
+	endedSessionOrder []string
 	// startingSessions reserves a session key while PTY allocation and process
 	// startup run without mu. Callers for the same key join that start; callers
 	// for healthy or unrelated sessions never wait behind it.
@@ -273,6 +284,14 @@ type wsPTYHub struct {
 // slave (tty) ends. The production implementation is creack/pty.Open.
 type ptyOpener func() (ptmx *os.File, tty *os.File, err error)
 
+// wsPTYEndedSession is the tombstone left behind by a finished persistent
+// session whose foreground process had been sampled.
+type wsPTYEndedSession struct {
+	foregroundCommand string
+	foregroundCwd     string
+	endedAt           time.Time
+}
+
 func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 	limit := cfg.ScrollbackLimit
 	if limit <= 0 {
@@ -284,6 +303,7 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 	}
 	return &wsPTYHub{
 		sessions:                map[wsPTYSessionKey]*wsPTYSession{},
+		endedSessions:           map[string]wsPTYEndedSession{},
 		startingSessions:        map[wsPTYSessionKey]*wsPTYSessionStart{},
 		sessionStartSlots:       make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub),
 		sessionStartWaiterSlots: make(chan struct{}, maxConcurrentPTYSessionStartWaitersPerHub),
@@ -1119,6 +1139,9 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 					claimedSession = startedSession
 					ownsInitialClaim = true
 				}
+				if sessionKey.kind == wsPTYPersistentSession {
+					h.deleteEndedSessionLocked(sessionKey.sessionID)
+				}
 				h.sessions[sessionKey] = startedSession
 				h.scheduleIdleReapLocked(startedSession)
 				start.session = startedSession
@@ -1707,6 +1730,69 @@ func (h *wsPTYHub) sessionSnapshots() []map[string]any {
 	return snapshots
 }
 
+func (h *wsPTYHub) endedSessionSnapshots() []map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	ids := make([]string, 0, len(h.endedSessions))
+	for id := range h.endedSessions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	snapshots := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		entry := h.endedSessions[id]
+		snapshots = append(snapshots, map[string]any{
+			"session_id":         id,
+			"foreground_command": entry.foregroundCommand,
+			"foreground_cwd":     entry.foregroundCwd,
+			"ended_at":           entry.endedAt.Unix(),
+		})
+	}
+	return snapshots
+}
+
+// recordEndedSessionLocked keeps the last sampled foreground process of a
+// persistent session that is leaving sessions. A session that never sampled
+// a foreground command carries no restore signal and leaves no tombstone.
+func (h *wsPTYHub) recordEndedSessionLocked(session *wsPTYSession) {
+	if session.key.kind != wsPTYPersistentSession || session.foregroundCommand == "" {
+		return
+	}
+	entry := wsPTYEndedSession{
+		foregroundCommand: session.foregroundCommand,
+		foregroundCwd:     session.foregroundCwd,
+		endedAt:           time.Now(),
+	}
+	if _, exists := h.endedSessions[session.id]; exists {
+		h.endedSessions[session.id] = entry
+		return
+	}
+	h.endedSessions[session.id] = entry
+	h.endedSessionOrder = append(h.endedSessionOrder, session.id)
+	for len(h.endedSessionOrder) > maxEndedPTYSessionTombstones {
+		oldest := h.endedSessionOrder[0]
+		delete(h.endedSessions, oldest)
+		h.endedSessionOrder = append(h.endedSessionOrder[:0], h.endedSessionOrder[1:]...)
+	}
+}
+
+// deleteEndedSessionLocked drops a tombstone once the same session id starts
+// a fresh generation; the live session supersedes the ended record.
+func (h *wsPTYHub) deleteEndedSessionLocked(sessionID string) {
+	if _, exists := h.endedSessions[sessionID]; !exists {
+		return
+	}
+	delete(h.endedSessions, sessionID)
+	for i, id := range h.endedSessionOrder {
+		if id == sessionID {
+			h.endedSessionOrder = append(h.endedSessionOrder[:i], h.endedSessionOrder[i+1:]...)
+			break
+		}
+	}
+}
+
 func (h *wsPTYHub) attachmentByID(sessionID string, attachmentID string, attachmentToken string) *wsPTYAttachment {
 	sessionID = strings.TrimSpace(sessionID)
 	attachmentID = strings.TrimSpace(attachmentID)
@@ -1748,13 +1834,15 @@ func (h *wsPTYHub) sessionSnapshotLocked(session *wsPTYSession) map[string]any {
 	}
 
 	return map[string]any{
-		"session_id":       session.id,
-		"attachments":      attachments,
-		"effective_cols":   session.effectiveCols,
-		"effective_rows":   session.effectiveRows,
-		"last_known_cols":  session.lastKnownCols,
-		"last_known_rows":  session.lastKnownRows,
-		"scrollback_bytes": len(session.scrollback),
+		"session_id":         session.id,
+		"attachments":        attachments,
+		"effective_cols":     session.effectiveCols,
+		"effective_rows":     session.effectiveRows,
+		"last_known_cols":    session.lastKnownCols,
+		"last_known_rows":    session.lastKnownRows,
+		"scrollback_bytes":   len(session.scrollback),
+		"foreground_command": session.foregroundCommand,
+		"foreground_cwd":     session.foregroundCwd,
 	}
 }
 
@@ -1801,26 +1889,30 @@ func (session *wsPTYSession) closePTYFiles() {
 	session.closePTYFile()
 }
 
+// ptyForegroundProcessGroup reads the PTY's foreground process group with
+// TIOCGPGRP. Callers must not hold h.mu; the ioctl reaches into the kernel.
+func ptyForegroundProcessGroup(ptyFile *os.File) int {
+	rawConn, err := ptyFile.SyscallConn()
+	if err != nil {
+		return 0
+	}
+	var foregroundGroup int32
+	var ioctlErr syscall.Errno
+	if err := rawConn.Control(func(fd uintptr) {
+		_, _, ioctlErr = syscall.Syscall(
+			syscall.SYS_IOCTL,
+			fd,
+			uintptr(syscall.TIOCGPGRP),
+			uintptr(unsafe.Pointer(&foregroundGroup)),
+		)
+	}); err != nil || ioctlErr != 0 {
+		return 0
+	}
+	return int(foregroundGroup)
+}
+
 func (session *wsPTYSession) terminateProcesses() {
-	session.terminateProcessesWithForegroundGroupLookup(func(ptyFile *os.File) int {
-		rawConn, err := ptyFile.SyscallConn()
-		if err != nil {
-			return 0
-		}
-		var foregroundGroup int32
-		var ioctlErr syscall.Errno
-		if err := rawConn.Control(func(fd uintptr) {
-			_, _, ioctlErr = syscall.Syscall(
-				syscall.SYS_IOCTL,
-				fd,
-				uintptr(syscall.TIOCGPGRP),
-				uintptr(unsafe.Pointer(&foregroundGroup)),
-			)
-		}); err != nil || ioctlErr != 0 {
-			return 0
-		}
-		return int(foregroundGroup)
-	})
+	session.terminateProcessesWithForegroundGroupLookup(ptyForegroundProcessGroup)
 }
 
 func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
@@ -1851,6 +1943,41 @@ func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup 
 			_ = session.cmd.Process.Kill()
 		}
 	})
+}
+
+// sampleSessionForeground records the PTY's current foreground process so a
+// tombstone can describe what was running when the session ends (#7989).
+func (h *wsPTYHub) sampleSessionForeground(session *wsPTYSession) {
+	h.sampleSessionForegroundWithLookups(session, ptyForegroundProcessGroup, foregroundProcessInfo)
+}
+
+// sampleSessionForegroundWithLookups reads the ioctl and the process table
+// outside h.mu per the lock ordering rule; the result is published under h.mu
+// only after re-checking that the session is still current. A missing
+// foreground group or unreadable process keeps the last known values: a dying
+// PTY often has no foreground precisely when its tombstone matters.
+func (h *wsPTYHub) sampleSessionForegroundWithLookups(
+	session *wsPTYSession,
+	pgidLookup func(*os.File) int,
+	infoLookup func(int) (string, string, bool),
+) {
+	foregroundGroup := 0
+	session.withPTYFileLocked(func(ptyFile *os.File) {
+		foregroundGroup = pgidLookup(ptyFile)
+	})
+	if foregroundGroup <= 0 {
+		return
+	}
+	command, cwd, ok := infoLookup(foregroundGroup)
+	if !ok || command == "" {
+		return
+	}
+	h.mu.Lock()
+	if h.sessions[session.key] == session && !session.closed {
+		session.foregroundCommand = command
+		session.foregroundCwd = cwd
+	}
+	h.mu.Unlock()
 }
 
 func terminatePTYSessionMembers(sessionID int) {
@@ -1953,12 +2080,17 @@ func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 		return
 	}
 	buffer := make([]byte, 32768)
+	var lastForegroundSample time.Time
 	for {
 		n, err := ptyFile.Read(buffer)
 		if n > 0 {
 			chunk := append([]byte(nil), buffer[:n]...)
 			h.recordAndBroadcast(session, chunk)
 			h.confirmPTYSizeAfterOutput(session)
+			if now := time.Now(); now.Sub(lastForegroundSample) >= foregroundSampleInterval {
+				lastForegroundSample = now
+				h.sampleSessionForeground(session)
+			}
 		}
 		if err != nil {
 			return
@@ -1976,6 +2108,7 @@ func (h *wsPTYHub) finishSession(session *wsPTYSession) {
 	session.closePTYFiles()
 
 	h.mu.Lock()
+	h.recordEndedSessionLocked(session)
 	if session.initialPhase == wsPTYSessionAwaitingInitialAttachment {
 		session.initialPhase = wsPTYSessionFinishedBeforeInitialAttachment
 		session.closed = true

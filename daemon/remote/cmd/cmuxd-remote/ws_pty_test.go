@@ -3252,3 +3252,270 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 	}
 	return int(size.Cols), int(size.Rows), true, nil
 }
+
+func TestSampleSessionForegroundRecordsLastKnownAgent(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	t.Cleanup(func() { _ = ptyFile.Close() })
+
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	t.Cleanup(hub.closeAll)
+	session := &wsPTYSession{
+		id:          "fg-sample",
+		key:         persistentPTYSessionKey("fg-sample"),
+		ptyFile:     ptyFile,
+		attachments: map[string]*wsPTYAttachment{},
+		done:        make(chan struct{}),
+	}
+	hub.sessions[session.key] = session
+
+	hub.sampleSessionForegroundWithLookups(
+		session,
+		func(*os.File) int { return 42 },
+		func(pgid int) (string, string, bool) {
+			if pgid != 42 {
+				t.Fatalf("info lookup pgid = %d, want 42", pgid)
+			}
+			return "claude", "/work/agent", true
+		},
+	)
+	if session.foregroundCommand != "claude" || session.foregroundCwd != "/work/agent" {
+		t.Fatalf(
+			"sampled foreground = %q %q, want claude /work/agent",
+			session.foregroundCommand, session.foregroundCwd,
+		)
+	}
+
+	hub.sampleSessionForegroundWithLookups(
+		session,
+		func(*os.File) int { return 0 },
+		func(int) (string, string, bool) {
+			t.Fatal("info lookup ran for a missing foreground group")
+			return "", "", false
+		},
+	)
+	if session.foregroundCommand != "claude" || session.foregroundCwd != "/work/agent" {
+		t.Fatalf(
+			"missing foreground group cleared the last known agent: %q %q",
+			session.foregroundCommand, session.foregroundCwd,
+		)
+	}
+
+	hub.mu.Lock()
+	delete(hub.sessions, session.key)
+	hub.mu.Unlock()
+	hub.sampleSessionForegroundWithLookups(
+		session,
+		func(*os.File) int { return 42 },
+		func(int) (string, string, bool) { return "vim", "/tmp", true },
+	)
+	if session.foregroundCommand != "claude" || session.foregroundCwd != "/work/agent" {
+		t.Fatalf(
+			"sample wrote to a session no longer registered in the hub: %q %q",
+			session.foregroundCommand, session.foregroundCwd,
+		)
+	}
+}
+
+func TestFinishSessionRecordsEndedForegroundTombstone(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	finish := func(id string, key wsPTYSessionKey, command string, cwd string) {
+		t.Helper()
+		master, slave, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("open fake PTY pipe: %v", err)
+		}
+		_ = slave.Close()
+		session := &wsPTYSession{
+			id:                id,
+			key:               key,
+			ptyFile:           master,
+			attachments:       map[string]*wsPTYAttachment{},
+			done:              make(chan struct{}),
+			foregroundCommand: command,
+			foregroundCwd:     cwd,
+		}
+		hub.mu.Lock()
+		hub.sessions[key] = session
+		hub.mu.Unlock()
+
+		go hub.pumpSession(session)
+		select {
+		case <-session.done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("session %q did not finish after PTY EOF", id)
+		}
+	}
+
+	finish("ended-agent", persistentPTYSessionKey("ended-agent"), "claude", "/work/agent")
+	finish("ended-idle", persistentPTYSessionKey("ended-idle"), "", "")
+	finish("ended-anon", anonymousPTYSessionKey("ended-anon", 1), "claude", "/work/agent")
+
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	entry, ok := hub.endedSessions["ended-agent"]
+	if !ok {
+		t.Fatal("persistent session with a sampled foreground left no tombstone")
+	}
+	if entry.foregroundCommand != "claude" || entry.foregroundCwd != "/work/agent" {
+		t.Fatalf("tombstone = %+v, want claude /work/agent", entry)
+	}
+	if entry.endedAt.Unix() <= 0 {
+		t.Fatalf("tombstone ended_at = %v, want a positive unix time", entry.endedAt)
+	}
+	if _, exists := hub.endedSessions["ended-idle"]; exists {
+		t.Fatal("session without a sampled foreground left a tombstone")
+	}
+	if _, exists := hub.endedSessions["ended-anon"]; exists {
+		t.Fatal("anonymous session left a tombstone")
+	}
+	if len(hub.endedSessionOrder) != 1 || hub.endedSessionOrder[0] != "ended-agent" {
+		t.Fatalf("ended session order = %v, want exactly the persistent agent", hub.endedSessionOrder)
+	}
+}
+
+func TestEndedSessionTombstonesEvictOldest(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const recorded = maxEndedPTYSessionTombstones + 6
+	hub.mu.Lock()
+	for i := 0; i < recorded; i++ {
+		id := "ended-" + strconv.Itoa(i)
+		hub.recordEndedSessionLocked(&wsPTYSession{
+			id:                id,
+			key:               persistentPTYSessionKey(id),
+			foregroundCommand: "agent-" + strconv.Itoa(i),
+		})
+	}
+	defer hub.mu.Unlock()
+
+	if len(hub.endedSessions) != maxEndedPTYSessionTombstones ||
+		len(hub.endedSessionOrder) != maxEndedPTYSessionTombstones {
+		t.Fatalf(
+			"tombstones = %d entries / %d order, want %d",
+			len(hub.endedSessions), len(hub.endedSessionOrder), maxEndedPTYSessionTombstones,
+		)
+	}
+	for i := 0; i < recorded-maxEndedPTYSessionTombstones; i++ {
+		if _, exists := hub.endedSessions["ended-"+strconv.Itoa(i)]; exists {
+			t.Fatalf("oldest tombstone ended-%d survived eviction", i)
+		}
+	}
+	if hub.endedSessionOrder[0] != "ended-"+strconv.Itoa(recorded-maxEndedPTYSessionTombstones) {
+		t.Fatalf("eviction did not keep FIFO order: %v", hub.endedSessionOrder[0])
+	}
+	newest := "ended-" + strconv.Itoa(recorded-1)
+	if entry := hub.endedSessions[newest]; entry.foregroundCommand != "agent-"+strconv.Itoa(recorded-1) {
+		t.Fatalf("newest tombstone = %+v, want agent-%d", entry, recorded-1)
+	}
+}
+
+func TestSessionRestartClearsEndedTombstone(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	hub.mu.Lock()
+	hub.endedSessions["restarted"] = wsPTYEndedSession{
+		foregroundCommand: "claude",
+		foregroundCwd:     "/work/agent",
+		endedAt:           time.Now(),
+	}
+	hub.endedSessionOrder = append(hub.endedSessionOrder, "restarted")
+	hub.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, _, _, err := hub.prepareAttachment(
+		ctx, nil, "restarted", "a1", 80, 24, true, "", "tok-restart", false, false,
+	); err != nil {
+		t.Fatalf("start restarted session: %v", err)
+	}
+
+	hub.mu.Lock()
+	_, exists := hub.endedSessions["restarted"]
+	orderLen := len(hub.endedSessionOrder)
+	hub.mu.Unlock()
+	if exists || orderLen != 0 {
+		t.Fatal("starting a new generation did not clear the ended-session tombstone")
+	}
+}
+
+func TestPTYListIncludesForegroundAndEndedSessions(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	t.Cleanup(hub.closeAll)
+	server := &rpcServer{ptyHub: hub}
+
+	master, slave, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("open fake PTY pipe: %v", err)
+	}
+	_ = slave.Close()
+	session := &wsPTYSession{
+		id:                "list-agent",
+		key:               persistentPTYSessionKey("list-agent"),
+		ptyFile:           master,
+		attachments:       map[string]*wsPTYAttachment{},
+		done:              make(chan struct{}),
+		foregroundCommand: "claude",
+		foregroundCwd:     "/work/agent",
+	}
+	hub.sessions[session.key] = session
+
+	liveResp := server.handlePTYList(rpcRequest{ID: 1, Method: "pty.list"})
+	if !liveResp.OK {
+		t.Fatalf("pty.list failed: %+v", liveResp)
+	}
+	liveResult, _ := liveResp.Result.(map[string]any)
+	liveSessions, _ := liveResult["sessions"].([]map[string]any)
+	if len(liveSessions) != 1 {
+		t.Fatalf("pty.list sessions = %v, want one", liveResult["sessions"])
+	}
+	if liveSessions[0]["foreground_command"] != "claude" || liveSessions[0]["foreground_cwd"] != "/work/agent" {
+		t.Fatalf("live snapshot foreground = %v, want claude /work/agent", liveSessions[0])
+	}
+	if ended, ok := liveResult["ended_sessions"].([]map[string]any); !ok || len(ended) != 0 {
+		t.Fatalf("pty.list ended_sessions before close = %v, want an empty array", liveResult["ended_sessions"])
+	}
+
+	go hub.pumpSession(session)
+	select {
+	case <-session.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("session did not finish after PTY EOF")
+	}
+
+	endedResp := server.handlePTYList(rpcRequest{ID: 2, Method: "pty.list"})
+	if !endedResp.OK {
+		t.Fatalf("pty.list after finish failed: %+v", endedResp)
+	}
+	endedResult, _ := endedResp.Result.(map[string]any)
+	endedSessions, ok := endedResult["ended_sessions"].([]map[string]any)
+	if !ok || len(endedSessions) != 1 {
+		t.Fatalf("pty.list ended_sessions after finish = %v, want one", endedResult["ended_sessions"])
+	}
+	entry := endedSessions[0]
+	if entry["session_id"] != "list-agent" ||
+		entry["foreground_command"] != "claude" ||
+		entry["foreground_cwd"] != "/work/agent" {
+		t.Fatalf("ended session snapshot = %v, want list-agent claude /work/agent", entry)
+	}
+	if endedAt, _ := entry["ended_at"].(int64); endedAt <= 0 {
+		t.Fatalf("ended session ended_at = %v, want a positive unix time", entry["ended_at"])
+	}
+
+	nilHubServer := &rpcServer{}
+	nilResp := nilHubServer.handlePTYList(rpcRequest{ID: 3, Method: "pty.list"})
+	if !nilResp.OK {
+		t.Fatalf("nil-hub pty.list failed: %+v", nilResp)
+	}
+	nilResult, _ := nilResp.Result.(map[string]any)
+	nilEnded, ok := nilResult["ended_sessions"].([]map[string]any)
+	if !ok || nilEnded == nil || len(nilEnded) != 0 {
+		t.Fatalf("nil-hub ended_sessions = %v, want an empty non-nil array", nilResult["ended_sessions"])
+	}
+}

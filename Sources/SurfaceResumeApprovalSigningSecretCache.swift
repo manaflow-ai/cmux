@@ -391,7 +391,14 @@ extension SurfaceResumeApprovalStore {
     private static func trustedBinding(
         from binding: SurfaceResumeBindingSnapshot
     ) -> SurfaceResumeBindingSnapshot? {
-        if binding.isProcessDetected {
+        if binding.isProcessDetected || binding.isRemoteSynthesized {
+            // Both sources are cmux's own observations rather than proposals
+            // from an arbitrary process: process-detected comes from scanning
+            // live local processes, and remote-synthesized commands are built
+            // exclusively from `RemoteAgentContinueSynthesizer`'s inline
+            // directory-level continue templates (no caller-supplied
+            // arguments), so they share the same trust tier and bypass the
+            // signed approval store.
             var trustedBinding = binding
             trustedBinding.autoResume = true
             trustedBinding.approvalPolicy = .auto

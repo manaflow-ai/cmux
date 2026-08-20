@@ -1912,6 +1912,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A74770010000000000000009 /* SessionPersistencePolicy+ConfigFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7477001000000000000000A /* SessionPersistencePolicy+ConfigFrames.swift */; };
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
+		9DCE2D1C84A5FB5D00BF4437 /* RemoteAgentContinueSynthesizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D87115779C1B5E4B9ADB2C /* RemoteAgentContinueSynthesizerTests.swift */; };
+		5BA8D26CDC2D1569CA382E1E /* RemoteSessionLossResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F712A646D87A7AF51BAB57BD /* RemoteSessionLossResumeTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
 		812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */; };
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
@@ -2220,6 +2222,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		842300000000000000000001 /* SurfaceResumeExitedAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000002 /* SurfaceResumeExitedAgentLivenessTests.swift */; };
 		7989B0027989B0027989B002 /* SurfaceResumeLaunchFlavor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */; };
 		7989B0037989B0037989B003 /* SurfaceResumeRemoteContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */; };
+		55385DA3BD1729F18132159B /* RemoteAgentContinueSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447566488217DA11300AADDE /* RemoteAgentContinueSynthesizer.swift */; };
 		F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
@@ -4706,6 +4709,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A7477001000000000000000A /* SessionPersistencePolicy+ConfigFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+ConfigFrames.swift"; sourceTree = "<group>"; };
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
+		72D87115779C1B5E4B9ADB2C /* RemoteAgentContinueSynthesizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAgentContinueSynthesizerTests.swift; sourceTree = "<group>"; };
+		F712A646D87A7AF51BAB57BD /* RemoteSessionLossResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionLossResumeTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
 		812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRemoteWorkspaceMoshRestoreTests.swift; sourceTree = "<group>"; };
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
@@ -5007,6 +5012,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		842300000000000000000002 /* SurfaceResumeExitedAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeExitedAgentLivenessTests.swift; sourceTree = "<group>"; };
 		7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeLaunchFlavor.swift; sourceTree = "<group>"; };
 		7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeRemoteContext.swift; sourceTree = "<group>"; };
+		447566488217DA11300AADDE /* RemoteAgentContinueSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAgentContinueSynthesizer.swift; sourceTree = "<group>"; };
 		F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeRunPromptBatch.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
@@ -7363,6 +7369,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */,
 				7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */,
 				7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */,
+				447566488217DA11300AADDE /* RemoteAgentContinueSynthesizer.swift */,
 				A74770010000000000000006 /* SessionConfigFrameEntry.swift */,
 				A74770010000000000000008 /* SessionConfigFrameRing.swift */,
 				A74770010000000000000004 /* SessionDisplaySnapshot.swift */,
@@ -7864,6 +7871,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					F83620010000000000000002 /* PortScannerTTYFreshnessTests.swift */,
 					B79500320000000000000002 /* PortScannerIdentityContinuityTests.swift */,
 					F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */,
+					72D87115779C1B5E4B9ADB2C /* RemoteAgentContinueSynthesizerTests.swift */,
+					F712A646D87A7AF51BAB57BD /* RemoteSessionLossResumeTests.swift */,
 					7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */,
 				812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */,
 					F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */,
@@ -10362,6 +10371,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,
 				7989B0027989B0027989B002 /* SurfaceResumeLaunchFlavor.swift in Sources */,
 				7989B0037989B0037989B003 /* SurfaceResumeRemoteContext.swift in Sources */,
+				55385DA3BD1729F18132159B /* RemoteAgentContinueSynthesizer.swift in Sources */,
 				F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */,
@@ -11544,6 +11554,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				850000000000000000000002 /* SessionIndexTableViewportTests.swift in Sources */,
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
+				9DCE2D1C84A5FB5D00BF4437 /* RemoteAgentContinueSynthesizerTests.swift in Sources */,
+				5BA8D26CDC2D1569CA382E1E /* RemoteSessionLossResumeTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,

@@ -23,6 +23,19 @@ extension RemoteSessionCoordinator {
         }
     }
 
+    /// Lists the daemon's ended-session foreground tombstones (#7989) as raw
+    /// wire dictionaries; same blocking contract as ``listPTYSessions(timeout:)``.
+    public func listEndedPTYSessions(timeout: TimeInterval = 8.0) throws -> [[String: Any]] {
+        try runOnControllerQueue(timeout: timeout) {
+            guard self.daemonReady, self.proxyLease != nil else {
+                throw NSError(domain: "cmux.remote.pty", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])
+            }
+            return try self.proxyBroker.listEndedPTY(configuration: self.configuration)
+        }
+    }
+
     /// Closes one persistent PTY session by ID; same blocking contract as
     /// ``listPTYSessions(timeout:)``.
     public func closePTYSession(sessionID: String, timeout: TimeInterval = 8.0) throws {

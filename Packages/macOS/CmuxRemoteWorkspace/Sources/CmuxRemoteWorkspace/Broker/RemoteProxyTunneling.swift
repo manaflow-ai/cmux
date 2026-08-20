@@ -33,6 +33,10 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// shape pinned).
     func listPTY() throws -> [[String: Any]]
 
+    /// Lists ended persistent PTY sessions whose foreground-process tombstone
+    /// the daemon retained (#7989). Raw JSON objects, wire shape pinned.
+    func listEndedPTY() throws -> [[String: Any]]
+
     /// Closes a persistent PTY session on the daemon before `deadline`.
     ///
     /// - Parameters:
@@ -65,4 +69,10 @@ public protocol RemoteProxyTunneling: AnyObject {
         requireExisting: Bool,
         onLifecycleEnded: @escaping @Sendable () -> Void
     ) throws -> RemotePTYBridgeServer.Endpoint
+}
+
+public extension RemoteProxyTunneling {
+    /// Foreground tombstones are an optional daemon capability; tunnels that
+    /// predate it (and test doubles) report none.
+    func listEndedPTY() throws -> [[String: Any]] { [] }
 }

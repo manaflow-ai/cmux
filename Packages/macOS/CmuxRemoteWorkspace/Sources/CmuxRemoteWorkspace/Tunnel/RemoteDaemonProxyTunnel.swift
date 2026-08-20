@@ -163,6 +163,21 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         }
     }
 
+    /// Lists the daemon's ended-session foreground tombstones (#7989).
+    ///
+    /// Same wire-shape contract as ``listPTY()``; older daemons simply omit
+    /// the key and decode as empty.
+    public func listEndedPTY() throws -> [[String: Any]] {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 30, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            return try rpcClient.listEndedPTY()
+        }
+    }
+
     /// Resizes a PTY attachment.
     public func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         try queue.sync {

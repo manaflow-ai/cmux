@@ -2804,7 +2804,8 @@ func (s *rpcServer) handlePTYList(req rpcRequest) rpcResponse {
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
-				"sessions": []map[string]any{},
+				"sessions":       []map[string]any{},
+				"ended_sessions": []map[string]any{},
 			},
 		}
 	}
@@ -2812,7 +2813,8 @@ func (s *rpcServer) handlePTYList(req rpcRequest) rpcResponse {
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
-			"sessions": s.ptyHub.sessionSnapshots(),
+			"sessions":       s.ptyHub.sessionSnapshots(),
+			"ended_sessions": s.ptyHub.endedSessionSnapshots(),
 		},
 	}
 }

@@ -390,6 +390,11 @@ extension TerminalController {
         guard let binding else { return nil }
         let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
+        // Remote-synthesized bindings (#7989) intentionally map to `.direct`:
+        // they carry no session checkpoint, so `cmux surface resume show`
+        // presents the stored directory-level continue command verbatim under
+        // the agent kind instead of a typed `cmux restore <kind> <checkpoint>`
+        // selector.
         let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
             ? .resumeAgent
             : .direct
