@@ -1084,9 +1084,11 @@ struct CMUXMobileRootView: View {
         #if os(iOS)
         // The stream value is only an invalidation token. Read the authoritative
         // store synchronously so the migration transition can expose pairing in
-        // the same render that selects Tailscale.
+        // the same render that selects Tailscale. Tailscale is "selected"
+        // wherever it applies: the app default OR any Computer's own method
+        // (`tailscaleSetupStatus` covers both).
         _ = connectionMethodObservationToken
-        return connectionMethodStore?.method == .tailscale
+        return store.tailscaleSetupStatus != .notSelected
         #else
         return true
         #endif
@@ -1097,7 +1099,7 @@ struct CMUXMobileRootView: View {
     /// a newly selected method yet.
     private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
-        connectionMethodStore?.method == .tailscale
+        store.tailscaleSetupStatus != .notSelected
         #else
         true
         #endif
