@@ -474,8 +474,10 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.viewDidMoveToWindow(isAttached: true)
         await Self.drainMainRunLoopTurn()
         actions.removeAll()
-        coordinator.layoutDidChange(to: CGSize(width: 500.25, height: 320.25))
-        coordinator.layoutDidChange(to: CGSize(width: 460, height: 300))
+        // Both changes are smaller than the old half-point tolerance. Each is
+        // still real divider geometry and must leave a deferred repair queued.
+        coordinator.layoutDidChange(to: CGSize(width: 639.75, height: 359.75))
+        coordinator.layoutDidChange(to: CGSize(width: 639.5, height: 359.5))
 
         XCTAssertTrue(
             actions.isEmpty,
