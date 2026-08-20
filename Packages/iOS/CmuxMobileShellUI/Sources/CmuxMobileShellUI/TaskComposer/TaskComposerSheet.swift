@@ -458,6 +458,7 @@ struct TaskComposerSheet: View {
                 && !workspaceGroupSelectionNeedsInventory
                 && !workspaceGroupSelectionRequiresResolution
                 && blockingCompletedOperationRecovery == nil,
+            connectionWarningText: connectionWarningText,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
@@ -549,6 +550,18 @@ struct TaskComposerSheet: View {
 
     private var machines: [MobilePairedMac] {
         availableMachines ?? store.displayPairedMacs
+    }
+
+    /// The "No Mac is connected" notice. The entrypoint no longer hides while
+    /// offline, so the composer itself must say why a task cannot start yet.
+    /// The accessibility harness injects deterministic machines without live
+    /// sessions, so injected machines suppress the warning.
+    private var connectionWarningText: String? {
+        guard availableMachines == nil, !store.hasAnyConnectedMac else { return nil }
+        return L10n.string(
+            "mobile.taskComposer.warning.noConnectedMac",
+            defaultValue: "No Mac is connected. Open cmux on a Mac to start this task."
+        )
     }
 
     private var workspaceGroups: [MobileWorkspaceGroupPreview] {
