@@ -61,13 +61,12 @@ use crate::keys;
 use crate::localization;
 use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-    MachineConnectRoute,
-    MachineConnectionPhase, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdate,
-    MachineUpdateStream, ManagedMachineDescriptor, ManagedMachineStatus,
-    ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
-    ProviderActionContext, ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode,
-    WorkspaceCreationPolicy, validate_machine_session,
+    MachineConnectRoute, MachineConnectionPhase, MachineController, MachineKey,
+    MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession, MachineSnapshot,
+    MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
+    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+    ManagedWorkspaceStatus, ProviderActionContext, ProviderActionInputError, ProviderPresentation,
+    WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
