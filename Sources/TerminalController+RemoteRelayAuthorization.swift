@@ -60,7 +60,6 @@ extension TerminalController {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "agent.resolve_delivery_target",
         "notification.create",
         "notification.create_for_target",
     ]
@@ -151,11 +150,17 @@ extension TerminalController {
                   !relayToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return nil
             }
+            // The pane tree's reverse index is authoritative for ordinary
+            // surfaces and can be enumerated directly.  Remote tmux mirrors
+            // own projected surfaces outside that index, so include their
+            // published topology in the same linear snapshot.
             var surfaceIDs = Set(workspace.panels.keys)
-            for panelID in workspace.panels.keys {
-                if let ownership = workspace.surfaceOwnershipTarget(for: panelID) {
-                    surfaceIDs.insert(ownership.surfaceID)
-                }
+            surfaceIDs.formUnion(workspace.surfaceIdToPanelId.keys.map(\.uuid))
+            for mirror in workspace.remoteTmuxWindowMirrors.values {
+                surfaceIDs.formUnion(mirror.surfaceIDsInLayoutOrder)
+            }
+            if let sessionMirror = workspace.remoteTmuxSessionMirror {
+                surfaceIDs.formUnion(sessionMirror.controlPaneLocations().map(\.pane.panel.id))
             }
             return RemoteRelayAuthorizationSnapshot(
                 ownerWorkspaceID: ownerWorkspaceID,
@@ -189,15 +194,6 @@ extension TerminalController {
                 message: "Relay method is not permitted"
             )
         }
-        guard let authenticatedOwner = UUID(uuidString: ownerRaw),
-              authenticatedOwner == snapshot.ownerWorkspaceID else {
-            return deniedRemoteRelayRequest(
-                request,
-                code: "remote_relay_workspace_denied",
-                message: "Relay request owner does not match the authenticated workspace"
-            )
-        }
-
         let selectorValidation = Self.validateRemoteRelaySelectors(
             foundationParams,
             ownerWorkspaceID: snapshot.ownerWorkspaceID,
@@ -249,7 +245,6 @@ extension TerminalController {
 
         var sanitizedParams = request.params
         sanitizedParams.removeValue(forKey: WorkspaceRemoteRelayCommandRewriter.requestAuthenticationCodeKey)
-        sanitizedParams.removeValue(forKey: WorkspaceRemoteRelayCommandRewriter.authenticationCodeKey)
         let sanitizedRequest = ControlRequest(
             id: request.id,
             method: request.method,

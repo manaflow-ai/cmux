@@ -213,7 +213,11 @@ extension RemoteCLIRelayServer {
 
         private func sendCommandDeniedAndClose() {
             phase = .closed
-            let response = Data("ERROR: Remote relay command denied\n".utf8)
+            let message = String(
+                localized: "remoteRelay.commandDenied",
+                defaultValue: "Remote relay command denied"
+            )
+            let response = Data("ERROR: \(message)\n".utf8)
             connection.send(content: response, completion: .contentProcessed { [weak self] _ in
                 guard let self else { return }
                 self.queue.async {

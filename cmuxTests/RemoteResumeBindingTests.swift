@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import CmuxCore
 import Darwin
 import Foundation
@@ -215,6 +216,69 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func reportedTTYDeliveryTargetPassesRelayAuthorizationWithoutSurfaceSelector() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
+        let request: [String: Any] = [
+            "id": "reported-tty-restore",
+            "method": "agent.resolve_delivery_target",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "tty_name": "pts/42",
+                "tty_resolution": "reported_tty",
+            ],
+        ]
+        let rewritten = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: workspace.id,
+            remoteRelayTokenHex: relayToken
+        ).rewriteRemoteRelayCommandLine(
+            try requestData(request),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let line = try #require(String(data: rewritten, encoding: .utf8))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed: ControlRequest
+        switch ControlRequestParser().request(fromLine: line) {
+        case .success(let request):
+            parsed = request
+        case .failure(let error):
+            Issue.record("Expected an authenticated relay request, got parse error \(error)")
+            return
+        }
+
+        let authorization = TerminalController.shared.authorizeRemoteRelayRequest(parsed)
+        #expect(authorization.errorResponse == nil)
+        #expect(authorization.request.method == "agent.resolve_delivery_target")
+        #expect(authorization.request.params["_cmux_remote_relay_request_authentication_code"] == nil)
+        #expect(authorization.request.params["tty_name"] == .string("pts/42"))
+    }
+
+    @Test
     func remoteResumeProvenanceRequiresExactMethodAndUntamperedAuthentication() throws {
         let workspaceID = UUID()
         let relayToken = String(repeating: "c", count: 64)
@@ -296,6 +360,71 @@ struct RemoteResumeBindingTests {
                 remoteRelayTokenHex: relayToken
             ))
         }
+    }
+
+    @Test
+    func aliasOnlyNotificationRewritePreservesCallerResolution() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let command = try requestData([
+            "id": "local-caller-notification",
+            "method": "notification.create_for_caller",
+            "params": [
+                "preferred_workspace_id": workspaceID.uuidString,
+                "preferred_surface_id": surfaceID.uuidString,
+                "title": "title",
+            ],
+        ])
+        let rewritten = Workspace.rewriteRemoteRelayCommandLineAndExtractMethod(
+            command,
+            workspaceAliases: [UUID(): UUID()],
+            surfaceAliases: [UUID(): UUID()],
+            remoteWorkspaceID: nil
+        )
+        let request = try jsonRequest(rewritten.commandLine)
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(rewritten.method == "notification.create_for_caller")
+        #expect(request["method"] as? String == "notification.create_for_caller")
+        #expect(params["preferred_workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["preferred_surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["surface_id"] == nil)
+    }
+
+    @Test
+    func relayMACSurvivesHighPrecisionJSONNumbersAcrossTypedParsing() throws {
+        let workspaceID = UUID()
+        let relayToken = String(repeating: "d", count: 64)
+        let preciseNumber = "123456789012345678901234567890.123456789"
+        let command = Data(
+            "{\"id\":\"precise\",\"method\":\"system.ping\",\"params\":{\"workspace_id\":\"\(workspaceID.uuidString)\",\"precise\":\(preciseNumber)}}\n".utf8
+        )
+        let rewritten = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: workspaceID,
+            remoteRelayTokenHex: relayToken
+        ).rewriteRemoteRelayCommandLine(
+            command,
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let line = try #require(String(data: rewritten, encoding: .utf8))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed: ControlRequest
+        switch ControlRequestParser().request(fromLine: line) {
+        case .success(let request):
+            parsed = request
+        case .failure(let error):
+            Issue.record("Expected a valid precise relay request, got parse error \(error)")
+            return
+        }
+        #expect(parsed.params["precise"] == .decimal(preciseNumber))
+        let params = parsed.params.mapValues(\.foundationObject)
+        #expect(WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteRelayRequest(
+            id: parsed.id?.foundationObject,
+            method: parsed.method,
+            params: params,
+            remoteRelayTokenHex: relayToken
+        ))
     }
 
     @Test
@@ -958,8 +1087,19 @@ struct RemoteResumeBindingTests {
         let remoteResult = try v2Result(requestData: rewrittenData)
         let remoteBinding = try #require(remoteResult["resume_binding"] as? [String: Any])
 
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        // This fixture models a live agent-hook session. The production
+        // snapshot records `wasAgentRunning` from process liveness; setting it
+        // explicitly keeps restore-policy coverage independent of whichever
+        // agent processes happen to be present on the test host.
+        if let panelIndex = snapshot.panels.firstIndex(where: { $0.id == surfaceID }),
+           var terminal = snapshot.panels[panelIndex].terminal {
+            terminal.wasAgentRunning = true
+            snapshot.panels[panelIndex].terminal = terminal
+        }
+
         return (
-            workspace.sessionSnapshot(includeScrollback: false),
+            snapshot,
             workspace.id,
             surfaceID,
             remotePTYSessionID,

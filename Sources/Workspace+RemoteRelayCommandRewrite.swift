@@ -114,7 +114,8 @@ extension Workspace {
         // those selectors are present, normalize it to the membership-confined
         // target method used by the cloud relay; the caller resolver otherwise
         // has permission to fall back to globally focused state.
-        if method == "notification.create_for_caller",
+        if remoteWorkspaceID != nil,
+           method == "notification.create_for_caller",
            let preferredWorkspace = params["preferred_workspace_id"],
            let preferredSurface = params["preferred_surface_id"] {
             params["workspace_id"] = preferredWorkspace

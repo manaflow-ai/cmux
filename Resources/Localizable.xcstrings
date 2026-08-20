@@ -142806,6 +142806,23 @@
         }
       }
     },
+    "remoteRelay.commandDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote relay command denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートリレーコマンドが拒否されました"
+          }
+        }
+      }
+    },
     "remoteSession.controlMaster.ownershipUnavailable": {
       "extractionState": "manual",
       "localizations": {

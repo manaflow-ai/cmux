@@ -321,6 +321,7 @@ extension ControlCommandCoordinator {
         switch value {
         case .double(let value): value
         case .int(let value): Double(value)
+        case .decimal(let value): NSDecimalNumber(string: value).doubleValue
         default: nil
         }
     }
