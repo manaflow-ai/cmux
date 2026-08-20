@@ -158,9 +158,10 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
         }
         let wasInitialPathUpdate = !hasReceivedInitialPathUpdate
         guard wasInitialPathUpdate else {
-            if pathChanged {
-                pathUpdateContinuation.yield(())
-            }
+            // `observedPath()` may have read the monitor's newer snapshot
+            // before this callback reached the actor, so wake on every
+            // post-initial callback rather than relying on path equality.
+            pathUpdateContinuation.yield(())
             return
         }
         hasReceivedInitialPathUpdate = true
