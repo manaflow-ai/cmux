@@ -5,6 +5,15 @@ import Testing
 private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", index: 22)
 
 @Suite struct CmxTailscaleRouteProofTests {
+    @Test func classifiesOnlyLiveTunnelStateChangesAsTransientReadinessFailures() {
+        #expect(CmxTailscaleRouteProofError.pathUnavailable.isTransientReadinessFailure)
+        #expect(CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable.isTransientReadinessFailure)
+        #expect(CmxTailscaleRouteProofError.ambiguousTailscaleInterfaces.isTransientReadinessFailure)
+        #expect(CmxTailscaleRouteProofError.routeGenerationChanged.isTransientReadinessFailure)
+        #expect(!CmxTailscaleRouteProofError.authorizationEvidenceMismatch.isTransientReadinessFailure)
+        #expect(!CmxTailscaleRouteProofError.peerOutsideTailscaleRange.isTransientReadinessFailure)
+    }
+
     @Test func rejectsGenericBearerAndMismatchedLegacyEvidence() throws {
         let genericBearer = try tailscaleRequest(
             host: "100.71.210.41",

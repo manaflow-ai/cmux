@@ -22,6 +22,24 @@ enum CmxTailscaleRouteProofError: Error, Equatable, Sendable {
     case remotePortMismatch
 }
 
+extension CmxTailscaleRouteProofError {
+    /// Failures caused by the tunnel becoming visible while a pairing attempt
+    /// is already in flight. These are safe to retry with the same QR grant.
+    var isTransientReadinessFailure: Bool {
+        switch self {
+        case .pathUnavailable, .tailscaleInterfaceUnavailable,
+             .ambiguousTailscaleInterfaces, .routeGenerationChanged,
+             .interfaceChanged, .connectionPathUnavailable:
+            return true
+        case .unsupportedRouteKind, .unsupportedAuthorizationMode,
+             .authorizationEvidenceMismatch, .unsupportedEndpoint,
+             .nonNumericPeer, .peerOutsideTailscaleRange, .peerIsLocalDevice,
+             .localEndpointMismatch, .remoteEndpointMismatch, .remotePortMismatch:
+            return false
+        }
+    }
+}
+
 struct CmxTailscaleIPAddress: Hashable, Sendable {
     enum Family: Sendable {
         case ipv4

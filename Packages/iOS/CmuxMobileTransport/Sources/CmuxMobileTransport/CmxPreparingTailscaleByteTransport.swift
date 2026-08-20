@@ -1,10 +1,17 @@
 internal import CMUXMobileCore
 import Foundation
+import os
+
+nonisolated private let tailscalePreparationLog = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "TailscalePreparation"
+)
 
 /// Defers the actor-isolated route proof until `connect()` while preserving the
 /// synchronous transport-factory contract. The proven interface is set on
 /// `NWParameters` before Network.framework starts the connection.
 actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
+    private static let maximumPreparationAttempts = 3
     private let request: CmxByteTransportRequest
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
     private let maximumReceiveLength: Int
@@ -74,21 +81,39 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
             let maximumReceiveLength = maximumReceiveLength
             let connectTimeoutNanoseconds = connectTimeoutNanoseconds
             task = Task {
-                do {
-                    let prepared = try await authority.prepare(request: request)
-                    try Task.checkCancellation()
-                    return try CmxNetworkByteTransport(
-                        request: request,
-                        preparedTailscaleRoute: prepared,
-                        tailscaleRouteAuthority: authority,
-                        maximumReceiveLength: maximumReceiveLength,
-                        connectTimeoutNanoseconds: connectTimeoutNanoseconds
-                    )
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+                for attempt in 1...Self.maximumPreparationAttempts {
+                    do {
+                        let prepared = try await authority.prepare(request: request)
+                        try Task.checkCancellation()
+                        return try CmxNetworkByteTransport(
+                            request: request,
+                            preparedTailscaleRoute: prepared,
+                            tailscaleRouteAuthority: authority,
+                            maximumReceiveLength: maximumReceiveLength,
+                            connectTimeoutNanoseconds: connectTimeoutNanoseconds
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let error as CmxTailscaleRouteProofError
+                        where error.isTransientReadinessFailure
+                    {
+                        tailscalePreparationLog.debug(
+                            "Tailscale preparation attempt \(attempt, privacy: .public)/\(Self.maximumPreparationAttempts, privacy: .public) deferred: \(String(describing: error), privacy: .public)"
+                        )
+                        guard attempt < Self.maximumPreparationAttempts else {
+                            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+                        }
+                        // Yield so NWPathMonitor's callback can update the
+                        // authority actor before the next proof attempt.
+                        await Task.yield()
+                    } catch {
+                        tailscalePreparationLog.error(
+                            "Tailscale preparation failed: \(String(describing: error), privacy: .public)"
+                        )
+                        throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+                    }
                 }
+                throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
             }
             preparationTask = task
         }
