@@ -3,6 +3,12 @@ import CmuxAuthRuntime
 import CmuxPeerTransport
 import CmuxPeerTransportCore
 import Foundation
+import os
+
+private let mobileHostRelayLog = Logger(
+    subsystem: "dev.cmux",
+    category: "mobile-host-relay"
+)
 
 /// Executes relay rotation steps against the live endpoint manager. The
 /// home-relay probe is a bounded, cancellable poll because iroh-ffi v1.1.0
@@ -104,14 +110,54 @@ extension MobileHostPeerRuntime {
             )
         )
 
-        // Relay policy resolve (fail-closed) + relay JWT mint. A missing,
-        // expired, or rolled-back cached policy yields direct-only relays;
-        // relay credentials are minted only against a verified policy.
         let mode = transportVerificationMode
         var relayConfigs: [PeerRelayConfig] = []
         var relayPlan: PeerRelayCredentialPlan?
         var relayPolicy: PeerRelayPolicy?
         var relayPolicySource: CmxIrohSettingsSnapshot.PolicySource = .unavailable
+
+        // Broker registration: challenge + signed payload, scoped discovery.
+        let signer = try PeerRegistrationSigner(
+            identity: identity,
+            endpointID: endpointID.endpointID
+        )
+        let payload = try PeerRegistrationPayload(
+            deviceID: deviceID,
+            appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace,
+            tag: tag,
+            platform: .mac,
+            displayName: MobileHostIdentity.instanceDisplayName(),
+            endpointID: endpointID.endpointID,
+            identityGeneration: identity.generation,
+            pairingEnabled: true,
+            capabilities: Self.capabilities,
+            pathHints: []
+        )
+        let prepared = try signer.prepare(payload: payload)
+        let registration: PeerBrokerRegistrationResponse
+        do {
+            registration = try await broker.register(
+                prepared: prepared,
+                signer: signer
+            )
+        } catch {
+            noteBrokerRateLimit(error, accountID: accountID)
+            throw error
+        }
+        await brokerCooldowns.clear(
+            key: PeerBrokerCooldownLedger.Key(accountID: accountID)
+        )
+        guard let discovery = registration.discovery else {
+            throw MobileHostPeerRuntimeError.registrationIncomplete
+        }
+
+        // Relay policy resolve (fail-closed) + relay JWT mint. Minting must
+        // follow registration: the broker attaches the binding request proof
+        // that register() just retained, and the mint endpoint rejects
+        // proof-less non-legacy requests. A missing, expired, or rolled-back
+        // cached policy yields direct-only relays; relay credentials are
+        // minted only against a verified policy.
         if mode != .directOnly, let relayPolicyTrustRoot {
             let resolution = await relayPolicyCache.resolve(
                 trustRoot: relayPolicyTrustRoot,
@@ -150,47 +196,16 @@ extension MobileHostPeerRuntime {
                 // Credential mint failure keeps the endpoint direct-only;
                 // the refresh loop below retries against the same policy.
                 noteBrokerRateLimit(error, accountID: accountID)
+                #if DEBUG
+                mobileHostRelayLog.error(
+                    "relay credential mint failed at activation: \(String(describing: error), privacy: .public)"
+                )
+                #endif
                 diagnosticLog.record(DiagnosticEvent(
                     .relayPolicyRefreshFailed,
                     b: Self.diagnosticFailureKind(for: error).rawValue
                 ))
             }
-        }
-
-        // Broker registration: challenge + signed payload, scoped discovery.
-        let signer = try PeerRegistrationSigner(
-            identity: identity,
-            endpointID: endpointID.endpointID
-        )
-        let payload = try PeerRegistrationPayload(
-            deviceID: deviceID,
-            appInstanceID: appInstanceID,
-            clientNamespace: clientNamespace,
-            tag: tag,
-            platform: .mac,
-            displayName: MobileHostIdentity.instanceDisplayName(),
-            endpointID: endpointID.endpointID,
-            identityGeneration: identity.generation,
-            pairingEnabled: true,
-            capabilities: Self.capabilities,
-            pathHints: []
-        )
-        let prepared = try signer.prepare(payload: payload)
-        let registration: PeerBrokerRegistrationResponse
-        do {
-            registration = try await broker.register(
-                prepared: prepared,
-                signer: signer
-            )
-        } catch {
-            noteBrokerRateLimit(error, accountID: accountID)
-            throw error
-        }
-        await brokerCooldowns.clear(
-            key: PeerBrokerCooldownLedger.Key(accountID: accountID)
-        )
-        guard let discovery = registration.discovery else {
-            throw MobileHostPeerRuntimeError.registrationIncomplete
         }
 
         guard revision == lifecycleRevision, !Task.isCancelled else {
@@ -492,7 +507,10 @@ extension MobileHostPeerRuntime {
     ) {
         runtime.relayRefreshTask?.cancel()
         guard let relayPolicyTrustRoot else { return }
-        guard initialPlan != nil else { return }
+        // A nil plan means the activation-time mint failed (or returned no
+        // usable policy); the loop below still runs so the backoff ladder can
+        // mint the bootstrap credentials instead of leaving the endpoint
+        // direct-only until the next full activation.
         let manager = endpointManager
         let cache = relayPolicyCache
         let revision = runtime.revision
@@ -526,34 +544,50 @@ extension MobileHostPeerRuntime {
                     trustRoot: relayPolicyTrustRoot,
                     now: Date()
                 )
-                guard case let .verified(policy) = resolution else {
-                    // Fail closed: remove every applied relay, keep direct
-                    // paths and admitted sessions intact.
-                    let removal = PeerRelayRotationPlanner().plan(
-                        applied: runtime.appliedRelayConfigs,
-                        refreshed: [],
-                        generation: runtime.generation
-                    )
-                    let applier = MobileHostPeerRelayApplier(manager: manager)
-                    try? await applier.execute(
-                        removal.steps(ifCurrent: runtime.generation) ?? []
-                    )
-                    runtime.appliedRelayConfigs = []
-                    runtime.relayPolicySource = .unavailable
-                    runtime.relayPolicySequence = nil
-                    runtime.relayPolicyExpiresAt = nil
-                    plan = nil
-                    self.diagnosticLog.record(DiagnosticEvent(
-                        .relayPolicyRefreshFailed,
-                        b: DiagnosticFailureKind.policyUnavailable.rawValue
-                    ))
-                    self.publishIrohSettingsUpdate()
-                    continue
+                var verifiedPolicy: PeerRelayPolicy?
+                var policySource = CmxIrohSettingsSnapshot.PolicySource.cached
+                if case let .verified(policy) = resolution {
+                    verifiedPolicy = policy
                 }
                 do {
                     let minted = try await runtime.broker.relayToken(
                         endpointID: runtime.identity.endpointID
                     )
+                    // An empty or unverifiable cache recovers here: the mint
+                    // response bundles the current signed policy, installed
+                    // through the same verify + rollback-guarded cache path.
+                    if verifiedPolicy == nil, let signedPolicy = minted.signedPolicy {
+                        verifiedPolicy = try? await cache.install(
+                            signedPolicy: signedPolicy,
+                            trustRoot: relayPolicyTrustRoot,
+                            now: Date()
+                        )
+                        policySource = .server
+                    }
+                    guard let policy = verifiedPolicy else {
+                        // Fail closed: remove every applied relay, keep direct
+                        // paths and admitted sessions intact.
+                        let removal = PeerRelayRotationPlanner().plan(
+                            applied: runtime.appliedRelayConfigs,
+                            refreshed: [],
+                            generation: runtime.generation
+                        )
+                        let applier = MobileHostPeerRelayApplier(manager: manager)
+                        try? await applier.execute(
+                            removal.steps(ifCurrent: runtime.generation) ?? []
+                        )
+                        runtime.appliedRelayConfigs = []
+                        runtime.relayPolicySource = .unavailable
+                        runtime.relayPolicySequence = nil
+                        runtime.relayPolicyExpiresAt = nil
+                        plan = nil
+                        self.diagnosticLog.record(DiagnosticEvent(
+                            .relayPolicyRefreshFailed,
+                            b: DiagnosticFailureKind.policyUnavailable.rawValue
+                        ))
+                        self.publishIrohSettingsUpdate()
+                        continue
+                    }
                     let refreshed = try PeerRelayCredentialPlan(
                         policy: policy,
                         minted: Self.relayTokenResponse(minted),
@@ -579,6 +613,7 @@ extension MobileHostPeerRuntime {
                         }
                     }
                     runtime.appliedRelayConfigs = refreshed.configs
+                    runtime.relayPolicySource = policySource
                     runtime.relayPolicySequence = policy.sequence
                     runtime.relayPolicyExpiresAt = Date(
                         timeIntervalSince1970: TimeInterval(policy.expiresAt)
@@ -589,6 +624,11 @@ extension MobileHostPeerRuntime {
                     self.publishIrohSettingsUpdate()
                 } catch {
                     self.noteBrokerRateLimit(error, accountID: runtime.accountID)
+                    #if DEBUG
+                    mobileHostRelayLog.error(
+                        "relay credential refresh failed: \(String(describing: error), privacy: .public)"
+                    )
+                    #endif
                     self.diagnosticLog.record(DiagnosticEvent(
                         .relayPolicyRefreshFailed,
                         b: Self.diagnosticFailureKind(for: error).rawValue
