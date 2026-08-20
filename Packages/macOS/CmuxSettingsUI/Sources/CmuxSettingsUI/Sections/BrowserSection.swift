@@ -40,6 +40,16 @@ public struct BrowserSection: View {
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
 
+    /// Whether management locks the embedded-browser disable (policy key
+    /// enforced, or the user key itself forced). Refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so a
+    /// profile pushed while the Settings window stays open re-renders
+    /// the row.
+    @State private var browserManagedByPolicy = ManagedDevicePolicy()
+        .isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
+        )
+
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
@@ -88,6 +98,13 @@ public struct BrowserSection: View {
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
         }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
+                    browserDisabledUserDefaultsKey: catalog.browser.disabled.userDefaultsKey
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -98,13 +115,21 @@ public struct BrowserSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:browser:enable-browser",
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
-                subtitle: !disabled.current
+                subtitle: browserManagedByPolicy
+                    ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                    : !disabled.current
                     ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
                     : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
             ) {
-                Toggle("", isOn: Binding(get: { !disabled.current }, set: { disabled.set(!$0) }))
+                Toggle(
+                    "",
+                    isOn: browserManagedByPolicy
+                        ? .constant(false)
+                        : Binding(get: { !disabled.current }, set: { disabled.set(!$0) })
+                )
                     .labelsHidden()
                     .controlSize(.small)
+                    .disabled(browserManagedByPolicy)
                     .accessibilityIdentifier("BrowserEnabledToggle")
             }
             SettingsCardDivider()

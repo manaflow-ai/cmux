@@ -625,6 +625,11 @@ enum BrowserAvailabilitySettings {
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
+        // An MDM configuration profile (DisableEmbeddedBrowser) wins over
+        // every user-level source and cannot be overridden from the app.
+        if isManagedByPolicy {
+            return true
+        }
         // No synchronize() on read: it forces a blocking prefs-plist reload on a path hit from link-open/pane-create; UserDefaults stays coherent in-process and via cfprefsd.
         if defaults.object(forKey: disabledKey) == nil {
             return defaultDisabled
