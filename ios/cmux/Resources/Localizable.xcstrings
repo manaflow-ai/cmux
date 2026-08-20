@@ -4812,6 +4812,7 @@
         }
       }
     },
+    "mobile.settings.connectionMethod.scanCode": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Scan Pairing Code"}},"ja":{"stringUnit":{"state":"translated","value":"ペアリングコードをスキャン"}}}},
     "mobile.settings.connectionMethod": {
       "extractionState": "manual",
       "localizations": {

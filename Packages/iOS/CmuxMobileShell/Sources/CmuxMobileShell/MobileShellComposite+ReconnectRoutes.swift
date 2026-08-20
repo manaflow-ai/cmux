@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobilePairedMac
+public import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
 import os
@@ -148,7 +148,7 @@ extension MobileShellComposite {
     /// Whether any paired Mac retains a current route matching an exact local
     /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
     /// changes address, so both route sets must still agree.
-    nonisolated static func hasUsableTailscaleAuthorization(
+    public nonisolated static func hasUsableTailscaleAuthorization(
         in macs: [MobilePairedMac]
     ) -> Bool {
         var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []

@@ -161,6 +161,25 @@ struct MacComputerDetailView: View {
                 .accessibilityIdentifier("MobileComputerConnectionMethodTailscale")
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
+            // Tailscale Only with no authorized route for THIS computer is
+            // undialable until the Mac's pairing code is scanned once; the
+            // scan affordance lives right under the choice that requires it.
+            if (pendingConnectionMethod ?? selectedMethod) == .tailscale,
+               !computerHasUsableTailscaleAuthorization,
+               let showPairingScanner {
+                Button {
+                    showPairingScanner()
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.connectionMethod.scanCode",
+                            defaultValue: "Scan Pairing Code"
+                        ),
+                        systemImage: "qrcode.viewfinder"
+                    )
+                }
+                .accessibilityIdentifier("MobileComputerTailscaleScanButton")
+            }
         } footer: {
             Text(connectionMethodFooterText)
         }
@@ -186,6 +205,13 @@ struct MacComputerDetailView: View {
                 ))
             }
         }
+    }
+
+    /// Whether THIS Computer already has a Tailscale route this iPhone is
+    /// authorized to dial (grant matching an advertised route).
+    private var computerHasUsableTailscaleAuthorization: Bool {
+        guard let pairedMac else { return false }
+        return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
     }
 
     private var connectionMethodFooterText: String {
