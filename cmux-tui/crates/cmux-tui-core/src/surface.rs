@@ -133,8 +133,9 @@ pub struct SurfaceOptions {
     pub terminal_host_root: Option<PathBuf>,
 }
 
-/// Default TERM for child shells: `xterm-ghostty` when its terminfo entry
-/// resolves in this process's environment, else `xterm-256color`.
+/// Default TERM for child shells: `xterm-ghostty` when the system terminfo
+/// resolver can load its entry in this process's environment, else
+/// `xterm-256color`.
 ///
 /// The inner terminal is ghostty-vt, so advertising xterm-ghostty is
 /// truthful wherever the entry exists (Ghostty exports TERMINFO into its
@@ -144,78 +145,40 @@ pub struct SurfaceOptions {
 /// prompts (e.g. oh-my-zsh themes matching `*256color`) take the same
 /// branch inside cmux-tui as in raw Ghostty, so colors match. The check
 /// runs where children spawn; attach clients never need the entry.
+/// Cached for the process lifetime: children inherit this process's
+/// terminfo environment, so the answer cannot change between spawns.
 pub fn default_child_term() -> String {
-    if terminfo_entry_exists_in(&terminfo_search_dirs(), "xterm-ghostty") {
-        "xterm-ghostty".into()
-    } else {
-        "xterm-256color".into()
-    }
+    static DEFAULT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DEFAULT
+        .get_or_init(|| {
+            if terminfo_resolves("xterm-ghostty") {
+                "xterm-ghostty".into()
+            } else {
+                "xterm-256color".into()
+            }
+        })
+        .clone()
 }
 
-/// The terminfo directories ncurses would search: $TERMINFO, ~/.terminfo,
-/// $TERMINFO_DIRS entries, then the usual system and package-manager
-/// locations (an empty $TERMINFO_DIRS element means the compiled-in default
-/// list, which the fixed tail below covers).
-fn terminfo_search_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Ok(v) = std::env::var("TERMINFO") {
-        if !v.is_empty() {
-            dirs.push(v.into());
-        }
-    }
-    if let Some(home) = platform::home_dir() {
-        dirs.push(home.join(".terminfo"));
-    }
-    if let Ok(v) = std::env::var("TERMINFO_DIRS") {
-        dirs.extend(v.split(':').filter(|s| !s.is_empty()).map(PathBuf::from));
-    }
-    dirs.extend(
-        [
-            "/usr/share/terminfo",
-            "/usr/lib/terminfo",
-            "/etc/terminfo",
-            "/opt/homebrew/share/terminfo",
-            "/usr/local/share/terminfo",
-        ]
-        .map(PathBuf::from),
-    );
-    dirs
-}
-
-/// Whether `name` has a loadable compiled terminfo entry under any of
-/// `dirs`, checking both directory layouts: first-letter (Linux ncurses) and
-/// first-letter-hex (macOS). A file only counts when it is readable and its
-/// header carries a compiled-terminfo magic number, so a stale, truncated,
-/// or unreadable file never makes us advertise a TERM children cannot load.
-fn terminfo_entry_exists_in(dirs: &[PathBuf], name: &str) -> bool {
-    let Some(first) = name.chars().next() else {
-        return false;
-    };
-    let letter = first.to_string();
-    let hex = format!("{:x}", first as u32);
-    dirs.iter().any(|dir| {
-        is_compiled_terminfo(&dir.join(&letter).join(name))
-            || is_compiled_terminfo(&dir.join(&hex).join(name))
-    })
-}
-
-/// Terminfo's legacy 16-bit magic (0432 octal) and ncurses 6 32-bit magic
-/// (01036 octal), little-endian on disk.
-const TERMINFO_MAGIC_LEGACY: u16 = 0o432;
-const TERMINFO_MAGIC_32BIT: u16 = 0o1036;
-
-/// A readable file whose header starts with a compiled-terminfo magic number
-/// and is at least as long as the 12-byte terminfo header.
-fn is_compiled_terminfo(path: &std::path::Path) -> bool {
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut header = [0u8; 12];
-    if file.read_exact(&mut header).is_err() {
+/// Ask the system terminfo resolver — the same ncurses machinery child
+/// programs use, honoring $TERMINFO, ~/.terminfo, and $TERMINFO_DIRS with
+/// their exact semantics — whether `name` is a loadable compiled entry.
+/// `infocmp` exits 0 only after loading the entry, so a missing, truncated,
+/// or corrupt file never passes. Hosts without infocmp resolve nothing and
+/// keep the xterm-256color default; children there would be the least
+/// likely to have the entry anyway.
+fn terminfo_resolves(name: &str) -> bool {
+    if name.is_empty() {
         return false;
     }
-    let magic = u16::from_le_bytes([header[0], header[1]]);
-    magic == TERMINFO_MAGIC_LEGACY || magic == TERMINFO_MAGIC_32BIT
+    std::process::Command::new("infocmp")
+        .arg(name)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 impl Default for SurfaceOptions {
@@ -7493,64 +7456,15 @@ mod tests {
         );
     }
 
-    /// A minimal compiled-terminfo blob: little-endian magic plus the rest
-    /// of the 12-byte header.
-    fn compiled_terminfo_bytes(magic: u16) -> Vec<u8> {
-        let mut bytes = magic.to_le_bytes().to_vec();
-        bytes.extend_from_slice(&[0u8; 10]);
-        bytes
-    }
-
+    /// The resolver is the real system one: a ubiquitous entry loads, a
+    /// nonexistent name does not, and the empty name is rejected without
+    /// spawning anything.
+    #[cfg(unix)]
     #[test]
-    fn terminfo_lookup_finds_letter_and_hex_layouts() {
-        let base =
-            std::env::temp_dir().join(format!("cmux-tui-terminfo-test-{}", std::process::id()));
-        let letter_dir = base.join("letter").join("x");
-        let hex_dir = base.join("hex").join("78");
-        std::fs::create_dir_all(&letter_dir).unwrap();
-        std::fs::create_dir_all(&hex_dir).unwrap();
-        std::fs::write(
-            letter_dir.join("xterm-ghostty"),
-            compiled_terminfo_bytes(TERMINFO_MAGIC_LEGACY),
-        )
-        .unwrap();
-        std::fs::write(
-            hex_dir.join("xterm-ghostty"),
-            compiled_terminfo_bytes(TERMINFO_MAGIC_32BIT),
-        )
-        .unwrap();
-
-        assert!(terminfo_entry_exists_in(&[base.join("letter")], "xterm-ghostty"));
-        assert!(terminfo_entry_exists_in(&[base.join("hex")], "xterm-ghostty"));
-        assert!(!terminfo_entry_exists_in(&[base.join("absent")], "xterm-ghostty"));
-        assert!(terminfo_entry_exists_in(
-            &[base.join("absent"), base.join("letter")],
-            "xterm-ghostty"
-        ));
-        assert!(!terminfo_entry_exists_in(&[base.join("letter")], ""));
-        std::fs::remove_dir_all(&base).ok();
-    }
-
-    /// A file with the right name is not proof of a loadable entry: children
-    /// resolve TERM through ncurses, so an empty, truncated, or non-terminfo
-    /// file must never make cmux-tui advertise xterm-ghostty.
-    #[test]
-    fn terminfo_lookup_rejects_unloadable_entries() {
-        let base =
-            std::env::temp_dir().join(format!("cmux-tui-terminfo-badtest-{}", std::process::id()));
-        let dir = base.join("x");
-        std::fs::create_dir_all(&dir).unwrap();
-
-        std::fs::write(dir.join("xterm-ghostty"), b"").unwrap();
-        assert!(!terminfo_entry_exists_in(&[base.clone()], "xterm-ghostty"), "empty file");
-
-        std::fs::write(dir.join("xterm-ghostty"), b"\x1a\x01").unwrap();
-        assert!(!terminfo_entry_exists_in(&[base.clone()], "xterm-ghostty"), "truncated header");
-
-        std::fs::write(dir.join("xterm-ghostty"), b"not a compiled terminfo entry").unwrap();
-        assert!(!terminfo_entry_exists_in(&[base.clone()], "xterm-ghostty"), "wrong magic");
-
-        std::fs::remove_dir_all(&base).ok();
+    fn terminfo_resolver_matches_system_lookup() {
+        assert!(terminfo_resolves("xterm"), "every supported host ships the xterm entry");
+        assert!(!terminfo_resolves("cmux-no-such-terminal-entry"));
+        assert!(!terminfo_resolves(""));
     }
 
     /// Children must advertise the embedded ghostty-vt terminal wherever its
@@ -7561,7 +7475,7 @@ mod tests {
     /// without the entry keep the compatible xterm-256color.
     #[test]
     fn default_child_term_is_ghostty_iff_terminfo_resolves() {
-        let expected = if terminfo_entry_exists_in(&terminfo_search_dirs(), "xterm-ghostty") {
+        let expected = if terminfo_resolves("xterm-ghostty") {
             "xterm-ghostty"
         } else {
             "xterm-256color"
