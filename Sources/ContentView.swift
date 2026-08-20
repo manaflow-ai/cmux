@@ -3786,13 +3786,17 @@ struct ContentView: View {
             }
         })
 
+        // No isResizerDragging guard here: dropping a change while another
+        // column's animation bracket is open leaves persisted and live state
+        // permanently disagreeing (persisted already equals the target, so
+        // no later onChange re-fires). Re-entrant writes from the drag paths
+        // are already deduped by the equality checks.
         view = AnyView(view.onChange(of: sidebarState.persistedLeadingColumnMode) { newValue in
-            guard !isResizerDragging else { return }
             setSidebarLeadingColumnMode(newValue)
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedPrimaryColumnMode) { newValue in
-            guard !isResizerDragging, sidebarLayout.primaryColumnMode != newValue else { return }
+            guard sidebarLayout.primaryColumnMode != newValue else { return }
             animateSidebarColumnModeChange {
                 sidebarLayout.primaryColumnMode = newValue
             }
