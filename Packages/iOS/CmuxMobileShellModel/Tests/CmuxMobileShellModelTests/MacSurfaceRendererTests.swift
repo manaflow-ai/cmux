@@ -30,13 +30,15 @@ struct MacSurfaceRendererTests {
         #expect(renderer == .todo(todoSnapshot))
     }
 
-    @Test func todoWithoutCapabilityFallsBackToCard() {
+    @Test func todoWithoutCapabilityStillRendersSnapshot() {
+        // The capability set empties while a connection recovers; the synced
+        // snapshot must keep rendering (mutations are gated at the view layer).
         let renderer = MacSurfaceRenderer.resolve(
             surface: surface(kind: .todo, todo: todoSnapshot),
             supportsTodo: false,
             supportsPanelArtifacts: true
         )
-        #expect(renderer == .fallbackCard)
+        #expect(renderer == .todo(todoSnapshot))
     }
 
     @Test func todoWithoutSnapshotFallsBackToCard() {
