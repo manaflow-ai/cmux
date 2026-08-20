@@ -766,25 +766,39 @@ actor VMClient {
             req.setValue(value, forHTTPHeaderField: key)
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch let error as URLError {
-            // Surface unreachable-backend errors as a human-readable message with recovery steps
-            // instead of the verbose NSURLErrorDomain payload.
-            switch error.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
-                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
-                throw VMClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-            default:
-                throw error
+        // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
+        // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
+        // retry. Waiting out Retry-After here turns a transient throttle into a short pause
+        // instead of a dead-end error dialog.
+        var retriesLeft = 2
+        while true {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch let error as URLError {
+                // Surface unreachable-backend errors as a human-readable message with recovery steps
+                // instead of the verbose NSURLErrorDomain payload.
+                switch error.code {
+                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                    let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                    throw VMClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+                default:
+                    throw error
+                }
             }
+            guard let http = response as? HTTPURLResponse else {
+                throw VMClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, retriesLeft > 0 {
+                retriesLeft -= 1
+                let retryAfterSeconds = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
+                let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
+                try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                continue
+            }
+            return (data, http)
         }
-        guard let http = response as? HTTPURLResponse else {
-            throw VMClientError.malformedResponse("non-HTTP response")
-        }
-        return (data, http)
     }
 
     private func decodeWebSocketDaemonEndpoint(_ value: Any?) throws -> VMWebSocketDaemonEndpoint? {

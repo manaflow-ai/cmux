@@ -47,6 +47,44 @@ const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const CMUXD_BINARY_PATH = "/usr/local/bin/cmuxd-remote";
 const CMUXD_PROCESS_NAME = "cmuxd-ws";
+const SMART_SLEEP_PATH = "/usr/local/bin/cmux-smart-sleep";
+const SMART_SLEEP_PROCESS_NAME = "cmux-keepalive";
+// Blaxel keeps a sandbox awake while any keepAlive process runs and freezes it ~15 s after the
+// last connection otherwise. The watcher is that keepAlive process: it stays alive while any
+// PTY shell has a foreground/background job (cmuxd child with descendants) or any client is
+// connected to :7777, and exits after a sustained idle grace so the sandbox drops to standby
+// ($0, memory snapshot, ~25 ms wake). Every attach re-arms it, so "wake" is just reconnecting.
+const SMART_SLEEP_SCRIPT = `#!/bin/sh
+# cmux smart sleep: hold the sandbox awake while work is running or a client is attached.
+PORT_HEX=1E61 # 7777
+IDLE_LIMIT=\${CMUX_SMART_SLEEP_IDLE_CHECKS:-8}
+INTERVAL=\${CMUX_SMART_SLEEP_INTERVAL:-15}
+idle=0
+while true; do
+  busy=""
+  cm=$(pidof cmuxd-remote 2>/dev/null | awk '{print $1}')
+  if [ -n "$cm" ]; then
+    for c in $(pgrep -P "$cm" 2>/dev/null); do
+      if pgrep -P "$c" >/dev/null 2>&1; then busy=jobs; break; fi
+    done
+  fi
+  if [ -z "$busy" ]; then
+    if awk -v port="$PORT_HEX" '$2 ~ ":"port"$" && $4 == "01" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+      busy=conn
+    fi
+  fi
+  if [ -n "$busy" ]; then
+    idle=0
+  else
+    idle=$((idle + 1))
+    if [ "$idle" -ge "$IDLE_LIMIT" ]; then
+      echo "smart-sleep: idle for $((idle * INTERVAL))s, releasing keepAlive"
+      exit 0
+    fi
+  fi
+  sleep "$INTERVAL"
+done
+`;
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
@@ -209,16 +247,25 @@ export class BlaxelProvider implements VMProvider {
       { content: b64, permissions: "0600" },
       { timeoutMs: 180_000 },
     );
+    await blaxelFetch(
+      "PUT",
+      `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`,
+      { content: SMART_SLEEP_SCRIPT, permissions: "0755" },
+    );
     const install = await this.sandboxExec(
       sandboxUrl,
-      `base64 -d /tmp/cmuxd.b64 | gunzip > ${CMUXD_BINARY_PATH} && chmod 755 ${CMUXD_BINARY_PATH} && rm /tmp/cmuxd.b64 && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux && ${CMUXD_BINARY_PATH} version`,
+      `base64 -d /tmp/cmuxd.b64 | gunzip > ${CMUXD_BINARY_PATH} && chmod 755 ${CMUXD_BINARY_PATH} && rm /tmp/cmuxd.b64 && chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux && ${CMUXD_BINARY_PATH} version`,
     );
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `daemon install in ${name} failed: ${install.stderr || install.stdout}`);
     }
     await this.startDaemonProcess(sandboxUrl);
+    await this.startWatcherProcess(sandboxUrl);
   }
 
+  // The daemon itself is NOT keepAlive: while every shell is idle and no client is attached,
+  // nothing pins the sandbox and Blaxel freezes it (processes preserved in the memory
+  // snapshot). The smart-sleep watcher is the only keepAlive process, and it exits when idle.
   private async startDaemonProcess(sandboxUrl: string): Promise<void> {
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: CMUXD_PROCESS_NAME,
@@ -227,9 +274,18 @@ export class BlaxelProvider implements VMProvider {
         `--auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} ` +
         `--shell /bin/bash`,
       waitForCompletion: false,
-      keepAlive: true,
+      keepAlive: false,
       restartOnFailure: true,
       maxRestarts: 10,
+    });
+  }
+
+  private async startWatcherProcess(sandboxUrl: string): Promise<void> {
+    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+      name: SMART_SLEEP_PROCESS_NAME,
+      command: SMART_SLEEP_PATH,
+      waitForCompletion: false,
+      keepAlive: true,
     });
   }
 
@@ -289,8 +345,10 @@ export class BlaxelProvider implements VMProvider {
   async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
     void vmId;
     void name;
-    // Blaxel has a snapshot/fork API surface; wiring it up is deferred until the product
-    // needs branch/restore semantics on this provider.
+    // Blaxel exposes GET/POST /sandboxes/{name}/snapshots, but the API returns
+    // 403 "Sandbox snapshot/fork feature is not enabled for this workspace" on the current
+    // workspace tier (verified 2026-08-20). Wire this up once the feature is enabled; until
+    // then durability comes from standby memory snapshots (automatic) and the sandbox TTL.
     throw new NotImplementedError("blaxel", "snapshot");
   }
 
@@ -451,8 +509,18 @@ export class BlaxelProvider implements VMProvider {
       "GET",
       `${sandboxUrl}/process/${CMUXD_PROCESS_NAME}`,
     ).catch(() => null);
-    if (proc?.status === "running") return;
-    await this.startDaemonProcess(sandboxUrl);
+    if (proc?.status !== "running") {
+      await this.startDaemonProcess(sandboxUrl);
+    }
+    // Attach = user activity: re-arm the smart-sleep watcher so the sandbox stays awake while
+    // this session works, and can freeze again once it goes idle.
+    const watcher = await blaxelFetch<BlaxelProcess>(
+      "GET",
+      `${sandboxUrl}/process/${SMART_SLEEP_PROCESS_NAME}`,
+    ).catch(() => null);
+    if (watcher?.status !== "running") {
+      await this.startWatcherProcess(sandboxUrl);
+    }
   }
 
   private async readReusableRpcLease(sandboxUrl: string): Promise<ReusableRpcLease | null> {

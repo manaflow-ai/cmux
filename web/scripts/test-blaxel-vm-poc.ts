@@ -116,6 +116,17 @@ try {
 
   const status = await provider.getStatus(handle.providerVmId);
   log("status", { status });
+
+  // Smart sleep: the watcher must be the keepAlive process and the daemon must not be, so an
+  // idle sandbox can freeze to $0 while a busy one keeps running with the laptop closed.
+  const watcherCheck = await provider.exec(
+    handle.providerVmId,
+    "pgrep -f cmux-smart-sleep >/dev/null && echo watcher-running",
+  );
+  log("smart-sleep-watcher", { pass: watcherCheck.stdout.includes("watcher-running") });
+  if (!watcherCheck.stdout.includes("watcher-running")) {
+    throw new Error("smart-sleep watcher is not running after create");
+  }
 } catch (err) {
   failed = true;
   console.error("[blaxel-poc] FAIL:", err);

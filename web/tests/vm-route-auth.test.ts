@@ -155,7 +155,7 @@ const {
   VmCreateFailedError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
-const { verifyRequest } = await import("../services/vms/auth");
+const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 
@@ -171,6 +171,7 @@ afterAll(() => {
 
 beforeEach(() => {
   restoreVmEnv();
+  clearNativeAuthCacheForTests();
   getUser.mockClear();
   getUser.mockResolvedValue(null);
   authTombstoneRows = [];
