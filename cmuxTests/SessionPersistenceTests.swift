@@ -7084,6 +7084,111 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding)
     }
 
+    func testLiveShellProcessDetectedResumeBindingExpandsAbbreviatedProcessTitleSessionID() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+                processName: "livesh",
+                processPath: "/Users/example/.local/bin/livesh",
+                arguments: ["livesh (sh_4cd45028) ~/work/kong-ee"],
+                environment: ["PWD": "/Users/example/work/kong-ee"],
+                resolveSessionID: { observed in
+                    LiveShellControl.resolveSessionID(
+                        observed,
+                        in: ["sh_4cd45028154540d4a12f389ab66ae27d", "sh_561290d530344663af3f350d9dc042a0"]
+                    )
+                }
+            )
+        )
+
+        // The abbreviated title id must never reach the checkpoint: `livesh --open` treats it as a new
+        // session name and forks a fresh shell instead of reattaching the pane's real one.
+        XCTAssertEqual(binding.checkpointId, "sh_4cd45028154540d4a12f389ab66ae27d")
+        XCTAssertEqual(
+            binding.command,
+            "'/Users/example/.local/bin/livesh' '--open' 'sh_4cd45028154540d4a12f389ab66ae27d'"
+        )
+        XCTAssertEqual(binding.name, "livesh sh_4cd45028154540d4a12f389ab66ae27d")
+    }
+
+    func testLiveShellProcessDetectedResumeBindingDroppedWhenDaemonHasNoMatchingSession() {
+        let binding = SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+            processName: "livesh",
+            processPath: nil,
+            arguments: ["livesh (sh_deadbeef) ~/work/kong-ee"],
+            environment: ["PWD": "/Users/example/work/kong-ee"],
+            resolveSessionID: { observed in
+                LiveShellControl.resolveSessionID(observed, in: ["sh_4cd45028154540d4a12f389ab66ae27d"])
+            }
+        )
+
+        XCTAssertNil(binding, "A checkpoint the daemon cannot resolve would fork a new shell on restore")
+    }
+
+    func testLiveShellProcessDetectedResumeBindingDroppedWhenAbbreviationIsAmbiguous() {
+        let binding = SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+            processName: "livesh",
+            processPath: nil,
+            arguments: ["livesh (sh_4cd45028) ~/work/kong-ee"],
+            environment: ["PWD": "/Users/example/work/kong-ee"],
+            resolveSessionID: { observed in
+                LiveShellControl.resolveSessionID(
+                    observed,
+                    in: ["sh_4cd45028154540d4a12f389ab66ae27d", "sh_4cd45028999940d4a12f389ab66ae27d"]
+                )
+            }
+        )
+
+        XCTAssertNil(binding, "Two daemon sessions share the prefix, so no checkpoint is safe to pick")
+    }
+
+    func testLiveShellProcessDetectedResumeBindingKeepsObservedIDWhenDaemonUnavailable() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+                processName: "livesh",
+                processPath: nil,
+                arguments: ["livesh (sh_4cd45028) ~/work/kong-ee"],
+                environment: ["PWD": "/Users/example/work/kong-ee"],
+                resolveSessionID: { observed in
+                    LiveShellControl.resolveSessionID(observed, in: nil)
+                }
+            )
+        )
+
+        // Dropping bindings whenever liveshd is briefly unreachable would lose restore for panes whose
+        // shells are alive, so an unavailable daemon leaves the observed id untouched.
+        XCTAssertEqual(binding.checkpointId, "sh_4cd45028")
+    }
+
+    func testLiveShellSessionIDResolutionMatchesDaemonListing() {
+        let sessionIDs = [
+            "sh_4cd45028154540d4a12f389ab66ae27d",
+            "sh_561290d530344663af3f350d9dc042a0",
+            "sh_4cd45028999940d4a12f389ab66ae27d",
+        ]
+
+        XCTAssertEqual(
+            LiveShellControl.resolveSessionID("sh_561290d530344663af3f350d9dc042a0", in: sessionIDs),
+            .resolved("sh_561290d530344663af3f350d9dc042a0")
+        )
+        XCTAssertEqual(
+            LiveShellControl.resolveSessionID("sh_561290d5", in: sessionIDs),
+            .resolved("sh_561290d530344663af3f350d9dc042a0")
+        )
+        XCTAssertEqual(LiveShellControl.resolveSessionID("sh_4cd45028", in: sessionIDs), .ambiguous)
+        XCTAssertEqual(LiveShellControl.resolveSessionID("sh_00000000", in: sessionIDs), .notFound)
+        XCTAssertEqual(LiveShellControl.resolveSessionID("sh_561290d5", in: nil), .unavailable)
+    }
+
+    func testLiveShellEmptyDaemonListingIsNotAuthoritative() {
+        // An empty listing cannot distinguish "no shells" from "liveshctl said nothing useful"; taking
+        // it as authoritative would resolve every id to .notFound and wipe every persisted binding.
+        XCTAssertNil(LiveShellControl.authoritativeSessionIDs([]))
+        XCTAssertEqual(
+            LiveShellControl.authoritativeSessionIDs(["sh_4cd45028154540d4a12f389ab66ae27d"]),
+            ["sh_4cd45028154540d4a12f389ab66ae27d"]
+        )
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

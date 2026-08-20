@@ -26,6 +26,42 @@ enum LiveShellStatus: String, Codable, Equatable, Hashable, Sendable {
     case lost = "Lost"
 }
 
+/// Outcome of mapping an observed livesh session id onto the daemon's authoritative id.
+///
+/// livesh abbreviates the session id in its own process title (`livesh (sh_<8 hex>) <cwd>`), so an
+/// id scraped from that title is a display value, never a durable key. Handing an abbreviated id
+/// back to `livesh --open` does not reattach: livesh silently creates a NEW daemon session, which
+/// is how a restored pane loses its shell and orphans the original one across a cmux restart.
+/// Observed ids are therefore resolved against the daemon before being persisted as a resume
+/// checkpoint.
+enum LiveShellSessionIDResolution: Equatable, Sendable {
+    /// Exactly one daemon session id starts with the observed value.
+    case resolved(String)
+    /// The daemon could not be consulted, so callers keep the observed id unchanged.
+    case unavailable
+    /// The daemon reported no session for the observed id.
+    case notFound
+    /// Several daemon sessions share the observed prefix, so no id can be chosen safely.
+    case ambiguous
+}
+
+/// Consults the livesh daemon at most once, then answers every id from that one snapshot.
+///
+/// Process-detection scans run on a timer and walk many panes per pass, so the listing is fetched
+/// lazily — only once a livesh bridge is actually detected — and reused for the rest of the pass.
+final class LiveShellSessionIDCache {
+    private var sessionIDs: [String]?
+    private var didFetch = false
+
+    func resolve(_ observedSessionID: String) -> LiveShellSessionIDResolution {
+        if !didFetch {
+            didFetch = true
+            sessionIDs = LiveShellControl.listSessionIDsSynchronously()
+        }
+        return LiveShellControl.resolveSessionID(observedSessionID, in: sessionIDs)
+    }
+}
+
 /// Thin async wrapper around the `liveshctl` CLI. All calls are off-main and tolerate
 /// the daemon being unavailable.
 enum LiveShellControl {
@@ -72,6 +108,67 @@ enum LiveShellControl {
         case .nonZero(let code, let stderr):
             throw LiveShellControlError.nonZeroExit(code: code, stderr: stderr)
         }
+    }
+
+    /// Synchronously reads the daemon's full session ids, or `nil` when no usable listing came back.
+    ///
+    /// Process-detection scanning is synchronous, so this blocks instead of hopping through the
+    /// async `list()`. stderr is discarded and stdout is drained before `waitUntilExit()`, so a
+    /// listing larger than the pipe buffer cannot deadlock.
+    static func listSessionIDsSynchronously() -> [String]? {
+        guard let executable = LiveShellSettings.resolvedLiveshctlExecutable() else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["list", "--json"]
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            logger.error("livesh id listing failed to launch: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0, !stdoutData.isEmpty else { return nil }
+        do {
+            let decoded = try JSONDecoder()
+                .decode([LiveShellSessionInfo].self, from: stdoutData)
+                .map(\.id)
+            return authoritativeSessionIDs(decoded)
+        } catch {
+            logger.error("decode livesh id listing failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Treats only a non-empty listing as authoritative.
+    ///
+    /// An empty listing cannot distinguish "the daemon owns no shells" from "liveshctl answered with
+    /// nothing useful". Accepting it would resolve every observed id to `.notFound` and drop EVERY
+    /// livesh binding from the persisted snapshot, losing restore for panes whose shells are alive —
+    /// strictly worse than carrying a possibly stale id. Only a non-empty listing may justify
+    /// `.notFound`.
+    static func authoritativeSessionIDs(_ decoded: [String]) -> [String]? {
+        decoded.isEmpty ? nil : decoded
+    }
+
+    /// Maps an observed session id onto the daemon's authoritative full id.
+    ///
+    /// An exact hit wins outright; otherwise the observed value is treated as the prefix livesh
+    /// renders in its process title and must select exactly one daemon session.
+    static func resolveSessionID(
+        _ observedSessionID: String,
+        in sessionIDs: [String]?
+    ) -> LiveShellSessionIDResolution {
+        guard let sessionIDs else { return .unavailable }
+        if sessionIDs.contains(observedSessionID) { return .resolved(observedSessionID) }
+        let matches = sessionIDs.filter { $0.hasPrefix(observedSessionID) }
+        guard let match = matches.first else { return .notFound }
+        guard matches.count == 1 else { return .ambiguous }
+        return .resolved(match)
     }
 
     static func kill(sessionId: String) async throws {

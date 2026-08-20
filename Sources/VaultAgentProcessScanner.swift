@@ -658,6 +658,9 @@ extension SurfaceResumeBindingIndex {
         // must not overwrite it (mirrors §4 of cmux-livesh.md — livesh holds the resumable shell
         // id; tmux session names live inside that shell and would be lost on cmux restart).
         var liveshClaimedPanels = Set<PanelKey>()
+        // One daemon listing per scan pass, fetched lazily on the first detected livesh bridge, so
+        // an abbreviated process-title id can never land in a persisted resume checkpoint.
+        let liveShellSessionIDCache = LiveShellSessionIDCache()
 
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
@@ -672,7 +675,8 @@ extension SurfaceResumeBindingIndex {
                 processPath: process.path,
                 arguments: processArguments.arguments,
                 environment: processArguments.environment,
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                resolveSessionID: liveShellSessionIDCache.resolve
             ) {
                 resolved[panelKey] = (binding: liveshBinding, updatedAt: capturedAt)
                 liveshClaimedPanels.insert(panelKey)
@@ -715,14 +719,16 @@ extension SurfaceResumeBindingIndex {
         processPath: String?,
         arguments: [String],
         environment: [String: String],
-        capturedAt: TimeInterval = 1_777_777_777
+        capturedAt: TimeInterval = 1_777_777_777,
+        resolveSessionID: (String) -> LiveShellSessionIDResolution = { _ in .unavailable }
     ) -> SurfaceResumeBindingSnapshot? {
         LiveShellResumeParser.binding(
             processName: processName,
             processPath: processPath,
             arguments: arguments,
             environment: environment,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            resolveSessionID: resolveSessionID
         )
     }
 }

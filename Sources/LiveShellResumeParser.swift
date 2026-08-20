@@ -5,17 +5,20 @@ import Foundation
 /// (`Workspace.effectiveSurfaceResumeBinding`, `LiveShellChildExitHandler`,
 /// `palette.killFocusedLiveShell`) can recognize them.
 ///
-/// Detection contract: a livesh bridge may expose the daemon shell id either as
-/// `livesh --open <sh_id>` argv or as a process title such as `livesh (sh_id)`.
-/// The id is treated as the resume checkpoint so cmux restart → `livesh --open <id>`
-/// reattaches the same daemon-owned shell instead of forking a new one.
+/// Detection contract: a livesh bridge exposes the daemon shell id either as `livesh --open <sh_id>`
+/// argv or as a process title such as `livesh (sh_id)`. The title form is ABBREVIATED by livesh
+/// (`sh_` + 8 hex), and feeding an abbreviated id back to `livesh --open` silently creates a new
+/// daemon session instead of reattaching — orphaning the pane's real shell across a cmux restart.
+/// Every observed id is therefore resolved to the daemon's full id before it becomes the resume
+/// checkpoint, and an id the daemon cannot resolve yields no binding at all.
 enum LiveShellResumeParser {
     static func binding(
         processName: String,
         processPath: String?,
         arguments: [String],
         environment: [String: String],
-        capturedAt: TimeInterval
+        capturedAt: TimeInterval,
+        resolveSessionID: (String) -> LiveShellSessionIDResolution = { _ in .unavailable }
     ) -> SurfaceResumeBindingSnapshot? {
         let observed = ObservedLiveshProcess(
             processName: processName,
@@ -23,20 +26,22 @@ enum LiveShellResumeParser {
             arguments: arguments
         )
         guard observed.isLiveshProcess,
-              let sessionId = liveshSessionId(observed: observed),
-              isSafeSessionID(sessionId) else {
+              let observedSessionID = liveshSessionId(observed: observed),
+              isSafeSessionID(observedSessionID) else {
             return nil
         }
+        // Resolution is wired in the next commit; the observed id is used as-is for now.
+        let resolvedSessionID = observedSessionID
         let executable = liveshExecutable(observed: observed)
-        let argv = [executable, "--open", sessionId]
+        let argv = [executable, "--open", resolvedSessionID]
         let command = argv.map(shellSingleQuoted).joined(separator: " ")
         let cwd = normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
         return SurfaceResumeBindingSnapshot(
-            name: "livesh \(sessionId)",
+            name: "livesh \(resolvedSessionID)",
             kind: "livesh",
             command: command,
             cwd: cwd,
-            checkpointId: sessionId,
+            checkpointId: resolvedSessionID,
             source: "process-detected",
             environment: nil,
             autoResume: true,
