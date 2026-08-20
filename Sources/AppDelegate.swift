@@ -1142,6 +1142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isAwaitingTerminateCleanup = false
     // True while the cmux-tui daemon session is being stopped before quit.
     private var isAwaitingTuiSessionStop = false
+    // Set when the user chose "Stop Sessions and Quit" in the shortcut-path
+    // dialog; consumed by the terminate entrypoint it hands off to.
+    private var pendingTuiSessionStopOnTerminate = false
     enum TerminateCleanupPhase: Equatable, Sendable {
         case ownedRuntimeCleanup
         case freshSnapshot
@@ -2147,12 +2150,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         presenter.present()
     }
 
-    /// cmux-tui terminal-backend spike: keep-vs-stop dialog shown from
-    /// `applicationShouldTerminate` when the daemon owns live terminals. It
-    /// reuses the quit-confirmation presenter slot so re-entrant terminate
-    /// requests and repeated Cmd+Q presses join this dialog instead of
-    /// stacking a second one.
-    private func presentTuiSessionQuitAlert() {
+    /// cmux-tui terminal-backend spike: keep-vs-stop dialog shown when the
+    /// daemon owns live terminals. It reuses the quit-confirmation presenter
+    /// slot so re-entrant terminate requests and repeated Cmd+Q presses join
+    /// this dialog instead of stacking a second one. Like the generic quit
+    /// warning, the shortcut path presents it BEFORE calling terminate
+    /// (`ownsTerminateRequest: false`); calling `NSApp.terminate` from inside
+    /// a socket command's main-queue drain would deadlock `_shouldTerminate`,
+    /// whose terminate reply is itself a main-queue task.
+    private func presentTuiSessionQuitAlert(
+        ownsTerminateRequest: Bool,
+        onCancel: (() -> Void)?
+    ) {
         guard activeQuitConfirmationAlertPresenter == nil else { return }
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -2180,53 +2189,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             self.activeQuitConfirmationAlertPresenter = nil
             self.activeQuitConfirmationOwnsTerminateRequest = false
-            self.handleTuiSessionQuitResponse(response)
+            self.handleTuiSessionQuitResponse(response, ownsTerminateRequest: ownsTerminateRequest)
         }
-        activeQuitConfirmationOwnsTerminateRequest = true
+        if let onCancel {
+            presenter.joinCancellationAction(onCancel)
+        }
+        activeQuitConfirmationOwnsTerminateRequest = ownsTerminateRequest
         activeQuitConfirmationAlertPresenter = presenter
         presenter.present()
     }
 
-    private func handleTuiSessionQuitResponse(_ response: NSApplication.ModalResponse) {
+    private func handleTuiSessionQuitResponse(
+        _ response: NSApplication.ModalResponse,
+        ownsTerminateRequest: Bool
+    ) {
         switch response {
-        case .alertFirstButtonReturn:
+        case .alertFirstButtonReturn, .alertSecondButtonReturn:
+            let stopSessions = response == .alertSecondButtonReturn
             StartupBreadcrumbLog.append(
                 "appDelegate.shouldTerminate.tuiSessionPrompt.reply",
-                fields: ["choice": "keep"]
+                fields: ["choice": stopSessions ? "stop" : "keep"]
             )
-            confirmTerminationAfterTuiSessionDecision(reason: "tuiKeepSessions", stopSessions: false)
-        case .alertSecondButtonReturn:
-            StartupBreadcrumbLog.append(
-                "appDelegate.shouldTerminate.tuiSessionPrompt.reply",
-                fields: ["choice": "stop"]
-            )
-            confirmTerminationAfterTuiSessionDecision(reason: "tuiStopSessions", stopSessions: true)
+            isQuitWarningConfirmed = true
+            pendingTuiSessionStopOnTerminate = stopSessions
+            let reason = stopSessions ? "tuiStopSessions" : "tuiKeepSessions"
+            guard ownsTerminateRequest else {
+                // Shortcut path: the button click arrives on the normal event
+                // loop, so calling terminate here is safe; the terminate
+                // entrypoint sees the confirmed quit and the pending stop.
+                NSApp.terminate(nil)
+                return
+            }
+            prepareForConfirmedAppTermination()
+            closeAllWebInspectorsBeforeAppTeardown()
+            if beginTuiSessionStopBeforeTerminateIfNeeded(reason: reason) { return }
+            if deferTerminateForOwnedCleanupAndFreshSnapshot(reason: reason) { return }
+            terminationWatchdog.arm()
+            replyToTerminateOnce(true)
         default:
-            // Cancel: reset so the next quit attempt can prompt again.
-            isTerminatingApp = false
-            clearMarkedRemoteTmuxKills()
+            // Cancel: reset so the next quit attempt can prompt again. The
+            // presenter runs any joined cancellation action itself.
+            pendingTuiSessionStopOnTerminate = false
             StartupBreadcrumbLog.append(
                 "appDelegate.shouldTerminate.tuiSessionPrompt.reply",
                 fields: ["choice": "cancel"]
             )
+            guard ownsTerminateRequest else { return }
+            isTerminatingApp = false
+            clearMarkedRemoteTmuxKills()
             replyToTerminateOnce(false)
         }
     }
 
-    private func confirmTerminationAfterTuiSessionDecision(reason: String, stopSessions: Bool) {
-        prepareForConfirmedAppTermination()
-        isQuitWarningConfirmed = true
-        closeAllWebInspectorsBeforeAppTeardown()
-        guard stopSessions else {
-            if deferTerminateForOwnedCleanupAndFreshSnapshot(reason: reason) { return }
-            terminationWatchdog.arm()
-            replyToTerminateOnce(true)
-            return
-        }
-        // Stop is asynchronous CLI work (close every daemon terminal, then
-        // stop the server); the terminate request already returned
-        // .terminateLater, and `isAwaitingTuiSessionStop` keeps re-entrant
-        // terminate requests deferred until this owned work replies.
+    /// Consumes a pending "Stop Sessions and Quit" choice: closes every
+    /// daemon terminal and stops the server asynchronously, then finishes the
+    /// confirmed-termination flow and replies to AppKit. Returns true when it
+    /// took ownership of the terminate reply.
+    private func beginTuiSessionStopBeforeTerminateIfNeeded(reason: String) -> Bool {
+        guard pendingTuiSessionStopOnTerminate else { return false }
+        pendingTuiSessionStopOnTerminate = false
         isAwaitingTuiSessionStop = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -2236,6 +2257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.terminationWatchdog.arm()
             self.replyToTerminateOnce(true)
         }
+        return true
     }
 
     private func handleApplicationTerminateQuitConfirmationResponse(
@@ -2283,7 +2305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TuiTerminalAttachBridge.shared.shouldPromptToKeepDaemonSessionsOnQuit(
             quitAlreadyConfirmed: isQuitWarningConfirmed
         ) {
-            presentTuiSessionQuitAlert()
+            presentTuiSessionQuitAlert(ownsTerminateRequest: true, onCancel: nil)
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.tuiSessionPrompt")
             return .terminateLater
         }
@@ -2319,6 +2341,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 reason = "devBuild"
             } else {
                 reason = "policy"
+            }
+            // A "Stop Sessions and Quit" choice made in the shortcut-path
+            // dialog is owned asynchronous work; it replies to this request.
+            if beginTuiSessionStopBeforeTerminateIfNeeded(reason: reason) {
+                return .terminateLater
             }
             // Finish Simulator rollback and any explicitly marked remote-session
             // kills before AppKit begins synchronous process teardown.
@@ -13422,18 +13449,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        // cmux-tui terminal-backend spike: the terminate entrypoint shows the
-        // keep-vs-stop dialog, which includes Cancel. Showing the generic
-        // warning here as well would stack two dialogs on one quit.
+        // cmux-tui terminal-backend spike: show the keep-vs-stop dialog in
+        // place of the generic warning (it includes Cancel, so it IS the quit
+        // confirmation; two dialogs on one quit is never acceptable). Present
+        // before terminate, exactly like the generic dialog below: calling
+        // NSApp.terminate from a socket command's main-queue drain would
+        // deadlock _shouldTerminate, whose reply is itself a main-queue task.
         if TuiTerminalAttachBridge.shared.shouldPromptToKeepDaemonSessionsOnQuit(
             quitAlreadyConfirmed: false
         ) {
-            NSApp.terminate(nil)
-            // applicationShouldTerminate presented the dialog synchronously
-            // inside terminate(); join any sole-terminal recovery action.
-            if let onCancel {
-                activeQuitConfirmationAlertPresenter?.joinCancellationAction(onCancel)
-            }
+            presentTuiSessionQuitAlert(ownsTerminateRequest: false, onCancel: onCancel)
             return true
         }
         if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
