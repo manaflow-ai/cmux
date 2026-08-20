@@ -13294,6 +13294,23 @@
         }
       }
     },
+    "mobile.taskComposer.warning.noConnectedMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac is connected. Open cmux on a Mac to start this task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続されているMacがありません。タスクを開始するには、Macでcmuxを開いてください。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.workspace": {
       "extractionState": "manual",
       "localizations": {

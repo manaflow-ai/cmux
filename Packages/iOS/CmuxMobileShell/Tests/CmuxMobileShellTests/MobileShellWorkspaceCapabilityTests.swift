@@ -259,6 +259,18 @@ import Testing
         #expect(!incapable.store.supportsTaskComposer)
     }
 
+    @Test func hasAnyConnectedMacTracksForegroundSession() async throws {
+        let offline = MobileShellComposite.preview()
+        #expect(!offline.hasAnyConnectedMac)
+
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+        ])
+        #expect(connected.store.hasAnyConnectedMac)
+    }
+
     @Test func macScopedMutationsSurviveTicketExpiryOnAccountAuthHosts() async throws {
         let connected = try await connectedStore(
             capabilities: [
