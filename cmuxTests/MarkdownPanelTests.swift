@@ -11,6 +11,14 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    private static func drainMainRunLoopTurn() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
+
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
         let theme = MarkdownWebTheme.resolve(
             backgroundColor: NSColor(
@@ -414,6 +422,55 @@ final class MarkdownPanelTests: XCTestCase {
         discardedWebView.onPointerDown?()
 
         XCTAssertEqual(discardedPointerDownCount, 0)
+    }
+
+    func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
+        let frame = NSRect(x: 0, y: 0, width: 640, height: 360)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let webView = MarkdownWebView(
+            frame: frame,
+            configuration: WKWebViewConfiguration()
+        )
+        var refreshCount = 0
+        webView.renderingRefreshProbeForTesting = {
+            refreshCount += 1
+        }
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.renderingRefreshProbeForTesting = nil
+            webView.removeFromSuperview()
+            window.close()
+        }
+
+        // Reparenting the view is the same lifecycle transition that occurs
+        // when Bonsplit moves a tab between columns. The host callback must
+        // not synchronously enter WebKit's layout/display subtree: doing so
+        // re-enters the surrounding NSHostingView layout pass on macOS 15.
+        webView.removeFromSuperview()
+        refreshCount = 0
+        window.contentView = webView
+
+        XCTAssertEqual(
+            refreshCount,
+            0,
+            "A markdown viewer re-entry must not flush WebKit while the host layout callback is active"
+        )
+
+        // The repair still has to happen once the originating callback has
+        // returned. A run-loop turn is the production scheduling boundary; no
+        // wall-clock delay is needed.
+        await Self.drainMainRunLoopTurn()
+        XCTAssertEqual(
+            refreshCount,
+            1,
+            "A reattached markdown viewer must repaint on the deferred turn"
+        )
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {

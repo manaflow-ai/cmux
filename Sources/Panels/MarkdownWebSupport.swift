@@ -31,6 +31,14 @@ final class MarkdownWebView: WKWebView {
     /// out of the window (e.g. a pane drag re-parented the hosting views).
     var onReenterWindow: (() -> Void)?
 
+#if DEBUG
+    /// Test-only observation point for the WebKit repaint pass. The callback
+    /// is intentionally attached to the actual subtree refresh rather than to
+    /// a scheduler so tests can distinguish an inline host re-entry flush from
+    /// the deferred repair turn.
+    var renderingRefreshProbeForTesting: (() -> Void)?
+#endif
+
     private var needsRenderingReattach = false
     private var editableFocusStateConfirmed = false
     private var editableElementFocused = false
@@ -167,6 +175,9 @@ final class MarkdownWebView: WKWebView {
         needsLayout = true
         needsDisplay = true
         setNeedsDisplay(bounds)
+#if DEBUG
+        renderingRefreshProbeForTesting?()
+#endif
         layoutSubtreeIfNeeded()
         displayIfNeeded()
     }
