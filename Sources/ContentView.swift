@@ -1285,20 +1285,19 @@ struct ContentView: View {
         switch handle {
         case .divider:
             return (
-                currentWidth: sidebarWidth,
-                captureStart: { sidebarDragStartWidth = sidebarWidth },
+                currentWidth: sidebarLayout.effectiveWidth,
+                captureStart: { sidebarDragStartWidth = sidebarLayout.effectiveWidth },
                 updateWidth: { translation in
-                    let startWidth = sidebarDragStartWidth ?? sidebarWidth
-                    let nextWidth = Self.clampedSidebarWidth(
+                    let startWidth = sidebarDragStartWidth ?? sidebarLayout.effectiveWidth
+                    applySidebarPrimaryColumnDrag(
                         startWidth + translation,
-                        maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
-                        minimumWidth: minimumSidebarWidth
+                        availableWidth: availableWidth
                     )
-                    withTransaction(Transaction(animation: nil)) {
-                        sidebarWidth = nextWidth
-                    }
                 },
-                finishDrag: { sidebarDragStartWidth = nil }
+                finishDrag: {
+                    sidebarDragStartWidth = nil
+                    sidebarState.persistedPrimaryColumnMode = sidebarLayout.primaryColumnMode
+                }
             )
         case .explorerDivider:
             return (
@@ -1321,6 +1320,101 @@ struct ContentView: View {
                 }
             )
         }
+    }
+
+    /// One easing for every column grow/shrink so the sidebar reads as one
+    /// mechanism.
+    static let sidebarColumnModeAnimation: Animation = .easeInOut(duration: 0.18)
+
+    private func sidebarMachinesColumnProfile(availableWidth: CGFloat? = nil) -> SidebarColumnWidthProfile {
+        let base = SidebarColumnWidthProfile.machines
+        return SidebarColumnWidthProfile(
+            railWidth: base.railWidth,
+            minimumRegularWidth: base.minimumRegularWidth,
+            maximumRegularWidth: min(
+                base.maximumRegularWidth,
+                maxSidebarLeadingColumnWidth(availableWidth: availableWidth)
+            ),
+            defaultRegularWidth: base.defaultRegularWidth
+        )
+    }
+
+    private func sidebarPrimaryColumnProfile(availableWidth: CGFloat? = nil) -> SidebarColumnWidthProfile {
+        SidebarColumnWidthProfile.workspaces(
+            minimumRegularWidth: minimumSidebarWidth,
+            maximumRegularWidth: maxSidebarWidth(availableWidth: availableWidth)
+        )
+    }
+
+    /// Live divider drag for the workspaces column. Regular-width ticks write
+    /// without animation (direct manipulation); crossing the snap threshold
+    /// animates the jump onto/off the icon rail.
+    private func applySidebarPrimaryColumnDrag(
+        _ rawWidth: CGFloat,
+        availableWidth: CGFloat? = nil
+    ) {
+        let resolution = SidebarColumnDisplayPolicy.resolve(
+            dragWidth: rawWidth,
+            currentMode: sidebarLayout.primaryColumnMode,
+            profile: sidebarPrimaryColumnProfile(availableWidth: availableWidth)
+        )
+        if resolution.didChangeMode {
+            withAnimation(Self.sidebarColumnModeAnimation) {
+                sidebarLayout.primaryColumnMode = resolution.mode
+                if let regularWidth = resolution.regularWidth {
+                    sidebarLayout.width = regularWidth
+                }
+            }
+            sidebarState.persistedPrimaryColumnMode = resolution.mode
+        } else if let regularWidth = resolution.regularWidth {
+            withTransaction(Transaction(animation: nil)) {
+                sidebarWidth = regularWidth
+            }
+        }
+    }
+
+    /// Live divider drag for the machines column (same contract as
+    /// `applySidebarPrimaryColumnDrag`).
+    private func applySidebarLeadingColumnDrag(_ rawWidth: CGFloat) {
+        beginSidebarColumnResize()
+        let resolution = SidebarColumnDisplayPolicy.resolve(
+            dragWidth: rawWidth,
+            currentMode: sidebarLayout.leadingColumnMode,
+            profile: sidebarMachinesColumnProfile()
+        )
+        if resolution.didChangeMode {
+            withAnimation(Self.sidebarColumnModeAnimation) {
+                sidebarLayout.leadingColumnMode = resolution.mode
+                if let regularWidth = resolution.regularWidth {
+                    sidebarLayout.leadingColumnWidth = regularWidth
+                }
+            }
+            sidebarState.persistedLeadingColumnMode = resolution.mode
+        } else if let regularWidth = resolution.regularWidth {
+            withTransaction(Transaction(animation: nil)) {
+                sidebarLayout.leadingColumnWidth = regularWidth
+            }
+        }
+    }
+
+    private func endSidebarLeadingColumnDrag() {
+        endSidebarColumnResize()
+        sidebarState.persistedLeadingColumnWidth = sidebarLayout.leadingColumnWidth
+        sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
+    }
+
+    /// Double-click on the machines divider: toggle between the icon rail and
+    /// the remembered regular width. Terminal PTY resizes are deferred for
+    /// the duration of the animation, matching interactive drags.
+    private func toggleSidebarLeadingColumnMode() {
+        beginSidebarColumnResize()
+        withAnimation(Self.sidebarColumnModeAnimation) {
+            sidebarLayout.leadingColumnMode =
+                sidebarLayout.leadingColumnMode == .icons ? .regular : .icons
+        } completion: {
+            endSidebarColumnResize()
+        }
+        sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
     }
 
     private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
@@ -1354,7 +1448,7 @@ struct ContentView: View {
             return configuredMaximum
         }
         let availableAfterPrimaryAndTerminal = resolvedAvailableWidth
-            - sidebarWidth
+            - sidebarLayout.effectiveWidth
             - Self.minimumTerminalWidthWithLeftSidebar
         return max(
             minimumSidebarLeadingColumnWidth,
@@ -1434,11 +1528,8 @@ struct ContentView: View {
         _ candidate: CGFloat,
         availableWidth: CGFloat? = nil
     ) -> CGFloat {
-        CmuxSidebarColumns<EmptyView, EmptyView>.clampedWidth(
-            candidate,
-            minimum: minimumSidebarLeadingColumnWidth,
-            maximum: maxSidebarLeadingColumnWidth(availableWidth: availableWidth)
-        )
+        sidebarMachinesColumnProfile(availableWidth: availableWidth)
+            .clampedRegularWidth(candidate)
     }
 
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
@@ -1860,38 +1951,35 @@ struct ContentView: View {
     }
 
     private var sidebarColumnsView: some View {
-        SidebarColumnWidthsReader(layout: sidebarLayout) { _, primaryWidth, _ in
-            CmuxSidebarColumns(
-                leadingWidth: Binding(
-                    get: { sidebarLayout.leadingColumnWidth },
-                    set: { candidate in
-                        sidebarLayout.leadingColumnWidth = normalizedSidebarLeadingColumnWidth(candidate)
-                    }
-                ),
-                trailingWidth: primaryWidth,
-                childColumn: tabManager.selectedSidebarChildColumn,
-                minimumLeadingWidth: minimumSidebarLeadingColumnWidth,
-                maximumLeadingWidth: maxSidebarLeadingColumnWidth(),
-                dividerAccessibilityIdentifier: "SidebarColumnResizer",
-                onResizeBegan: beginSidebarColumnResize,
-                onResizeEnded: endSidebarColumnResize
-            ) {
-                ZStack(alignment: .bottomLeading) {
-                    SidebarCreationContextColumn()
-                    if sidebarState.isVisible {
-                        SidebarFooter(
-                            updateViewModel: updateViewModel,
-                            fileExplorerState: fileExplorerState,
-                            modifierKeyMonitor: sidebarModifierKeyMonitor,
-                            onSendFeedback: presentFeedbackComposer
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+        SidebarColumnWidthsReader(layout: sidebarLayout) { leadingWidth, primaryWidth, totalWidth in
+            ZStack(alignment: .bottomLeading) {
+                SidebarColumnsContainer(
+                    leadingWidth: leadingWidth,
+                    trailingWidth: primaryWidth,
+                    trailingIdentity: tabManager.selectedSidebarChildColumn.id,
+                    onLeadingDrag: applySidebarLeadingColumnDrag,
+                    onLeadingDragEnded: endSidebarLeadingColumnDrag,
+                    onToggleLeadingMode: toggleSidebarLeadingColumnMode
+                ) {
+                    SidebarMachineColumnView(displayMode: sidebarLayout.leadingColumnMode)
+                } trailing: {
+                    sidebarChildColumn(tabManager.selectedSidebarChildColumn)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } children: { childColumn in
-                sidebarChildColumn(childColumn)
+
+                // The footer spans the whole region (not one column) so both
+                // columns stay free to shrink to their icon rails.
+                if sidebarState.isVisible {
+                    SidebarFooter(
+                        updateViewModel: updateViewModel,
+                        fileExplorerState: fileExplorerState,
+                        modifierKeyMonitor: sidebarModifierKeyMonitor,
+                        onSendFeedback: presentFeedbackComposer
+                    )
+                    .frame(width: max(0, totalWidth), alignment: .leading)
+                    .clipped()
+                }
             }
+            .frame(maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
@@ -2876,6 +2964,12 @@ struct ContentView: View {
             ) > 0.5 {
                 sidebarState.persistedLeadingColumnWidth = restoredLeadingColumnWidth
             }
+            if sidebarLayout.leadingColumnMode != sidebarState.persistedLeadingColumnMode {
+                sidebarLayout.leadingColumnMode = sidebarState.persistedLeadingColumnMode
+            }
+            if sidebarLayout.primaryColumnMode != sidebarState.persistedPrimaryColumnMode {
+                sidebarLayout.primaryColumnMode = sidebarState.persistedPrimaryColumnMode
+            }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -3549,6 +3643,20 @@ struct ContentView: View {
             guard !isResizerDragging else { return }
             if abs(sidebarLeadingColumnWidth - sanitized) > 0.5 {
                 sidebarLeadingColumnWidth = sanitized
+            }
+        })
+
+        view = AnyView(view.onChange(of: sidebarState.persistedLeadingColumnMode) { newValue in
+            guard !isResizerDragging, sidebarLayout.leadingColumnMode != newValue else { return }
+            withAnimation(Self.sidebarColumnModeAnimation) {
+                sidebarLayout.leadingColumnMode = newValue
+            }
+        })
+
+        view = AnyView(view.onChange(of: sidebarState.persistedPrimaryColumnMode) { newValue in
+            guard !isResizerDragging, sidebarLayout.primaryColumnMode != newValue else { return }
+            withAnimation(Self.sidebarColumnModeAnimation) {
+                sidebarLayout.primaryColumnMode = newValue
             }
         })
 
