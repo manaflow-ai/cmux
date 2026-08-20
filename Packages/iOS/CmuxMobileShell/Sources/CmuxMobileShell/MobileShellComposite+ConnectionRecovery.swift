@@ -192,6 +192,96 @@ extension MobileShellComposite {
         )
     }
 
+    /// Routes a dead terminal-event-stream recovery through a backoff gate so a
+    /// subscription that keeps ending — or being rejected — before delivering
+    /// any event cannot spin the reconnect loop (issue #10482).
+    ///
+    /// A stream that proved itself alive (delivered at least one event) is a
+    /// genuine mid-session drop and recovers immediately. A stream that ended
+    /// barren recovers immediately the first time — a transient blip should
+    /// heal fast — but each subsequent barren stream is redialed on an
+    /// exponential backoff instead of restarting the same failing stream at
+    /// scheduler speed.
+    func recoverDeadTerminalEventStream(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient,
+        streamDeliveredEvent: Bool
+    ) {
+        if streamDeliveredEvent {
+            deadTerminalEventStreamRedialBackoff.reset()
+            cancelDeadTerminalEventStreamRedial()
+            recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+            return
+        }
+        guard let delay = deadTerminalEventStreamRedialBackoff.nextRedialDelay() else {
+            // A delayed redial is already pending; coalesce into it instead of
+            // stacking another dial.
+            return
+        }
+        guard delay > .zero else {
+            recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+            return
+        }
+        scheduleDeadTerminalEventStreamRedial(
+            after: delay,
+            trigger: trigger,
+            expectedClient: expectedClient
+        )
+    }
+
+    private func scheduleDeadTerminalEventStreamRedial(
+        after delay: Duration,
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        // Hold the session visibly reconnecting (once) during the wait so the
+        // status pill does not flip on every barren stream end.
+        if connectionState == .connected { markMacConnectionReconnecting() }
+        MobileDebugLog.anchormux(
+            "connection.recovery dead-stream backoff trigger=\(trigger.description) "
+                + "delay=\(delay) barren=\(deadTerminalEventStreamRedialBackoff.consecutiveBarrenRedials)"
+        )
+        let clock = controlPlaneSchedulingClock
+        let generation = UUID()
+        deadTerminalEventStreamRedialTaskGeneration = generation
+        deadTerminalEventStreamRedialTask?.cancel()
+        deadTerminalEventStreamRedialTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.deadTerminalEventStreamRedialTaskGeneration == generation else {
+                return
+            }
+            self.deadTerminalEventStreamRedialTask = nil
+            self.deadTerminalEventStreamRedialBackoff.redialFired()
+            guard self.remoteClient === expectedClient,
+                  self.connectionState == .connected else {
+                return
+            }
+            self.recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+        }
+    }
+
+    /// Cancel a pending backoff redial (foreground resume, teardown, or a
+    /// stream that proved itself alive supersede it).
+    func cancelDeadTerminalEventStreamRedial() {
+        deadTerminalEventStreamRedialTaskGeneration = UUID()
+        deadTerminalEventStreamRedialTask?.cancel()
+        deadTerminalEventStreamRedialTask = nil
+    }
+
+    /// Clear the dead-stream backoff streak and cancel any pending backoff
+    /// redial. A delivered event or a fresh foreground return proves the path
+    /// can carry traffic, so the next failure should recover fast.
+    func resetDeadTerminalEventStreamBackoff() {
+        deadTerminalEventStreamRedialBackoff.reset()
+        cancelDeadTerminalEventStreamRedial()
+    }
+
     /// Replays the most recent recovery trigger that was parked while the
     /// scene was inactive. Called from `resumeForegroundRefresh()` after the
     /// foreground recovery passes, so a replay coalesces into any attempt

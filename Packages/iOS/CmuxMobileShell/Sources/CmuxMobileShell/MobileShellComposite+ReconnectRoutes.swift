@@ -431,6 +431,10 @@ extension MobileShellComposite {
         foregroundRefreshLifecycleState = .active
         foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
+        // A fresh foreground return earns a clean fast recovery: clear any
+        // dead-stream backoff accrued before backgrounding so the first probe
+        // or resync is not needlessly delayed (issue #10482).
+        resetDeadTerminalEventStreamBackoff()
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
@@ -468,6 +472,9 @@ extension MobileShellComposite {
         guard foregroundRefreshLifecycleState != .background else { return }
         foregroundRefreshLifecycleState = .background
         foregroundRefreshIsActive = false
+        // A pending dead-stream backoff redial would otherwise fire on resume
+        // with the process's frozen wall clock; foreground recovery re-drives it.
+        cancelDeadTerminalEventStreamRedial()
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()
         }

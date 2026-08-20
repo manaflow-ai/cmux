@@ -1,4 +1,30 @@
 extension MobileShellComposite {
+    /// Cancel in-flight workspace-changes summary fetches on a transient
+    /// disconnect WITHOUT discarding the last-known chips or the reuse-window
+    /// cache.
+    ///
+    /// Wiping the chips on every disconnect dropped each workspace's
+    /// `filesChanged` to zero, and the reconnect refetch restored it — that
+    /// `N -> 0 -> N` churn re-presented the files-changed hint (and re-showed
+    /// the toolbar chip) on every reconnect cycle (issue #10482). Chips for
+    /// workspaces that actually left the list are still pruned by
+    /// ``pruneWorkspaceChangesSummaryStateToForeground()`` /
+    /// ``evictWorkspaceChangesSummaryState(workspaceIDs:)`` when the workspace
+    /// list changes, and a host that stops advertising the capability clears
+    /// them through the full ``resetWorkspaceChangesState()``.
+    func suspendWorkspaceChangesSummaryFetchesPreservingChips() {
+        workspaceChangesSummaryDebounceTask?.cancel()
+        workspaceChangesSummaryDebounceTask = nil
+        workspaceChangesSummaryDebounceTaskID = nil
+        workspaceChangesSummaryFetchTask?.cancel()
+        workspaceChangesSummaryFetchTask = nil
+        workspaceChangesSummaryFetchTaskID = nil
+        workspaceChangesSummaryTrailingTask?.cancel()
+        workspaceChangesSummaryTrailingTask = nil
+        workspaceChangesSummaryTrailingTaskID = nil
+        workspaceChangesSummaryTrailingDeadline = nil
+    }
+
     func resetWorkspaceChangesState() {
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryDebounceTask = nil

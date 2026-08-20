@@ -229,7 +229,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 simulatorStreamStore?.setSimulatorStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
-                resetWorkspaceChangesState()
+                // Keep the last-known files-changed chips across a transient
+                // disconnect so a reconnect does not churn them N -> 0 -> N and
+                // re-present the changes hint on every cycle (issue #10482).
+                suspendWorkspaceChangesSummaryFetchesPreservingChips()
                 #if DEBUG
                 cancelLatencyProbe()
                 #endif
@@ -1169,6 +1172,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
     private var terminalSubscriptionStartTask: Task<Void, Never>?
+    /// Backoff gate for the dead-terminal-event-stream redial edge. A
+    /// subscription that keeps ending — or being rejected — before delivering
+    /// any event must not redial in a tight loop (issue #10482). See
+    /// ``recoverDeadTerminalEventStream(trigger:expectedClient:streamDeliveredEvent:)``.
+    var deadTerminalEventStreamRedialBackoff = MobileDeadStreamRedialBackoff()
+    var deadTerminalEventStreamRedialTask: Task<Void, Never>?
+    @ObservationIgnored var deadTerminalEventStreamRedialTaskGeneration = UUID()
     /// Subscription success is the final validation edge for a replacement
     /// connection or listener. This snapshot closes the race where an old
     /// acknowledgement arrives after a newer listener has taken ownership.
@@ -1517,6 +1527,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// full hydration window; steady-state replays (barrier follow-ups, theme
     /// resets) request none and replay as history-preserving repaints.
     var terminalMirrorHydrationNeededSurfaceIDs: Set<String>
+    /// Mounted surfaces that still hold a populated on-screen mirror across a
+    /// connection swap (reconnect/handoff). Their delivery cursor is cleared
+    /// with the old client, but the rendered scrollback survives on screen, so
+    /// their first replay after the swap should repaint the visible screen
+    /// (history-preserving) rather than re-download the entire scrollback again
+    /// — the ~20MB cellular burst per reconnect in issue #10482. A genuinely
+    /// rebuilt-blank surface still forces hydration through
+    /// ``terminalMirrorHydrationNeededSurfaceIDs``.
+    var terminalSurfacesRetainingMirrorAcrossReconnect: Set<String> = []
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
@@ -11040,6 +11059,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
+        // A connection swap clears each surface's delivery cursor below, but a
+        // mounted surface's rendered scrollback survives on screen. Remember
+        // which ones so their first post-swap replay resumes (repaints the
+        // visible screen) instead of re-downloading the whole scrollback
+        // (issue #10482). Genuinely rebuilt-blank surfaces are excluded because
+        // they carry no delivery cursor here (their mirror was wiped).
+        terminalSurfacesRetainingMirrorAcrossReconnect = Set(
+            terminalByteContinuationsBySurfaceID.keys.filter {
+                deliveredTerminalByteEndSeqBySurfaceID[$0] != nil
+                    && !terminalMirrorHydrationNeededSurfaceIDs.contains($0)
+            }
+        )
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         // Keep viewport sequences for the account lifetime. A warm peer keeps
         // its Mac-side tombstone, while a reconnected peer safely accepts a
@@ -13155,6 +13186,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 recoversConnectionOnFailure:
                     recoversConnectionOnSubscriptionFailure
             )
+            // Whether this listener generation ever delivered an event. A
+            // stream that ends without having delivered anything is "barren"
+            // and must back off before redialing (issue #10482); one that
+            // delivered proves the path is alive and recovers immediately.
+            var didDeliverEvent = false
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
@@ -13164,6 +13200,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     generation: listenerConnectionGeneration
                 ) else {
                     return
+                }
+                if !didDeliverEvent {
+                    didDeliverEvent = true
+                    // The push path carries traffic; clear any dead-stream
+                    // backoff so a later genuine drop recovers fast.
+                    self.resetDeadTerminalEventStreamBackoff()
                 }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
@@ -13238,7 +13280,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.handleTerminalEventStreamEnded(
                 listenerID: listenerID,
                 client: client,
-                recoversConnectionOnFailure: recoversEndedStream
+                recoversConnectionOnFailure: recoversEndedStream,
+                didDeliverEvent: didDeliverEvent
             )
         }
     }
@@ -13448,9 +13491,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 self.diagnosticLog?.record(DiagnosticEvent(.error))
                 if recoversConnectionOnFailure {
-                    self.recoverDeadConnection(
+                    // A rejected enable handshake never delivered an event, so
+                    // it is a barren redial: gate it so a host that keeps
+                    // rejecting the subscription cannot spin the reconnect loop.
+                    self.recoverDeadTerminalEventStream(
                         trigger: .subscriptionStartFailed,
-                        expectedClient: client
+                        expectedClient: client,
+                        streamDeliveredEvent: false
                     )
                 }
                 return
@@ -13487,7 +13534,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func handleTerminalEventStreamEnded(
         listenerID: UUID,
         client: MobileCoreRPCClient,
-        recoversConnectionOnFailure: Bool
+        recoversConnectionOnFailure: Bool,
+        didDeliverEvent: Bool
     ) {
         guard !Task.isCancelled,
               terminalEventListenerID == listenerID,
@@ -13512,16 +13560,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
-            recoverDeadConnection(
+            recoverDeadTerminalEventStream(
                 trigger: .subscriptionStartFailed,
-                expectedClient: client
+                expectedClient: client,
+                streamDeliveredEvent: didDeliverEvent
             )
             return
         }
         mobileShellLog.info("terminal event stream ended, redialing stored Mac")
         MobileDebugLog.anchormux("sync.stream_ended redialing stored Mac")
         diagnosticLog?.record(DiagnosticEvent(.streamEnded))
-        recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
+        recoverDeadTerminalEventStream(
+            trigger: .eventStreamEnded,
+            expectedClient: client,
+            streamDeliveredEvent: didDeliverEvent
+        )
     }
 
     // MARK: - Render-grid liveness watchdog
@@ -14358,8 +14411,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // destroys locally accumulated history.
                 if let self, self.usesScreenAnchoredRenderGrid {
                     params["anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    // A surface whose mirror survived a connection swap keeps
+                    // its rendered scrollback on screen, so its cleared cursor
+                    // alone must not force a full re-hydration (~20MB per
+                    // reconnect on cellular, issue #10482); repaint the visible
+                    // screen instead. A rebuilt-blank surface still hydrates.
+                    let mirrorSurvivedReconnect =
+                        self.terminalSurfacesRetainingMirrorAcrossReconnect.contains(surfaceID)
                     let needsHydration =
-                        self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
+                        (self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
+                            && !mirrorSurvivedReconnect)
                         || self.terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID)
                     params["max_scrollback_rows"] = needsHydration
                         ? MobileTerminalScrollbackPreference.resolve()
