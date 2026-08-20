@@ -162,23 +162,38 @@ struct MacComputerDetailView: View {
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
             // Tailscale Only with no authorized route for THIS computer is
-            // undialable until the Mac's pairing code is scanned once; the
-            // scan affordance lives right under the choice that requires it.
+            // undialable until the Mac's pairing code is scanned once. The
+            // choice never auto-opens the scanner; it hints the consequence
+            // and offers the scan right under the picker for when the user
+            // wants it.
             if (pendingConnectionMethod ?? selectedMethod) == .tailscale,
-               !computerHasUsableTailscaleAuthorization,
-               let showPairingScanner {
-                Button {
-                    showPairingScanner()
-                } label: {
-                    Label(
-                        L10n.string(
-                            "mobile.settings.connectionMethod.scanCode",
-                            defaultValue: "Scan Pairing Code"
-                        ),
-                        systemImage: "qrcode.viewfinder"
-                    )
+               !computerHasUsableTailscaleAuthorization {
+                Label {
+                    Text(L10n.string(
+                        "mobile.connections.tailscaleUnauthorizedWarning",
+                        defaultValue: "No authorized Tailscale route yet — this computer stays disconnected until you scan its pairing code."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
                 }
-                .accessibilityIdentifier("MobileComputerTailscaleScanButton")
+                .accessibilityIdentifier("MobileComputerTailscaleUnauthorizedWarning")
+                if let showPairingScanner {
+                    Button {
+                        showPairingScanner()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.connectionMethod.scanCode",
+                                defaultValue: "Scan Pairing Code"
+                            ),
+                            systemImage: "qrcode.viewfinder"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileComputerTailscaleScanButton")
+                }
             }
         } footer: {
             Text(connectionMethodFooterText)
@@ -234,17 +249,15 @@ struct MacComputerDetailView: View {
     }
 
     /// Persist the per-Computer method. The pending value moves the picker
-    /// immediately; the store reload reconciles it. Choosing Tailscale without
-    /// a usable grant opens the pairing-code scanner so the switch can dial.
+    /// immediately; the store reload reconciles it. Choosing Tailscale never
+    /// auto-opens the scanner — the inline warning and Scan row carry that.
     private func applyConnectionMethod(_ method: MobileConnectionMethod) {
         guard method != (pendingConnectionMethod ?? selectedMethod) else { return }
         pendingConnectionMethod = method
-        let needsScanner = method == .tailscale && !store.hasUsableTailscaleAuthorization
         Task {
             await store.setConnectionMethod(method, macDeviceID: macDeviceID, instanceTag: instanceTag)
             pendingConnectionMethod = nil
         }
-        if needsScanner { showPairingScanner?() }
     }
 
     // MARK: - Appearance editing
