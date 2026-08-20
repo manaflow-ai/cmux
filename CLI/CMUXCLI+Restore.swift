@@ -167,8 +167,12 @@ extension CMUXCLI {
         )
         guard let invocation = AgentRestorePlanner(
             executableFileResolver: AgentRestoreExecutableFileResolver(),
+            // Resolved from the session's own directory, never from wherever `cmux restore` was
+            // invoked: when the saved directory is gone the restore falls back to the invocation
+            // directory, and resolving there would pick up an unrelated project's `agents.launchers`
+            // and apply its prefix to this session's captured id.
             externalLaunchers: externalAgentLaunchers(
-                workingDirectory: effectiveWorkingDirectory ?? record.launchCommand?.workingDirectory
+                workingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory
             )
         ).invocation(
             for: request,

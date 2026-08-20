@@ -28931,12 +28931,31 @@ struct CMUXCLI {
     /// started from anywhere. Read per call, like the vault agent registry — a hook invocation is
     /// short-lived, and one config read keeps a mid-session config edit from going stale.
     func externalAgentLaunchers(workingDirectory: String?) -> AgentExternalLauncherRegistry {
-        AgentExternalLauncherRegistry.load(
+        let key = workingDirectory ?? ""
+        Self.externalAgentLauncherCacheLock.lock()
+        let cached = Self.externalAgentLauncherCache[key]
+        Self.externalAgentLauncherCacheLock.unlock()
+        if let cached { return cached }
+
+        let registry = AgentExternalLauncherRegistry.load(
             homeDirectory: NSHomeDirectory(),
             workingDirectory: workingDirectory,
             sanitize: { try JSONCParser.preprocess(data: $0) }
         )
+        Self.externalAgentLauncherCacheLock.lock()
+        Self.externalAgentLauncherCache[key] = registry
+        Self.externalAgentLauncherCacheLock.unlock()
+        return registry
     }
+
+    /// Memoized `agents.launchers` reads, keyed by the directory they were resolved from.
+    ///
+    /// A CLI process handles one hook event and exits, so this is a within-invocation memo rather
+    /// than a cache with a lifetime: capture and the resume-command builder can each ask for the
+    /// same directory, and the config should be read once for both. Nothing is shared across
+    /// invocations, so a config edit still takes effect on the next event.
+    private static let externalAgentLauncherCacheLock = NSLock()
+    private nonisolated(unsafe) static var externalAgentLauncherCache: [String: AgentExternalLauncherRegistry] = [:]
 
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
