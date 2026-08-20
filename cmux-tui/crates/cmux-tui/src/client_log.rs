@@ -14,8 +14,8 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -238,7 +238,8 @@ pub(crate) fn redirect_stderr_into_log() {
                         Ok(0) | Err(_) => break,
                         Ok(read) => {
                             pending.extend_from_slice(&buffer[..read]);
-                            while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+                            while let Some(newline) = pending.iter().position(|byte| *byte == b'\n')
+                            {
                                 let line: Vec<u8> = pending.drain(..=newline).collect();
                                 let text = String::from_utf8_lossy(&line);
                                 let text = text.trim_end();
@@ -334,12 +335,8 @@ fn sanitize(message: &str) -> String {
 /// "startup", "provider", ...). Best-effort: errors are swallowed.
 pub(crate) fn log(level: &'static str, area: &str, message: &str) {
     let Some(sender) = queue() else { return };
-    let record = Record {
-        stamp: timestamp(),
-        level,
-        area: area.to_string(),
-        message: message.to_string(),
-    };
+    let record =
+        Record { stamp: timestamp(), level, area: area.to_string(), message: message.to_string() };
     // Never block a caller (status rendering runs on the UI thread): a full
     // queue drops the record and the writer reports the count.
     if sender.try_send(record).is_err() {
