@@ -1326,6 +1326,21 @@ struct ContentView: View {
     /// mechanism.
     static let sidebarColumnModeAnimation: Animation = .easeInOut(duration: 0.18)
 
+    /// Every animated column-mode change defers terminal PTY resizes for the
+    /// animation's duration and posts the interactive-resize end signal on
+    /// completion, which is what makes the AppKit table settle its width and
+    /// heights authoritatively. During a live divider drag the tracker
+    /// already owns that bracket, so this only claims it when free.
+    private func animateSidebarColumnModeChange(_ apply: @escaping () -> Void) {
+        let ownsBracket = !isResizerDragging
+        if ownsBracket { beginSidebarColumnResize() }
+        withAnimation(Self.sidebarColumnModeAnimation) {
+            apply()
+        } completion: {
+            if ownsBracket { endSidebarColumnResize() }
+        }
+    }
+
     private func sidebarMachinesColumnProfile(availableWidth: CGFloat? = nil) -> SidebarColumnWidthProfile {
         let base = SidebarColumnWidthProfile.machines
         return SidebarColumnWidthProfile(
@@ -1371,10 +1386,10 @@ struct ContentView: View {
             profile: sidebarPrimaryColumnProfile(availableWidth: availableWidth)
         )
         if resolution.didChangeMode {
-            withAnimation(Self.sidebarColumnModeAnimation) {
-                sidebarLayout.primaryColumnMode = resolution.mode
+            animateSidebarColumnModeChange {
+                self.sidebarLayout.primaryColumnMode = resolution.mode
                 if let regularWidth = resolution.regularWidth {
-                    sidebarLayout.width = regularWidth
+                    self.sidebarLayout.width = regularWidth
                 }
             }
             sidebarState.persistedPrimaryColumnMode = resolution.mode
@@ -1395,10 +1410,10 @@ struct ContentView: View {
             profile: sidebarMachinesColumnProfile()
         )
         if resolution.didChangeMode {
-            withAnimation(Self.sidebarColumnModeAnimation) {
-                sidebarLayout.leadingColumnMode = resolution.mode
+            animateSidebarColumnModeChange {
+                self.sidebarLayout.leadingColumnMode = resolution.mode
                 if let regularWidth = resolution.regularWidth {
-                    sidebarLayout.leadingColumnWidth = regularWidth
+                    self.sidebarLayout.leadingColumnWidth = regularWidth
                 }
             }
             sidebarState.persistedLeadingColumnMode = resolution.mode
@@ -1419,12 +1434,9 @@ struct ContentView: View {
     /// the remembered regular width. Terminal PTY resizes are deferred for
     /// the duration of the animation, matching interactive drags.
     private func toggleSidebarLeadingColumnMode() {
-        beginSidebarColumnResize()
-        withAnimation(Self.sidebarColumnModeAnimation) {
-            sidebarLayout.leadingColumnMode =
-                sidebarLayout.leadingColumnMode == .icons ? .regular : .icons
-        } completion: {
-            endSidebarColumnResize()
+        animateSidebarColumnModeChange {
+            self.sidebarLayout.leadingColumnMode =
+                self.sidebarLayout.leadingColumnMode == .icons ? .regular : .icons
         }
         sidebarState.persistedLeadingColumnMode = sidebarLayout.leadingColumnMode
     }
@@ -3661,14 +3673,14 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: sidebarState.persistedLeadingColumnMode) { newValue in
             guard !isResizerDragging, sidebarLayout.leadingColumnMode != newValue else { return }
-            withAnimation(Self.sidebarColumnModeAnimation) {
+            animateSidebarColumnModeChange {
                 sidebarLayout.leadingColumnMode = newValue
             }
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedPrimaryColumnMode) { newValue in
             guard !isResizerDragging, sidebarLayout.primaryColumnMode != newValue else { return }
-            withAnimation(Self.sidebarColumnModeAnimation) {
+            animateSidebarColumnModeChange {
                 sidebarLayout.primaryColumnMode = newValue
             }
         })
