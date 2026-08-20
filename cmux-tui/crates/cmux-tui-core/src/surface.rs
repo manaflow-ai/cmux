@@ -3545,18 +3545,19 @@ impl Surface {
                             // the full reconnect up to 16 times per terminal,
                             // each attempt's journal writes re-poisoning the
                             // other terminals' captures.
-                            let mut checkpoint = Ok(());
-                            for attempt in 0u32..4 {
-                                if attempt > 0 {
-                                    std::thread::sleep(Duration::from_millis(25 << attempt));
+                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
+                                "terminal_host_reconnect",
+                                &checkpoint_key,
+                            );
+                            for attempt in 1u32..4 {
+                                if checkpoint.is_ok() {
+                                    break;
                                 }
+                                std::thread::sleep(Duration::from_millis(25 << attempt));
                                 checkpoint = reconnect_mux.create_journal_checkpoint(
                                     "terminal_host_reconnect",
                                     &checkpoint_key,
                                 );
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
                             }
                             if let Err(error) = checkpoint {
                                 reconnect_mux.emit(MuxEvent::Status(format!(
