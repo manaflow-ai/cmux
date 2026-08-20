@@ -224,13 +224,11 @@ pub(crate) fn log(level: &str, area: &str, message: &str) {
     // Another process may have rotated the file since the last write; follow
     // the rotation before appending, and re-lock the fresh handle.
     if !handle_is_current(&sink.file, &sink.path) {
-        let old = std::mem::replace(
-            &mut sink.file,
-            match OpenOptions::new().create(true).append(true).open(&sink.path) {
-                Ok(file) => file,
-                Err(_) => return,
-            },
-        );
+        let Ok(fresh) = OpenOptions::new().create(true).append(true).open(&sink.path) else {
+            unlock(&sink.file);
+            return;
+        };
+        let old = std::mem::replace(&mut sink.file, fresh);
         unlock(&old);
         if STDERR_REDIRECTED.load(Ordering::Acquire) {
             point_stderr_at(&sink.file);
