@@ -45,6 +45,11 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// still reconnect or remove it. Labeled so several identically named
     /// entries stop looking interchangeable.
     var isOlderDuplicate: Bool = false
+    /// True on a per-kind row whose Mac is connected, but over a DIFFERENT
+    /// method than this row's section. The row then reads "Standby" with a
+    /// neutral dot instead of claiming "Connected" for a route that is not
+    /// carrying the session. Set only by ``MacComputerListSection``.
+    var isStandbyRoute: Bool = false
 
     var id: String {
         MobilePairedMac.pairingID(macDeviceID: deviceId, instanceTag: instanceTag)

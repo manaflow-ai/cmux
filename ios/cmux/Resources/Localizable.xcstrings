@@ -19800,6 +19800,7 @@
     "mobile.connections.section.active": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Active"}},"ja":{"stringUnit":{"state":"translated","value":"使用中"}}}},
     "mobile.connections.section.notInUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not in use"}},"ja":{"stringUnit":{"state":"translated","value":"未使用"}}}},
     "mobile.connections.section.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Route"}},"ja":{"stringUnit":{"state":"translated","value":"ルートなし"}}}},
+    "mobile.connections.standby": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Standby"}},"ja":{"stringUnit":{"state":"translated","value":"待機中"}}}},
     "mobile.connections.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connections"}},"ja":{"stringUnit":{"state":"translated","value":"接続"}}}},
     "mobile.surface.disconnected.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This phone isn't connected to the Mac right now. Reconnect, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneは現在Macに接続されていません。再接続してから再試行してください。"}}}},
     "mobile.surface.disconnected.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not connected"}},"ja":{"stringUnit":{"state":"translated","value":"未接続"}}}},

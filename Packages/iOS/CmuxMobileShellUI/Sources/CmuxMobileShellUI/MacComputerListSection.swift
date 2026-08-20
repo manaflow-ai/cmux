@@ -75,6 +75,15 @@ struct MacComputerListSection: Equatable, Identifiable {
                     for: snapshot.routes,
                     kind: kind
                 )
+                // A connected Mac's session rides exactly one method; its rows
+                // under every other method are standby routes, not live ones.
+                // (The store only exposes the foreground connection's route, so
+                // secondary-connected Macs inherit the same global activeKind.)
+                if let activeKind,
+                   kind != activeKind,
+                   snapshot.connectionStatus == .connected {
+                    row.isStandbyRoute = true
+                }
                 byKind[kind, default: []].append(row)
             }
         }

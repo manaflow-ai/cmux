@@ -200,6 +200,8 @@ struct DeviceTreeView: View {
                     .foregroundStyle(.green)
             } else if dimmed {
                 Text(L10n.string("mobile.connections.section.notInUse", defaultValue: "Not in use"))
+                    .italic()
+                    .foregroundStyle(.tertiary)
             }
         }
         .opacity(dimmed ? 0.5 : 1)

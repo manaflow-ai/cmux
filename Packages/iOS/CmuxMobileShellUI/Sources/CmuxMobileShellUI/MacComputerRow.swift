@@ -137,6 +137,9 @@ struct MacComputerRow: View {
     private var dotColor: Color {
         switch style {
         case .computers:
+            // A standby route's Mac is connected, but not through this row's
+            // method — a green dot here would claim a live leg that isn't.
+            if computer.isStandbyRoute { return .secondary.opacity(0.5) }
             switch computer.connectionStatus {
             case .connected: return .green
             case .reconnecting: return .orange
@@ -157,7 +160,9 @@ struct MacComputerRow: View {
     /// connection on the Computers screen, presence on the reconnect list.
     private var statusIdentifierSuffix: String {
         switch style {
-        case .computers: return isConnected ? "connected" : "disconnected"
+        case .computers:
+            if computer.isStandbyRoute { return "standby" }
+            return isConnected ? "connected" : "disconnected"
         case .reconnect: return computer.presence == .online ? "online" : "offline"
         }
     }
@@ -215,6 +220,9 @@ struct MacComputerRow: View {
     }
 
     private var connectionPhrase: String {
+        if computer.isStandbyRoute {
+            return L10n.string("mobile.connections.standby", defaultValue: "Standby")
+        }
         switch computer.connectionStatus {
         case .connected:
             return L10n.string("mobile.deviceTree.connected", defaultValue: "Connected")
