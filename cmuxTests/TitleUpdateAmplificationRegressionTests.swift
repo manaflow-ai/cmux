@@ -137,9 +137,24 @@ struct TitleUpdateAmplificationRegressionTests {
             continuation.yield(())
             continuation.finish()
         }
-        var iterator = events.makeAsyncIterator()
-        #expect(await iterator.next() != nil)
-        deadline.cancel()
+        defer {
+            deadline.cancel()
+            continuation.finish()
+        }
+        let didFire = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = events.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        #expect(didFire)
     }
 
     @Test
