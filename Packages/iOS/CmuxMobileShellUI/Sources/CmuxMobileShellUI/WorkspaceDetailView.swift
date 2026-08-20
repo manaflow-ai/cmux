@@ -595,7 +595,7 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    private func reconnectToWorkspaceMac() {
+    func reconnectToWorkspaceMac() {
         Task {
             await store.reconnectToMac(
                 macDeviceID: workspace.macDeviceID,
