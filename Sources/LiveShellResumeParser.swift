@@ -30,8 +30,19 @@ enum LiveShellResumeParser {
               isSafeSessionID(observedSessionID) else {
             return nil
         }
-        // Resolution is wired in the next commit; the observed id is used as-is for now.
-        let resolvedSessionID = observedSessionID
+        let resolvedSessionID: String
+        switch resolveSessionID(observedSessionID) {
+        case .resolved(let daemonSessionID):
+            guard isSafeSessionID(daemonSessionID) else { return nil }
+            resolvedSessionID = daemonSessionID
+        case .unavailable:
+            // The daemon could not be reached, so the observed id is all this pane has.
+            resolvedSessionID = observedSessionID
+        case .notFound, .ambiguous:
+            // Never persist an id the daemon cannot resolve: `livesh --open` would fork a brand
+            // new shell instead of reattaching, silently orphaning this pane's session.
+            return nil
+        }
         let executable = liveshExecutable(observed: observed)
         let argv = [executable, "--open", resolvedSessionID]
         let command = argv.map(shellSingleQuoted).joined(separator: " ")
