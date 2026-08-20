@@ -38,7 +38,8 @@ struct TitleUpdateAmplificationRegressionTests {
         let window = CountingTitleWindow()
         manager.window = window
         manager.updateWindowTitleForSelectedTab()
-        window.titleWriteCount = 0
+        await drainMainQueue()
+        let baselineWindowWriteCount = window.titleWriteCount
         var workspacePublishCount = 0
         let observer = NotificationCenter.default.addObserver(
             forName: .workspaceTitleDidChange,
@@ -66,12 +67,12 @@ struct TitleUpdateAmplificationRegressionTests {
         // Workspace/SwiftUI state.
         #expect(scheduler.delays == [1.0])
         #expect(workspacePublishCount == 0)
-        #expect(window.titleWriteCount == 0)
+        #expect(window.titleWriteCount == baselineWindowWriteCount)
         scheduler.fire(at: 0)
 
         #expect(workspacePublishCount == 1)
         #expect(workspace.title == "Agent frame 99")
-        #expect(window.titleWriteCount == 1)
+        #expect(window.titleWriteCount == baselineWindowWriteCount + 1)
         #expect(window.title == "Agent frame 99")
     }
 
