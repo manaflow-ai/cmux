@@ -69,26 +69,54 @@ const flatEntries = computed(() => {
 });
 
 // --- drop resolution ---------------------------------------------------------
-// `index` is the dragged row's slot in the flat list (headers included). The
-// container is whatever sits directly above the slot; the reorder anchor is
-// the next visible workspace row at or below it.
-function handleMove(id, index) {
+// `index` is the dragged row's slot in the flat list (headers included).
+// `extra.side` resolves the ambiguous boundary slots: "above" nests with the
+// row above (e.g. last item of a group), "below" with the row below (right
+// after the group, outside it) - chosen by the pointer's X position mid-drag.
+// Dragging a group HEADER moves the whole block (extra.block).
+function handleMove(id, index, extra) {
   const ws = data.workspaces() ?? [];
+
+  if (extra && extra.block && id.startsWith("h:")) {
+    const gid = id.slice(2);
+    const memberCount = membersOf(gid).length;
+    const entries = flatEntries().filter((e) => e.id !== id && e.groupId !== gid);
+    const nextEntry = entries.slice(index).find((e) => e.kind === "ws");
+    const nextWorkspace = nextEntry ? ws.find((w) => w.id === nextEntry.id) : null;
+    const anchor = ws.find((w) => w.id === (groupById(gid)?.anchorId));
+    let to;
+    if (nextWorkspace) {
+      const movingDown = (anchor?.index ?? 0) < nextWorkspace.index;
+      to = movingDown ? nextWorkspace.index - memberCount : nextWorkspace.index;
+    } else {
+      to = ws.length - memberCount;
+    }
+    cmux("workspace.group.move", { group_id: gid, to_index: Math.max(0, to) });
+    return;
+  }
+
   const dragged = ws.find((w) => w.id === id);
   if (!dragged) return;
   const entries = flatEntries().filter((e) => e.id !== id);
   const prev = index > 0 ? entries[index - 1] : null;
-
-  let container = prev ? prev.groupId : null;
-  // Dropping right below a collapsed group's header means "after the whole
-  // group", not "into it" (its rows are hidden), unless it already lives there.
-  if (prev && prev.kind === "header") {
-    const g = groupById(prev.groupId);
-    if (g && isCollapsed(g) && dragged.group !== g.id) container = null;
-  }
-
   const nextEntry = entries.slice(index).find((e) => e.kind === "ws");
+  const nextAny = index < entries.length ? entries[index] : null;
   const nextWorkspace = nextEntry ? ws.find((w) => w.id === nextEntry.id) : null;
+
+  let container;
+  if (extra && extra.side === "below") {
+    // Nest with what's below: a header below means "above the next group",
+    // i.e. ungrouped; a row below means its group (or ungrouped).
+    container = nextAny && nextAny.kind === "ws" ? nextAny.groupId : null;
+  } else {
+    container = prev ? prev.groupId : null;
+    // Dropping right below a collapsed group's header means "after the whole
+    // group", not "into it" (its rows are hidden), unless it lives there.
+    if (prev && prev.kind === "header") {
+      const g = groupById(prev.groupId);
+      if (g && isCollapsed(g) && dragged.group !== g.id) container = null;
+    }
+  }
 
   if ((dragged.group ?? null) !== container) {
     if (container) {
@@ -153,6 +181,7 @@ function workspaceRow(w, entry) {
     .background(() => (w()?.selected ? "#7f7f7f3d" : null))
     .hoverBackground(() => (w()?.selected ? "#7f7f7f3d" : "#7f7f7f24"))
     .frame({ maxWidth: "infinity" })
+    .block(() => (entry().groupId ? "h:" + entry().groupId : null))
     .onTap(() => cmux("workspace.select", { workspace_id: w().id }))
     .contextMenu(workspaceMenu(w));
 }
@@ -185,6 +214,7 @@ function groupHeader(groupId) {
     .hoverBackground(() => (anchor()?.selected ? "#7f7f7f3d" : "#7f7f7f1c"))
     .frame({ maxWidth: "infinity" })
     .fixed()
+    .block("h:" + groupId)
     .onTap(() => {
       const a = anchor();
       if (a) cmux("workspace.select", { workspace_id: a.id });

@@ -94,6 +94,25 @@ struct ReorderMathTests {
         #expect(ReorderMath.projectedIndent(indents: indents, fixed: fixed, sourceIndex: 2, targetIndex: 2) == 22)
     }
 
+    @Test func boundaryCandidatesAndPointerChoice() {
+        // [row(10), header(8, fixed), member(22), member(22), row(10)]
+        let indents: [CGFloat] = [10, 8, 22, 22, 10]
+        let fixed = [false, true, false, false, false]
+        // Dragging member 2 to slot 3 (last in group): above says in-group
+        // (22), below says outside (10) -> ambiguous boundary.
+        let b = ReorderMath.boundaryIndents(indents: indents, fixed: fixed, sourceIndex: 2, targetIndex: 3)
+        #expect(b.above == 22)
+        #expect(b.below == 10)
+        // Pointer far left picks "below" (outside); far right stays "above".
+        #expect(ReorderMath.boundarySide(above: 22, below: 10, pointerX: 4, current: "above") == "below")
+        #expect(ReorderMath.boundarySide(above: 22, below: 10, pointerX: 24, current: "above") == "above")
+        // Hysteresis: near the midpoint (16), the current side holds.
+        #expect(ReorderMath.boundarySide(above: 22, below: 10, pointerX: 15, current: "above") == "above")
+        #expect(ReorderMath.boundarySide(above: 22, below: 10, pointerX: 17, current: "below") == "below")
+        // Unambiguous slots always report "above".
+        #expect(ReorderMath.boundarySide(above: 10, below: 10, pointerX: -50, current: "above") == "above")
+    }
+
     @Test func reorderedMovesElement() {
         #expect(ReorderMath.reordered(["a", "b", "c"], from: 0, to: 2) == ["b", "c", "a"])
         #expect(ReorderMath.reordered(["a", "b", "c"], from: 2, to: 0) == ["c", "a", "b"])

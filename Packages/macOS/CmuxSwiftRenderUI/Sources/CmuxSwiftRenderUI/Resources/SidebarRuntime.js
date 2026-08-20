@@ -174,7 +174,7 @@
     "help", "truncation", "weight", "secondary", "borderColor", "borderWidth",
     "hoverBackground", "paddingHorizontal", "paddingVertical", "destructive",
     "paddingLeading", "paddingTrailing", "paddingTop", "paddingBottom",
-    "fixed",
+    "fixed", "block",
   ];
 
   function makeHandle(id) {
@@ -421,7 +421,7 @@
     if (!nodeHandlers) return;
     const payload = json ? JSON.parse(json) : null;
     if (event === "tap" && nodeHandlers.tap) nodeHandlers.tap(payload);
-    if (event === "move" && nodeHandlers.move) nodeHandlers.move(payload.id, payload.index);
+    if (event === "move" && nodeHandlers.move) nodeHandlers.move(payload.id, payload.index, payload);
     runPending();
   };
 

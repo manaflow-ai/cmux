@@ -155,6 +155,54 @@ enum ReorderMath {
         return indents[above]
     }
 
+    /// The two nesting candidates at a drop slot: the indent implied by the
+    /// row that ends up directly above (its container) and by the first row
+    /// that ends up below. When they differ the slot is ambiguous (e.g. right
+    /// after a group's last member) and the pointer's X position picks one.
+    static func boundaryIndents(
+        indents: [CGFloat],
+        fixed: [Bool],
+        sourceIndex: Int,
+        targetIndex: Int
+    ) -> (above: CGFloat?, below: CGFloat?) {
+        let above = projectedIndent(
+            indents: indents, fixed: fixed,
+            sourceIndex: sourceIndex, targetIndex: targetIndex
+        )
+        guard indents.count == fixed.count,
+              indents.indices.contains(sourceIndex),
+              indents.indices.contains(targetIndex) else { return (above, nil) }
+        // First row that ends up below the dragged one after the drop
+        // (fixed rows count: a header below means the slot borders the next
+        // section, whose header indent approximates the outside level).
+        var i = targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+        while i < indents.count {
+            if i != sourceIndex { return (above, indents[i]) }
+            i += 1
+        }
+        return (above, nil)
+    }
+
+    /// Picks between the two boundary candidates by the pointer's X position
+    /// (base indent + horizontal translation), with hysteresis so jitter on
+    /// the midpoint cannot flip-flop. Returns "above" or "below".
+    static func boundarySide(
+        above: CGFloat?,
+        below: CGFloat?,
+        pointerX: CGFloat,
+        current: String,
+        hysteresis: CGFloat = 6
+    ) -> String {
+        guard let above else { return below == nil ? "above" : "below" }
+        guard let below, below != above else { return "above" }
+        let currentIndent = current == "below" ? below : above
+        let otherIndent = current == "below" ? above : below
+        if abs(pointerX - otherIndent) + hysteresis < abs(pointerX - currentIndent) {
+            return current == "below" ? "above" : "below"
+        }
+        return current
+    }
+
     /// `order` with the element at `sourceIndex` moved to `targetIndex`.
     static func reordered<T>(_ order: [T], from sourceIndex: Int, to targetIndex: Int) -> [T] {
         guard order.indices.contains(sourceIndex), order.indices.contains(targetIndex),

@@ -33,6 +33,22 @@ private final class ReorderDragModel {
     /// indent prop then matches the projection and the offset becomes zero).
     var settledId: String?
     var settledIndent: CGFloat?
+    /// Which neighbor's nesting the ambiguous boundary slot resolved to
+    /// ("above" or "below"), chosen by the pointer's X position.
+    var boundarySide = "above"
+    /// The dragged row's indent at lift, the X reference for boundary choice.
+    var liftIndent: CGFloat = 0
+
+    /// Block mode: grabbing a block head (a `fixed` row with a `block` prop)
+    /// drags the whole run of rows sharing that block value as one unit.
+    var isBlockDrag = false
+    /// Rows moving with the drag in block mode (head + members).
+    var blockRows: Set<String> = []
+    /// Frozen at lift: each row's index in the coarse item list, where the
+    /// dragged block (and every other block) is one item.
+    var coarseIndexByRow: [String: Int] = [:]
+    var coarseSource = 0
+    var coarseTarget = 0
 }
 
 /// A vertically reorderable column of scene rows with Arc-style drag feedback:
@@ -84,12 +100,13 @@ struct ReorderableColumnView: View {
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
                     rowHeights[childId] = height
                 }
-                // A `fixed` row (e.g. a group header in a flat tree list) is
-                // not draggable itself but still shifts to open gaps; masking
-                // to .subviews keeps its own taps/chevrons working.
+                // A `fixed` row is not draggable itself (masking to
+                // .subviews keeps its taps/chevrons working) UNLESS it is a
+                // block head (`fixed` + `block`): grabbing a head drags the
+                // whole block.
                 .highPriorityGesture(
                     dragGesture(childId: childId),
-                    including: store?.node(childId)?.bool("fixed") == true ? .subviews : .all
+                    including: rowIsGrabbable(childId) ? .all : .subviews
                 )
             }
         }
@@ -122,43 +139,102 @@ struct ReorderableColumnView: View {
                     if localOrder == nil {
                         localOrder = order
                     }
-                    // Lift: scale/shadow spring in; nothing else moves yet.
+                    // Lift: shadow springs in; nothing else moves yet.
                     withAnimation(Self.liftSpring) {
                         model.draggedId = childId
                         model.isSettling = false
                     }
-                    model.sourceIndex = sourceIndex
-                    model.targetIndex = sourceIndex
-                    model.draggedHeight = rowHeights[childId] ?? 0
                     model.projectedIndent = nil
                     model.settledId = nil
                     model.settledIndent = nil
-                    Self.debugLog("lift id=\(childId) source=\(sourceIndex) height=\(model.draggedHeight) heights=\(order.map { rowHeights[$0] ?? 0 })")
+                    model.boundarySide = "above"
+                    model.liftIndent = rowIndent(childId)
+                    let node = store?.node(childId)
+                    model.isBlockDrag = node?.bool("fixed") == true && node?.string("block") != nil
+                    if model.isBlockDrag {
+                        // Coarse structure: every block is one item, so a
+                        // block can never drop inside another block.
+                        let items = coarseItems(order: order)
+                        var indexByRow: [String: Int] = [:]
+                        for (i, item) in items.enumerated() {
+                            for row in item { indexByRow[row] = i }
+                        }
+                        model.coarseIndexByRow = indexByRow
+                        let sourceItem = indexByRow[childId] ?? 0
+                        model.coarseSource = sourceItem
+                        model.coarseTarget = sourceItem
+                        model.blockRows = Set(items[sourceItem])
+                        model.draggedHeight = itemHeight(items[sourceItem])
+                        model.sourceIndex = sourceItem
+                        model.targetIndex = sourceItem
+                    } else {
+                        model.isBlockDrag = false
+                        model.blockRows = []
+                        model.sourceIndex = sourceIndex
+                        model.targetIndex = sourceIndex
+                        model.draggedHeight = rowHeights[childId] ?? 0
+                    }
+                    Self.debugLog("lift id=\(childId) source=\(sourceIndex) block=\(model.isBlockDrag) height=\(model.draggedHeight)")
                 }
                 guard model.draggedId == childId else { return }
                 // Continuous: tracks the pointer, deliberately unanimated.
                 model.translation = value.translation.height
+
+                if model.isBlockDrag {
+                    // Blocks target over the coarse item list; no X preview
+                    // (blocks stay at the top level).
+                    let items = coarseItems(order: order)
+                    let target = ReorderMath.targetIndex(
+                        heights: items.map { itemHeight($0) },
+                        sourceIndex: model.coarseSource,
+                        translation: value.translation.height,
+                        current: model.coarseTarget,
+                        spacing: rowSpacing
+                    )
+                    if target != model.coarseTarget {
+                        Self.debugLog("block cross target \(model.coarseTarget) -> \(target)")
+                        withAnimation(Self.gapSpring) {
+                            model.coarseTarget = target
+                            model.targetIndex = target
+                        }
+                    }
+                    return
+                }
+
                 // Discrete: one spring per slot crossing, with hysteresis so
                 // pointer jitter on a boundary can't flip-flop the target.
+                let heights = order.map { rowHeights[$0] ?? 0 }
+                let indents = order.map { rowIndent($0) }
+                let fixedFlags = order.map { store?.node($0)?.bool("fixed") == true }
                 let target = ReorderMath.targetIndex(
-                    heights: order.map { rowHeights[$0] ?? 0 },
+                    heights: heights,
                     sourceIndex: model.sourceIndex,
                     translation: value.translation.height,
                     current: model.targetIndex,
                     spacing: rowSpacing
                 )
-                if target != model.targetIndex {
-                    Self.debugLog("cross translation=\(value.translation.height) target \(model.targetIndex) -> \(target)")
-                    // The X preview animates in the same spring as the gap:
-                    // the dragged row slides to the indent of its new slot.
-                    let projected = ReorderMath.projectedIndent(
-                        indents: order.map { rowIndent($0) },
-                        fixed: order.map { store?.node($0)?.bool("fixed") == true },
-                        sourceIndex: model.sourceIndex,
-                        targetIndex: target
-                    )
+                // An ambiguous slot (e.g. right after a group's last member)
+                // has two nestings; the pointer's X position picks one, with
+                // hysteresis. The X preview animates in the same spring as
+                // the gap.
+                let (above, below) = ReorderMath.boundaryIndents(
+                    indents: indents,
+                    fixed: fixedFlags,
+                    sourceIndex: model.sourceIndex,
+                    targetIndex: target
+                )
+                let side = ReorderMath.boundarySide(
+                    above: above,
+                    below: below,
+                    pointerX: model.liftIndent + value.translation.width,
+                    current: model.boundarySide
+                )
+                let projected = side == "below" ? below : above
+                if target != model.targetIndex || side != model.boundarySide || projected != model.projectedIndent {
+                    Self.debugLog("cross target \(model.targetIndex)->\(target) side=\(side) indent=\(String(describing: projected))")
                     withAnimation(Self.gapSpring) {
                         model.targetIndex = target
+                        model.boundarySide = side
                         model.projectedIndent = projected
                     }
                 }
@@ -170,18 +246,21 @@ struct ReorderableColumnView: View {
     }
 
     /// Commits the drop with visual continuity: reorder the array with NO
-    /// animation while giving the dragged row a residual offset equal to its
-    /// current visual displacement from its new slot, then spring that
+    /// animation while giving the dragged rows a residual offset equal to
+    /// their current visual displacement from the new slot, then spring that
     /// residual to zero.
     private func drop(childId: String) {
         let order = displayOrder
-        let heights = order.map { rowHeights[$0] ?? 0 }
-        let source = model.sourceIndex
-        let target = model.targetIndex
-        let newOrder = ReorderMath.reordered(order, from: source, to: target)
+        let isBlock = model.isBlockDrag
+        let items = isBlock ? coarseItems(order: order) : order.map { [$0] }
+        let heights = items.map { itemHeight($0) }
+        let source = isBlock ? model.coarseSource : model.sourceIndex
+        let target = isBlock ? model.coarseTarget : model.targetIndex
+        let newItems = ReorderMath.reordered(items, from: source, to: target)
+        let newOrder = newItems.flatMap { $0 }
 
         // Visual position now: old slot top + pointer translation.
-        // New layout position: slot top at `target` in the new order.
+        // New layout position: slot top at `target` in the new item order.
         let residual = ReorderMath.settleResidual(
             heights: heights,
             sourceIndex: source,
@@ -201,18 +280,22 @@ struct ReorderableColumnView: View {
             }
             model.sourceIndex = target
             model.targetIndex = target
+            model.coarseSource = target
+            model.coarseTarget = target
             model.translation = residual
         }
 
         // Phase 2, settle spring: the residual eases to zero and the lift
-        // (scale/shadow) eases out with it. draggedId clears on completion so
-        // zIndex stays raised while the row is still visually settling.
+        // shadow eases out with it. draggedId clears on completion so zIndex
+        // stays raised while the rows are still visually settling.
         withAnimation(Self.settleSpring) {
             model.translation = 0
             model.isSettling = true
         } completion: {
             model.draggedId = nil
             model.isSettling = false
+            model.isBlockDrag = false
+            model.blockRows = []
         }
         // Hold the X preview past the settle: the offset formula
         // (projected - own indent prop) self-zeroes when the authoritative
@@ -220,9 +303,49 @@ struct ReorderableColumnView: View {
         model.settledId = childId
         model.settledIndent = model.projectedIndent
 
-        Self.debugLog("drop source=\(source) target=\(target) translation-residual=\(residual)")
-        guard target != source else { return }
-        sink.send(node.id, "move", ["id": itemKey(forChildAt: target, in: newOrder), "index": target])
+        Self.debugLog("drop block=\(isBlock) source=\(source) target=\(target) side=\(model.boundarySide) residual=\(residual)")
+        guard target != source || model.boundarySide == "below" else { return }
+        // The reported index is the dragged row's flat slot in the new order.
+        let flatIndex = newOrder.firstIndex(of: childId) ?? target
+        sink.send(node.id, "move", [
+            "id": itemKey(forChild: childId),
+            "index": flatIndex,
+            "side": model.boundarySide,
+            "block": isBlock,
+        ])
+    }
+
+    /// Consecutive rows sharing a `block` prop value merge into one coarse
+    /// item; other rows are singleton items.
+    private func coarseItems(order: [String]) -> [[String]] {
+        var items: [[String]] = []
+        var currentBlock: String?
+        for row in order {
+            let block = store?.node(row)?.string("block")
+            if let block, block == currentBlock, !items.isEmpty {
+                items[items.count - 1].append(row)
+            } else {
+                items.append([row])
+                currentBlock = block
+            }
+        }
+        return items
+    }
+
+    /// A coarse item's visual height: its rows plus the inter-row spacing
+    /// inside the item (inter-item spacing matches row spacing, so the slot
+    /// math stays exact).
+    private func itemHeight(_ rows: [String]) -> CGFloat {
+        let total = rows.reduce(CGFloat(0)) { $0 + (rowHeights[$1] ?? 0) }
+        return total + rowSpacing * CGFloat(max(0, rows.count - 1))
+    }
+
+    /// Whether grabbing this row starts a drag: normal rows always; fixed
+    /// rows only when they head a block.
+    private func rowIsGrabbable(_ id: String) -> Bool {
+        guard let rowNode = store?.node(id) else { return false }
+        if !rowNode.bool("fixed") { return true }
+        return rowNode.string("block") != nil
     }
 
     /// A row's resolved leading indent, read from its style props.
@@ -235,12 +358,10 @@ struct ReorderableColumnView: View {
         return CGFloat(value)
     }
 
-    /// The item key for the row at `index` of `order`, from the `itemKeys`
-    /// JSON array prop the JS reconciler keeps parallel to `node.children`.
-    /// Falls back to the child node id when absent.
-    private func itemKey(forChildAt index: Int, in order: [String]) -> String {
-        guard order.indices.contains(index) else { return "" }
-        let childId = order[index]
+    /// The item key for a row, from the `itemKeys` JSON array prop the JS
+    /// reconciler keeps parallel to `node.children`. Falls back to the child
+    /// node id when absent.
+    private func itemKey(forChild childId: String) -> String {
         let rows = node.children.filter { store?.node($0)?.type != "contextMenu" }
         guard let json = node.string("itemKeys"),
               let data = json.data(using: .utf8),
@@ -266,13 +387,19 @@ private struct ReorderableRowView: View {
 
     var body: some View {
         // Read discrete fields first; `translation` is only read on the
-        // dragged row's branch, so other rows never depend on it.
+        // moving rows' branch, so other rows never depend on it.
         let draggedId = model.draggedId
         let isDragged = draggedId == childId
+        let moves = isDragged || (model.isBlockDrag && draggedId != nil && model.blockRows.contains(childId))
         let lifted = isDragged && !model.isSettling
         SceneNodeView(nodeId: childId)
-            .offset(x: xOffset(isDragged: isDragged), y: offset(isDragged: isDragged, dragging: draggedId != nil))
-            .zIndex(isDragged ? 2 : 0)
+            // X and Y are SEPARATE offset modifiers on purpose: Y updates
+            // un-animated on every pointer frame, and a combined offset(x:y:)
+            // is one animatable value, so each Y write would cancel the X
+            // spring mid-flight (the X slide never visibly animated).
+            .offset(x: xOffset(isDragged: isDragged))
+            .offset(y: yOffset(moves: moves, dragging: draggedId != nil))
+            .zIndex(moves ? 2 : 0)
             // No scale zoom on lift (dogfood feedback): the shadow alone
             // carries the lifted affordance.
             .shadow(
@@ -304,11 +431,21 @@ private struct ReorderableRowView: View {
         return projected - current
     }
 
-    private func offset(isDragged: Bool, dragging: Bool) -> CGFloat {
-        if isDragged {
+    private func yOffset(moves: Bool, dragging: Bool) -> CGFloat {
+        if moves {
             return model.translation
         }
         guard dragging else { return 0 }
+        if model.isBlockDrag {
+            guard let coarseIndex = model.coarseIndexByRow[childId] else { return 0 }
+            return ReorderMath.rowShift(
+                index: coarseIndex,
+                sourceIndex: model.coarseSource,
+                targetIndex: model.coarseTarget,
+                draggedHeight: model.draggedHeight,
+                spacing: spacing
+            )
+        }
         return ReorderMath.rowShift(
             index: index,
             sourceIndex: model.sourceIndex,
