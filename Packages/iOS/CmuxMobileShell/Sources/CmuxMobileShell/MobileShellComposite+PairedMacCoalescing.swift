@@ -150,15 +150,12 @@ extension MobileShellComposite {
         endpointID: String,
         instanceTag: String?
     ) -> String {
-        let normalizedTag: String
-        if let instanceTag = instanceTag?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !instanceTag.isEmpty {
-            normalizedTag = instanceTag
-        } else {
-            normalizedTag = "legacy"
-        }
-        return "\(normalizedTag):\(endpointID)"
+        let normalizedTag = CmxMacAppInstanceIdentity(
+            macDeviceID: "",
+            instanceTag: instanceTag
+        ).instanceTag
+        let instanceScope = normalizedTag.map { "tagged:\($0)" } ?? "untagged"
+        return "\(instanceScope):\(endpointID)"
     }
 
     static func macDeviceIDsForLogicalPairedMac(
@@ -325,12 +322,11 @@ private extension MobilePairedMac {
     /// share a host/port and display name. The stored tag is the build boundary;
     /// an untagged legacy row gets its own conservative scope.
     var instanceTagScope: String {
-        guard let instanceTag = instanceTag?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !instanceTag.isEmpty else {
-            return "legacy"
-        }
-        return instanceTag
+        let normalizedTag = CmxMacAppInstanceIdentity(
+            macDeviceID: "",
+            instanceTag: instanceTag
+        ).instanceTag
+        return normalizedTag.map { "tagged:\($0)" } ?? "untagged"
     }
 
     func mergingCustomization(from other: MobilePairedMac) -> MobilePairedMac {

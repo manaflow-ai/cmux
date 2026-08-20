@@ -1102,12 +1102,11 @@ extension MobileShellComposite {
         if secondaryMacSubscriptions[MacPairingKey(pairingID: pairingKey)] != nil {
             return pairingKey
         }
-        // A tagged item whose exact pairing is offline must NOT fall back to
-        // the bare device key: that can resolve a sibling build's client and
-        // mutate a colliding notification id on the wrong build. Returning the
-        // pairing key fails closed (no client -> the mutation no-ops).
-        guard item.macInstanceTag == nil else { return pairingKey }
-        return item.macDeviceID
+        // Always retain the item's canonical pairing id, including when its
+        // Mac is offline. A bare wire device id can resolve a sibling build's
+        // client after teardown and mutate notification state on the wrong
+        // app instance.
+        return pairingKey
     }
 
     private func notificationFeedClient(for macDeviceID: String) -> MobileCoreRPCClient? {
