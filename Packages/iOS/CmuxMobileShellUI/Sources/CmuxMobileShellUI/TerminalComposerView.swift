@@ -366,7 +366,10 @@ struct TerminalComposerView: View {
                 MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
                     TerminalComposerPromptEditor(
                         text: $store.terminalInputText,
-                        isFocused: $isFieldFocused,
+                        isFocused: Binding(
+                            get: { isFieldFocused },
+                            set: { isFieldFocused = $0 }
+                        ),
                         isDisabled: dictation.locksComposerField,
                         placeholder: L10n.string(
                             "mobile.composer.placeholder",
