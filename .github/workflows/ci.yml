@@ -1469,6 +1469,7 @@ jobs:
             CmuxTerminalCore
             CmuxUpdater
             CMUXAgentLaunch
+            CmuxAgentJournal
           )
           # SwiftPM emits an error-severity diagnostic while planning the
           # GhosttyKit binaryTarget (the xcframework's static archive is not
