@@ -169,7 +169,6 @@ extension WorkspaceListView {
             actions: WorkspaceMacTitlePickerActions(
                 select: { _ = handleMacTitlePickerSelection($0) },
                 addDevice: showAddDevice,
-                reconnect: reconnect,
                 selectConnectionMethod: connectionMethodStore.map { store in
                     { store.method = $0 }
                 }
@@ -233,16 +232,6 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 }
                 .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
                 .accessibilityIdentifier(machineMenuAccessibilityIdentifier(machine.id))
-            }
-            if value.statusLine == .notConnected, let reconnect = actions.reconnect {
-                Divider()
-                Button(action: reconnect) {
-                    Label(
-                        L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"),
-                        systemImage: "arrow.clockwise"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceMacPickerReconnect")
             }
             if value.canAddDevice {
                 Divider()

@@ -45,9 +45,14 @@ extension MobileShellComposite {
         if let aliases = pairedMacAliasIDsByRepresentativeID[pairingID] {
             return aliases
         }
-        if let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
-            $0.contains(macDeviceID)
-        }) {
+        // Only an untagged legacy row may absorb a group matched by bare
+        // device id. A tagged row that is not a representative must never
+        // inherit a sibling build's alias set: hide/presence/counts riding
+        // these ids would silently cross builds.
+        if instanceTag == nil,
+           let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
+               $0.contains(macDeviceID)
+           }) {
             return aliases
         }
         return [macDeviceID]

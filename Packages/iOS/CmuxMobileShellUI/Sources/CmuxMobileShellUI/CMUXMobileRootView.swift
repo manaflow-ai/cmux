@@ -614,6 +614,7 @@ struct CMUXMobileRootView: View {
                 store: store,
                 selectWorkspace: selectWorkspaceFromComputers,
                 showAddDevice: addComputerAction,
+                showPairingScanner: pairingScannerAction,
                 dismissAction: dismissComputers,
                 didForgetComputer: didForgetComputer
             )

@@ -76,6 +76,7 @@ struct MacComputerListSection: Equatable, Identifiable {
             }
             for kind in kinds {
                 var row = snapshot
+                row.routeKind = kind
                 row.routeDescription = CmxAttachRoute.deviceTreeRouteDescription(
                     for: snapshot.routes,
                     kind: kind

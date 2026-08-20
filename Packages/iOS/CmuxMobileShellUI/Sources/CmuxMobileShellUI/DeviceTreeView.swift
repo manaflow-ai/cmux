@@ -27,6 +27,10 @@ struct DeviceTreeView: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
+    /// Present the Tailscale pairing-code scanner, mirroring the Settings
+    /// section: switching to Tailscale Only without a usable grant launches
+    /// it, so the switch never strands every connection as Disconnected.
+    var showPairingScanner: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
@@ -75,7 +79,7 @@ struct DeviceTreeView: View {
                     MobileConnectionMethodSection(
                         store: connectionMethodStore,
                         hasUsableTailscaleAuthorization: store.hasUsableTailscaleAuthorization,
-                        startPairingScanner: nil
+                        startPairingScanner: showPairingScanner
                     )
                 }
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
@@ -143,12 +147,13 @@ struct DeviceTreeView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationDestination(for: String.self) { pairingID in
-                if let computer = computers.first(where: { $0.id == pairingID }) {
+            .navigationDestination(for: MacConnectionRef.self) { ref in
+                if let computer = computers.first(where: { $0.id == ref.pairingID }) {
                     MacComputerDetailView(
                         store: store,
                         macDeviceID: computer.deviceId,
-                        instanceTag: computer.instanceTag
+                        instanceTag: computer.instanceTag,
+                        focusedRouteKind: ref.routeKind
                     )
                 }
             }

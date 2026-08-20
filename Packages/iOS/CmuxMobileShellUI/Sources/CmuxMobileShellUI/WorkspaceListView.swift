@@ -669,7 +669,8 @@ struct WorkspaceListView: View {
                 DeviceTreeView(
                     store: store,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-                    showAddDevice: showAddDevice
+                    showAddDevice: showAddDevice,
+                    showPairingScanner: showPairingScanner
                 )
             }
         }

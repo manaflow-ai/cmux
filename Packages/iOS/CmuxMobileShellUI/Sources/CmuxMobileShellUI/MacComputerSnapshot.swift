@@ -50,8 +50,33 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// neutral dot instead of claiming "Connected" for a route that is not
     /// carrying the session. Set only by ``MacComputerListSection``.
     var isStandbyRoute: Bool = false
+    /// The route kind this row represents inside a method section, completing
+    /// the connection identity tuple (device, build, route kind). `nil` on
+    /// pairing-level snapshots outside the sectioned list.
+    var routeKind: CmxAttachTransportKind?
 
+    /// The pairing identity (device + build). Operations that are pairing
+    /// scoped (visibility, forget, mutation spinners) key on this.
     var id: String {
         MobilePairedMac.pairingID(macDeviceID: deviceId, instanceTag: instanceTag)
+    }
+
+    /// The full connection identity (device + build + route kind) for
+    /// per-row automation ids and navigation.
+    var connectionRef: MacConnectionRef {
+        MacConnectionRef(pairingID: id, routeKind: routeKind)
+    }
+}
+
+/// One connection's identity: a pairing (device + build) reached over one
+/// route kind. The navigation and automation identity of a Connections row.
+struct MacConnectionRef: Hashable {
+    let pairingID: String
+    let routeKind: CmxAttachTransportKind?
+
+    /// Stable string form for accessibility identifiers.
+    var automationID: String {
+        guard let routeKind else { return pairingID }
+        return "\(pairingID)\u{1F}\(routeKind.rawValue)"
     }
 }

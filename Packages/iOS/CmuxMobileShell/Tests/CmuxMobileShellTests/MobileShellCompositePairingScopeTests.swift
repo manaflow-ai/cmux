@@ -76,8 +76,11 @@ import Testing
         #expect(refine(.connected, connectedTag: nil, rowTag: "nightly") == nil)
         // Legacy untagged rows keep the device-level status.
         #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == .connected)
-        // Non-connected statuses pass through untouched for every row.
-        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == .reconnecting)
+        // A redial targeting one pairing must not mark the sibling build's
+        // row; with no known target the device status still passes through.
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == nil)
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "stable") == .reconnecting)
+        #expect(refine(.reconnecting, connectedTag: nil, rowTag: "nightly") == .reconnecting)
         #expect(refine(nil, connectedTag: "stable", rowTag: "nightly") == nil)
         // A different device is unaffected by this device's connection.
         #expect(MobileShellComposite.exactPairingConnectionStatus(

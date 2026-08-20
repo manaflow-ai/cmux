@@ -78,7 +78,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
     var statusLine: WorkspaceConnectionStatusLine?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -103,7 +102,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
                     addDevice: showAddDevice,
-                    reconnect: reconnect,
                     selectConnectionMethod: connectionMethodStore.map { store in
                         { store.method = $0 }
                     }
@@ -129,7 +127,6 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -141,8 +138,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
-            statusLine: renderContext.statusLine,
-            reconnect: reconnect
+            statusLine: renderContext.statusLine
         )
     }
 }
@@ -724,8 +720,7 @@ struct WorkspaceShellView: View {
             openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice,
-            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure
+            showAddDevice: showAddDevice
         )
     }
 

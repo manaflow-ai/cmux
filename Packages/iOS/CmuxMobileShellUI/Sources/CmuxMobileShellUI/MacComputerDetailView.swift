@@ -19,6 +19,9 @@ struct MacComputerDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
     let instanceTag: String?
+    /// The route kind of the Connections row that opened this detail; its
+    /// routes lead the routes section. `nil` when opened without a row.
+    var focusedRouteKind: CmxAttachTransportKind? = nil
     @Environment(\.dismiss) private var dismiss
 
     /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
@@ -294,7 +297,11 @@ struct MacComputerDetailView: View {
     @ViewBuilder
     private var routesSection: some View {
         Section {
-            let routes = (pairedMac?.routes ?? []).sorted { $0.priority > $1.priority }
+            let prioritized = (pairedMac?.routes ?? []).sorted { $0.priority > $1.priority }
+            // The route kind whose row opened this detail leads the list, so
+            // the tapped connection's own leg is the first thing inspected.
+            let routes = prioritized.filter { $0.kind == focusedRouteKind }
+                + prioritized.filter { $0.kind != focusedRouteKind }
             if routes.isEmpty {
                 Text(L10n.string("mobile.computers.noRoute", defaultValue: "no route"))
                     .foregroundStyle(.secondary)
