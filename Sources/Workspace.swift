@@ -3229,7 +3229,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.tabDragTransferRegistry = tabDragTransferRegistry
         self.fileContentChangeCoordinator =
-            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
+            fileContentChangeCoordinator ?? .shared
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: resolvedID,
             lifecycle: restoredAgentLifecycle,
