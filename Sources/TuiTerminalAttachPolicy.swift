@@ -103,7 +103,17 @@ enum TuiTerminalAttachPolicy {
             // cmux-tui config: schema drift between binaries prints warnings
             // onto the surface (visible as a flash when the alt screen pops
             // on quit) and couples the bridge to unrelated workstreams.
-            tokens.append("CMUX_TUI_CONFIG=\(shellQuoted(configPath))")
+            //
+            // Ghostty runs the surface command as `bash -c "exec -l <cmd>"`.
+            // `exec` is a builtin, so a leading `VAR=value` is NOT a variable
+            // assignment there: bash treats it as the program name and the
+            // launch fails ("cannot execute: No such file or directory").
+            // Reattach passes a configPath (new-surface provisioning does
+            // not), so the bug stayed masked until the first quit+reopen.
+            // `env VAR=value <cmd>` sets the variable through the env(1)
+            // binary, which execs the real command with the variable in its
+            // environment regardless of the exec-builtin wrapper.
+            tokens.append(contentsOf: ["env", "CMUX_TUI_CONFIG=\(shellQuoted(configPath))"])
         }
         tokens.append(contentsOf: [
             shellQuoted(binaryPath),
@@ -152,6 +162,71 @@ enum TuiTerminalAttachPolicy {
               !liveTerminalIDs.isEmpty
         else { return false }
         return true
+    }
+
+    /// Close-confirmation decision for one daemon-backed terminal tab, from
+    /// the daemon's `terminal <id> process show --json` output. The local
+    /// surface child is the always-running attach client, so the app's
+    /// process-based heuristic would always prompt; the daemon's process
+    /// tree is the real state.
+    enum CloseConfirmationDecision: Equatable {
+        /// A foreground process beyond the shell is running: prompt.
+        case prompt
+        /// Only the idle shell is running: close without prompting.
+        case noPrompt
+        /// The daemon could not be queried or the payload was unreadable:
+        /// the caller must fall back to the existing prompt behavior.
+        case unknown
+    }
+
+    /// Root executables that count as "just the shell". Anything else as the
+    /// terminal's root process is itself a running command.
+    private static let idleShellExecutableNames: Set<String> = [
+        "zsh", "bash", "fish", "sh", "dash", "tcsh", "csh", "ksh", "nu", "pwsh",
+    ]
+
+    /// Decides prompt-vs-no-prompt from `process show` JSON
+    /// (shape: `{"argv":[...],"children":[pid...],"executable":"/bin/zsh","pid":n}`).
+    /// Mirrors the local heuristic as closely as the daemon data allows:
+    /// prompt when the shell has any child process, or when the root process
+    /// is not a shell at all. Missing or malformed data is `.unknown`, never
+    /// a silent skip of the confirmation.
+    static func closeConfirmationDecision(fromProcessShowJSON data: Data?) -> CloseConfirmationDecision {
+        guard let data,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let children = object["children"] as? [Any]
+        else { return .unknown }
+        if !children.isEmpty { return .prompt }
+        guard let executable = object["executable"] as? String, !executable.isEmpty else {
+            return .unknown
+        }
+        var name = (executable as NSString).lastPathComponent.lowercased()
+        if name.hasPrefix("-") { name.removeFirst() }
+        return idleShellExecutableNames.contains(name) ? .noPrompt : .prompt
+    }
+
+    /// The CLI argument list that reads one daemon terminal's process tree.
+    static func processShowArguments(sessionName: String, terminalID: String) -> [String] {
+        ["--session", sessionName, "--json", "terminal", terminalID, "process", "show"]
+    }
+
+    /// The CLI argument list that closes one daemon terminal, ending its
+    /// session-owned process and removing all of its placements.
+    static func terminalCloseArguments(sessionName: String, terminalID: String) -> [String] {
+        ["--session", sessionName, "terminal", terminalID, "close"]
+    }
+
+    /// Whether tearing down one GUI panel should close its daemon terminal.
+    /// Closing a tab (or its pane/workspace) ends the daemon terminal so it
+    /// cannot be orphaned; a detach transfer keeps it (the surface moves to
+    /// another container alive), and app termination keeps it too (quit owns
+    /// the keep-vs-stop choice through its own dialog).
+    static func shouldCloseDaemonTerminalOnPanelDiscard(
+        closePanel: Bool,
+        preservesTerminalForTransfer: Bool,
+        isTerminatingApp: Bool
+    ) -> Bool {
+        closePanel && !preservesTerminalForTransfer && !isTerminatingApp
     }
 
     /// The CLI argument lists that truly stop a daemon session, in order.

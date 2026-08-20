@@ -64,6 +64,11 @@ extension Workspace {
         var remoteRelayNamespaceConfiguration: WorkspaceRemoteConfiguration? = nil
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
+        /// Daemon terminal id backing this surface (cmux-tui spike). Carried
+        /// across detach moves so the destination container keeps consulting
+        /// the daemon for close decisions and closes the daemon terminal when
+        /// the tab finally closes, instead of orphaning it.
+        var tuiTerminalID: String? = nil
 
         var sessionRestoreWorkspaceId: UUID {
             sessionRestoreSourceWorkspaceId ?? sourceWorkspaceId
@@ -117,7 +122,8 @@ extension Workspace {
                 remoteRelayPort: remoteRelayPort,
                 remoteRelayNamespaceConfiguration: remoteRelayNamespaceConfiguration,
                 remotePTYSessionID: remotePTYSessionID,
-                remoteCleanupConfiguration: configuration
+                remoteCleanupConfiguration: configuration,
+                tuiTerminalID: tuiTerminalID
             )
         }
     }

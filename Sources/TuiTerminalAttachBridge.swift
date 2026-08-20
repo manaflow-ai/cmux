@@ -38,6 +38,7 @@ final class TuiTerminalAttachBridge {
     }
 
     private var cachedTerminalIDs: (ids: Set<String>, fetchedAt: Date)?
+    private var cachedCloseConfirmations: [String: (required: Bool, fetchedAt: Date)] = [:]
 
     /// App-managed config for every bridge-spawned cmux-tui process (daemon,
     /// CLI calls, attach clients). Isolates app sessions from the user's
@@ -173,6 +174,70 @@ final class TuiTerminalAttachBridge {
             }
         }.value
         logSpike("quitStop.done session=\(session)")
+    }
+
+    /// Whether closing the tab backed by `terminalID` must ask first,
+    /// consulting the DAEMON terminal's real process state (the local surface
+    /// child is the always-running attach client, so the app's process-based
+    /// heuristic would prompt for an idle shell). Returns nil when the daemon
+    /// cannot be queried so the caller falls back to the existing prompt
+    /// behavior instead of silently skipping confirmation. Blocks the main
+    /// actor on one short bounded CLI call (same spike contract as the other
+    /// bridge calls); a 2s per-terminal cache absorbs the repeated
+    /// close-gating checks of a single gesture.
+    func closeConfirmationRequired(terminalID: String) -> Bool? {
+        guard Self.isEnabled else { return nil }
+        if let cached = cachedCloseConfirmations[terminalID],
+           Date().timeIntervalSince(cached.fetchedAt) < 2 {
+            return cached.required
+        }
+        let binary = Self.binaryPath
+        guard FileManager.default.isExecutableFile(atPath: binary),
+              Self.unixSocketAccepts(path: daemonSocketPath) else {
+            logSpike("closeConfirm.unavailable terminal=\(terminalID)")
+            return nil
+        }
+        let output = Self.runCLI(
+            binary: binary,
+            arguments: TuiTerminalAttachPolicy.processShowArguments(
+                sessionName: sessionName,
+                terminalID: terminalID
+            ),
+            timeout: 5
+        )
+        switch TuiTerminalAttachPolicy.closeConfirmationDecision(fromProcessShowJSON: output) {
+        case .prompt:
+            cachedCloseConfirmations[terminalID] = (true, Date())
+            logSpike("closeConfirm.decision terminal=\(terminalID) required=1")
+            return true
+        case .noPrompt:
+            cachedCloseConfirmations[terminalID] = (false, Date())
+            logSpike("closeConfirm.decision terminal=\(terminalID) required=0")
+            return false
+        case .unknown:
+            logSpike("closeConfirm.decision terminal=\(terminalID) required=unknown")
+            return nil
+        }
+    }
+
+    /// Closes one daemon terminal after its GUI tab (or pane/workspace) was
+    /// closed, so the close cannot orphan a live daemon terminal.
+    /// Fire-and-forget off the main actor: a failure leaves the terminal
+    /// adoptable (today's pre-fix behavior) and is only logged.
+    func closeTerminalForClosedSurface(terminalID: String) {
+        let binary = Self.binaryPath
+        guard FileManager.default.isExecutableFile(atPath: binary) else { return }
+        cachedTerminalIDs = nil
+        cachedCloseConfirmations.removeValue(forKey: terminalID)
+        let arguments = TuiTerminalAttachPolicy.terminalCloseArguments(
+            sessionName: sessionName,
+            terminalID: terminalID
+        )
+        logSpike("surfaceClose.begin terminal=\(terminalID)")
+        Task.detached(priority: .utility) { [terminalID] in
+            let output = TuiTerminalAttachBridge.runCLI(binary: binary, arguments: arguments, timeout: 10)
+            Self.logSpikeStatic("surfaceClose.done terminal=\(terminalID) ok=\(output != nil ? 1 : 0)")
+        }
     }
 
     /// The attach command for a terminal id this bridge (or a previous app
@@ -312,6 +377,12 @@ final class TuiTerminalAttachBridge {
     }
 
     private nonisolated func logSpike(_ message: @autoclosure () -> String) {
+#if DEBUG
+        cmuxDebugLog("tuiAttachSpike.\(message())")
+#endif
+    }
+
+    private nonisolated static func logSpikeStatic(_ message: @autoclosure () -> String) {
 #if DEBUG
         cmuxDebugLog("tuiAttachSpike.\(message())")
 #endif

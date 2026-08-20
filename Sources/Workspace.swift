@@ -5310,7 +5310,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
+        // Daemon-backed tab (cmux-tui spike): the local surface child is the
+        // always-running attach client, so both the shell-activity state and
+        // the ghostty fallback describe the attach client, not the user's
+        // shell, and would report "needs confirm" for an idle shell. Ask the
+        // daemon for the terminal's real process state; when it cannot be
+        // queried, fall through to the existing (prompting) behavior.
+        if let tuiTerminalID = tuiTerminalIDsByPanelId[panelId],
+           let daemonDecision = TuiTerminalAttachBridge.shared
+               .closeConfirmationRequired(terminalID: tuiTerminalID) {
+            return daemonDecision
+        }
+        return Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
             fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
         )
@@ -9891,6 +9902,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
         }
         adoptTransferredSurfaceTTYName(from: detached)
+        if let tuiTerminalID = detached.tuiTerminalID {
+            tuiTerminalIDsByPanelId[detached.panelId] = tuiTerminalID
+        }
         syncRemotePortScanTTYs()
         if let cachedTitle = detached.cachedTitle {
             panelTitles[detached.panelId] = cachedTitle
@@ -9939,6 +9953,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
+            tuiTerminalIDsByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -12821,7 +12836,8 @@ extension Workspace: BonsplitDelegate {
                 remoteRelayPort: remoteRelayNamespaceConfiguration?.relayPort,
                 remoteRelayNamespaceConfiguration: remoteRelayNamespaceConfiguration,
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
+                remoteCleanupConfiguration: transferredRemoteCleanupConfiguration,
+                tuiTerminalID: tuiTerminalIDsByPanelId[panelId]
             ), for: tabId)
         } else {
             if let closedBrowserRestoreSnapshot {

@@ -483,6 +483,19 @@ extension Workspace {
             )
         }
 
+        // Daemon-backed tab (cmux-tui spike): closing the GUI tab must close
+        // the daemon terminal too, or the shell lives on invisibly. Detach
+        // transfers keep it (the surface moves elsewhere alive), and app
+        // termination keeps it (quit owns keep-vs-stop via its own dialog).
+        if let tuiTerminalID = tuiTerminalIDsByPanelId.removeValue(forKey: panelId),
+           TuiTerminalAttachPolicy.shouldCloseDaemonTerminalOnPanelDiscard(
+               closePanel: closePanel,
+               preservesTerminalForTransfer: preservesTerminalForTransfer,
+               isTerminatingApp: AppDelegate.shared?.isTerminatingApp == true
+           ) {
+            TuiTerminalAttachBridge.shared.closeTerminalForClosedSurface(terminalID: tuiTerminalID)
+        }
+
         let removedPanel = panels.removeValue(forKey: panelId)
         if discardAgentHibernationTracking {
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(

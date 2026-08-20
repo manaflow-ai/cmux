@@ -192,7 +192,10 @@ struct TuiTerminalAttachSpikeTests {
             terminalID: "term_abc",
             configPath: "/Users/x/Library/Application Support/cmux/tui-bridge.json"
         )
-        #expect(command == "CMUX_TUI_CONFIG='/Users/x/Library/Application Support/cmux/tui-bridge.json' '/Users/x/.local/bin/cmux-tui-npm' attach --session 'cmux-tuispk' --terminal 'term_abc'")
+        // `env` (not a bare VAR= prefix): ghostty wraps the surface command in
+        // `bash -c "exec -l <cmd>"`, where a leading assignment is treated as
+        // the program name and the launch fails.
+        #expect(command == "env CMUX_TUI_CONFIG='/Users/x/Library/Application Support/cmux/tui-bridge.json' '/Users/x/.local/bin/cmux-tui-npm' attach --session 'cmux-tuispk' --terminal 'term_abc'")
     }
 
     @Test
@@ -303,6 +306,105 @@ struct TuiTerminalAttachSpikeTests {
             terminalIDs: []
         )
         #expect(commands == [["server", "stop", "--session", "cmux-tuispk"]])
+    }
+
+    // MARK: - Close confirmation from daemon process state
+
+    @Test
+    func closeConfirmationSkipsPromptForIdleShell() {
+        let json = Data("""
+        {"argv":["/bin/zsh"],"children":[],"cwd":"/Users/me","executable":"/bin/zsh","pid":4075}
+        """.utf8)
+        #expect(TuiTerminalAttachPolicy.closeConfirmationDecision(fromProcessShowJSON: json) == .noPrompt)
+    }
+
+    @Test
+    func closeConfirmationPromptsWhenAChildProcessIsRunning() {
+        let json = Data("""
+        {"argv":["/bin/zsh"],"children":[4211],"cwd":"/Users/me","executable":"/bin/zsh","pid":4075}
+        """.utf8)
+        #expect(TuiTerminalAttachPolicy.closeConfirmationDecision(fromProcessShowJSON: json) == .prompt)
+    }
+
+    @Test
+    func closeConfirmationPromptsWhenRootIsNotAShell() {
+        let json = Data("""
+        {"argv":["/usr/bin/top"],"children":[],"cwd":"/","executable":"/usr/bin/top","pid":99}
+        """.utf8)
+        #expect(TuiTerminalAttachPolicy.closeConfirmationDecision(fromProcessShowJSON: json) == .prompt)
+    }
+
+    @Test
+    func closeConfirmationTreatsLoginShellNameAsIdleShell() {
+        let json = Data("""
+        {"argv":["-zsh"],"children":[],"cwd":"/","executable":"/bin/-zsh","pid":7}
+        """.utf8)
+        #expect(TuiTerminalAttachPolicy.closeConfirmationDecision(fromProcessShowJSON: json) == .noPrompt)
+    }
+
+    @Test
+    func closeConfirmationIsUnknownWithoutQueryableData() {
+        for data in [
+            nil,
+            Data(),
+            Data("not json".utf8),
+            // CLI error payload (selector.not_found) has no children field.
+            Data(#"{"code":"selector.not_found","message":"no terminal matches"}"#.utf8),
+            // Children present but executable missing: cannot classify idle.
+            Data(#"{"argv":[],"children":[],"pid":1}"#.utf8),
+        ] {
+            #expect(TuiTerminalAttachPolicy.closeConfirmationDecision(fromProcessShowJSON: data) == .unknown)
+        }
+    }
+
+    @Test
+    func processShowArgumentsTargetTheSessionAndTerminal() {
+        #expect(TuiTerminalAttachPolicy.processShowArguments(
+            sessionName: "cmux-tuispk",
+            terminalID: "term_a"
+        ) == ["--session", "cmux-tuispk", "--json", "terminal", "term_a", "process", "show"])
+    }
+
+    @Test
+    func terminalCloseArgumentsTargetTheSessionAndTerminal() {
+        #expect(TuiTerminalAttachPolicy.terminalCloseArguments(
+            sessionName: "cmux-tuispk",
+            terminalID: "term_a"
+        ) == ["--session", "cmux-tuispk", "terminal", "term_a", "close"])
+    }
+
+    // MARK: - Daemon terminal close on panel discard
+
+    @Test
+    func panelDiscardClosesDaemonTerminalOnRealClose() {
+        #expect(TuiTerminalAttachPolicy.shouldCloseDaemonTerminalOnPanelDiscard(
+            closePanel: true,
+            preservesTerminalForTransfer: false,
+            isTerminatingApp: false
+        ))
+    }
+
+    @Test
+    func panelDiscardKeepsDaemonTerminalForDetachTransfer() {
+        #expect(!TuiTerminalAttachPolicy.shouldCloseDaemonTerminalOnPanelDiscard(
+            closePanel: false,
+            preservesTerminalForTransfer: true,
+            isTerminatingApp: false
+        ))
+        #expect(!TuiTerminalAttachPolicy.shouldCloseDaemonTerminalOnPanelDiscard(
+            closePanel: true,
+            preservesTerminalForTransfer: true,
+            isTerminatingApp: false
+        ))
+    }
+
+    @Test
+    func panelDiscardKeepsDaemonTerminalDuringAppTermination() {
+        #expect(!TuiTerminalAttachPolicy.shouldCloseDaemonTerminalOnPanelDiscard(
+            closePanel: true,
+            preservesTerminalForTransfer: false,
+            isTerminatingApp: true
+        ))
     }
 
     // MARK: - Snapshot round trip
