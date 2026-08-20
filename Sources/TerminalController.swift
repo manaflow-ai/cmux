@@ -2522,6 +2522,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SidebarMachineAttachCmuxTUI(params: params))
         case "sidebar.workspace.move_to_context":
             return v2Result(id: id, self.v2SidebarWorkspaceMoveToContext(params: params))
+        case "sidebar.column.set_mode":
+            return v2Result(id: id, self.v2SidebarColumnSetMode(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2710,6 +2712,7 @@ class TerminalController {
             "sidebar.machine.add_ssh",
             "sidebar.machine.attach_cmux_tui",
             "sidebar.workspace.move_to_context",
+            "sidebar.column.set_mode",
             "system.top",
             "system.memory",
             "caffeine.status",

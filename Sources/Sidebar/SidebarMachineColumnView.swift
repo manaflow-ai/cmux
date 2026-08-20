@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CmuxCore
 import CmuxFoundation
 import Combine
 import SwiftUI

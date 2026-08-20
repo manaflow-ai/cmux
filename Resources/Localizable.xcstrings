@@ -267737,6 +267737,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "cmux · %@" } }
       }
     },
+    "socket.sidebar.column.invalidColumn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "column must be machines or workspaces." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "column には machines または workspaces を指定してください。" } }
+      }
+    },
+    "socket.sidebar.column.invalidMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "mode must be regular or icons." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "mode には regular または icons を指定してください。" } }
+      }
+    },
     "socket.sidebar.context.invalidIndex": {
       "extractionState": "manual",
       "localizations": {

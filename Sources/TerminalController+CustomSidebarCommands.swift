@@ -365,6 +365,55 @@ extension TerminalController {
         }
     }
 
+    /// Debug/dogfood control for the Finder-style sidebar columns: flips one
+    /// column between regular rows and the icon rail, same path as the
+    /// divider snap (persisted mode drives the animated layout change).
+    nonisolated func v2SidebarColumnSetMode(params: [String: Any]) -> V2CallResult {
+        let validColumns = ["machines", "workspaces"]
+        guard let column = params["column"] as? String, validColumns.contains(column) else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.column.invalidColumn",
+                    defaultValue: "column must be machines or workspaces."
+                ),
+                data: nil
+            )
+        }
+        guard let rawMode = params["mode"] as? String,
+              let mode = SidebarColumnDisplayMode(rawValue: rawMode)
+        else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.column.invalidMode",
+                    defaultValue: "mode must be regular or icons."
+                ),
+                data: nil
+            )
+        }
+        return v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params),
+                  let context = AppDelegate.shared?.mainWindowContext(for: tabManager)
+            else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            if column == "machines" {
+                context.sidebarState.persistedLeadingColumnMode = mode
+            } else {
+                context.sidebarState.persistedPrimaryColumnMode = mode
+            }
+            return .ok(["column": column, "mode": mode.rawValue])
+        }
+    }
+
     nonisolated func v2SidebarCreationContextSelect(params: [String: Any]) -> V2CallResult {
         guard let rawID = params["context_id"] as? String else {
             return .err(
