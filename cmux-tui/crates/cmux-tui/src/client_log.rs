@@ -14,41 +14,88 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform;
 
-/// Set once the process's stderr (fd 2) points at the log file. From then on
-/// `stderr_log!` skips its `eprintln!` echo (it would duplicate the record),
-/// while panics and library writes to stderr still land in the log.
+/// Set once the process's stderr (fd 2) feeds the log pump. From then on
+/// `stderr_log!` skips its `eprintln!` echo (the pump would duplicate the
+/// record). Only set when a redirect actually happened.
 static STDERR_REDIRECTED: AtomicBool = AtomicBool::new(false);
 
 /// Roll the active file after it passes this size. Two files are kept, so the
 /// log never holds more than roughly twice this on disk.
 const MAX_ACTIVE_BYTES: u64 = 2 * 1024 * 1024;
 
+/// Bounded queue between callers (UI/render threads) and the writer thread.
+/// Callers never touch the filesystem or any lock a disk stall can hold.
+const QUEUE_CAPACITY: usize = 512;
+
+struct Record {
+    stamp: String,
+    level: &'static str,
+    area: String,
+    message: String,
+}
+
+/// Records dropped because the queue was full; the writer reports the count
+/// when it next drains.
+static DROPPED: AtomicU64 = AtomicU64::new(0);
+
+static QUEUE: OnceLock<Option<SyncSender<Record>>> = OnceLock::new();
+
+fn queue() -> Option<&'static SyncSender<Record>> {
+    QUEUE
+        .get_or_init(|| {
+            let mut sink = open_sink()?;
+            let (sender, receiver) = sync_channel::<Record>(QUEUE_CAPACITY);
+            std::thread::Builder::new()
+                .name("client-log".into())
+                .spawn(move || {
+                    while let Ok(record) = receiver.recv() {
+                        let dropped = DROPPED.swap(0, Ordering::AcqRel);
+                        if dropped > 0 {
+                            write_record(
+                                &mut sink,
+                                &Record {
+                                    stamp: timestamp(),
+                                    level: "WARN",
+                                    area: "log".into(),
+                                    message: format!("{dropped} records dropped (queue full)"),
+                                },
+                            );
+                        }
+                        write_record(&mut sink, &record);
+                    }
+                })
+                .ok()?;
+            Some(sender)
+        })
+        .as_ref()
+}
+
 struct Sink {
     file: File,
     path: PathBuf,
 }
 
-static SINK: OnceLock<Option<Mutex<Sink>>> = OnceLock::new();
-
-fn open_sink() -> Option<Mutex<Sink>> {
+fn open_sink() -> Option<Sink> {
     let path = platform::client_log_path()?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).ok()?;
     }
     let file = OpenOptions::new().create(true).append(true).open(&path).ok()?;
-    Some(Mutex::new(Sink { file, path }))
+    Some(Sink { file, path })
 }
 
 /// Hold an exclusive advisory lock on the log file for one write+rotate
 /// critical section. Several cmux-tui processes share one log; without
 /// cross-process exclusion two writers can rotate at the same time, losing
 /// records or leaving one process appending to an unlinked file forever.
+/// Runs only on the writer thread, never on UI paths.
 #[cfg(unix)]
 fn lock_exclusive(file: &File) -> bool {
     use std::os::unix::io::AsRawFd;
@@ -90,71 +137,133 @@ fn handle_is_current(_file: &File, path: &Path) -> bool {
     path.exists()
 }
 
-/// Reopen the active file after this or another process rotated it, keeping a
-/// redirected stderr pointed at the ACTIVE file.
-fn reopen(sink: &mut Sink) -> bool {
-    match OpenOptions::new().create(true).append(true).open(&sink.path) {
-        Ok(file) => {
-            sink.file = file;
-            if STDERR_REDIRECTED.load(Ordering::Acquire) {
-                point_stderr_at(&sink.file);
-            }
-            true
-        }
-        Err(_) => false,
-    }
-}
-
-fn rollover_path(path: &Path) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
-    name.push(".1");
-    path.with_file_name(name)
-}
-
-fn rotate_if_needed(sink: &mut Sink) {
-    // The size comes from the handle, so every process's appends count
-    // toward the cap, not just this one's.
-    let size = sink.file.metadata().map(|meta| meta.len()).unwrap_or(0);
-    if size < MAX_ACTIVE_BYTES {
+/// One record through the full multiprocess-safe path: lock, follow foreign
+/// rotations, append, rotate past the cap, unlock. Writer-thread only.
+fn write_record(sink: &mut Sink, record: &Record) {
+    if !lock_exclusive(&sink.file) {
         return;
     }
-    let _ = sink.file.flush();
-    let _ = fs::rename(&sink.path, rollover_path(&sink.path));
-    let _ = reopen(sink);
-}
-
-#[cfg(unix)]
-fn point_stderr_at(file: &File) {
-    use std::os::unix::io::AsRawFd;
-    // SAFETY: dup2 onto fd 2 replaces stderr atomically; both fds are owned
-    // by this process and remain open.
-    unsafe {
-        libc::dup2(file.as_raw_fd(), 2);
+    if !handle_is_current(&sink.file, &sink.path) {
+        let Ok(fresh) = OpenOptions::new().create(true).append(true).open(&sink.path) else {
+            unlock(&sink.file);
+            return;
+        };
+        let old = std::mem::replace(&mut sink.file, fresh);
+        unlock(&old);
+        if !lock_exclusive(&sink.file) {
+            return;
+        }
     }
+    let line = format!(
+        "{} {:5} {}: {}\n",
+        record.stamp,
+        record.level,
+        record.area,
+        sanitize(&record.message)
+    );
+    if sink.file.write_all(line.as_bytes()).is_ok() {
+        // The size comes from the handle, so every process's appends count
+        // toward the cap, not just this one's.
+        let size = sink.file.metadata().map(|meta| meta.len()).unwrap_or(0);
+        if size >= MAX_ACTIVE_BYTES {
+            let _ = sink.file.flush();
+            let _ = fs::rename(&sink.path, rollover_path(&sink.path));
+            if let Ok(file) = OpenOptions::new().create(true).append(true).open(&sink.path) {
+                let old = std::mem::replace(&mut sink.file, file);
+                unlock(&old);
+                return;
+            }
+        }
+    }
+    unlock(&sink.file);
 }
-
-#[cfg(not(unix))]
-fn point_stderr_at(_file: &File) {}
 
 /// The original stderr fd, saved before redirection so the terminal gets its
 /// stderr back when the TUI exits. -1 when nothing is saved.
+#[cfg(unix)]
 static SAVED_STDERR: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 /// Route the process's stderr into the client log. Called when the TUI takes
-/// ownership of the terminal: from then on stray stderr writes (panics,
-/// libraries, child inheritance) land in the log instead of corrupting the
-/// raw-mode screen.
+/// ownership of the terminal: stray stderr writes (panics, libraries, child
+/// processes) land in the log instead of corrupting the raw-mode screen.
+///
+/// fd 2 becomes the write end of a PIPE whose pump thread feeds each line
+/// through the normal record path - so child-process output is sanitized and
+/// counts toward the size cap instead of bypassing it, and rotation never
+/// strands a writer on a rolled inode. No-op off Unix (the flag stays false,
+/// so diagnostics keep echoing to stderr there).
 pub(crate) fn redirect_stderr_into_log() {
-    let Some(sink) = SINK.get_or_init(open_sink).as_ref() else { return };
-    let Ok(sink) = sink.lock() else { return };
     #[cfg(unix)]
-    if SAVED_STDERR.load(Ordering::Acquire) < 0 {
-        // SAFETY: dup of a live fd; the duplicate is retained for restore.
-        let saved = unsafe { libc::dup(2) };
-        SAVED_STDERR.store(saved, Ordering::Release);
+    {
+        use std::io::Read;
+        use std::os::unix::io::FromRawFd;
+        if STDERR_REDIRECTED.load(Ordering::Acquire) {
+            return;
+        }
+        if queue().is_none() {
+            return;
+        }
+        let mut fds = [0i32; 2];
+        // SAFETY: plain pipe(2); both ends are owned below.
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            return;
+        }
+        let (read_fd, write_fd) = (fds[0], fds[1]);
+        if SAVED_STDERR.load(Ordering::Acquire) < 0 {
+            // SAFETY: dup of a live fd; the duplicate is retained for restore.
+            let saved = unsafe { libc::dup(2) };
+            SAVED_STDERR.store(saved, Ordering::Release);
+        }
+        // SAFETY: dup2 onto fd 2 replaces stderr atomically; close the now
+        // duplicated write end.
+        unsafe {
+            libc::dup2(write_fd, 2);
+            libc::close(write_fd);
+        }
+        // SAFETY: read_fd is owned by this File from here on.
+        let mut reader = unsafe { File::from_raw_fd(read_fd) };
+        let spawned = std::thread::Builder::new()
+            .name("stderr-pump".into())
+            .spawn(move || {
+                let mut buffer = [0u8; 4096];
+                let mut pending = Vec::new();
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => {
+                            pending.extend_from_slice(&buffer[..read]);
+                            while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+                                let line: Vec<u8> = pending.drain(..=newline).collect();
+                                let text = String::from_utf8_lossy(&line);
+                                let text = text.trim_end();
+                                if !text.is_empty() {
+                                    log("WARN", "stderr", text);
+                                }
+                            }
+                            // Cap partial-line buffering; a binary stream must
+                            // not grow this without bound.
+                            if pending.len() > 64 * 1024 {
+                                log("WARN", "stderr", &String::from_utf8_lossy(&pending));
+                                pending.clear();
+                            }
+                        }
+                    }
+                }
+            })
+            .is_ok();
+        if spawned {
+            STDERR_REDIRECTED.store(true, Ordering::Release);
+        } else {
+            // Undo: put the terminal stderr back.
+            let saved = SAVED_STDERR.load(Ordering::Acquire);
+            if saved >= 0 {
+                // SAFETY: restoring the saved fd onto 2.
+                unsafe {
+                    libc::dup2(saved, 2);
+                }
+            }
+        }
     }
-    point_stderr_at(&sink.file);
-    STDERR_REDIRECTED.store(true, Ordering::Release);
 }
 
 /// Undo `redirect_stderr_into_log` when the terminal is restored to the user.
@@ -166,7 +275,9 @@ pub(crate) fn restore_stderr_from_log() {
     {
         let saved = SAVED_STDERR.load(Ordering::Acquire);
         if saved >= 0 {
-            // SAFETY: restoring the saved terminal stderr onto fd 2.
+            // SAFETY: restoring the saved terminal stderr onto fd 2. The pipe
+            // write end this replaces was fd 2's only copy in this process,
+            // so the pump sees EOF once children sharing it exit.
             unsafe {
                 libc::dup2(saved, 2);
             }
@@ -215,33 +326,19 @@ fn sanitize(message: &str) -> String {
 
 /// Append one record. `area` names the subsystem ("status", "machine",
 /// "startup", "provider", ...). Best-effort: errors are swallowed.
-pub(crate) fn log(level: &str, area: &str, message: &str) {
-    let Some(sink) = SINK.get_or_init(open_sink).as_ref() else { return };
-    let Ok(mut sink) = sink.lock() else { return };
-    if !lock_exclusive(&sink.file) {
-        return;
+pub(crate) fn log(level: &'static str, area: &str, message: &str) {
+    let Some(sender) = queue() else { return };
+    let record = Record {
+        stamp: timestamp(),
+        level,
+        area: area.to_string(),
+        message: message.to_string(),
+    };
+    // Never block a caller (status rendering runs on the UI thread): a full
+    // queue drops the record and the writer reports the count.
+    if sender.try_send(record).is_err() {
+        DROPPED.fetch_add(1, Ordering::AcqRel);
     }
-    // Another process may have rotated the file since the last write; follow
-    // the rotation before appending, and re-lock the fresh handle.
-    if !handle_is_current(&sink.file, &sink.path) {
-        let Ok(fresh) = OpenOptions::new().create(true).append(true).open(&sink.path) else {
-            unlock(&sink.file);
-            return;
-        };
-        let old = std::mem::replace(&mut sink.file, fresh);
-        unlock(&old);
-        if STDERR_REDIRECTED.load(Ordering::Acquire) {
-            point_stderr_at(&sink.file);
-        }
-        if !lock_exclusive(&sink.file) {
-            return;
-        }
-    }
-    let line = format!("{} {:5} {}: {}\n", timestamp(), level, area, sanitize(message));
-    if sink.file.write_all(line.as_bytes()).is_ok() {
-        rotate_if_needed(&mut sink);
-    }
-    unlock(&sink.file);
 }
 
 pub(crate) fn warn(area: &str, message: &str) {
