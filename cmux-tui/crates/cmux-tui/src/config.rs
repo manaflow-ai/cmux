@@ -148,6 +148,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -3254,8 +3255,16 @@ pub fn load() -> Config {
         config.sidebar.row_gap = gap.min(2);
     }
     if let Some(glyph) = raw.sidebar.rail_glyph {
-        config.sidebar.rail_glyph =
-            if glyph.eq_ignore_ascii_case("none") { String::new() } else { glyph };
+        if glyph.eq_ignore_ascii_case("none") {
+            config.sidebar.rail_glyph = String::new();
+        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+            // The renderer reserves exactly one cell for the glyph.
+            config.sidebar.rail_glyph = glyph;
+        } else {
+            eprintln!(
+                "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
+            );
+        }
     }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();

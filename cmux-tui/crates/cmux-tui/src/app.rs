@@ -9622,13 +9622,20 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Expand the configured workspace row label template.
-    pub(crate) fn workspace_button_label(&self, index: usize, name: &str) -> String {
+    /// Expand the configured workspace row label template. The default
+    /// template borrows the name, so ordinary draws do not allocate.
+    pub(crate) fn workspace_button_label<'a>(
+        &self,
+        index: usize,
+        name: &'a str,
+    ) -> std::borrow::Cow<'a, str> {
         let template = &self.config.sidebar.workspace_label;
         if template == "{name}" {
-            return name.to_string();
+            return std::borrow::Cow::Borrowed(name);
         }
-        template.replace("{index}", &index.to_string()).replace("{name}", name)
+        std::borrow::Cow::Owned(
+            template.replace("{index}", &index.to_string()).replace("{name}", name),
+        )
     }
 
     pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {

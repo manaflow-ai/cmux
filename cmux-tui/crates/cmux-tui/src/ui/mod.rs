@@ -387,16 +387,23 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     };
 
     let segment_bg = |segment: &crate::app::StatusSegmentView| segment.bg.unwrap_or(status_bg);
-    let left_separator = app.config.status_bar.left_separator.clone();
-    let visible_left: Vec<_> =
-        left_segments.iter().filter(|segment| !segment.text.is_empty()).collect();
-    for (index, segment) in visible_left.iter().enumerate() {
+    // Segment lists are bounded (eight per side), so lookahead scans stay
+    // cheap and the draw path allocates nothing.
+    let left_separator = app.config.status_bar.left_separator.as_deref();
+    for (index, segment) in left_segments.iter().enumerate() {
+        if segment.text.is_empty() {
+            continue;
+        }
         put(frame, &mut x, &segment.text, segment_style(segment));
-        if let Some(separator) = left_separator.as_deref() {
+        if let Some(separator) = left_separator {
             // Powerline transition: the separator's foreground takes this
             // segment's background and its background the next segment's
             // (or the bar's own, after the last segment).
-            let next_bg = visible_left.get(index + 1).map(|s| segment_bg(s)).unwrap_or(status_bg);
+            let next_bg = left_segments[index + 1..]
+                .iter()
+                .find(|next| !next.text.is_empty())
+                .map(segment_bg)
+                .unwrap_or(status_bg);
             put(frame, &mut x, separator, Style::default().fg(segment_bg(segment)).bg(next_bg));
         }
     }
@@ -480,13 +487,14 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     // Right-aligned custom segments sit left of the label; draw them and
     // shrink the viewport track accordingly.
     let mut right_x = area.width.saturating_sub(label_w);
-    let right_separator = app.config.status_bar.right_separator.clone();
+    let right_separator = app.config.status_bar.right_separator.as_deref();
     // Empty texts are normal before a command's first result; later
     // segments still draw.
-    let visible_right: Vec<_> =
-        right_segments.iter().filter(|segment| !segment.text.is_empty()).collect();
-    for index in (0..visible_right.len()).rev() {
-        let segment = visible_right[index];
+    for index in (0..right_segments.len()).rev() {
+        let segment = &right_segments[index];
+        if segment.text.is_empty() {
+            continue;
+        }
         let width = (segment.text.width() as u16).min(right_x.saturating_sub(x));
         if width == 0 {
             break;
@@ -499,7 +507,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             width as usize,
             segment_style(segment),
         );
-        if let Some(separator) = right_separator.as_deref() {
+        if let Some(separator) = right_separator {
             let separator_width = (separator.width() as u16).min(right_x.saturating_sub(x));
             if separator_width == 0 {
                 break;
@@ -507,7 +515,12 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             // Mirrored powerline transition: the separator sits left of its
             // segment, foreground from the segment, background from the
             // next segment to the left (or the bar itself).
-            let left_bg = if index > 0 { segment_bg(visible_right[index - 1]) } else { status_bg };
+            let left_bg = right_segments[..index]
+                .iter()
+                .rev()
+                .find(|previous| !previous.text.is_empty())
+                .map(segment_bg)
+                .unwrap_or(status_bg);
             right_x = right_x.saturating_sub(separator_width);
             frame.buffer_mut().set_stringn(
                 right_x,
