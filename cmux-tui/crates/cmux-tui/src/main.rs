@@ -412,7 +412,8 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: xterm-256color).
+  --term <value>     TERM for child shells (default: xterm-ghostty when its
+                     terminfo entry resolves on this host, else xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";

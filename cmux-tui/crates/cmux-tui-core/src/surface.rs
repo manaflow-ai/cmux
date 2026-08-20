@@ -97,8 +97,11 @@ pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
-    /// TERM value for children. xterm-256color is the compatible default;
-    /// set xterm-ghostty when the ghostty terminfo is installed.
+    /// TERM value for children: xterm-ghostty when its terminfo entry
+    /// resolves in this process's environment (truthful — the embedded
+    /// terminal IS ghostty-vt — and gives children RGB terminfo caps and
+    /// TERM-sniffing prompts the same branch as raw Ghostty), else the
+    /// compatible xterm-256color. CMUX_TUI_TERM/CMUX_MUX_TERM override.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -130,6 +133,68 @@ pub struct SurfaceOptions {
     pub terminal_host_root: Option<PathBuf>,
 }
 
+/// Default TERM for child shells: `xterm-ghostty` when its terminfo entry
+/// resolves in this process's environment, else `xterm-256color`.
+///
+/// The inner terminal is ghostty-vt, so advertising xterm-ghostty is
+/// truthful wherever the entry exists (Ghostty exports TERMINFO into its
+/// sessions, and installs it system-wide via most package managers). It
+/// carries the RGB terminfo capabilities that make zsh's `%F{#hex}` and
+/// other terminfo-checking programs use truecolor, and TERM-name-sniffing
+/// prompts (e.g. oh-my-zsh themes matching `*256color`) take the same
+/// branch inside cmux-tui as in raw Ghostty, so colors match. The check
+/// runs where children spawn; attach clients never need the entry.
+pub fn default_child_term() -> String {
+    if terminfo_entry_exists_in(&terminfo_search_dirs(), "xterm-ghostty") {
+        "xterm-ghostty".into()
+    } else {
+        "xterm-256color".into()
+    }
+}
+
+/// The terminfo directories ncurses would search: $TERMINFO, ~/.terminfo,
+/// $TERMINFO_DIRS entries, then the usual system and package-manager
+/// locations (an empty $TERMINFO_DIRS element means the compiled-in default
+/// list, which the fixed tail below covers).
+fn terminfo_search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(v) = std::env::var("TERMINFO") {
+        if !v.is_empty() {
+            dirs.push(v.into());
+        }
+    }
+    if let Some(home) = platform::home_dir() {
+        dirs.push(home.join(".terminfo"));
+    }
+    if let Ok(v) = std::env::var("TERMINFO_DIRS") {
+        dirs.extend(v.split(':').filter(|s| !s.is_empty()).map(PathBuf::from));
+    }
+    dirs.extend(
+        [
+            "/usr/share/terminfo",
+            "/usr/lib/terminfo",
+            "/etc/terminfo",
+            "/opt/homebrew/share/terminfo",
+            "/usr/local/share/terminfo",
+        ]
+        .map(PathBuf::from),
+    );
+    dirs
+}
+
+/// Whether `name` has a compiled terminfo entry under any of `dirs`,
+/// checking both directory layouts: first-letter (Linux ncurses) and
+/// first-letter-hex (macOS).
+fn terminfo_entry_exists_in(dirs: &[PathBuf], name: &str) -> bool {
+    let Some(first) = name.chars().next() else {
+        return false;
+    };
+    let letter = first.to_string();
+    let hex = format!("{:x}", first as u32);
+    dirs.iter()
+        .any(|dir| dir.join(&letter).join(name).is_file() || dir.join(&hex).join(name).is_file())
+}
+
 impl Default for SurfaceOptions {
     fn default() -> Self {
         SurfaceOptions {
@@ -137,7 +202,7 @@ impl Default for SurfaceOptions {
             cwd: None,
             term: std::env::var("CMUX_TUI_TERM")
                 .or_else(|_| std::env::var("CMUX_MUX_TERM"))
-                .unwrap_or_else(|_| "xterm-256color".into()),
+                .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
             scrollback: 10_000,
