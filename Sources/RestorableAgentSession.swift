@@ -579,6 +579,37 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
+        guard let argv = agentResumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: customRegistration,
+            observedPermissionMode: observedPermissionMode
+        ) else { return nil }
+        // A launcher cmux does not own was detected around this agent at capture time, so re-supply
+        // it: without the wrapper the restored pane talks to the provider directly and loses
+        // whatever the wrapper provided. #10494
+        guard let externalLauncher = launchCommand?.externalLauncher else { return argv }
+        return AgentExternalLauncherRegistry.load(
+            homeDirectory: NSHomeDirectory(),
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            sanitize: { try JSONCParser.preprocess(data: $0) }
+        ).applyingResumePrefix(
+            to: argv,
+            launcherID: externalLauncher,
+            kind: kind.rawValue
+        )
+    }
+
+    private static func agentResumeArguments(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        observedPermissionMode: String? = nil
+    ) -> [String]? {
         let resumeArgv = AgentResumeArgv()
         switch resumeArgv.launcherResolution(
             launcher: launchCommand?.launcher,

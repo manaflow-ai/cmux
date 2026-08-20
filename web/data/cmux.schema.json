@@ -172,6 +172,66 @@
         }
       }
     },
+    "agents": {
+      "title": "agents",
+      "description": "Coding-agent launchers cmux does not own. Declare a wrapper here when agents are started through it (a multi-account router, an LLM gateway front end, any \"<wrapper> run -- <agent argv>\" shim) so session restore re-supplies the wrapper instead of resuming the agent directly.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "launchers": {
+          "type": "array",
+          "default": [],
+          "description": "External launcher declarations. Detection runs against the argv of an agent's ancestor processes when the session is captured; the matched id is replayed at resume time.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "detect", "resumeArgvPrefix"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable identifier recorded on the launch capture, for example teamclaude."
+              },
+              "kind": {
+                "type": "string",
+                "description": "Single built-in agent kind this launcher wraps, for example claude. Omit to match every kind."
+              },
+              "kinds": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Built-in agent kinds this launcher wraps, for example [\"claude\"]. Omit to match every kind."
+              },
+              "detect": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["argvContains"],
+                "description": "How the launcher process is recognized among an agent's ancestors.",
+                "properties": {
+                  "argvContains": {
+                    "oneOf": [
+                      { "type": "string", "minLength": 1 },
+                      { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+                    ],
+                    "description": "Substring or substrings that must appear in the launcher process argv."
+                  }
+                }
+              },
+              "resumeArgvPrefix": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Argv words prepended to the agent's own resume argv, for example [\"teamclaude\", \"run\", \"--auto-fallback\", \"--\"]."
+              },
+              "includesAgentExecutable": {
+                "type": "boolean",
+                "default": false,
+                "description": "Keep the agent's own executable after the prefix. Leave false for wrappers that re-exec their own agent binary after a -- separator; set true for env-style wrappers that take a full command."
+              }
+            }
+          }
+        }
+      }
+    },
     "vault": {
       "title": "vault",
       "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",

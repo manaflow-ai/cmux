@@ -478,6 +478,7 @@ extension TerminalController {
         } ?? command.environment
         return ControlAgentLaunchCommand(
             launcher: command.launcher,
+            externalLauncher: command.externalLauncher,
             executablePath: command.executablePath,
             arguments: command.arguments,
             workingDirectory: command.workingDirectory,
@@ -615,6 +616,7 @@ extension TerminalController {
             launchCommand: inputs.launchCommand.map {
                 AgentLaunchCommandSnapshot(
                     launcher: $0.launcher,
+                    externalLauncher: $0.externalLauncher,
                     executablePath: $0.executablePath,
                     arguments: $0.arguments,
                     workingDirectory: $0.workingDirectory,

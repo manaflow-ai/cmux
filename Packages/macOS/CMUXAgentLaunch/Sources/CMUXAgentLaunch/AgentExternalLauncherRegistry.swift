@@ -69,6 +69,88 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
         return AgentExternalLauncherRegistry(launchers: merged)
     }
 
+    /// The config files that can declare external launchers, in increasing precedence order.
+    ///
+    /// The user-level file comes first and the nearest project file last, matching how vault agents
+    /// merge, so a repository can pin the wrapper its sessions are started with.
+    ///
+    /// - Parameters:
+    ///   - homeDirectory: The user's home directory.
+    ///   - workingDirectory: The directory a project config is searched upwards from.
+    ///   - fileManager: Filesystem used to probe for the files.
+    /// - Returns: Existing config paths, deduplicated.
+    public static func configPaths(
+        homeDirectory: String,
+        workingDirectory: String?,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        var paths: [String] = []
+        let home = (homeDirectory as NSString).standardizingPath
+        paths.append(
+            ((home as NSString).appendingPathComponent(".config/cmux") as NSString)
+                .appendingPathComponent("cmux.json")
+        )
+        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty,
+           let projectPath = projectConfigPath(startingAt: workingDirectory, fileManager: fileManager) {
+            paths.append(projectPath)
+        }
+        var seen: Set<String> = []
+        return paths.filter { path in
+            guard fileManager.fileExists(atPath: path) else { return false }
+            return seen.insert(path).inserted
+        }
+    }
+
+    /// Loads external launcher declarations from the user-level and project config files.
+    ///
+    /// - Parameters:
+    ///   - homeDirectory: The user's home directory.
+    ///   - workingDirectory: The directory a project config is searched upwards from.
+    ///   - fileManager: Filesystem used to read the files.
+    ///   - sanitize: JSONC comment stripping applied before decoding.
+    /// - Returns: The merged registry.
+    public static func load(
+        homeDirectory: String,
+        workingDirectory: String?,
+        fileManager: FileManager = .default,
+        sanitize: (Data) throws -> Data
+    ) -> AgentExternalLauncherRegistry {
+        load(
+            configPaths: configPaths(
+                homeDirectory: homeDirectory,
+                workingDirectory: workingDirectory,
+                fileManager: fileManager
+            ),
+            fileManager: fileManager,
+            sanitize: sanitize
+        )
+    }
+
+    private static func projectConfigPath(
+        startingAt path: String,
+        fileManager: FileManager
+    ) -> String? {
+        var isDirectory: ObjCBool = false
+        let start = fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? path
+            : (path as NSString).deletingLastPathComponent
+        var current = (start as NSString).standardizingPath
+        while true {
+            let candidates = [
+                ((current as NSString).appendingPathComponent(".cmux") as NSString)
+                    .appendingPathComponent("cmux.json"),
+                (current as NSString).appendingPathComponent("cmux.json"),
+            ]
+            for candidate in candidates where fileManager.fileExists(atPath: candidate) {
+                return candidate
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { return nil }
+            current = parent
+        }
+    }
+
     /// The declaration recorded under `id`, when it is still declared.
     ///
     /// - Parameter id: The captured launcher id.
@@ -93,6 +175,40 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
             }
         }
         return nil
+    }
+
+    /// Detects the launcher that started an agent by walking its ancestor processes.
+    ///
+    /// Process lookup is injected so detection stays testable, and the walk is depth-bounded: a
+    /// wrapper is the agent's launcher, not an arbitrary ancestor, and stopping early keeps a login
+    /// shell or the terminal itself from being mistaken for one.
+    ///
+    /// - Parameters:
+    ///   - agentPID: The agent process whose ancestors are inspected.
+    ///   - kind: The built-in agent kind being captured.
+    ///   - maximumAncestorDepth: How many ancestors to inspect before giving up.
+    ///   - parentPID: Parent lookup; a value of `1` or less ends the walk.
+    ///   - argv: Argv lookup for one process.
+    /// - Returns: The nearest matching declaration, or `nil`.
+    public func detectedLauncher(
+        agentPID: Int32,
+        kind: String,
+        maximumAncestorDepth: Int = 8,
+        parentPID: (Int32) -> Int32,
+        argv: (Int32) -> [String]?
+    ) -> AgentExternalLauncher? {
+        guard !launchers.isEmpty, agentPID > 1, maximumAncestorDepth > 0 else { return nil }
+        var ancestorArgvs: [[String]] = []
+        var current = agentPID
+        for _ in 0..<maximumAncestorDepth {
+            let parent = parentPID(current)
+            guard parent > 1 else { break }
+            if let candidate = argv(parent), !candidate.isEmpty {
+                ancestorArgvs.append(candidate)
+            }
+            current = parent
+        }
+        return detectedLauncher(ancestorArgvs: ancestorArgvs, kind: kind)
     }
 
     /// Re-supplies a captured external launcher around an agent's own resume argv.

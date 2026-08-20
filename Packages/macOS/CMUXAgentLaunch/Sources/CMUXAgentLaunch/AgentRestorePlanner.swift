@@ -109,6 +109,15 @@ public struct AgentRestorePlanner: Sendable {
                 environment: &environment
             )
         }
+        if request.mode == .resumeAgent {
+            // After managed-wrapper routing, so the restore keeps its authorization environment and
+            // its custom-executable hint even when the wrapper replaces argv[0] with its own binary.
+            routedArguments = externalLaunchers.applyingResumePrefix(
+                to: routedArguments,
+                launcherID: request.launchCommand?.externalLauncher,
+                kind: kind
+            )
+        }
         guard !routedArguments.isEmpty else { return nil }
 
         let preflights = hermesPreflights(

@@ -318,3 +318,37 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 - `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
+
+## `agents.launchers`
+
+cmux resolves resume commands for the wrapper launchers it owns (`cmux claude-teams`, `cmux codex-teams`, `cmux omo`, …). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided — account fallback, quota spreading, request logging — is gone from the restored pane.
+
+Declare the wrapper here and cmux re-supplies it whenever that session resumes.
+
+```json
+{
+  "agents": {
+    "launchers": [
+      {
+        "id": "teamclaude",
+        "kinds": ["claude"],
+        "detect": { "argvContains": ["teamclaude"] },
+        "resumeArgvPrefix": ["teamclaude", "run", "--auto-fallback", "--"]
+      }
+    ]
+  }
+}
+```
+
+- `id`: stable identifier recorded on the launch capture. Letters, numbers, dots, underscores, and hyphens.
+- `kinds` (or `kind` for a single value): built-in agent kinds the launcher wraps, e.g. `["claude"]`. Omit to match every kind.
+- `detect.argvContains`: substring, or list of substrings, that identifies the launcher process. Detection walks the agent's ancestor processes at capture time, nearest first, and stops after 8 levels.
+- `resumeArgvPrefix`: argv words placed in front of the agent's own resume argv. cmux keeps every option it would have passed to the agent directly, so the wrapper never has to restate them.
+- `includesAgentExecutable`: keep the agent's `argv[0]` after the prefix. Default `false`, which suits wrappers that re-exec their own agent binary after a `--` separator; set it to `true` for `env`-style wrappers that take a full command.
+
+Behavior notes:
+
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `id`.
+- Only resume is wrapped. Fresh launches already run under the wrapper because you started them there, and `cmux restore <kind> <checkpoint-id>` in direct mode is left untouched.
+- Removing a declaration is safe: a session captured under it resumes exactly as it did before, without the wrapper.
+- Session tracking is independent of this setting. If the wrapper bypasses cmux's `claude`/`codex` shim, install hooks once with `cmux hooks setup --agent claude` so the wrapped agent still reports sessions, notifications, and Feed events.

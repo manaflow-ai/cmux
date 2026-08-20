@@ -146,6 +146,104 @@ import Testing
         }
     }
 
+    @Test func ancestorWalkIsDepthBoundedAndStopsAtTheProcessRoot() throws {
+        // pid 20 is the agent; 21…29 are its ancestors, and only pid 29 is the wrapper.
+        let parents: [pid_t: pid_t] = [
+            20: 21, 21: 22, 22: 23, 23: 24, 24: 25, 25: 26, 26: 27, 27: 28, 28: 29, 29: 1,
+        ]
+        let argvByPID: [pid_t: [String]] = [
+            29: ["node", "/usr/local/bin/teamclaude", "run"],
+        ]
+        let registry = registry(Self.teamclaude)
+
+        #expect(
+            registry.detectedLauncher(
+                agentPID: 20,
+                kind: "claude",
+                maximumAncestorDepth: 3,
+                parentPID: { parents[$0] ?? -1 },
+                argv: { argvByPID[$0] }
+            ) == nil
+        )
+        let detected = try #require(
+            registry.detectedLauncher(
+                agentPID: 20,
+                kind: "claude",
+                maximumAncestorDepth: 12,
+                parentPID: { parents[$0] ?? -1 },
+                argv: { argvByPID[$0] }
+            )
+        )
+        #expect(detected.id == "teamclaude")
+
+        var visited: [pid_t] = []
+        _ = registry.detectedLauncher(
+            agentPID: 20,
+            kind: "claude",
+            parentPID: { pid in
+                visited.append(pid)
+                return pid == 20 ? 1 : -1
+            },
+            argv: { _ in nil }
+        )
+        #expect(visited == [20])
+    }
+
+    @Test func loadMergesUserAndProjectConfigsWithProjectWinning() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-external-launcher-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let project = root.appendingPathComponent("project/nested", isDirectory: true)
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: home.appendingPathComponent(".config/cmux", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent("project/.cmux", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Data("""
+        {
+          // user level
+          "agents": { "launchers": [
+            { "id": "teamclaude", "detect": { "argvContains": "teamclaude" },
+              "resumeArgvPrefix": ["teamclaude", "run", "--"] },
+            { "id": "gateway", "detect": { "argvContains": "llm-gateway" },
+              "resumeArgvPrefix": ["llm-gateway", "exec", "--"] }
+          ] }
+        }
+        """.utf8).write(to: home.appendingPathComponent(".config/cmux/cmux.json"))
+        try Data("""
+        { "agents": { "launchers": [
+          { "id": "teamclaude", "detect": { "argvContains": "teamclaude" },
+            "resumeArgvPrefix": ["teamclaude", "run", "--auto-fallback", "--"] }
+        ] } }
+        """.utf8).write(to: root.appendingPathComponent("project/.cmux/cmux.json"))
+
+        let loaded = AgentExternalLauncherRegistry.load(
+            homeDirectory: home.path,
+            workingDirectory: project.path,
+            sanitize: { data in
+                // Stand-in for the app's JSONC preprocessing.
+                let text = String(decoding: data, as: UTF8.self)
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                    .joined(separator: "\n")
+                return Data(text.utf8)
+            }
+        )
+
+        #expect(loaded.launchers.map(\.id) == ["teamclaude", "gateway"])
+        #expect(
+            try #require(loaded.launcher(id: "teamclaude")).resumeArgvPrefix
+                == ["teamclaude", "run", "--auto-fallback", "--"]
+        )
+    }
+
     @Test func resumePrefixReplacesTheAgentExecutableByDefault() {
         let wrapped = registry(Self.teamclaude).applyingResumePrefix(
             to: ["/shim/claude", "--resume", sessionID, "--permission-mode", "auto"],

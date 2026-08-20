@@ -28910,6 +28910,17 @@ struct CMUXCLI {
         return arguments.isEmpty ? nil : arguments
     }
 
+    /// User-declared launchers that wrap a built-in agent (`agents.launchers` in `cmux.json`).
+    ///
+    /// Read once per CLI process. Hook invocations are short-lived and sit on the agent's startup
+    /// path, so the config is not re-read per capture; a declaration added mid-session applies to
+    /// agents started after it, and removing one only stops the wrapper from being re-supplied.
+    static let externalAgentLaunchers: AgentExternalLauncherRegistry = AgentExternalLauncherRegistry.load(
+        homeDirectory: NSHomeDirectory(),
+        workingDirectory: FileManager.default.currentDirectoryPath,
+        sanitize: { try JSONCParser.preprocess(data: $0) }
+    )
+
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
         fallbackPID: Int?,
@@ -28959,6 +28970,20 @@ struct CMUXCLI {
             ? normalizedHookValue(env["HOME"])
             : nil
 
+        // A launcher cmux does not own (a multi-account router such as teamclaude, a gateway shim)
+        // execs the agent as a child, so nothing above records it and restore would replay a bare
+        // `claude --resume <id>` outside the wrapper. Detection walks the agent's ancestors here,
+        // while the agent is still running and its launcher process is still alive; the id is
+        // replayed through `agents.launchers` at resume time. #10494
+        let externalLauncher = fallbackPID.flatMap { fallbackPID in
+            Self.externalAgentLaunchers.detectedLauncher(
+                agentPID: pid_t(fallbackPID),
+                kind: fallbackKind,
+                parentPID: { self.parentPID(of: $0) },
+                argv: { self.processArguments(for: $0) }
+            )?.id
+        }
+
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
         // The argv is gone, but the agent's launch env may still carry a non-default home that
@@ -28971,10 +28996,11 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, externalLauncher: externalLauncher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
             }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
+                externalLauncher: externalLauncher,
                 executablePath: nil,
                 arguments: [],
                 workingDirectory: workingDirectory,
@@ -28998,12 +29024,13 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return AgentHookLaunchCommandRecord(launcher: launcher, externalLauncher: externalLauncher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 
         return AgentHookLaunchCommandRecord(
             launcher: launcher,
+            externalLauncher: externalLauncher,
             executablePath: executablePath,
             arguments: sanitizedArguments,
             workingDirectory: workingDirectory,
@@ -29233,8 +29260,16 @@ struct CMUXCLI {
         }
 
         guard let argv, !argv.isEmpty else { return nil }
+        // Re-supply a user-declared external launcher (#10494). Applied to the agent argv the
+        // resolution above produced, so the wrapper receives exactly the options cmux would have
+        // passed to the agent directly.
+        let wrappedArgv = Self.externalAgentLaunchers.applyingResumePrefix(
+            to: argv,
+            launcherID: launchCommand?.externalLauncher,
+            kind: kind
+        )
         return agentSurfaceResumeShellCommand(
-            argv: argv,
+            argv: wrappedArgv,
             workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
             kind: kind,
             environment: environment
