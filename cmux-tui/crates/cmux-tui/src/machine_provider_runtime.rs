@@ -331,13 +331,14 @@ impl ProviderMachineController {
         // Open the candidate first. Failed SSH or socket authentication leaves
         // the current provider/local session untouched.
         self.register_local(key)?;
-        let session = self.local_connections.connect(key)?;
+        let (session, reused) = self.local_connections.connect_tracked(key)?;
         let label = self.local.name(key).unwrap_or("machine").to_string();
         self.provider.stage_connection(None, None)?;
         self.pending_active_local = Some(Some(key));
         let ui = self.provider.ui_state_for_open_connection();
         let mut result =
-            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label);
+            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label)
+                .with_reused_session(reused);
         result.restart_updates = true;
         Ok(result)
     }
@@ -384,6 +385,9 @@ impl ProviderMachineController {
                                 )),
                                 MachineUpdate::DurableNotice(notice) => {
                                     MachineUpdate::DurableNotice(notice)
+                                }
+                                MachineUpdate::ConnectionProgress { machine_id, message } => {
+                                    MachineUpdate::ConnectionProgress { machine_id, message }
                                 }
                             };
                             if sender.send(update).is_err() {
@@ -610,7 +614,7 @@ impl ProviderMachineRuntime {
     }
 
     pub(crate) fn open_selected(&mut self) -> anyhow::Result<(Session, String, MachineUiState)> {
-        let (session, label, open) = self.open_selected_candidate()?;
+        let (session, label, open, _reused) = self.open_selected_candidate()?;
         let session_available = open.is_some();
         self.open = open;
         let mut ui = self.ui_state(session_available);
@@ -660,7 +664,7 @@ impl ProviderMachineRuntime {
                             return Err(error);
                         }
                     };
-                let (session, label, open) = match self.open_selected_candidate() {
+                let (session, label, open, reused) = match self.open_selected_candidate() {
                     Ok(candidate) => candidate,
                     Err(error) => {
                         self.restore_selection(rollback);
@@ -671,7 +675,8 @@ impl ProviderMachineRuntime {
                 self.stage_connection(open, Some(rollback))?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
-                let mut result = MachineActionResult::replace(ui, session, label);
+                let mut result = MachineActionResult::replace(ui, session, label)
+                    .with_reused_session(reused && session_available);
                 result.restart_updates = true;
                 Ok(result)
             }
@@ -801,12 +806,14 @@ impl ProviderMachineRuntime {
                     |runtime| {
                         runtime.refresh()?;
                         if deletes_open_session {
-                            let (session, label, open) = runtime.open_selected_candidate()?;
+                            let (session, label, open, reused) =
+                                runtime.open_selected_candidate()?;
                             let session_available = open.is_some();
                             runtime.stage_mandatory_replacement(open);
                             let mut ui = runtime.ui_state(session_available);
                             ui.notice = runtime.take_notice();
-                            return Ok(MachineActionResult::replace(ui, session, label));
+                            return Ok(MachineActionResult::replace(ui, session, label)
+                                .with_reused_session(reused && session_available));
                         }
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
@@ -1127,6 +1134,19 @@ impl ProviderMachineRuntime {
                             break;
                         }
                     };
+                    if let Some(protocol::ProviderEvent::ConnectionProgress(progress)) =
+                        event.as_ref()
+                    {
+                        // Forward without a snapshot reload: the provider's
+                        // serialized control loop is busy inside open_machine
+                        // while it pushes these, so a snapshot request would
+                        // stall exactly the message it is meant to show.
+                        let _ = refresh_output.send(MachineUpdate::ConnectionProgress {
+                            machine_id: progress.machine_id.as_str().to_string(),
+                            message: progress.message.clone(),
+                        });
+                        continue;
+                    }
                     let mut notice = None;
                     let had_connected_session = connected_session.is_some();
                     if let Some(protocol::ProviderEvent::ConnectionClosed(closed)) = event.as_ref()
@@ -1366,12 +1386,13 @@ impl ProviderMachineRuntime {
         self.reconnect_control()?;
 
         match self.open_selected_candidate() {
-            Ok((session, label, open)) => {
+            Ok((session, label, open, reused)) => {
                 let session_available = open.is_some();
                 self.stage_connection(open, None)?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
-                let mut result = MachineActionResult::replace(ui, session, label);
+                let mut result = MachineActionResult::replace(ui, session, label)
+                    .with_reused_session(reused && session_available);
                 result.restart_updates = true;
                 Ok(result)
             }
@@ -1448,7 +1469,9 @@ impl ProviderMachineRuntime {
         Ok(())
     }
 
-    fn open_selected_candidate(&self) -> anyhow::Result<(Session, String, Option<OpenConnection>)> {
+    fn open_selected_candidate(
+        &self,
+    ) -> anyhow::Result<(Session, String, Option<OpenConnection>, bool)> {
         let selected = self
             .snapshot
             .selected_machine_id
@@ -1456,7 +1479,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None));
+            return Ok((placeholder_session(), "machines".to_string(), None, false));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1465,7 +1488,7 @@ impl ProviderMachineRuntime {
             anyhow::anyhow!(localization::catalog().sidebar.machine_not_ready_to_connect)
         })?;
         self.sync_connection_hub();
-        let session = self.connections.connect(key)?;
+        let (session, reused) = self.connections.connect_tracked(key)?;
         let open = self
             .connection_registry
             .lock()
@@ -1477,7 +1500,7 @@ impl ProviderMachineRuntime {
             .ok_or_else(|| {
                 anyhow::anyhow!(localization::catalog().sidebar.machine_not_ready_to_connect)
             })?;
-        Ok((session, machine.display_name, Some(open)))
+        Ok((session, machine.display_name, Some(open), reused))
     }
 
     fn create_workspace(
@@ -1579,6 +1602,7 @@ impl ProviderMachineRuntime {
                 session: placeholder_session(),
                 label,
                 machine,
+                reused: false,
             });
             result.restart_updates = true;
         }
@@ -2509,6 +2533,9 @@ mod tests {
             MachineUpdate::Ui(ui) => *ui,
             MachineUpdate::DurableNotice(notice) => {
                 panic!("expected UI update, received durable notice {notice:?}")
+            }
+            MachineUpdate::ConnectionProgress { machine_id, message } => {
+                panic!("expected UI update, received progress {machine_id:?}: {message:?}")
             }
         }
     }
@@ -3746,7 +3773,13 @@ mod tests {
             else {
                 panic!("client capability negotiation did not immediately follow hello");
             };
-            assert_eq!(params.capabilities, [protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY]);
+            assert_eq!(
+                params.capabilities,
+                [
+                    protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
+                    protocol::CONNECTION_PROGRESS_CLIENT_CAPABILITY,
+                ]
+            );
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(
@@ -5675,6 +5708,9 @@ mod tests {
                         "legacy snapshot warning duplicated the durable event"
                     );
                     saw_refresh = true;
+                }
+                MachineUpdate::ConnectionProgress { machine_id, message } => {
+                    panic!("unexpected progress {machine_id:?}: {message:?}")
                 }
             }
         }
