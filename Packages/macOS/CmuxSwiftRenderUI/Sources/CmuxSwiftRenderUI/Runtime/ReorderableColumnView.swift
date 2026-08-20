@@ -361,14 +361,10 @@ struct ReorderableColumnView: View {
         return rowNode.string("block") != nil
     }
 
-    /// A row's resolved leading indent, read from its style props.
+    /// A row's nesting indent: its outer leading margin. (paddingLeading is
+    /// content inset inside a full-width box and does not define nesting.)
     private func rowIndent(_ id: String) -> CGFloat {
-        guard let node = store?.node(id) else { return 0 }
-        let value = node.double("paddingLeading")
-            ?? node.double("paddingHorizontal")
-            ?? node.double("padding")
-            ?? 0
-        return CGFloat(value)
+        CGFloat(store?.node(id)?.double("marginLeading") ?? 0)
     }
 
     /// The item key for a row, from the `itemKeys` JSON array prop the JS
@@ -406,6 +402,12 @@ private struct ReorderableRowView: View {
         let moves = isDragged || (model.isBlockDrag && draggedId != nil && model.blockRows.contains(childId))
         let lifted = isDragged && !model.isSettling
         SceneNodeView(nodeId: childId)
+            // Nesting preview: a leading-PADDING delta, not a translation, so
+            // the dragged row's box narrows from the left with its right edge
+            // fixed — exactly the geometry of a row whose marginLeading is the
+            // projected indent. Its own margin still applies, so the delta
+            // self-zeroes when the authoritative data lands.
+            .padding(.leading, indentDelta(isDragged: isDragged))
             // Accordion mask: during collapse/expand the row's SLOT height
             // animates, but the row itself must not squish. fixedSize keeps
             // the row at intrinsic height; the top-aligned frame + clipped
@@ -414,11 +416,9 @@ private struct ReorderableRowView: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .clipped()
-            // X and Y are SEPARATE offset modifiers on purpose: Y updates
-            // un-animated on every pointer frame, and a combined offset(x:y:)
-            // is one animatable value, so each Y write would cancel the X
-            // spring mid-flight (the X slide never visibly animated).
-            .offset(x: xOffset(isDragged: isDragged))
+            // The Y offset is its own modifier: it updates un-animated every
+            // pointer frame and must not share an animatable value with the
+            // animated nesting preview.
             .offset(y: yOffset(moves: moves, dragging: draggedId != nil))
             .zIndex(moves ? 2 : 0)
             // No scale zoom on lift (dogfood feedback): the shadow alone
@@ -430,10 +430,11 @@ private struct ReorderableRowView: View {
             )
     }
 
-    /// Arc-style X preview: the dragged row slides to the projected slot's
-    /// indent; after the drop the offset holds until the row's own indent
-    /// prop catches up (projected - current then equals zero).
-    private func xOffset(isDragged: Bool) -> CGFloat {
+    /// Arc-style nesting preview: the dragged row's box insets to the
+    /// projected slot's indent; after the drop the delta holds until the
+    /// row's own marginLeading catches up (projected - current then equals
+    /// zero, so nothing jumps on reconcile).
+    private func indentDelta(isDragged: Bool) -> CGFloat {
         let projected: CGFloat?
         if isDragged {
             projected = model.projectedIndent
@@ -443,13 +444,7 @@ private struct ReorderableRowView: View {
             projected = nil
         }
         guard let projected, let node = store?.node(childId) else { return 0 }
-        let current = CGFloat(
-            node.double("paddingLeading")
-                ?? node.double("paddingHorizontal")
-                ?? node.double("padding")
-                ?? 0
-        )
-        return projected - current
+        return projected - CGFloat(node.double("marginLeading") ?? 0)
     }
 
     private func yOffset(moves: Bool, dragging: Bool) -> CGFloat {

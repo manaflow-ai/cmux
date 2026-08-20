@@ -174,9 +174,9 @@ function workspaceRow(w, entry) {
       .background(() => (w()?.unread > 0 ? "#E4573D" : null))
       .cornerRadius(7),
   ])
-    .paddingLeading(() => (entry().groupId ? 22 : 10))
-    .paddingTrailing(10)
+    .paddingHorizontal(10)
     .paddingVertical(6)
+    .marginLeading(() => (entry().groupId ? 14 : 0))
     .cornerRadius(8)
     .background(() => (w()?.selected ? "#7f7f7f3d" : null))
     .hoverBackground(() => (w()?.selected ? "#7f7f7f3d" : "#7f7f7f24"))

@@ -302,6 +302,11 @@ private struct SceneBoxStyle: ViewModifier {
             )
             .frame(width: dimension("width"), height: dimension("height"))
             .opacity(node.double("opacity") ?? 1)
+            // Outer margin: an inset OUTSIDE the background box. This is how
+            // nesting indent is expressed (the box narrows from the left,
+            // right edge fixed), as opposed to paddingLeading, which indents
+            // content INSIDE a full-width box.
+            .padding(.leading, CGFloat(node.double("marginLeading") ?? 0))
             .onHover { hovering in
                 guard node.props["hoverBackground"] != nil else { return }
                 withAnimation(.easeOut(duration: 0.12)) {

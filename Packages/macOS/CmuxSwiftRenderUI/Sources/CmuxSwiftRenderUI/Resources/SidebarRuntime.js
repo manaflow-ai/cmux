@@ -174,7 +174,7 @@
     "help", "truncation", "weight", "secondary", "borderColor", "borderWidth",
     "hoverBackground", "paddingHorizontal", "paddingVertical", "destructive",
     "paddingLeading", "paddingTrailing", "paddingTop", "paddingBottom",
-    "fixed", "block", "layoutPriority",
+    "fixed", "block", "layoutPriority", "marginLeading",
   ];
 
   function makeHandle(id) {
