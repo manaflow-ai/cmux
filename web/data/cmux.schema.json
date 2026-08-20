@@ -186,6 +186,7 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["id", "detect", "resumeArgvPrefix"],
+            "not": { "required": ["kind", "kinds"] },
             "properties": {
               "id": {
                 "type": "string",

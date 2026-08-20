@@ -151,7 +151,11 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
         }
 
         var kinds: [String] = []
-        if container.contains(.kinds) {
+        if container.contains(.kinds), container.contains(.kind) {
+            // `kind` and `kinds` state the same fact. Preferring one silently would hide the other,
+            // so the declaration fails closed like every other unusable field here.
+            wellFormed = false
+        } else if container.contains(.kinds) {
             kinds = decodeStrings(.kinds)
         } else if container.contains(.kind) {
             kinds = decodeStrings(.kind)

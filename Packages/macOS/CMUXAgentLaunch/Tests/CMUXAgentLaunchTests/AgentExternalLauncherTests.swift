@@ -316,6 +316,80 @@ import Testing
         #expect(mixed.map(\.id) == ["teamclaude"])
     }
 
+    @Test func declaringBothKindAndKindsFailsClosed() {
+        let launchers = AgentExternalLauncherRegistry.decoding(sanitizedConfigJSON: Data("""
+        { "agents": { "launchers": [
+          { "id": "teamclaude", "kind": "claude", "kinds": ["codex"],
+            "detect": { "argvExecutables": ["teamclaude"] },
+            "resumeArgvPrefix": ["teamclaude", "run", "--"] }
+        ] } }
+        """.utf8)).launchers
+
+        // Preferring one key would silently discard the other; the two together are ambiguous.
+        #expect(launchers.isEmpty)
+    }
+
+    /// Hermes resumes carry preflight `config set` commands built from the agent argv. Those are
+    /// whole commands, so a launcher has to wrap each of them too — otherwise a preflight becomes
+    /// `<wrapper> config set …`, losing the wrapper's own subcommand and the agent.
+    @Test func wrappedHermesPreflightsKeepTheWholeLauncherPrefix() throws {
+        let executable = "/opt/hermes/hermes"
+        let teamhermes = AgentExternalLauncher(
+            id: "teamhermes",
+            kinds: ["hermes-agent"],
+            argvExecutables: ["teamhermes"],
+            resumeArgvPrefix: ["teamhermes", "exec", "--"]
+        )
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-session-123",
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                externalLauncher: "teamhermes",
+                executablePath: executable,
+                arguments: [executable, "--provider", "openai-codex"],
+                workingDirectory: "/tmp/work",
+                environment: [
+                    HermesAgentCodexEnvironment.customBaseURLEnvironmentKey:
+                        "http://subrouter-team:31415/v1",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(
+                isExecutableFile: { $0 == "/shim/hermes" || $0 == executable },
+                externalLaunchers: registry(teamhermes)
+            ).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "HOME": "/Users/example",
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_HERMES_AGENT_WRAPPER_SHIM": "/shim/hermes",
+                ]
+            )
+        )
+
+        #expect(Array(invocation.arguments.prefix(3)) == ["teamhermes", "exec", "--"])
+        #expect(invocation.preflightInvocations.isEmpty == false)
+        for preflight in invocation.preflightInvocations {
+            #expect(Array(preflight.arguments.prefix(3)) == ["teamhermes", "exec", "--"])
+            // The profile pin and the `config set` verb survive after the prefix.
+            #expect(preflight.arguments.contains("config"))
+            #expect(preflight.arguments.contains("set"))
+            #expect(preflight.arguments.contains("--profile"))
+            // The agent executable is dropped exactly once — the wrapper re-execs its own.
+            #expect(preflight.arguments.contains("/shim/hermes") == false)
+            #expect(preflight.arguments.contains(executable) == false)
+        }
+    }
+
     @Test func wrappedResumeKeepsTheAgentShimReachableOnPath() throws {
         func invocation(includesAgentExecutable: Bool) throws -> AgentRestoreInvocation {
             let launcher = AgentExternalLauncher(

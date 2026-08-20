@@ -109,18 +109,32 @@ public struct AgentRestorePlanner: Sendable {
                 environment: &environment
             )
         }
+        guard !routedArguments.isEmpty else { return nil }
+
+        var preflights = hermesPreflights(
+            arguments: &routedArguments,
+            kind: kind,
+            environment: environment,
+            ambientEnvironment: ambientEnvironment,
+            profilePin: hermesProfilePin
+        )
+
         if request.mode == .resumeAgent,
            let externalLauncher = externalLaunchers.resolvedLauncher(
                id: request.launchCommand?.externalLauncher,
                kind: kind
            ) {
             // After managed-wrapper routing, so the restore keeps its authorization environment and
-            // its custom-executable hint even when the wrapper replaces argv[0] with its own binary.
-            routedArguments = externalLaunchers.applyingResumePrefix(
-                to: routedArguments,
-                launcherID: externalLauncher.id,
-                kind: kind
-            )
+            // its custom-executable hint even when the wrapper replaces argv[0] with its own binary,
+            // and after the preflights are built, so each of them is wrapped as a whole command
+            // rather than inheriting the wrapper's own subcommand in place of the agent.
+            routedArguments = externalLauncher.applyingResumePrefix(to: routedArguments)
+            preflights = preflights.compactMap { preflight in
+                AgentRestorePreflightInvocation(
+                    arguments: externalLauncher.applyingResumePrefix(to: preflight.arguments),
+                    environment: preflight.environment
+                )
+            }
             if !externalLauncher.includesAgentExecutable,
                let restoreLaunch = AgentRestoreLaunch(kind: kind, sessionID: request.checkpointID) {
                 // The wrapper re-execs the agent by name, so the shim that managed-wrapper routing
@@ -135,13 +149,6 @@ public struct AgentRestorePlanner: Sendable {
         }
         guard !routedArguments.isEmpty else { return nil }
 
-        let preflights = hermesPreflights(
-            arguments: &routedArguments,
-            kind: kind,
-            environment: environment,
-            ambientEnvironment: ambientEnvironment,
-            profilePin: hermesProfilePin
-        )
         return AgentRestoreInvocation(
             arguments: routedArguments,
             workingDirectory: workingDirectory,
