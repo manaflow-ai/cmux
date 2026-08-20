@@ -11788,8 +11788,8 @@ final class GhosttySurfaceScrollView: NSView {
             0
         )
         scrollbackViewportIntent = scrollbackViewportIntent.applyingUserScroll(
-            distanceFromBottom: max(visibleRect.origin.y, 0),
-            bottomThreshold: Self.scrollToBottomThreshold
+            distanceFromBottom: Double(max(visibleRect.origin.y, 0)),
+            bottomThreshold: Double(Self.scrollToBottomThreshold)
         )
 
         let row = Int(topBasedScrollOffset / cellHeight)
@@ -11806,12 +11806,12 @@ final class GhosttySurfaceScrollView: NSView {
             : nil
         let cellHeight = surfaceView.cellSize.height
         let targetDistanceFromBottom = cellHeight > 0
-            ? CGFloat(scrollbar.rowsBelowViewport) * cellHeight
+            ? Double(scrollbar.rowsBelowViewport) * Double(cellHeight)
             : nil
         let syncDecision = scrollbackViewportIntent.applyingScrollbar(
             scrollbar,
             targetDistanceFromBottom: targetDistanceFromBottom,
-            bottomThreshold: Self.scrollToBottomThreshold
+            bottomThreshold: Double(Self.scrollToBottomThreshold)
         )
         scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller

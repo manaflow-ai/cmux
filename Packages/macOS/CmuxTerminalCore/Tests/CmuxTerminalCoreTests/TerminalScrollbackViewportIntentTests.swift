@@ -1,4 +1,3 @@
-import CoreGraphics
 import Testing
 import CmuxTerminalCore
 

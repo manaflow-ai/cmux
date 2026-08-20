@@ -1,5 +1,3 @@
-public import CoreGraphics
-
 /// The user's terminal scroll intent, independent of transient AppKit geometry.
 ///
 /// A non-flipped ``NSClipView`` reports the live bottom at `origin.y == 0`,
@@ -7,10 +5,16 @@ public import CoreGraphics
 /// separate from either coordinate system prevents layout/reflow from being
 /// mistaken for an explicit user scroll.
 public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
+    /// The viewport follows newly produced terminal output at the live bottom.
     case followingOutput
+
+    /// The user is reviewing historical scrollback and output must not yank it away.
     case reviewingScrollback
+
+    /// A user gesture is waiting for its authoritative Ghostty scrollbar packet.
     case awaitingExplicitScrollbarSync(previousWasReviewing: Bool)
 
+    /// Whether the viewport is currently reviewing historical scrollback.
     public var isReviewingScrollback: Bool {
         switch self {
         case .followingOutput:
@@ -22,6 +26,7 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
         }
     }
 
+    /// Whether an explicit scrollbar packet is still outstanding.
     public var isAwaitingExplicitScrollbarSync: Bool {
         if case .awaitingExplicitScrollbarSync = self {
             return true
@@ -50,8 +55,8 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
     ///
     /// This method must not be called from layout or document-size updates.
     public func applyingUserScroll(
-        distanceFromBottom: CGFloat,
-        bottomThreshold: CGFloat
+        distanceFromBottom: Double,
+        bottomThreshold: Double
     ) -> Self {
         guard !isAwaitingExplicitScrollbarSync,
               distanceFromBottom.isFinite else {
@@ -72,8 +77,8 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
     /// the AppKit wrapper and resolves an outstanding explicit wheel request.
     public func applyingScrollbar(
         _ scrollbar: GhosttyScrollbar,
-        targetDistanceFromBottom: CGFloat?,
-        bottomThreshold: CGFloat
+        targetDistanceFromBottom: Double?,
+        bottomThreshold: Double
     ) -> TerminalScrollbackScrollbarSyncDecision {
         let isExplicit = isAwaitingExplicitScrollbarSync
         let shouldSynchronize = isExplicit ||
@@ -104,10 +109,21 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
 
 /// The decision produced for one authoritative Ghostty scrollbar packet.
 public struct TerminalScrollbackScrollbarSyncDecision: Equatable, Sendable {
+    /// The intent to retain after processing the packet.
     public let intent: TerminalScrollbackViewportIntent
+
+    /// Whether the AppKit viewport should be moved to the packet's position.
     public let shouldSynchronizeViewport: Bool
+
+    /// Whether this packet consumed a pending explicit user-scroll request.
     public let consumedExplicitSync: Bool
 
+    /// Creates a packet synchronization decision.
+    ///
+    /// - Parameters:
+    ///   - intent: The intent to retain after processing the packet.
+    ///   - shouldSynchronizeViewport: Whether AppKit should adopt the packet's viewport.
+    ///   - consumedExplicitSync: Whether the packet resolved an explicit request.
     public init(
         intent: TerminalScrollbackViewportIntent,
         shouldSynchronizeViewport: Bool,
