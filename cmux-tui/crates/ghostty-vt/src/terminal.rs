@@ -13,7 +13,7 @@ use crate::kitty::{
     KittyInFlightTracker, KittyPlacement, KittyPlacementAnchor, KittyReplaySnapshot,
     MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
 };
-use crate::mouse::{MouseModeProbe, MouseModeSignature};
+use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
@@ -247,6 +247,9 @@ pub struct TerminalPointerSemanticSnapshot {
     pub terminal_instance_id: u64,
     pub mouse_mode_revision: u64,
     pub mouse_tracking: bool,
+    /// Last-set-wins active coordinate wire format (xterm semantics), from
+    /// Ghostty's own encoder behavior rather than the boolean mode flags.
+    pub active_mouse_format: MouseWireFormat,
     pub active_screen: Screen,
     pub cols: u16,
     pub rows: u16,
@@ -798,6 +801,7 @@ pub struct Terminal {
     mouse_mode_bits: u8,
     mouse_mode_signature: MouseModeSignature,
     mouse_mode_probe: MouseModeProbe,
+    active_mouse_format: MouseWireFormat,
     mouse_mode_change_detector: MouseModeChangeDetector,
     vt_boundary: VtBoundaryTracker,
     prompt_semantic: PromptSemanticTracker,
@@ -1891,6 +1895,7 @@ impl Terminal {
             mouse_mode_bits: 0,
             mouse_mode_signature: MouseModeSignature::default(),
             mouse_mode_probe,
+            active_mouse_format: MouseWireFormat::default(),
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
@@ -2032,8 +2037,11 @@ impl Terminal {
         // A bit tuple is sufficient when at most one tracking and wire-format
         // mode is active. When modes overlap, query Ghostty's encoder because
         // its parsed last-set precedence is not represented by the bits.
+        // Overlapping wire formats stay ambiguous even with tracking off:
+        // the active format must be current before tracking is re-enabled
+        // or a replay is serialized.
         let behavior_can_be_ambiguous =
-            tracking_bits.count_ones() > 1 || tracking_bits != 0 && format_bits.count_ones() > 1;
+            tracking_bits.count_ones() > 1 || format_bits.count_ones() > 1;
         if !bits_changed && !behavior_can_be_ambiguous {
             return;
         }
@@ -2043,6 +2051,17 @@ impl Terminal {
         }
         self.mouse_mode_bits = next_bits;
         self.mouse_mode_signature = next_signature;
+        if let Some(format) = self.mouse_mode_probe.classify_wire_format(self.raw) {
+            self.active_mouse_format = format;
+        }
+    }
+
+    /// Last-set-wins active coordinate wire format (xterm semantics).
+    ///
+    /// This mirrors Ghostty's parsed precedence, which the boolean DEC mode
+    /// flags cannot represent when several format modes are flagged at once.
+    pub fn active_mouse_format(&self) -> MouseWireFormat {
+        self.active_mouse_format
     }
 
     fn current_mouse_mode_bits(&self) -> u8 {
@@ -2782,6 +2801,7 @@ impl Terminal {
             terminal_instance_id: self.instance_id,
             mouse_mode_revision: self.mouse_mode_revision,
             mouse_tracking: self.mouse_tracking(),
+            active_mouse_format: self.active_mouse_format,
             active_screen: self.active_screen(),
             cols: self.cols(),
             rows: self.rows(),
@@ -3108,13 +3128,72 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, false)
     }
 
+    /// Correction bytes appended to a serialized replay so the replayed
+    /// terminal ends with the same ACTIVE extended mouse coordinate format as
+    /// this one. The formatter emits mode flags in numeric order (1005, 1006,
+    /// 1015, 1016), so whenever more than one format flag is set, or the
+    /// flags alone would replay a different format than the last-set-wins
+    /// value, the suffix resets the non-active format flags and re-asserts
+    /// the active selector last. Replays therefore carry only the active
+    /// selector; the inactive flags are deliberately dropped because they
+    /// have no encoding semantics.
+    fn mouse_format_replay_suffix(&self) -> Vec<u8> {
+        const FORMAT_MODES: [(u16, MouseWireFormat); 4] = [
+            (1005, MouseWireFormat::Utf8),
+            (1006, MouseWireFormat::Sgr),
+            (1015, MouseWireFormat::Urxvt),
+            (1016, MouseWireFormat::SgrPixels),
+        ];
+        let active = self.active_mouse_format;
+        let set_modes: Vec<(u16, MouseWireFormat)> =
+            FORMAT_MODES.into_iter().filter(|(mode, _)| self.mode(*mode, false)).collect();
+        // What a numeric-order flag dump would leave active: the highest
+        // numbered set format flag.
+        let dump_would_activate =
+            set_modes.last().map(|(_, format)| *format).unwrap_or(MouseWireFormat::X10);
+        if set_modes.len() <= 1 && dump_would_activate == active {
+            return Vec::new();
+        }
+        let mut suffix = Vec::new();
+        for (mode, format) in &set_modes {
+            if *format != active {
+                suffix.extend_from_slice(format!("\x1b[?{mode}l").as_bytes());
+            }
+        }
+        if let Some(mode) = active.dec_mode() {
+            suffix.extend_from_slice(format!("\x1b[?{mode}h").as_bytes());
+        }
+        suffix
+    }
+
+    /// Repair the active mouse format after applying a replay that was
+    /// serialized by a daemon without [`Self::mouse_format_replay_suffix`]:
+    /// such replays dump the format flags in numeric order, so urxvt (1015)
+    /// always lands after SGR (1006) and steals the active slot. Every known
+    /// application that enables both prefers SGR and sets it last (and btop
+    /// parses only SGR), so when both flags survived a replay, re-assert SGR.
+    /// Replays from fixed daemons never leave both flags set, so this cannot
+    /// misfire on an application that deliberately chose urxvt.
+    pub fn normalize_replayed_mouse_format(&mut self) {
+        if self.mode(1006, false)
+            && self.mode(1015, false)
+            && self.active_mouse_format != MouseWireFormat::Sgr
+        {
+            self.vt_write(b"\x1b[?1006h");
+        }
+    }
+
     fn vt_replay_bounded_with_palette(
         &mut self,
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
-        let remaining = max_bytes.checked_sub(inflight.len()).ok_or(Error::OutOfSpace)?;
+        let mouse_format_suffix = self.mouse_format_replay_suffix();
+        let remaining = max_bytes
+            .checked_sub(inflight.len())
+            .and_then(|remaining| remaining.checked_sub(mouse_format_suffix.len()))
+            .ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
         let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
         self.kitty_replay_pixel_cache.0 = pixel_cache;
@@ -3153,6 +3232,7 @@ impl Terminal {
             .len()
             .checked_add(interleaved.len())
             .and_then(|total| total.checked_add(inflight.len()))
+            .and_then(|total| total.checked_add(mouse_format_suffix.len()))
             .ok_or(Error::OutOfSpace)?;
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
@@ -3165,6 +3245,11 @@ impl Terminal {
             bytes.extend_from_slice(&graphics.image_bytes);
             bytes.extend_from_slice(&interleaved);
         }
+        // The formatter dumps DEC modes in numeric order, which destroys the
+        // last-set-wins semantics of the extended mouse coordinate formats.
+        // Reduce the flag dump to the single active selector so replay
+        // reproduces the semantic, not the numeric flag order.
+        bytes.extend_from_slice(&mouse_format_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay {
@@ -4481,6 +4566,41 @@ mod tests {
         assert_eq!(press, b"\x1b[32;37;21M", "press must stay urxvt after replay");
         assert_eq!(release, b"\x1b[35;37;21M", "release must stay urxvt after replay");
         assert_eq!(wheel, b"\x1b[96;37;21M", "wheel must stay urxvt after replay");
+    }
+
+    /// The active wire format is a single last-set-wins selector; resetting
+    /// the active selector falls back to X10 even while other format flags
+    /// stay set (xterm semantics, mirrored by Ghostty's stream handler).
+    #[test]
+    fn active_mouse_format_tracks_last_set_wins() {
+        use crate::mouse::MouseWireFormat;
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::X10);
+        terminal.vt_write(b"\x1b[?1005h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Utf8);
+        terminal.vt_write(b"\x1b[?1015h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Urxvt);
+        terminal.vt_write(b"\x1b[?1006h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Sgr);
+        assert_eq!(terminal.pointer_semantic_snapshot().active_mouse_format, MouseWireFormat::Sgr);
+        terminal.vt_write(b"\x1b[?1016h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::SgrPixels);
+        terminal.vt_write(b"\x1b[?1016l");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::X10);
+    }
+
+    /// A single-format application must not grow a correction suffix: its
+    /// numeric flag dump already replays the right active encoding.
+    #[test]
+    fn single_format_replay_carries_no_mouse_format_suffix() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1002h\x1b[?1006h");
+        assert!(host.mouse_format_replay_suffix().is_empty());
+        let replay = host.vt_replay_bytes().unwrap();
+        let text = String::from_utf8_lossy(&replay);
+        assert!(!text.contains("[?1006l"), "suffix must not reset the only format");
+        assert_eq!(text.matches("[?1006h").count(), 1, "active selector emitted once");
     }
 
     #[test]
