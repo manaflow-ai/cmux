@@ -343,6 +343,8 @@ final class MobilePairingModel {
     }
 
     private func enablePairingHost() {
+        // Never force the listener on under a managed remote-control disable.
+        guard MobileRemoteControlPolicy.isEnabled else { return }
         UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
     }
 
