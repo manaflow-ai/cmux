@@ -1142,7 +1142,7 @@ fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) 
         match parse_sidebar_action(action.trim(), command_ids) {
             Ok(action) => plus.action = Some(action),
             Err(warning) => {
-                crate::client_log::stderr_log!("config", "{warning} in {owner} plus button")
+                crate::client_log::stderr_log!("config", "{warning} in {owner} plus button");
             }
         }
     }
@@ -1164,7 +1164,7 @@ fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) 
                     raw_action.action().trim()
                 ),
                 Err(warning) => {
-                    crate::client_log::stderr_log!("config", "{warning} in {owner} plus menu")
+                    crate::client_log::stderr_log!("config", "{warning} in {owner} plus menu");
                 }
             }
         }
