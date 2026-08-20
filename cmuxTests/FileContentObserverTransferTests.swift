@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -136,6 +137,58 @@ struct FileContentObserverTransferTests {
         #expect(panel.content == originalContent)
 
         destinationChanges.fileWriteCompleted(at: fileURL.path)
+        #expect(panel.content == updatedContent)
+    }
+
+    @Test("Window Dock stores share the workspace file-change pipeline")
+    func windowDockStoreSharesFileChangePipeline() {
+        let manager = TabManager()
+        let dockStore = manager.makeWindowDockStore(windowId: UUID())
+        defer { dockStore.closeAllPanels() }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        #expect(
+            dockStore.fileContentChangeCoordinator
+                === workspace.fileContentChangeCoordinator
+        )
+    }
+
+    @Test("Retargeting a Markdown panel does not reload an unchanged file")
+    func markdownRetargetSkipsReloadForUnchangedFile() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-retarget-unchanged-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let originalContent = "# Retarget original\n"
+        let updatedContent = "# Retarget updated\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let sourceChanges = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        let panel = MarkdownPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: sourceChanges
+        )
+        defer { panel.close() }
+        #expect(panel.content == originalContent)
+
+        var reloadPublishes = 0
+        let observation = panel.$content.dropFirst().sink { _ in reloadPublishes += 1 }
+        defer { observation.cancel() }
+
+        let unchangedDestination = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        panel.updateWorkspaceId(
+            UUID(),
+            fileContentChangeCoordinator: unchangedDestination
+        )
+        #expect(reloadPublishes == 0)
+
+        try updatedContent.write(to: fileURL, atomically: true, encoding: .utf8)
+        let changedDestination = FileContentChangeCoordinator(makeFileWatcher: { _ in nil })
+        panel.updateWorkspaceId(
+            UUID(),
+            fileContentChangeCoordinator: changedDestination
+        )
         #expect(panel.content == updatedContent)
     }
 }
