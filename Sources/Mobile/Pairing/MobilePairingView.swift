@@ -289,6 +289,13 @@ struct MobilePairingView: View {
         if waiting {
             waitingIndicator
         }
+
+        // The selected iOS app matters beyond the QR: it addresses the
+        // paired-Mac records Iroh discovery hands to that exact app, so the
+        // picker stays available on the automatic path too.
+        if model.availableIOSAppTargets.count > 1 {
+            pairingTargetPicker
+        }
     }
 
     private var waitingIndicator: some View {
