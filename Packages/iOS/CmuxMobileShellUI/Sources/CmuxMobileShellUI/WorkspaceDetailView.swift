@@ -784,7 +784,10 @@ struct WorkspaceDetailView: View {
                 liveSurfaces: workspace.surfaces,
                 snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
-                selectedMacSurfaceID: store.selectedMacSurfaceID,
+                // Resolved through the workspace so the auto-presented
+                // fallback surface (no terminals, no explicit selection)
+                // carries the picker checkmark like any picked surface.
+                selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
                 canCreateWorkspace: canCreateWorkspace,
                 hasActiveBrowser: activeBrowser != nil,
                 isChatMode: isChatMode,
