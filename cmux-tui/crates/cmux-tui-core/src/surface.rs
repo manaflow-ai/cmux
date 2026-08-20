@@ -7400,6 +7400,44 @@ mod tests {
     }
 
     #[test]
+    fn terminfo_lookup_finds_letter_and_hex_layouts() {
+        let base =
+            std::env::temp_dir().join(format!("cmux-tui-terminfo-test-{}", std::process::id()));
+        let letter_dir = base.join("letter").join("x");
+        let hex_dir = base.join("hex").join("78");
+        std::fs::create_dir_all(&letter_dir).unwrap();
+        std::fs::create_dir_all(&hex_dir).unwrap();
+        std::fs::write(letter_dir.join("xterm-ghostty"), b"").unwrap();
+        std::fs::write(hex_dir.join("xterm-ghostty"), b"").unwrap();
+
+        assert!(terminfo_entry_exists_in(&[base.join("letter")], "xterm-ghostty"));
+        assert!(terminfo_entry_exists_in(&[base.join("hex")], "xterm-ghostty"));
+        assert!(!terminfo_entry_exists_in(&[base.join("absent")], "xterm-ghostty"));
+        assert!(terminfo_entry_exists_in(
+            &[base.join("absent"), base.join("letter")],
+            "xterm-ghostty"
+        ));
+        assert!(!terminfo_entry_exists_in(&[base.join("letter")], ""));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// Children must advertise the embedded ghostty-vt terminal wherever its
+    /// terminfo entry is resolvable: xterm-ghostty carries the RGB terminfo
+    /// capabilities, and TERM-name-sniffing prompts (oh-my-zsh themes match
+    /// `*256color`) then take the same branch inside cmux-tui as in raw
+    /// Ghostty, so prompt colors match instead of silently diverging. Hosts
+    /// without the entry keep the compatible xterm-256color.
+    #[test]
+    fn default_child_term_is_ghostty_iff_terminfo_resolves() {
+        let expected = if terminfo_entry_exists_in(&terminfo_search_dirs(), "xterm-ghostty") {
+            "xterm-ghostty"
+        } else {
+            "xterm-256color"
+        };
+        assert_eq!(default_child_term(), expected);
+    }
+
+    #[test]
     fn terminal_color_override_delta_sets_and_resets_sparse_state() {
         let mut colors = TerminalColorOverrides {
             foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
