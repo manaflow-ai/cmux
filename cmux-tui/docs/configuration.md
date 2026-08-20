@@ -188,6 +188,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `machine_provider.command` | array of strings or null | `null` | Argv of a provider process to spawn, like `--machine-provider-command program arg --` (no shell). Explicit CLI provider modes override it |
 | `machine_provider.cloud.enabled` | boolean | `false` | Starts the dynamic provider through SSH |
 | `machine_provider.cloud.host` | string | `"cmux.cloud"` | SSH host |
 | `machine_provider.cloud.user` | string or null | `null` | Optional SSH user |

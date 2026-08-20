@@ -264,6 +264,11 @@ struct RawUserCommand {
 struct RawMachineProvider {
     #[serde(default)]
     cloud: RawCloudProvider,
+    /// Config parity with `--machine-provider-command`: the argv of a
+    /// provider process to spawn, no shell. The CLI flag wins when both are
+    /// given.
+    #[serde(default)]
+    command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1218,6 +1223,10 @@ pub struct MachineCreationSourceConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MachineProviderConfig {
     pub cloud: CloudProviderConfig,
+    /// Argv of a machine-provider process to spawn, exactly like
+    /// `--machine-provider-command program arg -- `. CLI provider modes
+    /// override it.
+    pub command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3484,6 +3493,15 @@ pub fn load() -> Config {
         }
     } else if raw.sidebar.profile.is_some() {
         eprintln!("cmux-tui: ignoring sidebar.profile without sidebar.profiles");
+    }
+    match raw.machine_provider.command {
+        Some(command) if command.first().is_some_and(|program| !program.trim().is_empty()) => {
+            config.machine_provider.command = Some(command);
+        }
+        Some(_) => {
+            eprintln!("cmux-tui: ignoring machine_provider.command without a program");
+        }
+        None => {}
     }
     let cloud = raw.machine_provider.cloud;
     if let Some(enabled) = cloud.enabled {
@@ -7072,6 +7090,28 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<RawConfig>(invalid).is_err(), "accepted {invalid}");
         }
+    }
+
+    #[test]
+    fn machine_provider_command_parses_and_requires_a_program() {
+        let raw: RawConfig = serde_json::from_str(
+            r#"{"machine_provider":{"command":["/opt/provider/run.sh","--profile","prod"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            raw.machine_provider.command.as_deref(),
+            Some(
+                ["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice()
+            )
+        );
+
+        // An empty argv or blank program is ignored at apply time.
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"machine_provider":{"command":[]}}"#).unwrap();
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c.is_empty()));
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"machine_provider":{"command":["  "]}}"#).unwrap();
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c[0].trim().is_empty()));
     }
 
     #[test]
