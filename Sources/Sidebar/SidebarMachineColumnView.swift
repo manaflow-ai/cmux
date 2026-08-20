@@ -285,6 +285,8 @@ struct SidebarMachineColumnView: View {
             return .orange
         case .error:
             return .red
+        case .suspended:
+            return .yellow
         case .disconnected:
             return Color.secondary.opacity(0.45)
         }

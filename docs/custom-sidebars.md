@@ -150,7 +150,8 @@ with:
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `creationContexts`: array of machine/default rows. Always present: `id`,
-  `title`, `systemImage`, `selected`, `kind` (`automatic|local|remote`), and
+  `title`, `systemImage`, `selected`, `kind` (`local|remote`; `automatic` is
+  a legacy value no longer emitted), and
   `workspaceCount`, plus ordered `workspaceIds` children. Every row also has
   `childColumn` (`{ id, rendererId }`). Route ids are parent-specific; the
   built-in `cmux.workspaces` renderer resolves each context's `workspaceIds`
@@ -274,9 +275,11 @@ remote `cmux-tui` session into any workspace with
 `workspace_id`, and `focus`). Socket calls create in the background unless
 `focus` is explicitly allowed.
 Render one machine's children with
-`workspaces.filter { machine.workspaceIds.contains($0.id) }`; Automatic's
-`workspaceIds` contains the aggregate list.
-`Automatic` is a fixed creation mode and is not a machine-order member. Run
+`workspaces.filter { machine.workspaceIds.contains($0.id) }`. The machines
+column lists places only; the legacy `automatic` context id still resolves
+(to This Mac) for old callers but is never emitted. Flip a column between
+regular rows and the icon rail with `sidebar.column.set_mode`
+(`column`: `machines|workspaces`, `mode`: `regular|icons`). Run
 `cmux docs api` to discover the full command surface.
 
 ## Drag-and-drop reordering (persisted)
@@ -293,10 +296,10 @@ workspace order):
         }
     }
 
-Creation contexts arrive in the user's saved order. Keep `Automatic` fixed and
-make the machine subset reorderable with the same primitive:
+Creation contexts arrive in the user's saved order; every row is a machine,
+reorderable with the same primitive:
 
-    let machines = creationContexts.filter { $0.kind != "automatic" }
+    let machines = creationContexts
     Reorderable(
         machines,
         move: "sidebar.creation_context.reorder",
