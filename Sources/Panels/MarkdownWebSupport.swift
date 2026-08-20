@@ -85,7 +85,10 @@ final class MarkdownWebRenderingCoordinator {
         lastObservedBoundsSize = boundsSize
         if sizeChanged {
             schedule(reason: "boundsChanged", forceLifecycleRefresh: false)
-        } else if needsRenderingReattach, desiredVisibility, attachedToWindow {
+        } else if needsRenderingReattach,
+                  desiredVisibility,
+                  attachedToWindow,
+                  isActuallyVisible() {
             // SwiftUI can finish an opacity/hidden transition without changing
             // the view's size. A settled layout callback is the platform signal
             // that lets a previously hidden repair try again.
@@ -103,7 +106,10 @@ final class MarkdownWebRenderingCoordinator {
         let changed = desiredVisibility != visible
         desiredVisibility = visible
         if visible {
-            if changed || needsRenderingReattach || renderingStateIsHidden || pendingWindowReentryNotification {
+            if changed ||
+                needsRenderingReattach ||
+                renderingStateIsHidden ||
+                pendingWindowReentryNotification {
                 schedule(reason: "visibility.visible", forceLifecycleRefresh: true)
             }
         } else if changed {
