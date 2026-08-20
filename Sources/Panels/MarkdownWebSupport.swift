@@ -28,6 +28,7 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 /// testable without relying on WebKit's pixel output.
 @MainActor
 final class MarkdownWebRenderingCoordinator {
+    /// The one deferred platform action emitted by the lifecycle state machine.
     enum Action: Equatable {
         case hide(reason: String)
         case refresh(reason: String, forceLifecycleRefresh: Bool)
@@ -47,6 +48,7 @@ final class MarkdownWebRenderingCoordinator {
     private var pendingForceLifecycleRefresh = false
     private var pendingWindowReentryNotification = false
 
+    /// Creates a coordinator with an injectable action sink for transition tests.
     init(
         initialBoundsSize: CGSize,
         scheduler: MainActorDeferredActionScheduler = MainActorDeferredActionScheduler(),
@@ -101,11 +103,7 @@ final class MarkdownWebRenderingCoordinator {
         }
     }
 
-    /// Cancels a pending repair when the host view is being torn down.
-    func cancel() {
-        scheduler.cancel()
-    }
-
+    /// Replaces the pending action so a resize burst produces one settled pass.
     private func schedule(reason: String, forceLifecycleRefresh: Bool) {
         pendingRefreshReason = reason
         pendingForceLifecycleRefresh = pendingForceLifecycleRefresh || forceLifecycleRefresh
@@ -114,6 +112,7 @@ final class MarkdownWebRenderingCoordinator {
         }
     }
 
+    /// Applies the latest state snapshot after the host layout callback returns.
     private func performPendingAction() {
         let forceLifecycleRefresh = pendingForceLifecycleRefresh
         pendingForceLifecycleRefresh = false
@@ -146,6 +145,7 @@ final class MarkdownWebRenderingCoordinator {
         }
     }
 
+    /// Moves WebKit out of its in-window lifecycle exactly once per hide period.
     private func applyHiddenAction(reason: String) {
         guard !renderingStateIsHidden else { return }
         renderingStateIsHidden = true
