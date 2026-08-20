@@ -58,8 +58,7 @@ struct TitleUpdateAmplificationRegressionTests {
         await drainMainQueue()
 
         // A burst must stay behind the long safety window before it reaches
-        // Workspace/SwiftUI state. The current default is 33 ms, so this
-        // expectation is red until the fix enables the bounded default.
+        // Workspace/SwiftUI state.
         #expect(scheduler.delays == [1.0])
         #expect(workspacePublishCount == 0)
         scheduler.fire(at: 0)
@@ -87,6 +86,30 @@ struct TitleUpdateAmplificationRegressionTests {
         // same value still emits the Dock/Spaces work that this regression is
         // about, so no-op writes must be skipped at the source.
         #expect(window.titleWriteCount == firstWriteCount)
+    }
+
+    @Test
+    func terminalDrivenWindowTitlesPublishOnlyTheLatestFrame() {
+        let scheduler = ManualTitleCoalescerScheduler()
+        let gate = WindowTitleUpdateGate(
+            coalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            )
+        )
+        let window = CountingTitleWindow()
+        window.titleWriteCount = 0
+
+        for sequence in 0..<100 {
+            gate.submit("Agent frame \(sequence)", to: window)
+        }
+
+        #expect(scheduler.delays == [1.0])
+        #expect(window.titleWriteCount == 0)
+
+        gate.flushNow()
+
+        #expect(window.titleWriteCount == 1)
+        #expect(window.title == "Agent frame 99")
     }
 
     @Test
@@ -132,6 +155,8 @@ struct TitleUpdateAmplificationRegressionTests {
         }
     }
 
+    // SAFETY: the lock guards the single recorded value across the scheduler
+    // callback and the main-actor assertion.
     private final class IntervalRecorder: @unchecked Sendable {
         private let lock = NSLock()
         private var recordedInterval: Duration?

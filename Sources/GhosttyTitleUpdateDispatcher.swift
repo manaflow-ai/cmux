@@ -25,7 +25,11 @@ actor GhosttyTitleUpdateDispatcher {
     private var cancelScheduledFlush: Cancellation?
 
     init(
-        coalescingInterval: Duration = .milliseconds(50),
+        // Terminal titles are presentation metadata, not control-plane state.
+        // Keep animated agent titles off the main actor for a full safety
+        // window so a handful of surfaces cannot drive display-cycle work at
+        // their source cadence.
+        coalescingInterval: Duration = .milliseconds(1_000),
         attachmentGeneration: AtomicUInt64Generation = AtomicUInt64Generation(),
         schedule: Scheduler? = nil,
         publish: @escaping Publisher

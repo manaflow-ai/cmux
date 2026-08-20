@@ -23,7 +23,24 @@ extension TabManager {
     func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         guard let targetWindow = window else { return }
-        targetWindow.title = title
+        windowTitleUpdateGate.applyImmediately(title, to: targetWindow)
+    }
+
+    /// Applies a terminal-driven title after the bounded presentation window.
+    /// Intermediate OSC frames must not cross into AppKit one by one.
+    func updateWindowTitle(for tab: Workspace?, rateLimited: Bool) {
+        let title = windowTitle(for: tab)
+        guard let targetWindow = window else { return }
+        if rateLimited {
+            windowTitleUpdateGate.submit(title, to: targetWindow)
+        } else {
+            windowTitleUpdateGate.applyImmediately(title, to: targetWindow)
+        }
+    }
+
+    /// Flushes delayed terminal-title presentation before a lifecycle boundary.
+    func flushPendingWindowTitleUpdate() {
+        windowTitleUpdateGate.flushNow()
     }
 
     /// The name to display for `tab` across window chrome — the custom title
