@@ -2248,6 +2248,12 @@ impl Surface {
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
         cmd.env("TERM", &opts.term);
+        // The embedded ghostty-vt terminal always parses 24-bit SGR and every
+        // frontend forwards RGB cells losslessly, so children can rely on
+        // truecolor regardless of where the session server was started
+        // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
+        // caller can still override it.
+        cmd.env("COLORTERM", "truecolor");
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
@@ -7396,6 +7402,61 @@ mod tests {
                 signal: libc::SIGTERM,
                 core_dumped: false,
             }
+        );
+    }
+
+    #[cfg(unix)]
+    fn spawn_and_read_colorterm(id: SurfaceId, extra_env: Vec<(String, String)>) -> String {
+        let mux = Mux::new_for_test("colorterm-env", SurfaceOptions::default());
+        let surface = Surface::spawn(
+            id,
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'CT=[%s]' \"$COLORTERM\"".into(),
+                ]),
+                extra_env,
+                ..SurfaceOptions::default()
+            },
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let text =
+                surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+            if let Some(start) = text.find("CT=[") {
+                if let Some(len) = text[start..].find(']') {
+                    return text[start..=start + len].to_string();
+                }
+            }
+            assert!(Instant::now() < deadline, "child never printed COLORTERM: {text:?}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The embedded ghostty-vt terminal always parses 24-bit SGR and the
+    /// frontends forward RGB cells losslessly, so children must be able to
+    /// rely on truecolor even when the session server itself was started from
+    /// an environment without COLORTERM (launchd, ssh, cron). Without the
+    /// guarantee, truecolor-capable programs quantize to the 256-color cube
+    /// and render visibly different colors than the same program run directly
+    /// in the host terminal.
+    #[cfg(unix)]
+    #[test]
+    fn child_env_advertises_truecolor_colorterm() {
+        assert_eq!(spawn_and_read_colorterm(151, Vec::new()), "CT=[truecolor]");
+    }
+
+    /// extra_env stays authoritative: a caller that sets COLORTERM explicitly
+    /// wins over the built-in truecolor advertisement.
+    #[cfg(unix)]
+    #[test]
+    fn child_env_colorterm_yields_to_extra_env() {
+        assert_eq!(
+            spawn_and_read_colorterm(152, vec![("COLORTERM".into(), "24bit".into())]),
+            "CT=[24bit]"
         );
     }
 
