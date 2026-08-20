@@ -235,7 +235,7 @@ final class MobileHostIrohRuntime {
     )
 
     private nonisolated static var diagnosticBuildStamp: String {
-        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
+        DiagnosticBuildStamp().make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     @discardableResult
