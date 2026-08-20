@@ -4462,6 +4462,44 @@ mod tests {
         );
     }
 
+    /// Same contract against the daemon's REAL replay bytes, not a hand-written
+    /// DECSET: the terminal host serializes attach state with the bounded
+    /// theme-portable formatter, so this pins that its output still carries the
+    /// mouse-tracking modes and that they survive the client's replay apply all
+    /// the way to the pointer-semantics probe the App's host-capture mirroring
+    /// reads.
+    #[test]
+    fn daemon_theme_portable_replay_restores_mouse_tracking_to_the_attach_probe() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        // btop-shaped inner state: alt screen plus button-motion tracking with
+        // SGR and urxvt encodings, entered before any client attached.
+        host.vt_write(b"\x1b[?1049h\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        assert!(host.mouse_tracking());
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(12);
+        assert!(!surface.term.lock().unwrap().mouse_tracking());
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+        match surface.try_pointer_semantics() {
+            PointerSemanticProbe::Ready(semantics) => assert!(
+                semantics.mouse_tracking,
+                "the attach probe must observe the replay-restored mouse modes"
+            ),
+            PointerSemanticProbe::Contended => panic!("uncontended terminal probe blocked"),
+        }
+    }
+
     #[test]
     fn resolved_cursor_colors_force_the_active_screen_across_alt_screen_modes() {
         for mode in [47, 1047, 1049] {
