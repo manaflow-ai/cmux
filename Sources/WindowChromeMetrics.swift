@@ -63,8 +63,12 @@ enum SidebarFloatingCardMetrics {
     static let cornerRadius: CGFloat = 12
     static let leadingInset: CGFloat = 2
     static let trailingInset: CGFloat = 6
-    static let topInset: CGFloat = 6
-    static let bottomInset: CGFloat = 6
+    /// Clears the titlebar band (traffic lights, bell, +) so the card never
+    /// intersects window chrome: firstRowTopOffset (30) plus a small gap.
+    static let topInset: CGFloat = 34
+    /// Clears the region-wide footer (account/help/upgrade strip) below the
+    /// card.
+    static let bottomInset: CGFloat = 44
     /// How strongly the glass tints toward the resolved terminal theme.
     static let themeTintOpacity: CGFloat = 0.55
     static var horizontalInsets: CGFloat { leadingInset + trailingInset }
@@ -100,9 +104,12 @@ enum SidebarListMetrics {
 }
 
 struct SidebarWorkspaceScrollInsets: Equatable {
+    /// Inner insets of the floating workspaces card. The card itself clears
+    /// the titlebar and footer bands (SidebarFloatingCardMetrics), so the
+    /// list only needs breathing room inside the card.
     static let workspaceList = SidebarWorkspaceScrollInsets(
-        top: SidebarListMetrics.scrollTopInset,
-        bottom: SidebarListMetrics.bottomScrimHeight
+        top: 8,
+        bottom: 12
     )
 
     let top: CGFloat
