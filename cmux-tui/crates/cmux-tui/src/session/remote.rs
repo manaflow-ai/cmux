@@ -2813,6 +2813,15 @@ impl RemoteSession {
         })
     }
 
+    /// Whether the transport to the daemon has been torn down (reader EOF,
+    /// oversized frame, failed subscription recovery, or local shutdown).
+    /// Ordered before the reader thread's final MuxEvent::Empty, so an Empty
+    /// observed with this flag set means the connection died rather than the
+    /// daemon deliberately ending the view.
+    pub fn transport_lost(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);

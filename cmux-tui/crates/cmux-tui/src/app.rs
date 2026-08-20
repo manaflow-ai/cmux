@@ -2195,6 +2195,10 @@ impl OrderedSession {
         self.inner.begin_shutdown();
     }
 
+    fn transport_lost(&self) -> bool {
+        self.inner.transport_lost()
+    }
+
     fn daemon_shutdown_requested(&self) -> bool {
         self.inner.daemon_shutdown_requested()
     }
@@ -8301,6 +8305,19 @@ fn run_with_machine_updates_inner(
             return Err(terminal_restore_error(error, restore_error));
         }
     }
+    if let Some(notice) = app.scoped_shutdown_notice
+        && app.surface_only.is_some()
+    {
+        // The alternate screen is restored, so this line lands on the host
+        // terminal like a shell's "process completed" message. A lost daemon
+        // connection is abnormal and must also fail the process so wrappers
+        // and surfaces can tell it apart from a normal terminal end.
+        let line = scoped_shutdown_notice_line(&localization::catalog().attach, notice);
+        if notice == ScopedShutdownNotice::ConnectionLost {
+            return Err(anyhow::anyhow!("{line}"));
+        }
+        eprintln!("{line}");
+    }
     let outcome = app
         .machine_ui
         .and_then(|machine| machine.request)
@@ -13222,6 +13239,10 @@ impl App {
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
                 }
+                if self.surface_only.is_some() && self.scoped_shutdown_notice.is_none() {
+                    self.scoped_shutdown_notice =
+                        Some(scoped_empty_shutdown_notice(self.session.transport_lost()));
+                }
                 self.quit = true;
                 Ok(RenderAction::None)
             }
@@ -13229,6 +13250,8 @@ impl App {
                 self.retire_surface_state(id);
                 self.remove_surface_from_cached_tree(id);
                 if self.surface_only == Some(id) {
+                    self.scoped_shutdown_notice
+                        .get_or_insert(ScopedShutdownNotice::TerminalExited);
                     self.quit = true;
                     return Ok(RenderAction::None);
                 }

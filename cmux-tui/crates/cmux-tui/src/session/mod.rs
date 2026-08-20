@@ -485,6 +485,14 @@ impl Session {
             Session::Remote(_) => false,
         }
     }
+    /// Whether a remote transport to the daemon has already been torn down.
+    /// Local sessions have no transport to lose.
+    pub fn transport_lost(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.transport_lost(),
+        }
+    }
     pub fn invalidate_remote_tree(&self) {
         if let Session::Remote(remote) = self {
             remote.invalidate_tree();
