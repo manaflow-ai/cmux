@@ -330,16 +330,24 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
                 continue
             }
             if word == "-" {
-                // For `env`, a bare `-` is the `-i` shorthand and the program still follows. For an
-                // interpreter it means "read the program from stdin", so nothing after it is an
+                // For `env`, a bare `-` is the `-i` shorthand and the program still follows.
+                // Everywhere else it means "read the program from stdin", so nothing after it is an
                 // executable: `node - llm-gateway` passes `llm-gateway` to a script on stdin.
                 guard forwardingCommand == "env" else { return argv.count }
                 cursor += 1
                 continue
             }
             guard word.hasPrefix("-") else { return cursor }
-            // An option that takes a separate value (`env -u NAME`, `node -e code`) would otherwise
-            // leave that value looking like the program.
+            // An interpreter's options decide what the program is, so the first one ends the search
+            // rather than being classified.
+            if interpreterCommands.contains(forwardingCommand) {
+                return argv.count
+            }
+            // For a package runner, an option that carries the program inline (`npm -c call`) means
+            // every later word belongs to that program.
+            if inlineProgramOptions.contains(word) {
+                return argv.count
+            }
             if optionsTakingASeparateValue.contains(word) {
                 cursor += 2
             } else {
@@ -348,6 +356,29 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
         }
         return cursor
     }
+
+    /// Forwarding commands that interpret code rather than dispatch to a named program.
+    ///
+    /// Their options decide what the program even is — `-e`/`-c` supply it inline, `-m` names a
+    /// module, `-` reads it from stdin, `--loader`/`--import` change resolution — so identification
+    /// stops at the first option instead of trying to classify each one. A wrapper is then found
+    /// only in the plain `node /usr/local/bin/wrapper` form, which is how package-installed
+    /// wrappers actually run; anything more exotic simply resumes unwrapped, which is the safe
+    /// direction.
+    private static let interpreterCommands: Set<String> = [
+        "node", "nodejs", "bun", "deno",
+        "python", "python3",
+        "ruby", "perl", "php",
+        "tsx", "ts-node",
+    ]
+
+    /// Options whose value is the program itself, so nothing after them names an executable.
+    ///
+    /// Only consulted for non-interpreter forwarding commands, which stop at any option.
+    private static let inlineProgramOptions: Set<String> = [
+        "-c", "--command", "--call",
+        "-e", "--eval",
+    ]
 
     private static let optionsTakingASeparateValue: Set<String> = [
         "-u", "--unset", "-C", "--chdir", "-S", "--split-string",

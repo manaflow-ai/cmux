@@ -290,6 +290,42 @@ import Testing
         #expect(detected.id == "gateway")
     }
 
+    /// An option that carries the program inline ends the search: every later word belongs to that
+    /// inline program, so treating one as an executable would attribute the session to a launcher
+    /// that never ran.
+    @Test func inlineProgramOptionsEndTheSearch() throws {
+        let gateway = AgentExternalLauncher(
+            id: "gateway",
+            kinds: ["claude"],
+            argvExecutables: ["llm-gateway"],
+            resumeArgvPrefix: ["llm-gateway", "exec", "--"]
+        )
+        let registry = registry(gateway)
+
+        for argv in [
+            ["python3", "-c", "import runpy", "llm-gateway"],
+            ["node", "-e", "require('x')", "llm-gateway", "exec"],
+            ["node", "--eval", "run()", "llm-gateway"],
+            ["npx", "--call", "build", "llm-gateway"],
+            // An interpreter option can name a module or change resolution instead of carrying the
+            // program inline; the search stops at the first option either way.
+            ["python3", "-m", "runpy", "llm-gateway"],
+            ["node", "--import", "./hook.js", "llm-gateway"],
+        ] {
+            #expect(registry.detectedLauncher(ancestorArgvs: [argv], kind: "claude") == nil)
+        }
+
+        // `env` has no inline-program option, and its value-taking options are still followed by
+        // the program.
+        let detected = try #require(
+            registry.detectedLauncher(
+                ancestorArgvs: [["env", "-u", "NODE_OPTIONS", "-C", "/tmp", "llm-gateway", "exec"]],
+                kind: "claude"
+            )
+        )
+        #expect(detected.id == "gateway")
+    }
+
     @Test func forwardingIsNotFollowedIndefinitely() {
         // env -> node -> npx are two hops plus a third executable; `teamclaude` sits behind all of
         // them, so it is out of reach and the session stays unwrapped rather than being attributed
@@ -465,6 +501,13 @@ import Testing
             withoutLauncher.preservingExternalLauncher(from: [other, withLauncher]).externalLauncher
                 == "gateway"
         )
+        // A padded id is stored canonically, so it matches a declaration after a socket round trip.
+        let padded = AgentLaunchCommand(
+            launcher: "claude",
+            externalLauncher: " teamclaude ",
+            arguments: ["/opt/claude"]
+        )
+        #expect(padded.preservingExternalLauncher(from: []).externalLauncher == "teamclaude")
         // Nothing to recover leaves the record untouched.
         #expect(
             withoutLauncher.preservingExternalLauncher(from: [nil, blankLauncher]) == withoutLauncher

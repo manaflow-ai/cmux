@@ -276,7 +276,9 @@ extension ControlCommandCoordinator {
         guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
         return ControlAgentLaunchCommand(
             launcher: rawString(object, "launcher"),
-            externalLauncher: rawString(object, "external_launcher"),
+            // Trimmed on the way in: the id is compared against `agents.launchers` declarations,
+            // which are normalized, so a padded value would silently resolve to nothing.
+            externalLauncher: optionalTrimmedRawString(object, "external_launcher"),
             executablePath: rawString(object, "executable_path"),
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),

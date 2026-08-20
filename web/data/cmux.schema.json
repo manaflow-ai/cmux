@@ -215,7 +215,7 @@
                       { "type": "string", "pattern": "\\S" },
                       { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\S" } }
                     ],
-                    "description": "Executable names or paths identifying the launcher, for example [\"teamclaude\"]. A match requires the executable of an ancestor process — or its last path component — to equal an entry exactly; substrings never match, so an unrelated path containing the name cannot claim the session. Env prefixes and interpreters are followed (env VAR=1 llm-gateway exec, node /usr/local/bin/teamclaude run), up to two levels."
+                    "description": "Executable names or paths identifying the launcher, for example [\"teamclaude\"]. A match requires the executable of an ancestor process — or its last path component — to equal an entry exactly; substrings never match, so an unrelated path containing the name cannot claim the session. Env prefixes, package runners, and interpreters are followed (env VAR=1 llm-gateway exec, node /usr/local/bin/teamclaude run), up to two levels; after an interpreter the search stops at its first option, since those decide what the program is."
                   }
                 }
               },

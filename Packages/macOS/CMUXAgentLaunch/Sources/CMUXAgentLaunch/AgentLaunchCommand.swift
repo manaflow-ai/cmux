@@ -75,7 +75,14 @@ extension AgentLaunchCommand {
     /// - Parameter candidates: Other records for the same session, in preference order.
     /// - Returns: This record, with the first id found when it has none of its own.
     public func preservingExternalLauncher(from candidates: [AgentLaunchCommand?]) -> AgentLaunchCommand {
-        guard Self.normalized(externalLauncher) == nil else { return self }
+        if let own = Self.normalized(externalLauncher) {
+            // Store the canonical form: the socket decoder accepts the id as written, so a padded
+            // value would otherwise be persisted and compared with its padding intact.
+            guard own != externalLauncher else { return self }
+            var canonical = self
+            canonical.externalLauncher = own
+            return canonical
+        }
         guard let recovered = candidates
             .lazy
             .compactMap({ Self.normalized($0?.externalLauncher) })
