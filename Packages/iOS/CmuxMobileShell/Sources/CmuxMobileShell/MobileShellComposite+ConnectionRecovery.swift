@@ -123,6 +123,7 @@ extension MobileShellComposite {
             // in-flight recovery. The replacement below owns a new generation
             // and is the only attempt allowed to publish a foreground client.
             connectionRecoveryOwner.cancel()
+            cancelDeadTerminalEventStreamRedial()
             applyConnectionRecoveryOwnerState()
             invalidateStoredMacReconnectAttempt()
         } else {
@@ -266,12 +267,17 @@ extension MobileShellComposite {
         }
     }
 
-    /// Cancel a pending backoff redial (foreground resume, teardown, or a
-    /// stream that proved itself alive supersede it).
+    /// Cancel a pending backoff redial. Every `connectionRecoveryOwner.cancel()`
+    /// pairs with this so the single recovery owner's lifecycle also invalidates
+    /// the dead-stream redial (foreground resume and a stream that proved itself
+    /// alive supersede it too). Clearing the backoff's scheduled flag is part of
+    /// the cancel: a cancelled redial is no longer scheduled, so the next barren
+    /// stream may schedule again instead of coalescing into a dead timer.
     func cancelDeadTerminalEventStreamRedial() {
         deadTerminalEventStreamRedialTaskGeneration = UUID()
         deadTerminalEventStreamRedialTask?.cancel()
         deadTerminalEventStreamRedialTask = nil
+        deadTerminalEventStreamRedialBackoff.redialFired()
     }
 
     /// Clear the dead-stream backoff streak and cancel any pending backoff

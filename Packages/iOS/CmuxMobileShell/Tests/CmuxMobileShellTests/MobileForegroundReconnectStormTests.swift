@@ -243,12 +243,16 @@ import Testing
     // Once parked on the backoff, the terminal is not replayed again until the
     // backoff clock advances: no ongoing re-anchoring that resets scroll and no
     // main-thread churn. (On main the loop never parks, so it keeps replaying.)
+    // Wait on the router's arrival signal (bounded) and assert no further replay
+    // lands, rather than sleeping a fixed interval.
     let replaysWhenParked = await router.count(of: "mobile.terminal.replay")
-    try await Task.sleep(nanoseconds: 150_000_000)
-    #expect(
-        await router.count(of: "mobile.terminal.replay") == replaysWhenParked,
-        "a parked reconnect must stop replaying the terminal"
+    let replayedAgain = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replaysWhenParked + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
     )
+    #expect(!replayedAgain, "a parked reconnect must stop replaying the terminal")
 
     // The reported viewport geometry survives the reconnect so scrolling works.
     #expect(

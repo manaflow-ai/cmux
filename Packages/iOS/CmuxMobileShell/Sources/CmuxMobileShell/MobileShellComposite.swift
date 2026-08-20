@@ -2001,6 +2001,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
+        deadTerminalEventStreamRedialTask?.cancel()
         renderGridLivenessTimer?.cancel()
         renderGridLivenessProbeTask?.cancel()
         terminalInputAckResubscribeRetryTask?.cancel()
@@ -2098,6 +2099,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
+        cancelDeadTerminalEventStreamRedial()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -11147,6 +11149,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // recovery parked while the scene was inactive.
         pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
+        cancelDeadTerminalEventStreamRedial()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()
         connectionGeneration = UUID()
