@@ -28987,6 +28987,28 @@ struct CMUXCLI {
             )?.id
         }
 
+        // One builder for every capture path below: the record's identity fields (launcher, external
+        // launcher, cwd, verification home) are the same in all of them, and threading each new
+        // field through four constructors is how one path silently loses it.
+        func record(
+            executablePath: String?,
+            arguments: [String],
+            environment: [String: String]?,
+            source: String
+        ) -> AgentHookLaunchCommandRecord {
+            AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                externalLauncher: externalLauncher,
+                executablePath: executablePath,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                verificationHome: verificationHome,
+                capturedAt: Date().timeIntervalSince1970,
+                source: source
+            )
+        }
+
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
         // The argv is gone, but the agent's launch env may still carry a non-default home that
@@ -28999,17 +29021,14 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, externalLauncher: externalLauncher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex"
+                    ? record(executablePath: nil, arguments: [], environment: nil, source: "default")
+                    : nil
             }
-            return AgentHookLaunchCommandRecord(
-                launcher: launcher,
-                externalLauncher: externalLauncher,
+            return record(
                 executablePath: nil,
                 arguments: [],
-                workingDirectory: workingDirectory,
                 environment: environment,
-                verificationHome: verificationHome,
-                capturedAt: Date().timeIntervalSince1970,
                 source: "environment"
             )
         }
@@ -29027,19 +29046,19 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, externalLauncher: externalLauncher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return record(
+                executablePath: executablePath,
+                arguments: [],
+                environment: nil,
+                source: "rejected"
+            )
         }
         let source = envArguments == nil ? "process" : "environment"
 
-        return AgentHookLaunchCommandRecord(
-            launcher: launcher,
-            externalLauncher: externalLauncher,
+        return record(
             executablePath: executablePath,
             arguments: sanitizedArguments,
-            workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
-            verificationHome: verificationHome,
-            capturedAt: Date().timeIntervalSince1970,
             source: source
         )
     }

@@ -390,6 +390,50 @@ import Testing
         }
     }
 
+    /// Hook captures for one session are compared for durable resume evidence, and the winner may be
+    /// a record whose ancestor detection missed (the launcher process can already be gone). The id
+    /// has to survive that comparison or a later hook silently unwraps the session.
+    @Test func externalLauncherSurvivesRecordMerging() {
+        let withLauncher = AgentLaunchCommand(
+            launcher: "claude",
+            externalLauncher: "teamclaude",
+            arguments: ["/opt/claude"]
+        )
+        let withoutLauncher = AgentLaunchCommand(launcher: "claude", arguments: ["/opt/claude"])
+        let blankLauncher = AgentLaunchCommand(
+            launcher: "claude",
+            externalLauncher: "   ",
+            arguments: ["/opt/claude"]
+        )
+
+        #expect(
+            withoutLauncher.preservingExternalLauncher(from: [withLauncher]).externalLauncher
+                == "teamclaude"
+        )
+        #expect(
+            blankLauncher.preservingExternalLauncher(from: [nil, withLauncher]).externalLauncher
+                == "teamclaude"
+        )
+        // An id the record already carries wins over the candidates.
+        let other = AgentLaunchCommand(
+            launcher: "claude",
+            externalLauncher: "gateway",
+            arguments: ["/opt/claude"]
+        )
+        #expect(
+            withLauncher.preservingExternalLauncher(from: [other]).externalLauncher == "teamclaude"
+        )
+        // Candidates are consulted in order.
+        #expect(
+            withoutLauncher.preservingExternalLauncher(from: [other, withLauncher]).externalLauncher
+                == "gateway"
+        )
+        // Nothing to recover leaves the record untouched.
+        #expect(
+            withoutLauncher.preservingExternalLauncher(from: [nil, blankLauncher]) == withoutLauncher
+        )
+    }
+
     @Test func wrappedResumeKeepsTheAgentShimReachableOnPath() throws {
         func invocation(includesAgentExecutable: Bool) throws -> AgentRestoreInvocation {
             let launcher = AgentExternalLauncher(

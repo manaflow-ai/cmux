@@ -63,3 +63,34 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         self.source = source
     }
 }
+
+extension AgentLaunchCommand {
+    /// Returns this record carrying an external launcher id recovered from other records.
+    ///
+    /// The external launcher is a property of the session, not of whichever capture won an evidence
+    /// comparison. Ancestor detection can miss on a later hook — the launcher process may already be
+    /// gone — so a record without an id must never erase the id the session was captured with.
+    /// https://github.com/manaflow-ai/cmux/issues/10494
+    ///
+    /// - Parameter candidates: Other records for the same session, in preference order.
+    /// - Returns: This record, with the first id found when it has none of its own.
+    public func preservingExternalLauncher(from candidates: [AgentLaunchCommand?]) -> AgentLaunchCommand {
+        guard Self.normalized(externalLauncher) == nil else { return self }
+        guard let recovered = candidates
+            .lazy
+            .compactMap({ Self.normalized($0?.externalLauncher) })
+            .first else {
+            return self
+        }
+        var updated = self
+        updated.externalLauncher = recovered
+        return updated
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}

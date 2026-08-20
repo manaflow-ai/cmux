@@ -119,12 +119,21 @@ extension CMUXCLI {
             }
             return current ?? mapped?.launchCommand
         }()
-        guard kind == "codex" else { return selected }
+        // The external launcher is a property of the session, not of whichever record won the
+        // evidence comparison above. Ancestor detection can miss on a later hook (the launcher
+        // process may already be gone), so a record without an id must not erase one the session
+        // was captured with. #10494
+        let preserved = selected?.preservingExternalLauncher(
+            from: [current, mapped?.launchCommand]
+        )
+        guard kind == "codex" else { return preserved }
         return repairedCodexLaunchCommand(
-            selected,
+            preserved,
             transcriptPath: transcriptPath
         )
     }
+
+
 
     func preferredAgentHookResumeWorkingDirectory(
         kind: String,
