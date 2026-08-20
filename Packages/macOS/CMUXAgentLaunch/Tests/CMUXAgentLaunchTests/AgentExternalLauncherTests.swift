@@ -648,11 +648,12 @@ import Testing
             workingDirectory: project.path,
             sanitize: { data in
                 // Stand-in for the app's JSONC preprocessing.
-                let text = String(decoding: data, as: UTF8.self)
+                guard let text = String(data: data, encoding: .utf8) else { return data }
+                let stripped = text
                     .split(separator: "\n", omittingEmptySubsequences: false)
                     .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
                     .joined(separator: "\n")
-                return Data(text.utf8)
+                return Data(stripped.utf8)
             }
         )
 
@@ -770,6 +771,56 @@ import Testing
         // The launch stays authorized as a claude restore, so the wrapper's own child claude keeps
         // the cmux launch identity.
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "claude:\(sessionID)")
+    }
+
+    /// The working-directory sanitizer and the provider rewrites target the agent's own argv, so the
+    /// launcher prefix is applied after them: a prefix may legitimately carry the same path the
+    /// capture recorded as its working directory, and stripping it would break the wrapper's own
+    /// invocation.
+    @Test func launcherPrefixSurvivesWorkingDirectorySanitizing() throws {
+        let workingDirectory = "/tmp/work"
+        let pinnedLauncher = AgentExternalLauncher(
+            id: "teamclaude",
+            kinds: ["claude"],
+            argvExecutables: ["teamclaude"],
+            resumeArgvPrefix: ["teamclaude", "run", "--state-dir", workingDirectory, "--"]
+        )
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: workingDirectory,
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                externalLauncher: "teamclaude",
+                executablePath: "/opt/claude",
+                arguments: ["/opt/claude", "--add-dir", workingDirectory],
+                workingDirectory: workingDirectory,
+                source: "environment"
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(
+                isExecutableFile: { $0 == "/shim/claude" },
+                externalLaunchers: registry(pinnedLauncher)
+            ).invocation(
+                for: request,
+                ambientEnvironment: ["CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude", "PATH": "/usr/bin"]
+            )
+        )
+
+        #expect(
+            Array(invocation.arguments.prefix(5))
+                == ["teamclaude", "run", "--state-dir", workingDirectory, "--"]
+        )
+        // The prefix is intact as one contiguous run, and the agent's resume argv follows it.
+        #expect(invocation.arguments.dropFirst(5).contains("--resume"))
+        #expect(invocation.arguments.dropFirst(5).contains(sessionID))
     }
 
     @Test func structuredResumeWithoutADeclarationKeepsTheBareAgentInvocation() throws {

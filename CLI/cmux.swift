@@ -29305,10 +29305,14 @@ struct CMUXCLI {
                 .resolvedLauncher(id: launcherID, kind: kind)
         }
         return agentSurfaceResumeShellCommand(
-            argv: externalLauncher?.applyingResumePrefix(to: argv) ?? argv,
+            argv: argv,
             workingDirectory: resumeWorkingDirectory,
             kind: kind,
             environment: environment,
+            // Passed unwrapped: the sanitizer and the Hermes provider rewrite below operate on the
+            // agent's own argv, and the launcher prefix is applied after them so a wrapper's own
+            // words are never rewritten or stripped.
+            externalLauncher: externalLauncher,
             // A wrapper that re-execs the agent by name loses the shim that would have been
             // substituted into argv[0], and with it cmux's hooks; keep it first on PATH instead.
             wrappedAgentShimEnvironmentKey: externalLauncher.flatMap { launcher in
@@ -29327,6 +29331,7 @@ struct CMUXCLI {
         workingDirectory: String?,
         kind: String,
         environment: [String: String]?,
+        externalLauncher: AgentExternalLauncher? = nil,
         wrappedAgentShimEnvironmentKey: String? = nil
     ) -> String {
         var commandParts: [String] = []
@@ -29337,9 +29342,13 @@ struct CMUXCLI {
             from: commandParts,
             workingDirectory: cwd
         )
-        let resumeCommandParts = kind == "hermes-agent"
+        let agentCommandParts = kind == "hermes-agent"
             ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
             : sanitizedCommandParts
+        // Wrap last: the rewrites above target the agent's own argv, and a launcher's prefix may
+        // legitimately carry words that look like the captured working directory or a provider flag.
+        let resumeCommandParts = externalLauncher?.applyingResumePrefix(to: agentCommandParts)
+            ?? agentCommandParts
         // Route the claude executable through the wrapper shim token so the executed
         // command re-injects cmux hooks even when run via the `$SHELL -lic` restore
         // launcher (where the integration's PATH shim / `claude()` function are not
