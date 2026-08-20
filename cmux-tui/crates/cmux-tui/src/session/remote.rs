@@ -697,6 +697,14 @@ impl RemoteSurface {
         let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
         fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         fresh.apply_vt_replay_parts(replay, replay_aliases, replay_state)?;
+        if daemon_replay {
+            // Daemons without the replay mouse-format suffix serialize the
+            // extended-coordinate mode flags in numeric order, losing the
+            // last-set-wins active encoding (SGR replayed before urxvt).
+            // Prefer SGR when the replay left both flagged, so forwarded
+            // clicks stay parseable by the inner app (btop reads only SGR).
+            fresh.normalize_replayed_mouse_format();
+        }
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
@@ -4551,6 +4559,37 @@ mod tests {
     /// (1002, 1006, 1015), losing last-set-wins. A client attached to such a
     /// daemon must still prefer SGR over urxvt when both are flagged: every
     /// known app that enables both sets SGR last and parses only SGR.
+    /// The SGR-preference fallback must not override an application that
+    /// deliberately set urxvt last: a fixed daemon's replay carries only the
+    /// active selector, so both flags are never left set together and the
+    /// fallback stays inert.
+    #[test]
+    fn daemon_replay_keeps_a_deliberate_urxvt_choice() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+
+        let (_session, surface) = test_unleased_view_surface(15);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            forwarded_left_press_bytes(&surface),
+            b"\x1b[32;36;21M",
+            "an application that chose urxvt last must keep urxvt after reattach"
+        );
+    }
+
     #[test]
     fn legacy_flag_dump_replay_still_forwards_sgr_clicks() {
         let (_session, surface) = test_unleased_view_surface(14);
