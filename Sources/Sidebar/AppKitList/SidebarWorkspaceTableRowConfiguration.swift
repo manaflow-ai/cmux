@@ -225,7 +225,16 @@ struct SidebarWorkspaceTableRowConfiguration {
         )
     }
 
+    /// Icon rail vs regular presentation, projected from the environment so
+    /// the controller can pick cells and heights per row.
+    var columnDisplayMode: SidebarColumnDisplayMode {
+        environment.columnDisplayMode
+    }
+
     var estimatedHeight: CGFloat {
+        if environment.columnDisplayMode == .icons {
+            return SidebarWorkspaceIconTableCellView.rowHeight
+        }
         let fontScale = CGFloat(environment.globalFontMagnificationPercent) / 100
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
         if isGroupHeader {

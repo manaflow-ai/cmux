@@ -33,6 +33,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// (issue #9690).
     var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
+    private var iconHoverCardDwellTask: Task<Void, Never>?
+    private var iconHoverCardPopover: NSPopover?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
@@ -253,6 +255,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageViewportChange()
             return
         }
+        updateIconHoverCard(for: nil)
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
         previewBailoutTask?.cancel()
@@ -700,6 +703,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
+        if configuration.columnDisplayMode == .icons {
+            return SidebarWorkspaceIconTableCellView.rowHeight
+        }
         if let override = pumpHeightOverrides[configuration.id] {
             return override
         }
@@ -716,6 +722,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         row: Int
     ) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
+        if rows[row].columnDisplayMode == .icons,
+           rows[row].appKitGroupHeaderModel != nil || rows[row].appKitWorkspaceRowModel != nil {
+            let cell = tableView.makeView(
+                withIdentifier: SidebarWorkspaceIconTableCellView.reuseIdentifier,
+                owner: self
+            ) as? SidebarWorkspaceIconTableCellView ?? SidebarWorkspaceIconTableCellView()
+            createdCellViews.add(cell)
+            configure(iconCell: cell, at: row)
+            return cell
+        }
         if rows[row].appKitGroupHeaderModel != nil {
             let cell = tableView.makeView(
                 withIdentifier: SidebarGroupHeaderTableCellView.reuseIdentifier,
@@ -1414,6 +1430,58 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let previous = hoveredRowId
         hoveredRowId = next
         reconfigureRows(withIds: [previous, next].compactMap { $0 })
+        updateIconHoverCard(for: next)
+    }
+
+    /// Icon-rail hover card: text detail the compact rows no longer show.
+    /// The dwell timer is a cancellable Task tied to hover changes and
+    /// presentation teardown.
+    private func updateIconHoverCard(for rowId: SidebarWorkspaceRenderItemID?) {
+        iconHoverCardDwellTask?.cancel()
+        iconHoverCardDwellTask = nil
+        if let presented = iconHoverCardPopover {
+            presented.close()
+            iconHoverCardPopover = nil
+        }
+        guard isPresentationActive,
+              let rowId,
+              let row = rows.firstIndex(where: { $0.id == rowId }),
+              rows[row].columnDisplayMode == .icons
+        else { return }
+        iconHoverCardDwellTask = Task { [weak self] in
+            try? await Task.sleep(for: SidebarHoverCardTrackingView.dwell)
+            guard !Task.isCancelled else { return }
+            self?.presentIconHoverCard(rowId: rowId)
+        }
+    }
+
+    private func presentIconHoverCard(rowId: SidebarWorkspaceRenderItemID) {
+        guard hoveredRowId == rowId,
+              contextMenuRowId == nil,
+              iconHoverCardPopover == nil,
+              let table = containerView?.tableView,
+              let row = rows.firstIndex(where: { $0.id == rowId }),
+              rows[row].columnDisplayMode == .icons,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+        else { return }
+        let configuration = rows[row]
+        let card: AnyView
+        if let model = configuration.appKitWorkspaceRowModel {
+            card = AnyView(SidebarWorkspaceHoverCardView(model: model))
+        } else if let groupModel = configuration.appKitGroupHeaderModel {
+            card = AnyView(SidebarGroupHoverCardView(model: groupModel))
+        } else {
+            return
+        }
+        let controller = NSHostingController(rootView: card)
+        controller.view.layoutSubtreeIfNeeded()
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.contentSize = controller.view.fittingSize
+        popover.show(relativeTo: cell.bounds, of: cell, preferredEdge: .maxX)
+        iconHoverCardPopover = popover
     }
 
     private func contextMenuDidOpen(rowId: SidebarWorkspaceRenderItemID) {
@@ -1480,6 +1548,28 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             default:
                 continue
             }
+        }
+    }
+
+    private func configure(iconCell cell: SidebarWorkspaceIconTableCellView, at row: Int) {
+        let configuration = rows[row]
+        let rowId = configuration.id
+        if let groupModel = configuration.appKitGroupHeaderModel {
+            cell.configure(
+                groupModel: groupModel,
+                actions: configuration.appKitGroupHeaderActions
+            )
+        } else if let model = configuration.appKitWorkspaceRowModel {
+            cell.configure(
+                workspaceModel: model,
+                actions: configuration.appKitWorkspaceRowActions,
+                contextMenuDidOpen: { [weak self] in
+                    self?.contextMenuDidOpen(rowId: rowId)
+                },
+                contextMenuDidClose: { [weak self] in
+                    self?.contextMenuDidClose(rowId: rowId)
+                }
+            )
         }
     }
 

@@ -5,6 +5,9 @@ import SwiftUI
 struct SidebarWorkspaceTableEnvironmentSnapshot {
     let colorScheme: ColorScheme
     let globalFontMagnificationPercent: Int
+    /// Icon rail vs regular rows; a flip reconfigures and re-measures every
+    /// row through the normal apply pass.
+    var columnDisplayMode: SidebarColumnDisplayMode = .regular
 #if DEBUG
     let lazyContractProbe: SidebarLazyContractProbe
 #endif
@@ -12,6 +15,7 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     func hasEquivalentPresentation(to other: Self) -> Bool {
         colorScheme == other.colorScheme
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent
+            && columnDisplayMode == other.columnDisplayMode
     }
 
     @ViewBuilder

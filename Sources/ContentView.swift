@@ -1353,6 +1353,18 @@ struct ContentView: View {
         _ rawWidth: CGFloat,
         availableWidth: CGFloat? = nil
     ) {
+        guard featureFlags.isAppKitSidebarListEnabled else {
+            // The legacy SwiftUI list has no icon cells; keep the plain clamp.
+            let clamped = Self.clampedSidebarWidth(
+                rawWidth,
+                maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
+                minimumWidth: minimumSidebarWidth
+            )
+            withTransaction(Transaction(animation: nil)) {
+                sidebarWidth = clamped
+            }
+            return
+        }
         let resolution = SidebarColumnDisplayPolicy.resolve(
             dragWidth: rawWidth,
             currentMode: sidebarLayout.primaryColumnMode,
@@ -1913,6 +1925,7 @@ struct ContentView: View {
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
             creationContextID: tabManager.selectedSidebarCreationContextID,
+            workspaceColumnDisplayMode: sidebarLayout.primaryColumnMode,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
@@ -11160,13 +11173,15 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.isPresented == rhs.isPresented
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
             && lhs.creationContextID == rhs.creationContextID
+            && lhs.workspaceColumnDisplayMode == rhs.workspaceColumnDisplayMode
     }
 
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
-    /// Parent route whose child workspaces this column renders. Automatic is
-    /// the aggregate route; machine IDs are scoped membership collections.
+    /// Parent route whose child workspaces this column renders (a machine id).
     let creationContextID: String
+    /// Icon rail vs regular rows for this column.
+    var workspaceColumnDisplayMode: SidebarColumnDisplayMode = .regular
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
@@ -11665,12 +11680,14 @@ struct VerticalTabsSidebar: View, Equatable {
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            columnDisplayMode: workspaceColumnDisplayMode,
             lazyContractProbe: sidebarLazyContractProbe
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
+            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            columnDisplayMode: workspaceColumnDisplayMode
         )
 #endif
         let renderContext = WorkspaceListRenderContext(
