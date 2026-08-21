@@ -352,6 +352,10 @@ command  codex-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  codex-teams  aliases=-
   arg  arguments  kind=argument  completion=-
+command  comments  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --repo  kind=option  completion=directory
+  arg  arguments  kind=argument  completion=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
 command  config  aliases=-
@@ -368,6 +372,17 @@ command  detach-tab  aliases=-
   arg  --focus  kind=option  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --tab  kind=option  completion=custom-deprecated
+  arg  --title  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  diff  aliases=-
+  arg  --base  kind=option  completion=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --font-size  kind=option  completion=-
+  arg  --layout  kind=option  completion=list(split,unified)
+  arg  --source  kind=option  completion=list(branch,last-turn,staged,unstaged)
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  --title  kind=option  completion=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -435,6 +450,15 @@ command  focus-window  aliases=-
 command  get-url  aliases=-
   arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  identify  aliases=-
+  arg  --no-caller  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  ios  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  iroh-diag  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -504,6 +528,43 @@ command  mark-notification-read  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  markdown  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  memory  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --groups  kind=option  completion=-
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  mobile  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  mosh  aliases=-
+  arg  --command  kind=option  completion=-
+  arg  --forward-agent  kind=flag  completion=-
+  arg  --identity  kind=option  completion=file()
+  arg  --name  kind=option  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --no-forward-agent  kind=flag  completion=-
+  arg  --port  kind=option  completion=-
+  arg  --ssh-option  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  destination  kind=argument  completion=-
+command  mosh-tmux  aliases=-
+  arg  --command  kind=option  completion=-
+  arg  --forward-agent  kind=flag  completion=-
+  arg  --identity  kind=option  completion=file()
+  arg  --name  kind=option  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --no-forward-agent  kind=flag  completion=-
+  arg  --port  kind=option  completion=-
+  arg  --session  kind=option  completion=-
+  arg  --ssh-option  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  destination  kind=argument  completion=-
 command  move-surface  aliases=-
   arg  --after  kind=option  completion=custom-deprecated
   arg  --before  kind=option  completion=custom-deprecated
@@ -593,6 +654,12 @@ command  omo  aliases=-
   arg  arguments  kind=argument  completion=-
 command  omx  aliases=-
   arg  arguments  kind=argument  completion=-
+command  open  aliases=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  open-browser  aliases=-
   arg  arguments  kind=argument  completion=-
 command  open-notification  aliases=-
@@ -614,6 +681,10 @@ command  pipe-pane  aliases=-
 command  popup  aliases=-
 command  previous-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  project  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  read-screen  aliases=-
   arg  --lines  kind=option  completion=-
@@ -692,6 +763,19 @@ command  respawn-pane  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  restore  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  restore-session  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  right-sidebar  aliases=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  rpc  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  method  kind=argument  completion=-
 command  select-workspace  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -716,6 +800,8 @@ command  send-panel  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  text  kind=argument  completion=-
+command  set-app-focus  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  set-buffer  aliases=-
   arg  --name  kind=option  completion=-
   arg  text  kind=argument  completion=-
@@ -744,9 +830,23 @@ command  setup-hooks  aliases=-
   arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
   arg  arguments  kind=argument  completion=-
+command  sidebar  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  sidebar-state  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  simulate-app-active  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  simulate-sidebar-drag  aliases=-
+  arg  --duration-ms  kind=option  completion=-
+  arg  --from  kind=option  completion=-
+  arg  --steps  kind=option  completion=-
+  arg  --to  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  simulator  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  split-off  aliases=-
   arg  --focus  kind=option  completion=-
@@ -756,6 +856,46 @@ command  split-off  aliases=-
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  direction  kind=argument  completion=list(down,left,right,up)
+command  ssh  aliases=-
+  arg  --command  kind=option  completion=-
+  arg  --forward-agent  kind=flag  completion=-
+  arg  --identity  kind=option  completion=file()
+  arg  --name  kind=option  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --no-forward-agent  kind=flag  completion=-
+  arg  --port  kind=option  completion=-
+  arg  --ssh-option  kind=option  completion=-
+  arg  --transport  kind=option  completion=list(mosh,ssh)
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  destination  kind=argument  completion=-
+command  ssh-pty-attach  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  ssh-session-attach  aliases=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --session-id  kind=option  completion=-
+  arg  --split  kind=option  completion=list(down,left,right,up)
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  ssh-session-cleanup  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --all-workspaces  kind=flag  completion=-
+  arg  --session-id  kind=option  completion=-
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  ssh-session-end  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  ssh-session-list  aliases=-
+  arg  --all-workspaces  kind=flag  completion=-
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  ssh-tmux  aliases=-
+  arg  --identity  kind=option  completion=file()
+  arg  --new-window  kind=flag  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --port  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  destination  kind=argument  completion=-
 command  surface  aliases=-
   arg  --checkpoint  kind=option  completion=-
   arg  --cwd  kind=option  completion=directory
@@ -808,6 +948,29 @@ command  themes set  aliases=-
   arg  --dark  kind=option  completion=custom-deprecated
   arg  --light  kind=option  completion=custom-deprecated
   arg  themes  kind=argument  completion=custom-deprecated
+command  todo  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  top  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --flat  kind=flag  completion=-
+  arg  --format  kind=option  completion=list(tree,tsv)
+  arg  --processes  kind=flag  completion=-
+  arg  --sort  kind=option  completion=list(cpu,mem,proc)
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  tree  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  trigger-flash  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  unbind-key  aliases=-
 command  uninstall-hooks  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -876,6 +1039,16 @@ command  vm status  aliases=info
   arg  id  kind=argument  completion=custom-deprecated
 command  vm tools  aliases=tool-inspector
   arg  id  kind=argument  completion=custom-deprecated
+command  vm-pty-attach  aliases=-
+  arg  --id  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  vm-pty-connect  aliases=-
+  arg  --config  kind=option  completion=file()
+  arg  --id  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  vm-ssh-attach  aliases=-
+  arg  --id  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  wait-for  aliases=-
   arg  --signal  kind=flag  completion=-
   arg  --timeout  kind=option  completion=-

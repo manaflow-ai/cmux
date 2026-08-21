@@ -2406,6 +2406,7 @@
 		A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */; };
 		A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */; };
 		C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000D /* SystemCommandRunner.swift */; };
+		E15B00000000000000000002 /* SystemCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15B00000000000000000001 /* SystemCommands.swift */; };
 		A71100000000000000000003 /* SystemTailscaleStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71100000000000000000004 /* SystemTailscaleStatusProvider.swift */; };
 		A71100000000000000000005 /* SystemTailscaleStatusProviderError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71100000000000000000006 /* SystemTailscaleStatusProviderError.swift */; };
 		FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */; };
@@ -5385,6 +5386,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverEnvironment.swift; sourceTree = "<group>"; };
 		A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverTests.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000D /* SystemCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommandRunner.swift; sourceTree = "<group>"; };
+		E15B00000000000000000001 /* SystemCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommands.swift; sourceTree = "<group>"; };
 		A71100000000000000000004 /* SystemTailscaleStatusProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemTailscaleStatusProvider.swift; sourceTree = "<group>"; };
 		A71100000000000000000006 /* SystemTailscaleStatusProviderError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemTailscaleStatusProviderError.swift; sourceTree = "<group>"; };
 		65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemWideHotkeyShortcutPolicyTests.swift; sourceTree = "<group>"; };
@@ -8381,6 +8383,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1A90000000000000000001C /* TmuxCompatCommands.swift */,
 				C1A90000000000000000001E /* HookCommands.swift */,
 				E15A00000000000000000001 /* NotificationCommands.swift */,
+				E15B00000000000000000001 /* SystemCommands.swift */,
 				D10A00000000000000000001 /* WorkspaceCommands.swift */,
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
@@ -11734,6 +11737,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D0F101000000000000000002 /* SSHPTYTerminalInputMode.swift in Sources */,
 				9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */,
 				E7A900000000000000000002 /* SurfaceCommands.swift in Sources */,
+				E15B00000000000000000002 /* SystemCommands.swift in Sources */,
 				D0F101000000000000000003 /* TerminalRawMode.swift in Sources */,
 				C1A90000000000000000001D /* TmuxCompatCommands.swift in Sources */,
 				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
