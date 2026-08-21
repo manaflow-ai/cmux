@@ -117,8 +117,8 @@ struct BrowserCommand: LegacyBrowserCommand {
             BrowserHistoryCommand.self, BrowserURLCommand.self, BrowserFocusWebviewCommand.self,
             BrowserWebviewFocusedCommand.self, BrowserSnapshotCommand.self, BrowserEvalCommand.self,
             BrowserWaitCommand.self, BrowserSelectorActionCommand.self, BrowserTypeCommand.self,
-            BrowserFillCommand.self, BrowserPressCommand.self, BrowserKeyDownCommand.self,
-            BrowserKeyUpCommand.self, BrowserSelectCommand.self, BrowserScrollCommand.self,
+            BrowserFillCommand.self, BrowserKeyCommand.self, BrowserSelectCommand.self,
+            BrowserScrollCommand.self,
             BrowserScreenshotCommand.self, BrowserGetCommand.self, BrowserIsCommand.self,
             BrowserFindCommand.self, BrowserFrameCommand.self, BrowserDialogCommand.self,
             BrowserDownloadCommand.self, BrowserProfilesCommand.self, BrowserImportCommand.self,
@@ -207,6 +207,20 @@ struct BrowserScreenshotCommand: LegacyBrowserCommand {
     static let configuration = CommandConfiguration(commandName: "screenshot", helpNames: [])
 }
 
+struct BrowserEvalCommand: LegacyBrowserCommand {
+    @Argument var script: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "eval", helpNames: [])
+}
+
+struct BrowserKeyCommand: LegacyBrowserCommand {
+    @Argument var key: String?
+    @OptionGroup var options: BrowserSnapshotAfterOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "press", helpNames: [], aliases: ["key", "keydown", "keyup"])
+}
+
 private enum BrowserDisable: BrowserLeafName { static let commandName = "disable" }
 private enum BrowserEnable: BrowserLeafName { static let commandName = "enable" }
 private enum BrowserStatus: BrowserLeafName { static let commandName = "status" }
@@ -222,10 +236,6 @@ private enum BrowserHistory: BrowserLeafName { static let commandName = "history
 private enum BrowserURL: BrowserLeafName { static let commandName = "url"; static let aliases = ["get-url"] }
 private enum BrowserFocusWebview: BrowserLeafName { static let commandName = "focus-webview"; static let aliases = ["focus_webview"] }
 private enum BrowserWebviewFocused: BrowserLeafName { static let commandName = "is-webview-focused"; static let aliases = ["is_webview_focused"] }
-private enum BrowserEval: BrowserLeafName { static let commandName = "eval" }
-private enum BrowserPress: BrowserLeafName { static let commandName = "press"; static let aliases = ["key"] }
-private enum BrowserKeyDown: BrowserLeafName { static let commandName = "keydown" }
-private enum BrowserKeyUp: BrowserLeafName { static let commandName = "keyup" }
 private enum BrowserSelect: BrowserLeafName { static let commandName = "select" }
 private enum BrowserScroll: BrowserLeafName { static let commandName = "scroll" }
 private enum BrowserGet: BrowserLeafName { static let commandName = "get" }
@@ -273,10 +283,6 @@ private typealias BrowserHistoryCommand = BrowserLeaf<BrowserHistory>
 private typealias BrowserURLCommand = BrowserLeaf<BrowserURL>
 private typealias BrowserFocusWebviewCommand = BrowserLeaf<BrowserFocusWebview>
 private typealias BrowserWebviewFocusedCommand = BrowserLeaf<BrowserWebviewFocused>
-private typealias BrowserEvalCommand = BrowserLeaf<BrowserEval>
-private typealias BrowserPressCommand = BrowserLeaf<BrowserPress>
-private typealias BrowserKeyDownCommand = BrowserLeaf<BrowserKeyDown>
-private typealias BrowserKeyUpCommand = BrowserLeaf<BrowserKeyUp>
 private typealias BrowserSelectCommand = BrowserLeaf<BrowserSelect>
 private typealias BrowserScrollCommand = BrowserLeaf<BrowserScroll>
 private typealias BrowserGetCommand = BrowserLeaf<BrowserGet>
