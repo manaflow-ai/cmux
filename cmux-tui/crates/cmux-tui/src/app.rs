@@ -27556,7 +27556,7 @@ mod tests {
     fn scoped_terminal_exit_quits_with_a_visible_terminal_exited_notice() {
         let mux = Mux::new("scoped-exit-notice-test", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
 
         app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id))).unwrap();
@@ -27568,6 +27568,9 @@ mod tests {
             "the exit must record a notice so the user sees why the view ended \
              instead of the surface silently vanishing"
         );
+        // Never leak the live PTY: a background shell left running skews the
+        // timing-sensitive pointer tests sharing this test binary.
+        mux.close_surface(surface.id).unwrap();
     }
 
     /// A sibling surface exiting must not end or annotate a scoped attach.
@@ -27596,7 +27599,7 @@ mod tests {
 
         let mux = Mux::new("scoped-empty-notice-test", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
         app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
         assert!(app.quit, "empty must still stop the scoped client");
@@ -27605,15 +27608,17 @@ mod tests {
             Some(ScopedShutdownNotice::SessionEnded),
             "a live-transport Empty is a daemon-side close and must say so"
         );
+        mux.close_surface(surface.id).unwrap();
 
         let mux = Mux::new("full-empty-notice-test", SurfaceOptions::default());
-        let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
         app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
         assert_eq!(
             app.scoped_shutdown_notice, None,
             "the full TUI quit stays silent; notices are scoped-attach behavior"
         );
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
