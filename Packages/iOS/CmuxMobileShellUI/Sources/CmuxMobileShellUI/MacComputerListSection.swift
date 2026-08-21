@@ -23,26 +23,33 @@ struct MacComputerListSection: Equatable, Identifiable {
         for snapshot in snapshots {
             byMethod[snapshot.connectionMethod ?? .automatic, default: []].append(snapshot)
         }
-        return [MobileConnectionMethod.automatic, .tailscale].compactMap { method in
+        return [MobileConnectionMethod.automatic, .tailscale, .direct].compactMap { method in
             byMethod[method].map { MacComputerListSection(method: method, computers: $0) }
         }
     }
 }
 
 extension MobileConnectionMethod {
-    /// User-facing name of the connection method ("Iroh"/"Tailscale").
+    /// User-facing name of the connection method ("Iroh"/"Tailscale"/"Direct").
     var mobileConnectionMethodName: String {
         switch self {
         case .automatic:
             L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
         case .tailscale:
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
+        case .direct:
+            L10n.string("mobile.connections.method.direct", defaultValue: "Direct")
         }
     }
 
-    /// The route kind this method dials.
-    var routeKind: CmxAttachTransportKind {
-        self == .tailscale ? .tailscale : .iroh
+    /// The route kind this method dials; Direct dials user-entered addresses
+    /// instead of an advertised route kind.
+    var routeKind: CmxAttachTransportKind? {
+        switch self {
+        case .automatic: .iroh
+        case .tailscale: .tailscale
+        case .direct: nil
+        }
     }
 }
 

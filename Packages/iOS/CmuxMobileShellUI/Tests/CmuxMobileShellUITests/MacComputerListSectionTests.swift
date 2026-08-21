@@ -55,7 +55,7 @@ import Testing
             aliasIDs: [deviceId]
         )
         snapshot.connectionMethod = method
-        snapshot.routeKind = method?.routeKind
+        snapshot.routeKind = method.flatMap(\.routeKind)
         return snapshot
     }
 }

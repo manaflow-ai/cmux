@@ -282,7 +282,10 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        Self.storedReconnectRoutes(
+        // Direct dials user-entered addresses via its own lane
+        // (connectDirectCandidatesOutcome); advertised routes never apply.
+        guard connectionMethod(for: mac) != .direct else { return [] }
+        return Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,

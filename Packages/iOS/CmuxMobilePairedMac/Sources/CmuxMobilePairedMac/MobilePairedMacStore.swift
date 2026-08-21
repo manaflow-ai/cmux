@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 10
+    public static let currentSchemaVersion: Int32 = 11
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -115,7 +115,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 1:
             try transaction {
@@ -128,7 +129,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 2:
             try transaction {
@@ -140,7 +142,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 3:
             try transaction {
@@ -151,7 +154,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 4:
             try transaction {
@@ -161,7 +165,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 5:
             try transaction {
@@ -170,7 +175,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 6:
             try transaction {
@@ -178,27 +184,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 7:
             try transaction {
                 try migrateToV8()
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 8:
             try transaction {
                 try migrateToV9()
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 9:
             try transaction {
                 try migrateToV10()
-                try setUserVersion(10)
+                try migrateToV11()
+                try setUserVersion(11)
             }
         case 10:
+            try transaction {
+                try migrateToV11()
+                try setUserVersion(11)
+            }
+        case 11:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -511,6 +526,15 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let columns = try tableColumns("paired_macs")
         guard !columns.contains("connection_method") else { return }
         try exec("ALTER TABLE paired_macs ADD COLUMN connection_method TEXT;")
+    }
+
+    /// v11: this iPhone's per-Computer Direct-method dial candidates (JSON
+    /// array of {"address","port"?,"enabled"}). Additive and device-local,
+    /// like `connection_method`.
+    private func migrateToV11() throws {
+        let columns = try tableColumns("paired_macs")
+        guard !columns.contains("direct_addresses") else { return }
+        try exec("ALTER TABLE paired_macs ADD COLUMN direct_addresses TEXT;")
     }
 
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
@@ -1036,6 +1060,33 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
             rawValue.map(BindValue.text) ?? .null,
+            .text(macDeviceID),
+            .text(Self.ownerKey(
+                stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            )),
+        ])
+    }
+
+    /// Persist THIS iPhone's Direct-method dial candidates for one tagged
+    /// paired Mac (JSON payload owned by the shell; nil clears the list).
+    /// Device-local like `connection_method`: never bumps LWW freshness.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        try exec("""
+            UPDATE paired_macs
+            SET direct_addresses = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            rawJSON.map(BindValue.text) ?? .null,
             .text(macDeviceID),
             .text(Self.ownerKey(
                 stackUserID: stackUserID,

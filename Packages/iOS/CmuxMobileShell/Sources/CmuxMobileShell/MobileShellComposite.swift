@@ -2887,6 +2887,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         persistedRoutes: mac.legacyTailscaleRoutes ?? []
                     ) != nil
                 }
+                // Direct macs dial their user-enabled addresses through the
+                // dedicated authenticated lane inside connectStoredMacOutcome.
+                || (connectionMethod(for: mac) == .direct
+                    && mac.directAddresses.contains(where: \.enabled))
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
 
@@ -9593,7 +9597,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
         // the dialed Computer's own choice, falling back to the app default.
-        if connectionMethod(forMacDeviceID: ticket.macDeviceID, instanceTag: nil) == .tailscale {
+        let ticketMethod = connectionMethod(forMacDeviceID: ticket.macDeviceID, instanceTag: nil)
+        if ticketMethod == .direct {
+            // Direct dials user-entered addresses via its own lane; a
+            // ticket's advertised routes never apply.
+            return []
+        }
+        if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,

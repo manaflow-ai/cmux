@@ -64,12 +64,36 @@ extension MobileShellComposite {
         recoverMobileConnection(trigger: .connectionMethodChanged)
     }
 
+    /// Persist the per-Computer Direct dial candidates and, when the Computer
+    /// currently uses the Direct method, redial so edits take effect now.
+    public func setDirectAddresses(
+        _ addresses: [MobilePairedMacDirectAddress],
+        macDeviceID: String,
+        instanceTag: String?
+    ) async {
+        guard let pairedMacStore, let scope = await currentScopeSnapshot() else { return }
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        let targetInstanceTag = instanceTag
+            ?? displayPairedMacs.first(where: { $0.macDeviceID == canonical })?.instanceTag
+        try? await pairedMacStore.setDirectAddresses(
+            macDeviceID: canonical,
+            instanceTag: targetInstanceTag,
+            rawJSON: MobilePairedMac.encodeDirectAddresses(addresses),
+            stackUserID: scope.userID,
+            teamID: scope.teamID
+        )
+        await loadPairedMacs()
+        if connectionMethod(forMacDeviceID: canonical, instanceTag: targetInstanceTag) == .direct {
+            recoverMobileConnection(trigger: .connectionMethodChanged)
+        }
+    }
+
     /// Zero-touch discovery yields Iroh candidates only. It is pointless only
     /// when the app default is Tailscale AND no stored pairing opted back into
     /// the automatic method — a per-Computer Iroh choice keeps discovery alive.
     var zeroTouchIrohDiscoveryDisabled: Bool {
         guard connectionMethodStore?.method == .tailscale else { return false }
-        return pairedMacs.allSatisfy { connectionMethod(for: $0) == .tailscale }
+        return pairedMacs.allSatisfy { connectionMethod(for: $0) != .automatic }
     }
 
     /// Observes the shared Settings/onboarding choice and replaces any live

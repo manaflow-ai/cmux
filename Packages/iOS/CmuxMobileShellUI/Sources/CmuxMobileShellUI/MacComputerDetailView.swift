@@ -27,8 +27,7 @@ struct MacComputerDetailView: View {
     /// silently strands the Computer as Disconnected.
     var showPairingScanner: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.irohSettingsController) private var irohSettingsController
-    @State private var showsPrivatePathEditor = false
+    @State private var newDirectAddress = ""
     /// Optimistic method selection: moves the picker the moment the user taps
     /// while the persist + store reload reconcile the authoritative value.
     @State private var pendingConnectionMethod: MobileConnectionMethod?
@@ -100,14 +99,6 @@ struct MacComputerDetailView: View {
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showsPrivatePathEditor) {
-            if let irohSettingsController {
-                MacComputerPrivatePathEditorHost(
-                    controller: irohSettingsController,
-                    macDeviceID: macDeviceID
-                )
-            }
-        }
         .onAppear {
             guard !didLoadEdits else { return }
             didLoadEdits = true
@@ -159,6 +150,12 @@ struct MacComputerDetailView: View {
                 ))
                 .tag(MobileConnectionMethod.tailscale)
                 .accessibilityIdentifier("MobileComputerConnectionMethodTailscale")
+                Text(L10n.string(
+                    "mobile.connections.method.direct",
+                    defaultValue: "Direct"
+                ))
+                .tag(MobileConnectionMethod.direct)
+                .accessibilityIdentifier("MobileComputerConnectionMethodDirect")
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
             // Tailscale Only with no authorized route for THIS computer is
@@ -199,45 +196,141 @@ struct MacComputerDetailView: View {
             Text(connectionMethodFooterText)
         }
 
-        if irohSettingsController != nil {
-            Section {
-                Button {
-                    showsPrivatePathEditor = true
-                } label: {
-                    Label(
-                        L10n.string(
-                            "mobile.connections.privateAddresses",
-                            defaultValue: "Private Network Addresses"
-                        ),
-                        systemImage: "network.badge.shield.half.filled"
-                    )
-                }
-                .accessibilityIdentifier("MobileComputerPrivateAddresses")
-            } footer: {
-                Text(L10n.string(
-                    "mobile.connections.privateAddressesFooter",
-                    defaultValue: "Extra addresses this iPhone may use to reach this computer directly."
-                ))
-            }
+        if (pendingConnectionMethod ?? selectedMethod) == .direct {
+            directAddressesSection
         }
     }
 
-    /// Whether THIS Computer already has a Tailscale route this iPhone is
-    /// authorized to dial (grant matching an advertised route).
-    private var computerHasUsableTailscaleAuthorization: Bool {
-        guard let pairedMac else { return false }
-        return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
+    /// The Computer's Direct dial candidates: a multi-selectable list — each
+    /// enabled row is a candidate, dialed in order — plus an add field.
+    /// Entries accept `host` or `host:port`; without a port the Mac's
+    /// advertised listener port is dialed (one listener serves all methods).
+    @ViewBuilder
+    private var directAddressesSection: some View {
+        Section {
+            ForEach(directAddressDrafts) { entry in
+                Button {
+                    toggleDirectAddress(entry)
+                } label: {
+                    HStack {
+                        Image(systemName: entry.enabled ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(entry.enabled ? Color.accentColor : Color.secondary)
+                        Text(entry.id)
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.primary)
+                        Spacer()
+                    }
+                }
+                .accessibilityIdentifier("MobileComputerDirectAddress-\(entry.id)")
+            }
+            .onDelete(perform: deleteDirectAddresses)
+            HStack {
+                TextField(
+                    L10n.string(
+                        "mobile.connections.direct.addPlaceholder",
+                        defaultValue: "Address or address:port"
+                    ),
+                    text: $newDirectAddress
+                )
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .onSubmit(addDirectAddress)
+                .accessibilityIdentifier("MobileComputerDirectAddressField")
+                Button {
+                    addDirectAddress()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                }
+                .disabled(parsedNewDirectAddress == nil)
+                .accessibilityIdentifier("MobileComputerDirectAddressAdd")
+            }
+        } header: {
+            Text(L10n.string(
+                "mobile.connections.direct.title",
+                defaultValue: "Direct Addresses"
+            ))
+        } footer: {
+            Text(directAddressDrafts.contains(where: \.enabled)
+                ? L10n.string(
+                    "mobile.connections.direct.footer",
+                    defaultValue: "Enabled addresses are dialed in order. Without a port, the Mac's advertised port is used."
+                )
+                : L10n.string(
+                    "mobile.connections.direct.noneEnabled",
+                    defaultValue: "No address is enabled — this computer stays disconnected until you enable or add one."
+                ))
+        }
+    }
+
+    private var directAddressDrafts: [MobilePairedMacDirectAddress] {
+        pairedMac?.directAddresses ?? []
+    }
+
+    private var parsedNewDirectAddress: MobilePairedMacDirectAddress? {
+        Self.parseDirectAddress(newDirectAddress)
+    }
+
+    /// Parses `host` or `host:port` (port 1...65535). IPv6 literals without
+    /// brackets keep their colons by only treating the suffix as a port when
+    /// exactly one colon is present.
+    static func parseDirectAddress(_ raw: String) -> MobilePairedMacDirectAddress? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        if parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port),
+           !parts[0].isEmpty {
+            return MobilePairedMacDirectAddress(address: String(parts[0]), port: port)
+        }
+        guard !trimmed.contains(" ") else { return nil }
+        return MobilePairedMacDirectAddress(address: trimmed, port: nil)
+    }
+
+    private func addDirectAddress() {
+        guard let entry = parsedNewDirectAddress else { return }
+        var drafts = directAddressDrafts
+        guard !drafts.contains(where: { $0.id == entry.id }) else {
+            newDirectAddress = ""
+            return
+        }
+        drafts.append(entry)
+        newDirectAddress = ""
+        persistDirectAddresses(drafts)
+    }
+
+    private func toggleDirectAddress(_ entry: MobilePairedMacDirectAddress) {
+        var drafts = directAddressDrafts
+        guard let index = drafts.firstIndex(where: { $0.id == entry.id }) else { return }
+        drafts[index].enabled.toggle()
+        persistDirectAddresses(drafts)
+    }
+
+    private func deleteDirectAddresses(at offsets: IndexSet) {
+        var drafts = directAddressDrafts
+        drafts.remove(atOffsets: offsets)
+        persistDirectAddresses(drafts)
+    }
+
+    private func persistDirectAddresses(_ drafts: [MobilePairedMacDirectAddress]) {
+        Task {
+            await store.setDirectAddresses(drafts, macDeviceID: macDeviceID, instanceTag: instanceTag)
+        }
     }
 
     private var connectionMethodFooterText: String {
         switch pendingConnectionMethod ?? selectedMethod {
+        case .direct:
+            return L10n.string(
+                "mobile.settings.connectionMethod.directFooter",
+                defaultValue: "Dials only the direct addresses you enable below — for LAN, WireGuard, or any other network where this computer is reachable. The Mac must be signed in to the same cmux account."
+            )
         case .automatic:
-            L10n.string(
+            return L10n.string(
                 "mobile.settings.connectionMethod.automaticFooter",
                 defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
             )
         case .tailscale:
-            L10n.string(
+            return L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
                 defaultValue: """
                 Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
@@ -627,35 +720,4 @@ struct MacComputerDetailView: View {
     }
 }
 
-/// Hosts the shared Iroh private-address editor scoped to ONE Computer's
-/// physical Mac: the same editor and save path as Settings › Networking, with
-/// the Mac fixed instead of user-picked.
-private struct MacComputerPrivatePathEditorHost: View {
-    let controller: any CmxIrohSettingsControlling
-    let macDeviceID: String
-    @State private var model: MobileIrohSettingsModel
-    @State private var snapshot: CmxIrohSettingsSnapshot?
-
-    init(controller: any CmxIrohSettingsControlling, macDeviceID: String) {
-        self.controller = controller
-        self.macDeviceID = macDeviceID
-        _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
-    }
-
-    var body: some View {
-        Group {
-            if let snapshot {
-                MobileIrohCustomPrivatePathEditor(
-                    path: snapshot.customPrivateNetworks.first { $0.macDeviceID == macDeviceID },
-                    availableMacs: snapshot.privateNetworkMacs.filter { $0.id == macDeviceID }
-                ) { path in
-                    await model.upsertCustomPrivatePath(path)
-                }
-            } else {
-                ProgressView()
-            }
-        }
-        .task { snapshot = await controller.irohSettingsSnapshot() }
-    }
-}
 #endif

@@ -651,6 +651,63 @@ extension MobileShellComposite {
         )
     }
 
+    /// Direct-method dial: iterate the Computer's enabled direct addresses
+    /// through the same Stack-authenticated manual-host flow the raw
+    /// candidate lane uses, strictly and in list order.
+    private func connectDirectCandidatesOutcome(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String,
+        instanceTagExpectation: MobileMacInstanceTagExpectation,
+        automaticReconnectAccountID: String?,
+        recordsPairingAttempt: Bool,
+        ifStillCurrent: (() -> Bool)?
+    ) async -> StoredMacReconnectOutcome {
+        let pairing = pairedMacs.first {
+            $0.macDeviceID == pairedMacDeviceID
+                && (instanceTagExpectation.expectedTag == nil
+                    || $0.instanceTag == instanceTagExpectation.expectedTag)
+        } ?? pairedMacs.first { $0.macDeviceID == pairedMacDeviceID }
+        // All methods share the Mac's one listener port, so an entry without
+        // its own port override dials the advertised port.
+        let advertisedPort = (pairing?.routes ?? routes).compactMap { route -> Int? in
+            if case let .hostPort(_, port) = route.endpoint { return port }
+            return nil
+        }.first
+        let candidates = (pairing?.directAddresses ?? [])
+            .filter(\.enabled)
+            .compactMap { entry -> (host: String, port: Int)? in
+                guard let port = entry.port ?? advertisedPort else { return nil }
+                return (entry.address, port)
+            }
+        guard !candidates.isEmpty else { return .failed(.noRoute) }
+        for candidate in candidates {
+            guard ifStillCurrent?() ?? true else { return .superseded }
+            await connectManualHost(
+                name: name,
+                host: candidate.host,
+                port: candidate.port,
+                pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: instanceTagExpectation,
+                recordsPairingAttempt: recordsPairingAttempt,
+                ifStillCurrent: ifStillCurrent
+            )
+            if connectionState == .connected,
+               remoteClient != nil,
+               foregroundMacDeviceID == pairedMacDeviceID {
+                break
+            }
+        }
+        let connected = (ifStillCurrent?() ?? true)
+            && connectionState == .connected
+            && remoteClient != nil
+            && foregroundMacDeviceID == pairedMacDeviceID
+        if connected, let automaticReconnectAccountID {
+            clearAutomaticReconnectBackoff(accountID: automaticReconnectAccountID)
+        }
+        return connected ? .connected : .failed(.unknown)
+    }
+
     /// Connects through a stored route set while enforcing the caller's exact
     /// authenticated instance-authority requirement.
     @discardableResult
@@ -665,6 +722,23 @@ extension MobileShellComposite {
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
+        // The Direct method dials ONLY the user-enabled direct addresses,
+        // through the same Stack-authenticated manual-host lane as the raw
+        // candidates below. No advertised route of any kind participates.
+        if connectionMethod(
+            forMacDeviceID: pairedMacDeviceID,
+            instanceTag: instanceTagExpectation.expectedTag
+        ) == .direct {
+            return await connectDirectCandidatesOutcome(
+                name: name,
+                routes: routes,
+                pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: instanceTagExpectation,
+                automaticReconnectAccountID: automaticReconnectAccountID,
+                recordsPairingAttempt: recordsPairingAttempt,
+                ifStillCurrent: ifStillCurrent
+            )
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
