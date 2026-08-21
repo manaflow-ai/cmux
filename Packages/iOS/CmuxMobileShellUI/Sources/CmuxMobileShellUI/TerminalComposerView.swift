@@ -62,6 +62,9 @@ struct TerminalComposerView: View {
     @State private var isPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var attachmentErrorMessage: String?
+    /// The staged attachment currently open in the Quick Look preview sheet,
+    /// presented by tapping its chip.
+    @State private var previewedAttachment: MobilePendingAttachment?
     /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
     /// attachment is staged. The chip row renders these instead of decoding the
     /// full multi-MB `Data` from inside the view body on every composer
@@ -488,7 +491,7 @@ struct TerminalComposerView: View {
 
     @discardableResult
     private func pasteAttachment() -> Bool {
-        switch MobilePasteboardReader.payload() {
+        switch MobilePasteboardReader().payload() {
         case .image(let data):
             stagePastedImage(data)
             return true
@@ -500,11 +503,14 @@ struct TerminalComposerView: View {
             isFieldFocused = true
             return false
         case nil:
-            return MobilePasteboardReader.loadAttachmentPayload { [weak store] payload in
+            return MobilePasteboardReader().loadAttachmentPayload { [weak store] payload in
                 guard let payload else { return }
                 switch payload {
                 case .image(let data): self.stagePastedImage(data)
-                case .files(let urls): self.stageFiles(urls)
+                case .files(let urls):
+                    // Provider-materialized copies are app-owned temp files the
+                    // loader created; staging must clean them up afterwards.
+                    self.stageFiles(urls, deletingSourcesWhenDone: true)
                 case .text(let string):
                     store?.terminalInputText += string
                     self.isFieldFocused = true
@@ -529,6 +535,7 @@ struct TerminalComposerView: View {
                       let id = store.addPendingAttachment(
                           stagedData,
                           format: attachment.localStagedFileURL.pathExtension,
+                          displayName: attachment.displayName,
                           forTerminalID: terminalID,
                           ifSessionGeneration: sessionGeneration
                       ) else { return }
@@ -545,24 +552,52 @@ struct TerminalComposerView: View {
         }
     }
 
-    private func stageFiles(_ urls: [URL]) {
+    /// Stage picked or pasted files as pending attachment chips. The bytes are
+    /// held staged (like images) and uploaded to the Mac at SEND time, when the
+    /// submit prepends their shell-quoted Mac paths to the message — so a staged
+    /// file can be previewed, repositioned among its peers, and removed before
+    /// anything leaves the phone.
+    /// - Parameters:
+    ///   - urls: The source files. Security-scoped access is handled by the
+    ///     stager; the sources are never mutated.
+    ///   - deletingSourcesWhenDone: `true` only for app-owned temporary copies
+    ///     (the pasteboard loader's materialized files), which this composer
+    ///     must clean up after staging. Never set for user-owned sources.
+    private func stageFiles(_ urls: [URL], deletingSourcesWhenDone: Bool = false) {
+        let sessionGeneration = store.currentSessionGeneration
         stagingTask.task?.cancel()
         stagingTask.task = Task { @MainActor in
+            defer {
+                if deletingSourcesWhenDone {
+                    MobilePasteboardReader().cleanUpMaterializedFiles(urls)
+                }
+                requestHeightRemeasure()
+            }
             for url in urls.prefix(Self.maxAttachmentCount) {
                 guard !Task.isCancelled else { return }
                 do {
-                    let attachment = try await TaskComposerAttachmentStager().stageFile(at: url)
-                    defer { try? FileManager.default.removeItem(at: attachment.localStagedFileURL) }
-                    let result = await store.uploadTerminalComposerAttachment(attachment)
-                    guard case .success(let path) = result else {
+                    let staged = try await TaskComposerAttachmentStager().stageFile(at: url)
+                    defer { try? FileManager.default.removeItem(at: staged.localStagedFileURL) }
+                    let stagedData = try await TaskComposerAttachmentStager().data(for: staged)
+                    guard store.addPendingFileAttachment(
+                        stagedData,
+                        fileExtension: staged.localStagedFileURL.pathExtension,
+                        displayName: staged.displayName,
+                        forTerminalID: terminalID,
+                        ifSessionGeneration: sessionGeneration
+                    ) != nil else {
                         attachmentErrorMessage = L10n.string(
-                            "mobile.composer.attach.uploadFailed",
-                            defaultValue: "The file couldn’t be uploaded to your Mac."
+                            "mobile.composer.attach.limit",
+                            defaultValue: "Attachment limit reached. Send or remove staged attachments first."
                         )
                         return
                     }
-                    store.terminalInputText = TerminalComposerAttachmentInsertion(path: path)
-                        .appending(to: store.terminalInputText)
+                } catch TaskComposerAttachmentStager.StagingError.fileTooLarge {
+                    attachmentErrorMessage = L10n.string(
+                        "mobile.composer.attach.tooLarge",
+                        defaultValue: "That file is too large to attach."
+                    )
+                    return
                 } catch {
                     attachmentErrorMessage = L10n.string(
                         "mobile.composer.attach.unreadable",
@@ -571,8 +606,6 @@ struct TerminalComposerView: View {
                     return
                 }
             }
-            isFieldFocused = true
-            requestHeightRemeasure()
         }
     }
 
@@ -695,24 +728,32 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Horizontal, removable thumbnail chips for the staged attachments. Each
-    /// chip shows the picked image with an x to remove it.
+    /// Horizontal, removable chips for the staged attachments: images render
+    /// their pre-built thumbnail, files render an icon, name, and size. Tapping
+    /// a chip opens the attachment in a Quick Look preview sheet; the x removes
+    /// it without previewing.
     private var attachmentChipRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(pendingAttachments) { attachment in
                     AttachmentChip(
+                        attachment: attachment,
                         thumbnail: thumbnailCache.image(for: attachment.id),
-                        theme: store.activeTerminalTheme
-                    ) {
-                        store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
-                        thumbnailCache.remove(attachment.id)
-                        requestHeightRemeasure()
-                    }
+                        theme: store.activeTerminalTheme,
+                        onPreview: { previewedAttachment = attachment },
+                        onRemove: {
+                            store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
+                            thumbnailCache.remove(attachment.id)
+                            requestHeightRemeasure()
+                        }
+                    )
                 }
             }
             .padding(.leading, controlHeight + 8)
             .padding(.trailing, 12)
+        }
+        .sheet(item: $previewedAttachment) { attachment in
+            TerminalComposerAttachmentPreviewSheet(attachment: attachment)
         }
     }
 
@@ -879,9 +920,17 @@ struct TerminalComposerView: View {
                 // and the session-generation guard: it re-checks the CURRENT
                 // staged set atomically, so even if a prior (cancelled-too-late)
                 // batch already appended, this add cannot push past the cap.
+                // The original file name (re-typed to the encoded format) rides
+                // along so the chip's preview carries the photo's real name.
+                let stem = (imported.originalFileName as NSString)
+                    .deletingPathExtension
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let id = store.addPendingAttachment(
                     prepared.data,
                     format: prepared.format,
+                    displayName: stem.isEmpty
+                        ? "photo.\(prepared.format)"
+                        : "\(stem).\(prepared.format)",
                     forTerminalID: terminalID,
                     ifSessionGeneration: sessionGeneration
                 ) else { continue }
@@ -972,25 +1021,43 @@ final class AttachmentThumbnailCache {
     }
 }
 
-/// A removable thumbnail chip for one staged image attachment. Renders a
-/// pre-built, downsampled thumbnail (cached by the composer at stage time) so
-/// the view body never decodes the full encoded `Data` on a re-render.
+/// A removable, previewable chip for one staged attachment. Image chips render
+/// a pre-built, downsampled thumbnail (cached by the composer at stage time) so
+/// the view body never decodes the full encoded `Data` on a re-render; file
+/// chips render an icon with the file's name and size. The chip body is the
+/// preview action; the corner x removes without previewing.
 private struct AttachmentChip: View {
+    let attachment: MobilePendingAttachment
     let thumbnail: UIImage?
     let theme: TerminalTheme
+    let onPreview: () -> Void
     let onRemove: () -> Void
 
     private let side: CGFloat = 56
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            thumbnailView
-                .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
-                )
+            Button(action: onPreview) {
+                chipContent
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("MobileComposerAttachmentPreviewChip")
+            .accessibilityLabel(attachment.displayName)
+            .accessibilityHint(L10n.string(
+                "mobile.composer.attachment.preview",
+                defaultValue: "Preview Attachment"
+            ))
+            .accessibilityAction(named: L10n.string(
+                "mobile.composer.attachment.remove",
+                defaultValue: "Remove Attachment"
+            )) {
+                onRemove()
+            }
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
@@ -1002,6 +1069,17 @@ private struct AttachmentChip: View {
             .padding(2)
             .accessibilityIdentifier("MobileComposerAttachmentRemove")
             .accessibilityLabel(L10n.string("mobile.composer.attachment.remove", defaultValue: "Remove Attachment"))
+        }
+    }
+
+    @ViewBuilder
+    private var chipContent: some View {
+        switch attachment.kind {
+        case .image:
+            thumbnailView
+                .frame(width: side, height: side)
+        case .file:
+            fileView
         }
     }
 
@@ -1019,6 +1097,30 @@ private struct AttachmentChip: View {
                         .foregroundStyle(theme.terminalForegroundColor.opacity(0.5))
                 )
         }
+    }
+
+    /// Icon + name + size for a staged general file, height-matched to the
+    /// image chips so the row's (and the band's) height is kind-independent.
+    private var fileView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.fill")
+                .font(.title3)
+                .foregroundStyle(theme.terminalForegroundColor.opacity(0.55))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(attachment.displayName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(theme.terminalForegroundColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(Int64(attachment.data.count).formatted(.byteCount(style: .file)))
+                    .font(.caption)
+                    .foregroundStyle(theme.terminalForegroundColor.opacity(0.55))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: side)
+        .frame(maxWidth: 190)
+        .background(theme.terminalForegroundColor.opacity(0.12))
     }
 }
 #endif

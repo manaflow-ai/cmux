@@ -363,7 +363,7 @@ struct TaskComposerSheet: View {
                 dismissedPhotos: {
                     store.recordAppEvent(.photoPickerDismissed)
                 },
-                selectedFiles: stageSelectedFiles
+                selectedFiles: { stageSelectedFiles($0) }
             ))
             .alert(
                 L10n.string(

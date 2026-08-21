@@ -1,6 +1,176 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.composer.attach.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo Library"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真ライブラリ"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを選択"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルをペースト"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Add Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルを追加できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file couldn’t be read. Choose another file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルを読み込めませんでした。別のファイルを選択してください。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.attachments.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルをペースト"
+          }
+        }
+      }
+    },
+    "mobile.composer.attachment.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルをプレビュー"
+          }
+        }
+      }
+    },
+    "mobile.composer.attachment.previewFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Preview Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルをプレビューできませんでした"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment limit reached. Send or remove staged attachments first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルの上限に達しました。先に送信するか、添付ファイルを削除してください。"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is too large to attach."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルは大きすぎて添付できません。"
+          }
+        }
+      }
+    },
     "auth.error.apple_config": {
       "extractionState": "manual",
       "localizations": {

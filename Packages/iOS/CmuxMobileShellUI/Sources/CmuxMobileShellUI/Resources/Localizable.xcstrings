@@ -1,6 +1,74 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.composer.attachment.preview" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview Attachment"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添付ファイルをプレビュー"
+          }
+        }
+      }
+    },
+    "mobile.composer.attachment.previewFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t Preview Attachment"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添付ファイルをプレビューできませんでした"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attachment limit reached. Send or remove staged attachments first."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添付ファイルの上限に達しました。先に送信するか、添付ファイルを削除してください。"
+          }
+        }
+      }
+    },
+    "mobile.composer.attach.tooLarge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That file is too large to attach."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのファイルは大きすぎて添付できません。"
+          }
+        }
+      }
+    },
     "mobile.workspaces.statusLine.notConnected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1638,10 +1706,6 @@
     "mobile.composer.attach.unreadable" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "That file couldn’t be read. Choose another file." } },
       "ja" : { "stringUnit" : { "state" : "translated", "value" : "そのファイルを読み込めませんでした。別のファイルを選択してください。" } }
-    } },
-    "mobile.composer.attach.uploadFailed" : { "extractionState" : "manual", "localizations" : {
-      "en" : { "stringUnit" : { "state" : "translated", "value" : "The file couldn’t be uploaded to your Mac." } },
-      "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイルを Mac にアップロードできませんでした。" } }
     } },
     "mobile.iroh.diagnostics.failure.unknown" : {
       "extractionState" : "manual",

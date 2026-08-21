@@ -113,7 +113,13 @@ extension TaskComposerSheet {
         }
     }
 
-    func stageSelectedFiles(_ result: Result<[URL], any Error>) {
+    /// - Parameter deletingSourcesWhenDone: `true` only for app-owned temporary
+    ///   copies (the pasteboard loader's materialized files), which must be
+    ///   released after staging. Never set for user-owned picker URLs.
+    func stageSelectedFiles(
+        _ result: Result<[URL], any Error>,
+        deletingSourcesWhenDone: Bool = false
+    ) {
         guard case .success(let urls) = result else {
             attachmentAlertMessage = Self.attachmentUnreadableFailureMessage
             store.recordAppEvent(
@@ -124,7 +130,12 @@ extension TaskComposerSheet {
         }
         attachmentStagingTask?.cancel()
         attachmentStagingTask = Task { @MainActor in
-            defer { attachmentStagingTask = nil }
+            defer {
+                if deletingSourcesWhenDone {
+                    MobilePasteboardReader().cleanUpMaterializedFiles(urls)
+                }
+                attachmentStagingTask = nil
+            }
             for url in urls.prefix(remainingAttachmentCount) {
                 guard !Task.isCancelled else { return }
                 do {
@@ -170,7 +181,7 @@ extension TaskComposerSheet {
             attachmentAlertMessage = Self.attachmentCountFailureMessage
             return true
         }
-        switch MobilePasteboardReader.payload() {
+        switch MobilePasteboardReader().payload() {
         case .image(let data):
             stagePastedImageData(data)
             return true
@@ -178,11 +189,14 @@ extension TaskComposerSheet {
             stageSelectedFiles(.success(fileURLs))
             return true
         case .text, nil:
-            return MobilePasteboardReader.loadAttachmentPayload { payload in
+            return MobilePasteboardReader().loadAttachmentPayload { payload in
                 guard let payload else { return }
                 switch payload {
                 case .image(let data): self.stagePastedImageData(data)
-                case .files(let urls): self.stageSelectedFiles(.success(urls))
+                case .files(let urls):
+                    // Provider-materialized copies are app-owned temp files the
+                    // loader created; staging must clean them up afterwards.
+                    self.stageSelectedFiles(.success(urls), deletingSourcesWhenDone: true)
                 case .text: break
                 }
             }

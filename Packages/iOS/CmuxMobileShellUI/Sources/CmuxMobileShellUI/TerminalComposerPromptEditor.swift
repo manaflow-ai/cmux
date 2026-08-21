@@ -24,7 +24,7 @@ final class TerminalComposerPromptTextView: UITextView {
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(paste(_:)), MobilePasteboardReader.hasAttachmentPayload() {
+        if action == #selector(paste(_:)), MobilePasteboardReader().hasAttachmentPayload() {
             return true
         }
         return super.canPerformAction(action, withSender: sender)
