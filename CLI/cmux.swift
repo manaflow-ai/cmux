@@ -4431,9 +4431,10 @@ struct CMUXCLI {
                     image: imageOpt,
                     providerOption: providerOpt
                 )
-                if usesPersistentDefaultCloud {
-                    params["provider"] = "freestyle"
-                }
+                // The persistent-default create sends no provider override: the backend's
+                // CMUX_VM_DEFAULT_PROVIDER decides, so prod keeps Freestyle while a dev stack
+                // exporting CMUX_VM_DEFAULT_PROVIDER=blaxel gets Blaxel from a bare
+                // `cmux vm new` instead of a hardcoded Freestyle create that ignores it.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOpt,
