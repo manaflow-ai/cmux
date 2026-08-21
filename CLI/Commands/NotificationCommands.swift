@@ -45,7 +45,13 @@ struct DismissNotificationCommand: LegacyNotificationCommand {
 
     mutating func validate() throws {
         guard (id != nil) != allRead else {
-            throw ValidationError("dismiss-notification requires exactly one of --id or --all-read")
+            throw FacadeValidationError(
+                message: String(
+                    localized: "cli.error.dismissNotificationSelector",
+                    defaultValue: "dismiss-notification requires exactly one of --id or --all-read"
+                ),
+                command: Self.self
+            )
         }
     }
 }
@@ -63,10 +69,22 @@ struct MarkNotificationReadCommand: NotificationTargetCommand {
     mutating func validate() throws {
         let selectorCount = (id == nil ? 0 : 1) + (workspace == nil ? 0 : 1) + (all ? 1 : 0)
         guard selectorCount == 1 else {
-            throw ValidationError("mark-notification-read requires exactly one selector: --id, --workspace, or --all")
+            throw FacadeValidationError(
+                message: String(
+                    localized: "cli.error.markNotificationReadSelector",
+                    defaultValue: "mark-notification-read requires exactly one selector: --id, --workspace, or --all"
+                ),
+                command: Self.self
+            )
         }
         guard surface == nil || workspace != nil else {
-            throw ValidationError("--surface requires --workspace")
+            throw FacadeValidationError(
+                message: String(
+                    localized: "cli.error.markNotificationReadSurfaceRequiresWorkspace",
+                    defaultValue: "--surface requires --workspace"
+                ),
+                command: Self.self
+            )
         }
     }
 }
