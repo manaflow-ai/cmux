@@ -7,6 +7,7 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
 ]);
 const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";
 const DEVELOPMENT_MAC_NAMESPACE_PREFIX = "mac:com.cmuxterm.app.debug";
+const NON_DEVELOPMENT_MAC_TAGS = new Set(["default", "nightly", "rc", "staging"]);
 
 type BuildBinding = {
   readonly platform: string;
@@ -52,7 +53,7 @@ function iosBindingMacLaneCompatible(
   // the use-only fallback flag so stale-binding revocation remains exact-tag.
   const targetTag = target.tag.trim().toLowerCase();
   if (callerIsDevelopmentIOS) {
-    if (!targetIsDevelopmentMac || targetTag === "default" || targetTag === "nightly") {
+    if (!targetIsDevelopmentMac || NON_DEVELOPMENT_MAC_TAGS.has(targetTag)) {
       return false;
     }
     return legacyDefaultFallback || caller.tag === target.tag;

@@ -14,6 +14,8 @@ import Testing
         #expect(policy.allows(instanceTag: "tsmig"))
         #expect(!policy.allows(instanceTag: "default"))
         #expect(!policy.allows(instanceTag: "nightly"))
+        #expect(!policy.allows(instanceTag: "rc"))
+        #expect(!policy.allows(instanceTag: "staging"))
         #expect(!policy.allows(instanceTag: nil))
         #expect(policy.allows(
             instanceTag: "sibling",

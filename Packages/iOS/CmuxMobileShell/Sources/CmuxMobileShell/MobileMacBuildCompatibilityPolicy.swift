@@ -8,6 +8,13 @@ internal import Foundation
 /// while this policy supplies the compatibility boundary used by persistence,
 /// registry projection, and live connection validation.
 public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
+    private static let nonDevelopmentTags: Set<String> = [
+        "default",
+        "nightly",
+        "rc",
+        "staging",
+    ]
+
     /// A development iOS build may use any authenticated development Mac tag.
     /// The exact tag remains part of each Mac's identity; this case only defines
     /// the development build lane.
@@ -46,7 +53,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
                !Self.isDevelopmentMacNamespace(clientNamespace) {
                 return false
             }
-            return normalizedTag != "default" && normalizedTag != "nightly"
+            return !Self.nonDevelopmentTags.contains(normalizedTag)
         case .official:
             if let clientNamespace,
                clientNamespace != "legacy",

@@ -99,6 +99,16 @@ describe("Iroh build compatibility", () => {
       tag: "staging",
       clientNamespace: "mac:com.cmuxterm.app.staging",
     }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "rc",
+      clientNamespace: "mac:com.cmuxterm.app.debug.rc",
+    }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "staging",
+      clientNamespace: "mac:com.cmuxterm.app.debug.staging",
+    }))).toBe(false);
     expect(canIOSBindingForgetMac(ios, binding({
       platform: "mac",
       tag: "msta",
