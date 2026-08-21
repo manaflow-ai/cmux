@@ -3779,7 +3779,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func discardPendingScrollbar() {
         _scrollbarLock.lock()
         _pendingScrollbar = nil
-        _scrollbarFlushScheduled = false
         _scrollbarLock.unlock()
     }
 

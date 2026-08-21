@@ -14,9 +14,9 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
     /// A user gesture is waiting for its authoritative Ghostty scrollbar packet.
     ///
     /// Runtime-backed wheel input requires the synchronous snapshot taken
-    /// after forwarding the event. The legacy mode is retained for callers
-    /// that do not have access to that runtime snapshot and therefore fall
-    /// back to the first packet.
+    /// after forwarding the event. Callers without that runtime seam may use
+    /// the legacy, unmarked mode; runtime teardown cancels the request instead
+    /// of applying an identity-less stale packet.
     case awaitingExplicitScrollbarSync(
         previousWasReviewing: Bool,
         requiresAuthoritativeResponse: Bool
