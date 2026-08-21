@@ -1164,12 +1164,14 @@ impl ProviderMachineRuntime {
                             message.truncate(end);
                         }
                         // Hard bound against a provider spraying distinct
-                        // ids while no snapshot prunes the map. Clearing
-                        // drops only coalescing state: an update already
-                        // queued still delivers through its own Arc.
+                        // ids while no snapshot prunes the map. Rejecting the
+                        // event (progress is advisory) keeps the one-in-
+                        // flight-per-machine invariant; clearing instead
+                        // would mint fresh cells whose updates stack on top
+                        // of unconsumed ones.
                         if progress_cells.len() >= 128 && !progress_cells.contains_key(&machine_id)
                         {
-                            progress_cells.clear();
+                            continue;
                         }
                         let cell = progress_cells.entry(machine_id.clone()).or_default();
                         let already_in_flight = {
