@@ -71,7 +71,10 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                         let record = match message {
                             Message::Record(record) => record,
                             Message::Flush(ack) => {
-                                let _ = sink.file.flush();
+                                // Every record queued before this marker has
+                                // already gone through write_record (the loop
+                                // is serial), so draining to here IS the
+                                // flush.
                                 let _ = ack.try_send(());
                                 continue;
                             }
@@ -133,13 +136,52 @@ fn flush_with_deadline(deadline: std::time::Duration) {
     let _ = done.recv_timeout(remaining);
 }
 
+/// Sentinel line the exiting thread writes into the stderr pipe so it can
+/// wait until the pump has consumed everything written before it. The pump
+/// counts it instead of logging it.
+#[cfg_attr(not(unix), allow(dead_code))]
+const PIPE_FLUSH_MARKER: &str = "@@cmux-client-log-flush@@";
+#[cfg_attr(not(unix), allow(dead_code))]
+static PIPE_MARKERS_SEEN: AtomicU64 = AtomicU64::new(0);
+
+/// Wait (bounded) until the stderr pump has drained the pipe up to now.
+/// Ordered because the pipe is FIFO: once the pump sees the marker written
+/// here, every byte written to fd 2 before it has been queued as records.
+#[cfg(unix)]
+fn drain_stderr_pipe(deadline: std::time::Duration) {
+    if !STDERR_REDIRECTED.load(Ordering::Acquire) {
+        return;
+    }
+    let seen = PIPE_MARKERS_SEEN.load(Ordering::Acquire);
+    let marker = format!("{PIPE_FLUSH_MARKER}\n");
+    // SAFETY: fd 2 is the pipe write end while STDERR_REDIRECTED holds.
+    let wrote = unsafe { libc::write(2, marker.as_ptr().cast(), marker.len()) };
+    if wrote != marker.len() as isize {
+        return;
+    }
+    let started = std::time::Instant::now();
+    while PIPE_MARKERS_SEEN.load(Ordering::Acquire) == seen {
+        if started.elapsed() >= deadline {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 #[cfg(unix)]
 extern "C" fn flush_at_exit() {
-    flush_with_deadline(std::time::Duration::from_millis(500));
+    // First let the pump catch up with the pipe (a panic message written to
+    // fd 2 moments ago may not be queued yet), then drain the record queue.
+    drain_stderr_pipe(std::time::Duration::from_millis(250));
+    flush_with_deadline(std::time::Duration::from_millis(250));
 }
 
 struct Sink {
-    file: File,
+    /// Dedicated `<log>.lock` file. It is never rotated or renamed, so its
+    /// identity is stable across processes and platforms - unlike the active
+    /// file, whose inode changes on every rollover. All rotation races
+    /// disappear because the active file is opened fresh under this lock.
+    lock: File,
     path: PathBuf,
 }
 
@@ -162,14 +204,21 @@ fn open_sink() -> Option<Sink> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).ok()?;
     }
-    let file = append_options().open(&path).ok()?;
-    // Files created by older builds may be group/world readable; tighten them.
+    let lock = append_options().open(&lock_path(&path)).ok()?;
+    // An active file created by an older build may be group/world readable;
+    // tighten it once (it captures stderr, which can carry credentials).
     #[cfg(unix)]
-    {
+    if path.exists() {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     }
-    Some(Sink { file, path })
+    Some(Sink { lock, path })
+}
+
+fn lock_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".lock");
+    path.with_file_name(name)
 }
 
 /// Hold an exclusive advisory lock on the log file for one write+rotate
@@ -186,57 +235,24 @@ fn unlock(file: &File) {
     let _ = file.unlock();
 }
 
-/// True when `file` is still the file at `path`. Another process rotating the
-/// log renames the path away; a writer holding the old handle must reopen or
-/// it appends to the rolled (eventually unlinked) file.
-#[cfg(unix)]
-fn handle_is_current(file: &File, path: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (file.metadata(), fs::metadata(path)) {
-        (Ok(open), Ok(on_disk)) => open.ino() == on_disk.ino() && open.dev() == on_disk.dev(),
-        _ => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn handle_is_current(_file: &File, path: &Path) -> bool {
-    path.exists()
-}
-
 fn rollover_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".1");
     path.with_file_name(name)
 }
 
-/// One record through the full multiprocess-safe path: lock, follow foreign
-/// rotations, append, rotate past the cap, unlock. Writer-thread only.
+/// One record through the full multiprocess-safe path: take the lock file,
+/// open the active file fresh, append, rotate past the cap, unlock. Opening
+/// under the lock means no process ever writes through a handle another
+/// process has rotated away, on any platform. Writer-thread only.
 fn write_record(sink: &mut Sink, record: &Record) {
-    if !lock_exclusive(&sink.file) {
+    if !lock_exclusive(&sink.lock) {
         return;
     }
-    // Follow foreign rotations: reopen until the handle we hold locked IS the
-    // file at the active path. Another process can rotate between our reopen
-    // and relock, so revalidate under every new lock. Bounded retries - a
-    // foreign rotation needs MAX_ACTIVE_BYTES of writes, so losing this race
-    // repeatedly means something is wrong and the record is best dropped.
-    let mut follows = 0;
-    while !handle_is_current(&sink.file, &sink.path) {
-        follows += 1;
-        if follows > 5 {
-            unlock(&sink.file);
-            return;
-        }
-        let Ok(fresh) = append_options().open(&sink.path) else {
-            unlock(&sink.file);
-            return;
-        };
-        let old = std::mem::replace(&mut sink.file, fresh);
-        unlock(&old);
-        if !lock_exclusive(&sink.file) {
-            return;
-        }
-    }
+    let Ok(mut file) = append_options().open(&sink.path) else {
+        unlock(&sink.lock);
+        return;
+    };
     let line = format!(
         "{} {:5} {}: {}\n",
         record.stamp,
@@ -244,33 +260,27 @@ fn write_record(sink: &mut Sink, record: &Record) {
         record.area,
         sanitize(&record.message)
     );
-    if sink.file.write_all(line.as_bytes()).is_ok() {
-        // The size comes from the handle, so every process's appends count
-        // toward the cap, not just this one's.
-        let size = sink.file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    if file.write_all(line.as_bytes()).is_ok() {
+        let size = file.metadata().map(|meta| meta.len()).unwrap_or(0);
         if size >= MAX_ACTIVE_BYTES {
-            let _ = sink.file.flush();
+            // Close before renaming; Windows refuses to move an open file
+            // in some sharing configurations.
+            drop(file);
             let rolled = rollover_path(&sink.path);
             let mut rotated = fs::rename(&sink.path, &rolled).is_ok();
             if !rotated {
-                // Windows refuses to replace an existing destination.
+                // Windows also refuses to replace an existing destination.
                 let _ = fs::remove_file(&rolled);
                 rotated = fs::rename(&sink.path, &rolled).is_ok();
             }
-            if rotated {
-                if let Ok(file) = append_options().open(&sink.path) {
-                    let old = std::mem::replace(&mut sink.file, file);
-                    unlock(&old);
-                    return;
-                }
-            } else {
+            if !rotated {
                 // Keep the size bound even where rename keeps failing:
                 // drop the old content in place.
-                let _ = sink.file.set_len(0);
+                let _ = OpenOptions::new().write(true).truncate(true).open(&sink.path);
             }
         }
     }
-    unlock(&sink.file);
+    unlock(&sink.lock);
 }
 
 /// The original stderr fd, saved before redirection so the terminal gets its
@@ -340,14 +350,25 @@ pub(crate) fn redirect_stderr_into_log() {
                         }
                         Ok(read) => {
                             pending.extend_from_slice(&buffer[..read]);
-                            while let Some(newline) = pending.iter().position(|byte| *byte == b'\n')
+                            // One pass over complete lines, one drain per
+                            // read: draining per line would shift the whole
+                            // buffer for every short line (quadratic).
+                            let mut start = 0;
+                            while let Some(offset) =
+                                pending[start..].iter().position(|byte| *byte == b'\n')
                             {
-                                let line: Vec<u8> = pending.drain(..=newline).collect();
-                                let text = String::from_utf8_lossy(&line);
+                                let end = start + offset;
+                                let text = String::from_utf8_lossy(&pending[start..end]);
                                 let text = text.trim_end();
-                                if !text.is_empty() {
+                                if text == PIPE_FLUSH_MARKER {
+                                    PIPE_MARKERS_SEEN.fetch_add(1, Ordering::AcqRel);
+                                } else if !text.is_empty() {
                                     log("WARN", "stderr", text);
                                 }
+                                start = end + 1;
+                            }
+                            if start > 0 {
+                                pending.drain(..start);
                             }
                             // Cap partial-line buffering; a binary stream must
                             // not grow this without bound.
