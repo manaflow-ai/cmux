@@ -41,6 +41,11 @@ struct Record {
     message: String,
 }
 
+/// Cap on one record's message, so 512 queued records from unbounded input
+/// (provider notices, remote status strings) hold kilobytes, not megabytes.
+/// The stderr pump has its own per-line cap; this covers direct callers.
+const MAX_MESSAGE_BYTES: usize = 4096;
+
 /// Records dropped because the queue was full; the writer reports the count
 /// when it next drains.
 static DROPPED: AtomicU64 = AtomicU64::new(0);
@@ -172,6 +177,11 @@ fn open_sink() -> Option<Sink> {
 /// cross-process exclusion two writers can rotate at the same time, losing
 /// records or leaving one process appending to an unlinked file forever.
 /// Runs only on the writer thread, never on UI paths.
+///
+/// Unix only (flock). Off Unix there is no cross-process exclusion: the
+/// no-op below makes logging single-process best-effort there - concurrent
+/// processes may interleave or lose records, though the size bound still
+/// holds because rotation falls back to truncating in place.
 #[cfg(unix)]
 fn lock_exclusive(file: &File) -> bool {
     use std::os::unix::io::AsRawFd;
@@ -225,7 +235,18 @@ fn write_record(sink: &mut Sink, record: &Record) {
     if !lock_exclusive(&sink.file) {
         return;
     }
-    if !handle_is_current(&sink.file, &sink.path) {
+    // Follow foreign rotations: reopen until the handle we hold locked IS the
+    // file at the active path. Another process can rotate between our reopen
+    // and relock, so revalidate under every new lock. Bounded retries - a
+    // foreign rotation needs MAX_ACTIVE_BYTES of writes, so losing this race
+    // repeatedly means something is wrong and the record is best dropped.
+    let mut follows = 0;
+    while !handle_is_current(&sink.file, &sink.path) {
+        follows += 1;
+        if follows > 5 {
+            unlock(&sink.file);
+            return;
+        }
         let Ok(fresh) = append_options().open(&sink.path) else {
             unlock(&sink.file);
             return;
@@ -423,8 +444,16 @@ fn sanitize(message: &str) -> String {
 /// "startup", "provider", ...). Best-effort: errors are swallowed.
 pub(crate) fn log(level: &'static str, area: &str, message: &str) {
     let Some(sender) = queue() else { return };
-    let record =
-        Record { stamp: timestamp(), level, area: area.to_string(), message: message.to_string() };
+    let message = if message.len() > MAX_MESSAGE_BYTES {
+        let mut end = MAX_MESSAGE_BYTES;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{} [truncated {} bytes]", &message[..end], message.len() - end)
+    } else {
+        message.to_string()
+    };
+    let record = Record { stamp: timestamp(), level, area: area.to_string(), message };
     // Never block a caller (status rendering runs on the UI thread): a full
     // queue drops the record and the writer reports the count.
     if sender.try_send(Message::Record(record)).is_err() {
@@ -489,6 +518,21 @@ mod tests {
         fs::remove_file(&path).unwrap();
         let _ = fs::remove_dir(&dir);
         assert_eq!(mode, 0o600, "log must not be readable by other users");
+    }
+
+    #[test]
+    fn oversized_messages_are_truncated_before_enqueue() {
+        // Mirrors the cap logic in `log` (which needs a live queue): the
+        // boundary walk must never split a multi-byte character.
+        // One ASCII byte then 4-byte chars, so byte 4096 is mid-character
+        // and the walk must step back to the previous boundary.
+        let message = format!("a{}", "\u{1F600}".repeat(2000));
+        let mut end = MAX_MESSAGE_BYTES;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        assert_eq!(end, 4093);
+        assert!(message.is_char_boundary(end));
     }
 
     #[test]
