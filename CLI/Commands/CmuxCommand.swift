@@ -33,6 +33,9 @@ struct CmuxCommand: ParsableCommand {
             LoginCommand.self,
             LogoutCommand.self,
             AIAccountsCommand.self,
+            VMCommand.self,
+            RemotesCommand.self,
+            RemoteDaemonStatusCommand.self,
         ]
     )
 
