@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CoreGraphics
+import SwiftUI
 
 enum WindowChromeMetrics {
     static let sharedChromeBarHeight: CGFloat = 28
