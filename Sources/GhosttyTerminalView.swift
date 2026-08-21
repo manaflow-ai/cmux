@@ -8942,10 +8942,7 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
-            // Scrollbar publications are emitted by the main-thread flush or
-            // the main-thread wheel handler. Synchronous delivery preserves
-            // packet ordering while the intent transition is pending.
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
             self?.handleScrollbarUpdate(notification)
         })
