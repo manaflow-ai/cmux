@@ -58,6 +58,7 @@ Environment:
 
 | Command | Contract |
 | --- | --- |
+| `completion <bash\|zsh\|fish>` | Print a shell completion script without connecting to cmux. |
 | `welcome` | Print the welcome screen. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
 | `settings` | Open Settings, print cmux.json paths, or print settings docs. |
@@ -582,6 +583,7 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `sessions [list] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux completion --help` -> `Print a shell completion script for cmux.`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`

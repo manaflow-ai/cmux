@@ -34678,6 +34678,106 @@
         }
       }
     },
+    "cli.command.completion.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اطبع برنامج إكمال الصدفة لـ cmux." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ispišite skriptu za dovršavanje ljuske za cmux." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Udskriv et shell-fuldførelsesscript til cmux." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ein Shell-Vervollständigungsskript für cmux ausgeben." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Print a shell completion script for cmux." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Imprime un script de finalización de shell para cmux." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Affiche un script de complétion du shell pour cmux." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Stampa uno script di completamento della shell per cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux のシェル補完スクリプトを出力します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បោះពុម្ពស្គ្រីបបំពេញសែលសម្រាប់ cmux ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux용 셸 자동 완성 스크립트를 출력합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skriv ut et shell-fullføringsskript for cmux." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wypisz skrypt uzupełniania powłoki dla cmux." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Imprime um script de conclusão do shell para cmux." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вывести сценарий автодополнения оболочки для cmux." } },
+        "th": { "stringUnit": { "state": "translated", "value": "พิมพ์สคริปต์การเติมคำสั่งของเชลล์สำหรับ cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux için kabuk tamamlama betiğini yazdır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вивести сценарій автодоповнення оболонки для cmux." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打印 cmux 的 Shell 补全脚本。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "列印 cmux 的 Shell 補全指令碼。" } }
+      }
+    },
+    "cli.command.completion.discussion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "أضف السطر المطابق إلى ملف بدء تشغيل الصدفة:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dodajte odgovarajući red u datoteku za pokretanje ljuske:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilføj den tilsvarende linje til din shells opstartsfil:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Füge die passende Zeile zu deiner Shell-Startdatei hinzu:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Add the matching line to your shell startup file:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Añade la línea correspondiente al archivo de inicio de tu shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ajoutez la ligne correspondante au fichier de démarrage de votre shell :\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Aggiungi la riga corrispondente al file di avvio della shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次の行をシェルの起動ファイルに追加してください:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅឯកសារចាប់ផ្តើមសែលរបស់អ្នក៖\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "셸 시작 파일에 해당 줄을 추가하세요:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Legg til den tilsvarende linjen i oppstartsfilen for skallet ditt:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Dodaj odpowiedni wiersz do pliku startowego powłoki:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Adicione a linha correspondente ao arquivo de inicialização do shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Добавьте соответствующую строку в файл запуска оболочки:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มบรรทัดที่ตรงกันลงในไฟล์เริ่มต้นของเชลล์:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Eşleşen satırı kabuk başlangıç dosyanıza ekleyin:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Додайте відповідний рядок до файлу запуску оболонки:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将相应的行添加到 Shell 启动文件中：\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將對應行新增到 Shell 啟動檔案中：\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } }
+      }
+    },
+    "cli.command.completion.shell.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الصدفة التي سيُنشأ لها البرنامج النصي." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ljuska za koju se generira skripta." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Shellen, der skal genereres et script til." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Shell, für die ein Skript erstellt werden soll." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Shell to generate a script for." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Shell para la que se generará un script." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Shell pour lequel générer un script." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Shell per cui generare uno script." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スクリプトを生成するシェル。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សែលដែលត្រូវបង្កើតស្គ្រីបសម្រាប់។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "스크립트를 생성할 셸입니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skallet det skal genereres et skript for." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Powłoka, dla której należy wygenerować skrypt." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Shell para o qual gerar um script." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Оболочка, для которой нужно создать сценарий." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เชลล์ที่จะสร้างสคริปต์ให้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Betik oluşturulacak kabuk." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Оболонка, для якої потрібно створити сценарій." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "要为其生成脚本的 Shell。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要為其產生指令碼的 Shell。" } }
+      }
+    },
+    "cli.command.completion.unsupportedShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الصدفة '%@' غير مدعومة. المدعوم: bash وzsh وfish." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nepodržana ljuska '%@'. Podržano: bash, zsh, fish." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ikke-understøttet shell '%@'. Understøttet: bash, zsh, fish." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nicht unterstützte Shell '%@'. Unterstützt: bash, zsh, fish." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Unsupported shell '%@'. Supported: bash, zsh, fish." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Shell no compatible '%@'. Compatibles: bash, zsh, fish." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Shell non pris en charge « %@ ». Pris en charge : bash, zsh, fish." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Shell '%@' non supportata. Supportate: bash, zsh, fish." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートされていないシェル '%@' です。対応: bash、zsh、fish。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សែល '%@' មិនត្រូវបានគាំទ្រទេ។ គាំទ្រ៖ bash, zsh, fish។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "지원되지 않는 셸 '%@'입니다. 지원: bash, zsh, fish." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Shell '%@' støttes ikke. Støttet: bash, zsh, fish." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nieobsługiwana powłoka '%@'. Obsługiwane: bash, zsh, fish." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Shell '%@' não suportado. Compatíveis: bash, zsh, fish." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Оболочка '%@' не поддерживается. Поддерживаются: bash, zsh, fish." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่รองรับเชลล์ '%@' รองรับ: bash, zsh, fish" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Desteklenmeyen kabuk '%@'. Desteklenenler: bash, zsh, fish." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Оболонка '%@' не підтримується. Підтримуються: bash, zsh, fish." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "不支持 Shell '%@'。支持：bash、zsh、fish。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "不支援 Shell '%@'。支援：bash、zsh、fish。" } }
+      }
+    },
     "canvas.commandScrollHint": {
       "extractionState": "manual",
       "localizations": {

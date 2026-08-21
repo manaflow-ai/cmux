@@ -8,7 +8,7 @@ struct CmuxCommand: ParsableCommand {
             localized: "cli.root.abstract",
             defaultValue: "Control cmux via Unix socket."
         ),
-        subcommands: [DumpCommandTree.self]
+        subcommands: [Completion.self, DumpCommandTree.self]
     )
 
     /// Every command name and alias the facade owns. The router sends only these
