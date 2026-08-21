@@ -174,7 +174,7 @@ struct SendKeyCommand: TmuxCompatTargetCommand {
 }
 
 struct SendPanelCommand: TmuxCompatTargetCommand {
-    @Option(name: .customLong("panel"), completion: surface) var panelID: String?
+    @Option(name: .customLong("panel"), completion: .custom(CompletionCandidates.panels)) var panelID: String?
     @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Argument(parsing: .allUnrecognized) var text: [String] = []
@@ -182,7 +182,7 @@ struct SendPanelCommand: TmuxCompatTargetCommand {
 }
 
 struct SendKeyPanelCommand: TmuxCompatTargetCommand {
-    @Option(name: .customLong("panel"), completion: surface) var panelID: String?
+    @Option(name: .customLong("panel"), completion: .custom(CompletionCandidates.panels)) var panelID: String?
     @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Argument(parsing: .allUnrecognized) var key: [String] = []
