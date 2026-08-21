@@ -6,7 +6,7 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
   "dev.cmux.app.demo",
 ]);
 const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";
-const OFFICIAL_MAC_TAGS = new Set(["default", "nightly"]);
+const DEVELOPMENT_MAC_NAMESPACE_PREFIX = "mac:com.cmuxterm.app.debug";
 
 type BuildBinding = {
   readonly platform: string;
@@ -43,18 +43,19 @@ function iosBindingMacLaneCompatible(
     || target.clientNamespace.startsWith("mac:");
   if (!targetHasCompatibleNamespace) return false;
 
+  const callerIsDevelopmentIOS = isDevelopmentIOSNamespace(caller.clientNamespace);
+  const targetIsDevelopmentMac = isDevelopmentMacNamespace(target.clientNamespace);
+
   // A tagged DEV iOS build is the control surface for all tagged DEV Mac
   // builds. The tag still identifies each Mac instance for persistence and
   // ordering, but it is not a compatibility lane boundary. Keep this behind
   // the use-only fallback flag so stale-binding revocation remains exact-tag.
   const targetTag = target.tag.trim().toLowerCase();
-  if (
-    legacyDefaultFallback
-    && caller.clientNamespace.startsWith(DEVELOPMENT_IOS_NAMESPACE_PREFIX)
-    && target.clientNamespace.startsWith("mac:")
-    && !OFFICIAL_MAC_TAGS.has(targetTag)
-  ) {
-    return true;
+  if (callerIsDevelopmentIOS) {
+    if (!targetIsDevelopmentMac || targetTag === "default" || targetTag === "nightly") {
+      return false;
+    }
+    return legacyDefaultFallback || caller.tag === target.tag;
   }
 
   // iOS builds that predate the X-Cmux-App-Namespace header register as
@@ -71,6 +72,15 @@ function iosBindingMacLaneCompatible(
     return target.tag === "default" || target.tag === "nightly";
   }
   return caller.tag === target.tag;
+}
+
+function isDevelopmentMacNamespace(clientNamespace: string): boolean {
+  return clientNamespace === DEVELOPMENT_MAC_NAMESPACE_PREFIX
+    || clientNamespace.startsWith(`${DEVELOPMENT_MAC_NAMESPACE_PREFIX}.`);
+}
+
+function isDevelopmentIOSNamespace(clientNamespace: string): boolean {
+  return clientNamespace.startsWith(DEVELOPMENT_IOS_NAMESPACE_PREFIX);
 }
 
 /**
