@@ -130,7 +130,17 @@ async function pruneExpired(
 }
 
 export type EnqueuePhoneReplyResult =
-  | { ok: true; duplicate: boolean; pending: number; expiresAtMs: number }
+  | {
+      ok: true;
+      duplicate: boolean;
+      pending: number;
+      expiresAtMs: number;
+      /** Live subscriber sockets the enqueue nudge reached. Diagnostic only:
+       * 0 is not failure (the Mac also sweeps on stream start and app
+       * activation), but it tells a debugging session whether the account had
+       * any live channel at enqueue time. */
+      nudged?: number;
+    }
   | { ok: false; error: "too_many_pending" };
 
 /** Park one reply. Idempotent on replyId: a retried POST (the phone's retry

@@ -69,6 +69,11 @@ public actor CmxConnectivityInvalidationSubscriber {
         case failed
     }
 
+    /// Cadence of the zombie-detection pings. Long enough to stay quiet,
+    /// short enough that a dead stream (and the frames it would have carried)
+    /// is replaced well inside a relayed reply's server-side TTL.
+    static let keepalivePingInterval: TimeInterval = 60
+
     private let serviceBaseURL: URL
     private let accessToken: AccessTokenProvider
     private let session: URLSession
@@ -167,6 +172,34 @@ public actor CmxConnectivityInvalidationSubscriber {
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
         await onStreamEvent?("connecting")
+        // The channel is quiet by design, so a transport that died without a
+        // close frame (worker deploy, DO restart, network path change) leaves
+        // `receive()` suspended forever on a stream that can no longer deliver
+        // — and every frame sent meanwhile is silently lost. Protocol-level
+        // pings (answered by the runtime without waking the DO) bound that:
+        // a failed or unanswered ping cancels the socket, `receive()` throws,
+        // and the reconnect ladder re-establishes a deliverable stream.
+        let pingSleep = sleep
+        let keepalive = Task {
+            while !Task.isCancelled {
+                guard (try? await pingSleep(Self.keepalivePingInterval)) != nil else { return }
+                do {
+                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                        task.sendPing { error in
+                            if let error {
+                                cont.resume(throwing: error)
+                            } else {
+                                cont.resume()
+                            }
+                        }
+                    }
+                } catch {
+                    task.cancel(with: .abnormalClosure, reason: nil)
+                    return
+                }
+            }
+        }
+        defer { keepalive.cancel() }
 
         let clock = ContinuousClock()
         let startedAt = clock.now

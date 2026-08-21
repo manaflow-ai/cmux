@@ -482,7 +482,8 @@ export class TeamPresence extends DurableObject {
   ): Promise<EnqueuePhoneReplyResult> {
     const result = await enqueuePhoneReply(this.ctx.storage, reply, Date.now());
     if (result.ok && !result.duplicate) {
-      await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
+      const nudge = await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
+      return { ...result, nudged: nudge.delivered };
     }
     return result;
   }
