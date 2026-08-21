@@ -194,6 +194,7 @@ private enum BrowserFocusWebview: BrowserLeafName { static let commandName = "fo
 private enum BrowserWebviewFocused: BrowserLeafName { static let commandName = "is-webview-focused"; static let aliases = ["is_webview_focused"] }
 private enum BrowserEval: BrowserLeafName { static let commandName = "eval" }
 private enum BrowserClick: BrowserLeafName { static let commandName = "click" }
+private enum BrowserDoubleClick: BrowserLeafName { static let commandName = "dblclick" }
 private enum BrowserHover: BrowserLeafName { static let commandName = "hover" }
 private enum BrowserFocus: BrowserLeafName { static let commandName = "focus" }
 private enum BrowserCheck: BrowserLeafName { static let commandName = "check" }
