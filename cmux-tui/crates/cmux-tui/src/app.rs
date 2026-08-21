@@ -36869,6 +36869,48 @@ mod tests {
     }
 
     #[test]
+    fn keystrokes_never_reach_the_old_machine_during_a_warm_switch() {
+        // While a warm switch is in flight the OLD machine is still live and
+        // on screen (session_available field true), but the aim mismatch must
+        // gate input away from it: session_available() requires
+        // selection_intent == presented, and the wake gate consumes the key
+        // instead of forwarding or re-aiming.
+        let mux = Mux::new("machine-warm-switch-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        assert!(!app.session_available(), "aim mismatch must gate the old session");
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "the key must not queue any machine request");
+        assert!(app.status_message.is_none(), "the key is consumed silently mid-switch");
+    }
+
+    #[test]
     fn machine_keyboard_switch_returns_focus_to_pane() {
         let mux = Mux::new("machine-keyboard-switch-focus-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
