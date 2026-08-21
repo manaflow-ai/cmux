@@ -168,11 +168,14 @@ public struct MobilePairedMacDirectAddress: Codable, Equatable, Sendable, Identi
     public var port: Int?
     /// Whether this candidate participates in Direct dialing.
     public var enabled: Bool
+    /// Optional human-readable label ("Home LAN", "Office WireGuard").
+    public var label: String?
 
-    public init(address: String, port: Int? = nil, enabled: Bool = true) {
+    public init(address: String, port: Int? = nil, enabled: Bool = true, label: String? = nil) {
         self.address = address
         self.port = port
         self.enabled = enabled
+        self.label = label
     }
 }
 

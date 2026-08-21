@@ -28,6 +28,7 @@ struct MacComputerDetailView: View {
     var showPairingScanner: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var newDirectAddress = ""
+    @State private var newDirectAddressLabel = ""
     @State private var showsAddDirectAddress = false
     /// Optimistic method selection: moves the picker the moment the user taps
     /// while the persist + store reload reconcile the authoritative value.
@@ -115,6 +116,14 @@ struct MacComputerDetailView: View {
             .autocorrectionDisabled()
             .keyboardType(.URL)
             .accessibilityIdentifier("MobileComputerDirectAddressField")
+            TextField(
+                L10n.string(
+                    "mobile.connections.direct.labelPlaceholder",
+                    defaultValue: "Label (optional)"
+                ),
+                text: $newDirectAddressLabel
+            )
+            .accessibilityIdentifier("MobileComputerDirectAddressLabelField")
             Button(L10n.string("mobile.connections.direct.addConfirm", defaultValue: "Add")) {
                 addDirectAddress()
             }
@@ -252,6 +261,7 @@ struct MacComputerDetailView: View {
             .onDelete(perform: deleteDirectAddresses)
             Button {
                 newDirectAddress = ""
+                newDirectAddressLabel = ""
                 showsAddDirectAddress = true
             } label: {
                 Label(
@@ -305,7 +315,9 @@ struct MacComputerDetailView: View {
     }
 
     private func addDirectAddress() {
-        guard let entry = parsedNewDirectAddress else { return }
+        guard var entry = parsedNewDirectAddress else { return }
+        let trimmedLabel = newDirectAddressLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        entry.label = trimmedLabel.isEmpty ? nil : trimmedLabel
         var drafts = directAddressDrafts
         guard !drafts.contains(where: { $0.id == entry.id }) else {
             newDirectAddress = ""
