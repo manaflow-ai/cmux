@@ -3714,6 +3714,7 @@ enum MachineRailCommand {
     Purge(MachineKey),
     Create,
     Connect,
+    ProviderMenu,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -16963,6 +16964,10 @@ impl App {
                     machine.select_rail_target(target);
                 }
                 None
+            } else if key.code == KeyCode::Char('m') {
+                // Keyboard twin of right-clicking "+ new vm" or the rail
+                // pad: provider scope switching and provider actions.
+                Some(MachineRailCommand::ProviderMenu)
             } else if let Some(MachineRailTarget::Machine(machine_key)) =
                 targets.get(current).copied()
             {
@@ -17028,6 +17033,9 @@ impl App {
             }
             Some(MachineRailCommand::Purge(machine)) => {
                 self.open_purge_managed_machine_prompt(machine);
+            }
+            Some(MachineRailCommand::ProviderMenu) => {
+                self.open_provider_rail_menu(1, 2);
             }
             Some(MachineRailCommand::Create) => {
                 self.open_machine_creation_menu(1, 3);
@@ -17251,6 +17259,41 @@ impl App {
         let error = error.clone();
         self.copy_text_to_clipboard(&error);
         self.show_toast("Copied".to_string());
+    }
+
+    /// Open the provider scope/actions menu near (x, y). The active scope
+    /// starts selected, exactly like the removed dedicated scope row, so a
+    /// plain Enter never switches scope by accident. False when the provider
+    /// offers nothing to show.
+    fn open_provider_rail_menu(&mut self, x: u16, y: u16) -> bool {
+        let scopes = self.provider_scope_menu_items();
+        let selected_scope = if scopes.is_empty() {
+            None
+        } else {
+            self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()).and_then(|provider| {
+                provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id)
+            })
+        };
+        let actions = self.provider_actions_menu_items();
+        if scopes.is_empty() && actions.is_empty() {
+            return false;
+        }
+        let mut groups = Vec::new();
+        if !scopes.is_empty() {
+            groups.push(scopes);
+        }
+        if !actions.is_empty() {
+            groups.push(actions);
+        }
+        groups.push(self.global_menu_items());
+        let mut menu = ContextMenu::with_groups(x, y, groups);
+        if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_scope) {
+            level.selected = selected;
+            level.ensure_selection_visible();
+        }
+        self.menu = Some(menu);
+        self.capture_menu_resources();
+        true
     }
 
     /// Scope-switch entries for the provider rail menu. Empty when only one
@@ -21972,38 +22015,13 @@ impl App {
                 return;
             }
         }
-        // "+ new vm" carries the provider scope switcher and provider
-        // actions since their dedicated rail rows were removed. The active
-        // scope starts selected, exactly like the old dedicated menu, so a
-        // plain Enter never switches scope by accident.
-        if matches!(hit, Some(Hit::NewVm) | Some(Hit::RailPad(RailKind::Machine))) {
-            let scopes = self.provider_scope_menu_items();
-            let selected_scope = if scopes.is_empty() {
-                None
-            } else {
-                self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()).and_then(|provider| {
-                    provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id)
-                })
-            };
-            let actions = self.provider_actions_menu_items();
-            if !scopes.is_empty() || !actions.is_empty() {
-                let mut groups = Vec::new();
-                if !scopes.is_empty() {
-                    groups.push(scopes);
-                }
-                if !actions.is_empty() {
-                    groups.push(actions);
-                }
-                groups.push(self.global_menu_items());
-                let mut menu = ContextMenu::with_groups(x, y, groups);
-                if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_scope) {
-                    level.selected = selected;
-                    level.ensure_selection_visible();
-                }
-                self.menu = Some(menu);
-                self.capture_menu_resources();
-                return;
-            }
+        // "+ new vm" and the machine rail's top pad carry the provider
+        // scope switcher and provider actions since their dedicated rail
+        // rows were removed (`m` is the keyboard twin).
+        if matches!(hit, Some(Hit::NewVm) | Some(Hit::RailPad(RailKind::Machine)))
+            && self.open_provider_rail_menu(x, y)
+        {
+            return;
         }
         if matches!(hit, Some(Hit::NewScreen)) {
             let items =
@@ -37103,6 +37121,28 @@ mod tests {
         app.apply_machine_ui_update(update);
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+    }
+
+    #[test]
+    fn m_on_the_machine_rail_opens_the_provider_menu_with_active_scope_selected() {
+        let mux = Mux::new("provider-menu-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::SelectProviderScope(1)),
+            "the ACTIVE scope starts selected"
+        );
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::SelectProviderScope("personal".into()))
+        );
     }
 
     #[test]
