@@ -88,18 +88,105 @@ final class SidebarBoundaryStyleStore: ObservableObject {
     }
 }
 
-/// Debug-menu picker for the boundary style.
-struct SidebarBoundaryStyleMenuButtons: View {
+extension SidebarBoundaryStyle {
+    /// One-line description shown in the debug picker window.
+    var debugDetail: String {
+        switch self {
+        case .fullLine:
+            return "Full-height hairline between the columns"
+        case .insetLine:
+            return "Hairline clears the titlebar and footer strips"
+        case .railWash:
+            return "No line; machines column slightly darker"
+        case .chromeBands:
+            return "Tinted top/bottom bands; line between them"
+        case .bandsAndWash:
+            return "Tinted bands plus the wash, no line"
+        case .spacingOnly:
+            return "Nothing; spacing alone"
+        }
+    }
+}
+
+/// Floating picker window (Debug > Debug Windows > Sidebar Boundary…) so the
+/// variants can be clicked through while watching the sidebar live.
+final class SidebarBoundaryDebugWindowController: ReleasingWindowController {
+    static let shared = SidebarBoundaryDebugWindowController()
+
+    override func makeWindow() -> NSWindow {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 320),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Sidebar Boundary"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarBoundaryDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: SidebarBoundaryDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        return window
+    }
+
+    func show() {
+        showManagedWindow()
+    }
+}
+
+private struct SidebarBoundaryDebugView: View {
     @ObservedObject private var store = SidebarBoundaryStyleStore.shared
 
     var body: some View {
-        Picker("Sidebar Boundary", selection: $store.style) {
-            ForEach(SidebarBoundaryStyle.allCases) { style in
-                Text(style.menuTitle).tag(style)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Applies live to the sidebar column boundary and persists across relaunches.")
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom, 6)
+                ForEach(SidebarBoundaryStyle.allCases) { style in
+                    Button {
+                        store.style = style
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(
+                                systemName: store.style == style
+                                    ? "largecircle.fill.circle"
+                                    : "circle"
+                            )
+                            .font(.system(size: 12))
+                            .foregroundStyle(
+                                store.style == style ? Color.accentColor : Color.secondary
+                            )
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(style.menuTitle)
+                                    .cmuxFont(size: 12)
+                                Text(style.debugDetail)
+                                    .cmuxFont(size: 10.5)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(
+                                    store.style == style
+                                        ? Color(nsColor: .quaternaryLabelColor)
+                                        : .clear
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .pickerStyle(.inline)
-        .labelsHidden()
     }
 }
 

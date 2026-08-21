@@ -553,14 +553,12 @@ struct cmuxApp: App {
                 )
 
                 Divider()
-                Menu("Sidebar Boundary") {
-                    SidebarBoundaryStyleMenuButtons()
-                }
-
-                Divider()
                 Menu("Debug Windows") {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
+                    }
+                    Button("Sidebar Boundary…") {
+                        SidebarBoundaryDebugWindowController.shared.show()
                     }
                     Button("Pro Badge Style…") {
                         ProBadgeDebugWindowController.shared.show()
