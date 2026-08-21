@@ -20,9 +20,11 @@ struct Completion: ParsableCommand {
     )
 
     @Argument(
-        help: String(
-            localized: "cli.command.completion.shell.help",
-            defaultValue: "Shell to generate a script for."
+        help: ArgumentHelp(
+            String(
+                localized: "cli.command.completion.shell.help",
+                defaultValue: "Shell to generate a script for."
+            )
         ),
         completion: .list(["bash", "zsh", "fish"])
     )
