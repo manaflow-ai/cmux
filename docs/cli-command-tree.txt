@@ -23,12 +23,19 @@ command  auth status  aliases=-
   arg  arguments  kind=argument  completion=-
 command  capabilities  aliases=-
   arg  arguments  kind=argument  completion=-
+command  close-surface  aliases=-
+  arg  --panel  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  close-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  close-workspace  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
 command  config  aliases=-
@@ -37,8 +44,27 @@ command  current-window  aliases=-
   arg  arguments  kind=argument  completion=-
 command  current-workspace  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  debug-terminals  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  detach-tab  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --tab  kind=option  completion=custom-deprecated
+  arg  --title  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  docs  aliases=-
   arg  arguments  kind=argument  completion=-
+command  drag-surface-to-split  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  --panel  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  direction  kind=argument  completion=list(down,left,right,up)
 command  feedback  aliases=-
   arg  arguments  kind=argument  completion=-
 command  find-window  aliases=-
@@ -46,22 +72,62 @@ command  find-window  aliases=-
   arg  --select  kind=flag  completion=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  query  kind=argument  completion=-
+command  focus-pane  aliases=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  target  kind=argument  completion=custom-deprecated
+command  focus-panel  aliases=-
+  arg  --panel  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  focus-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  iroh-diag  aliases=-
   arg  arguments  kind=argument  completion=-
+command  last-pane  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  last-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  list-pane-surfaces  aliases=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  list-panels  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  list-panes  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  list-windows  aliases=-
   arg  arguments  kind=argument  completion=-
 command  list-workspaces  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  login  aliases=-
   arg  arguments  kind=argument  completion=-
 command  logout  aliases=-
   arg  arguments  kind=argument  completion=-
+command  move-surface  aliases=-
+  arg  --after  kind=option  completion=custom-deprecated
+  arg  --before  kind=option  completion=custom-deprecated
+  arg  --focus  kind=option  completion=-
+  arg  --index  kind=option  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  target  kind=argument  completion=custom-deprecated
 command  move-tab-to-new-workspace  aliases=-
   arg  --focus  kind=option  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
@@ -69,9 +135,41 @@ command  move-tab-to-new-workspace  aliases=-
   arg  --title  kind=option  completion=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  move-workspace-to-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  new-pane  aliases=-
+  arg  --direction  kind=option  completion=list(down,left,right,up)
+  arg  --focus  kind=option  completion=-
+  arg  --placement  kind=option  completion=list(dock,workspace)
+  arg  --profile  kind=option  completion=-
+  arg  --type  kind=option  completion=list(browser,simulator,terminal)
+  arg  --url  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  new-split  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  --panel  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  direction  kind=argument  completion=list(down,left,right,up)
+command  new-surface  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --placement  kind=option  completion=list(dock,workspace)
+  arg  --provider  kind=option  completion=-
+  arg  --renderer  kind=option  completion=-
+  arg  --type  kind=option  completion=list(agent-session,browser,simulator,terminal)
+  arg  --url  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --working-directory  kind=option  completion=directory
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  new-window  aliases=-
   arg  arguments  kind=argument  completion=-
 command  new-workspace  aliases=-
@@ -87,6 +185,7 @@ command  new-workspace  aliases=-
   arg  --layout  kind=option  completion=-
   arg  --name  kind=option  completion=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  next-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
@@ -94,6 +193,8 @@ command  ping  aliases=-
   arg  arguments  kind=argument  completion=-
 command  previous-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  refresh-surfaces  aliases=-
   arg  arguments  kind=argument  completion=-
 command  reload-config  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -111,6 +212,13 @@ command  remotes list  aliases=ls
   arg  arguments  kind=argument  completion=-
 command  remotes remove  aliases=delete,rm
   arg  target  kind=argument  completion=-
+command  rename-tab  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --tab  kind=option  completion=custom-deprecated
+  arg  --title  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  rename-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -118,7 +226,17 @@ command  rename-window  aliases=-
 command  rename-workspace  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
-  arg  title  kind=argument  completion=-
+  arg  arguments  kind=argument  completion=-
+command  reorder-surface  aliases=-
+  arg  --after  kind=option  completion=custom-deprecated
+  arg  --before  kind=option  completion=custom-deprecated
+  arg  --focus  kind=option  completion=-
+  arg  --index  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  target  kind=argument  completion=custom-deprecated
 command  reorder-workspace  aliases=-
   arg  --after  kind=option  completion=custom-deprecated
   arg  --before  kind=option  completion=custom-deprecated
@@ -131,12 +249,62 @@ command  reorder-workspaces  aliases=-
   arg  --dry-run  kind=flag  completion=-
   arg  --order  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  select-workspace  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  settings  aliases=-
   arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  sidebar-state  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  split-off  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  --panel  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  direction  kind=argument  completion=list(down,left,right,up)
+command  surface  aliases=-
+  arg  --checkpoint  kind=option  completion=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --kind  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --shell  kind=option  completion=-
+  arg  --source  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  surface-health  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  surface-resume  aliases=-
+  arg  --checkpoint  kind=option  completion=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --kind  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --shell  kind=option  completion=-
+  arg  --source  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  tab-action  aliases=-
+  arg  --action  kind=option  completion=-
+  arg  --focus  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --tab  kind=option  completion=custom-deprecated
+  arg  --title  kind=option  completion=-
+  arg  --url  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  themes  aliases=-
   arg  arguments  kind=argument  completion=-
