@@ -10870,43 +10870,68 @@ impl App {
             self.machine_selection_intent = update.snapshot.active;
             self.machine_presented = update.snapshot.active;
         }
-        update.snapshot.active = self.machine_presented.filter(|presented| {
-            update.snapshot.machines.iter().any(|machine| machine.key == *presented)
-        });
-        // The presented machine vanished from the catalog (deleted): switch
-        // to the next available machine instead of leaving a dead session on
-        // screen. "Next" is the machine that took its list slot (or the new
-        // last machine). Skipped while the user is already aiming somewhere
-        // else that still exists, or while another request is queued.
+        // A machine is "usable" while it is in the catalog and not soft
+        // deleted: providers with recovery keep deleted machines listed as
+        // Recoverable rows, which can be restored or purged but never
+        // presented.
+        let machine_usable = |update: &MachineUiState, key: MachineKey| {
+            update.snapshot.machines.iter().any(|machine| machine.key == key)
+                && update
+                    .managed_machine(key)
+                    .is_none_or(|managed| managed.status != ManagedMachineStatus::Recoverable)
+        };
+        update.snapshot.active =
+            self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+        // The presented machine was deleted (gone from the catalog, or left
+        // behind as a Recoverable row): switch to the next available machine
+        // instead of leaving a dead session on screen. "Next" is the usable
+        // machine at or after its old list slot, else the last usable one.
+        // Skipped while the user is already aiming somewhere else usable, or
+        // while another request is queued.
+        let mut failover_rail_target = None;
         if let Some(presented) = self.machine_presented
             && update.snapshot.active.is_none()
             && update.request.is_none()
-            && self.machine_selection_intent.is_none_or(|intent| {
-                intent == presented
-                    || !update.snapshot.machines.iter().any(|machine| machine.key == intent)
-            })
+            && self
+                .machine_selection_intent
+                .is_none_or(|intent| intent == presented || !machine_usable(&update, intent))
             && let Some(previous) = self.machine_ui.as_ref()
             && let Some(previous_index) =
                 previous.snapshot.machines.iter().position(|machine| machine.key == presented)
         {
-            if update.snapshot.machines.is_empty() {
-                // The last machine is gone: there is nothing to switch to,
-                // so drop the presentation instead of routing input into the
-                // deleted machine's dead session. The rail keeps its create
-                // and connect rows.
-                self.machine_presented = None;
-                self.machine_selection_intent = None;
-                update.session_available = false;
-            } else {
-                let next = previous_index.min(update.snapshot.machines.len() - 1);
-                let next_key = update.snapshot.machines[next].key;
-                update.request = Some(MachineRequest::Switch(next_key));
-                update.select_rail_target(MachineRailTarget::Machine(next_key));
-                // The presented session belongs to a deleted machine: gate
-                // input away from it while the failover switch runs (a
-                // failed switch leaves the rail on the replacement, where
-                // Enter retries).
-                update.session_available = false;
+            let next_key = update
+                .snapshot
+                .machines
+                .iter()
+                .enumerate()
+                .filter(|(_, machine)| machine_usable(&update, machine.key))
+                .map(|(index, machine)| (index, machine.key))
+                .fold(None, |best: Option<(usize, MachineKey)>, (index, key)| match best {
+                    // Prefer the first usable machine at or after the old
+                    // slot; otherwise keep the last usable one before it.
+                    Some((chosen, _)) if chosen >= previous_index => best,
+                    _ if index >= previous_index => Some((index, key)),
+                    _ => Some((index, key)),
+                })
+                .map(|(_, key)| key);
+            match next_key {
+                Some(next_key) => {
+                    update.request = Some(MachineRequest::Switch(next_key));
+                    failover_rail_target = Some(next_key);
+                    // The presented session belongs to a deleted machine:
+                    // gate input away from it while the failover switch runs
+                    // (a failed switch leaves the rail on the replacement,
+                    // where Enter retries).
+                    update.session_available = false;
+                }
+                None => {
+                    // Nothing usable remains: drop the presentation instead
+                    // of routing input into the deleted machine's dead
+                    // session. The rail keeps its create and connect rows.
+                    self.machine_presented = None;
+                    self.machine_selection_intent = None;
+                    update.session_available = false;
+                }
             }
         }
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
@@ -10954,6 +10979,11 @@ impl App {
             }
             update.extend_connection_phases_from(previous);
             update.reconcile_navigation_from(previous);
+        }
+        if let Some(next_key) = failover_rail_target {
+            // After reconciliation, which would otherwise keep the still
+            // listed (recoverable) row selected.
+            update.select_rail_target(MachineRailTarget::Machine(next_key));
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
@@ -37166,6 +37196,63 @@ mod tests {
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::SelectProviderScope("personal".into()))
+        );
+    }
+
+    #[test]
+    fn soft_deleting_the_presented_machine_switches_to_the_next_usable_one() {
+        // Recovery-capable providers (Freestyle) keep a deleted machine in
+        // the catalog as a Recoverable row; failover must treat that exactly
+        // like a hard delete and must skip other recoverable rows.
+        let mux = Mux::new("machine-soft-delete-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let managed = |key: u64, status: ManagedMachineStatus| ManagedMachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: format!("vm-{key}"),
+            status,
+            version: 1,
+            recoverable_until: None,
+            capabilities: ManagedMachineCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar"), descriptor(3, "oak")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar is soft deleted; oak (the next slot) is ALSO a recoverable
+        // leftover, so the failover must land on ash.
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar"), descriptor(3, "oak")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        update.set_managed_machines(vec![
+            managed(2, ManagedMachineStatus::Recoverable),
+            managed(3, ManagedMachineStatus::Recoverable),
+        ]);
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+        assert!(!ui.session_available);
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
         );
     }
 
