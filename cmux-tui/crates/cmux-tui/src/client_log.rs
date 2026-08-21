@@ -90,7 +90,10 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                         })
                         .is_ok();
                     let sink = if opened {
-                        sink_receiver.recv_timeout(std::time::Duration::from_secs(10)).ok().flatten()
+                        sink_receiver
+                            .recv_timeout(std::time::Duration::from_secs(10))
+                            .ok()
+                            .flatten()
                     } else {
                         None
                     };
