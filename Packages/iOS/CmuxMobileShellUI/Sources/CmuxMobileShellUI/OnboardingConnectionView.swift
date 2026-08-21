@@ -95,18 +95,12 @@ struct OnboardingConnectionView: View {
             if connectionMethod == .tailscale {
                 return L10n.string(
                     "mobile.onboarding.connect.tailscaleBody",
-                    defaultValue: """
-                    Install Tailscale on both devices and join the same network. \
-                    In cmux on your Mac, choose Connect iPhone/iPad and scan the pairing code once.
-                    """
+                    defaultValue: "Install Tailscale on both devices, then scan the pairing code shown in cmux on your Mac."
                 )
             }
             return L10n.string(
                 "mobile.onboarding.connect.fallbackBody",
-                defaultValue: """
-                No Mac yet. Get cmux at cmux.com, sign in with this same account, \
-                and your Mac appears here on its own.
-                """
+                defaultValue: "No Mac yet. Get cmux at cmux.com and sign in with this same account."
             )
         case .idle, .searching:
             return L10n.string(

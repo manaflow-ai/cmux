@@ -5090,13 +5090,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and join the same network. In cmux on your Mac, choose Connect iPhone/iPad and scan the pairing code once."
+            "value": "Install Tailscale on both devices, then scan the pairing code shown in cmux on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。Macのcmuxで「Connect iPhone/iPad」を選び、ペアリングコードを一度スキャンします。"
+            "value": "両方のデバイスにTailscaleをインストールし、Macのcmuxに表示されるペアリングコードをスキャンしてください。"
           }
         }
       }
@@ -19250,13 +19250,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Mac yet. Get cmux at cmux.com, sign in with this same account, and your Mac appears here on its own."
+            "value": "No Mac yet. Get cmux at cmux.com and sign in with this same account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだMacが見つかりません。cmux.com でcmuxを入手し、同じアカウントでサインインすると、Macが自動的にここに表示されます。"
+            "value": "まだMacが見つかりません。cmux.com でcmuxを入手し、同じアカウントでサインインしてください。"
           }
         }
       }

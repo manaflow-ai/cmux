@@ -289,7 +289,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(fallbackSecondary.label.contains("Scan Pairing Code"))
         let fallbackBody = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "No Mac yet. Get cmux at cmux.com, sign in with this same account, and your Mac appears here on its own."
+            "No Mac yet. Get cmux at cmux.com and sign in with this same account."
         )).firstMatch
         XCTAssertTrue(fallbackBody.waitForExistence(timeout: 4))
         recordChromeReferenceFrames()
