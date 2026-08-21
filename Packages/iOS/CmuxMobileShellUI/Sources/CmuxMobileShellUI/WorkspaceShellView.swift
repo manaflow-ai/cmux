@@ -486,17 +486,11 @@ struct WorkspaceShellView: View {
         // One-time what's-new notice for the per-Computer connection-method
         // update. Only users who already HAVE Computers see it (fresh installs
         // learn the same in onboarding); any dismissal acknowledges it.
-        .onAppear {
-            guard !UserDefaults.standard.bool(
-                forKey: MobileConnectionsUpdateSheet.acknowledgedKey
-            ), store.hasKnownPairedMac else { return }
-            // Mark as seen the moment it first shows: a kill mid-presentation
-            // must not re-show the notice on every subsequent launch.
-            UserDefaults.standard.set(
-                true,
-                forKey: MobileConnectionsUpdateSheet.acknowledgedKey
-            )
-            showsConnectionsUpdateNotice = true
+        .onAppear { presentConnectionsUpdateNoticeIfNeeded() }
+        // Paired Macs load asynchronously after the shell appears, so the
+        // has-Computers gate must re-run when that answer arrives.
+        .onChange(of: store.hasKnownPairedMac) { _, _ in
+            presentConnectionsUpdateNoticeIfNeeded()
         }
         .sheet(
             isPresented: $showsConnectionsUpdateNotice
@@ -508,6 +502,21 @@ struct WorkspaceShellView: View {
         }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
+    }
+
+    /// One-time what's-new notice for the per-Computer connection update:
+    /// only for devices that already HAVE Computers (fresh installs learn the
+    /// same in onboarding), marked seen the moment it first shows so a kill
+    /// mid-presentation cannot re-show it forever.
+    private func presentConnectionsUpdateNoticeIfNeeded() {
+        guard !UserDefaults.standard.bool(
+            forKey: MobileConnectionsUpdateSheet.acknowledgedKey
+        ), store.hasKnownPairedMac, !showsConnectionsUpdateNotice else { return }
+        UserDefaults.standard.set(
+            true,
+            forKey: MobileConnectionsUpdateSheet.acknowledgedKey
+        )
+        showsConnectionsUpdateNotice = true
     }
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
