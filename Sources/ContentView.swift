@@ -2059,7 +2059,8 @@ struct ContentView: View {
                 }
 
                 // The footer spans the whole region (not one column) so both
-                // columns stay free to shrink to their icon rails.
+                // columns stay free to shrink to their icon rails. It sits on
+                // the bottom chrome band.
                 if sidebarState.isVisible {
                     SidebarFooter(
                         updateViewModel: updateViewModel,
@@ -2068,7 +2069,30 @@ struct ContentView: View {
                         onSendFeedback: presentFeedbackComposer
                     )
                     .frame(width: max(0, totalWidth), alignment: .leading)
+                    .frame(height: SidebarChromeBandMetrics.bottomBandHeight, alignment: .bottomLeading)
+                    .background {
+                        SidebarChromeBandMetrics.bandFill
+                            .overlay(alignment: .top) {
+                                Rectangle()
+                                    .fill(Color(nsColor: .separatorColor).opacity(0.72))
+                                    .frame(height: 1)
+                            }
+                    }
                     .clipped()
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                // Distinct top band: the titlebar strip over the sidebar
+                // region carries its own tint, terminated by the full-width
+                // titlebar hairline. The column divider runs between the two
+                // bands and never intersects chrome.
+                if sidebarState.isVisible {
+                    SidebarChromeBandMetrics.bandFill
+                        .frame(
+                            width: max(0, totalWidth),
+                            height: SidebarChromeBandMetrics.topBandHeight
+                        )
+                        .allowsHitTesting(false)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -2515,13 +2539,13 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
-            SidebarRegionWidthReader(layout: sidebarLayout) { width in
-                WindowChromeBorder(
-                    orientation: .horizontal,
-                    backgroundColor: appearance.resolvedChromeBackgroundColor
-                )
-                    .padding(.leading, sidebarState.isVisible ? width : 0)
-            }
+            // Full-width: the sidebar region's top band terminates on this
+            // line, Finder-toolbar style, so the column divider has a real
+            // boundary to land on.
+            WindowChromeBorder(
+                orientation: .horizontal,
+                backgroundColor: appearance.resolvedChromeBackgroundColor
+            )
         }
     }
 

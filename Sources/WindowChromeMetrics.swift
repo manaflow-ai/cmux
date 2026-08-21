@@ -56,6 +56,19 @@ enum RightSidebarChromeMetrics {
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
+/// The sidebar region's horizontal chrome bands: a tinted titlebar strip at
+/// the top (ending on the full-width titlebar hairline) and a tinted footer
+/// strip at the bottom (starting at its own hairline). The machines/
+/// workspaces divider spans exactly the space between them.
+enum SidebarChromeBandMetrics {
+    static var topBandHeight: CGFloat { WindowChromeMetrics.appTitlebarHeight }
+    static let bottomBandHeight: CGFloat = 44
+    /// Label-colored so it lightens dark themes and darkens light ones.
+    static var bandFill: Color {
+        Color.primary.opacity(0.05)
+    }
+}
+
 /// Shared layout language for every first-party sidebar list column.
 ///
 /// Machine, workspace, and future extension-owned columns use these values so
