@@ -5272,8 +5272,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         caretAccessibilitySnapshot()?.grid.range(forLine: line) ?? NSRange(location: 0, length: 0)
     }
 
-    /// Screen bounds for a grid offset range. This backs `AXBoundsForRange`,
-    /// which is the query Zoom issues to centre itself on the insertion point.
+    /// The whole grid: everything a terminal viewport addresses is on screen.
+    /// Clients that bound their caret queries to the visible range need this or
+    /// they treat the surface as having nothing to track.
+    override func accessibilityVisibleCharacterRange() -> NSRange {
+        guard let snapshot = caretAccessibilitySnapshot() else { return NSRange(location: 0, length: 0) }
+        return NSRange(location: 0, length: snapshot.grid.characterCount)
+    }
+
+    override func accessibilityLine(for index: Int) -> Int {
+        guard let snapshot = caretAccessibilitySnapshot() else { return 0 }
+        return snapshot.grid.cell(forIndex: index).row
+    }
+
+    override func accessibilityRange(for index: Int) -> NSRange {
+        guard let snapshot = caretAccessibilitySnapshot(),
+              index >= 0,
+              index < snapshot.grid.characterCount else { return NSRange(location: 0, length: 0) }
+        return NSRange(location: index, length: 1)
+    }
+
+    /// Screen bounds for a grid offset range, backing `AXBoundsForRange`. This
+    /// is how an assistive client turns the caret offset into a point on screen.
     /// Falling back to the surface frame keeps the previous pane-level
     /// behaviour rather than reporting a bogus origin.
     override func accessibilityFrame(for range: NSRange) -> NSRect {
