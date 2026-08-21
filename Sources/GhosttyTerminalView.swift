@@ -7697,15 +7697,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface else {
             // Detached views used by previews and tests have no runtime
             // snapshot. Preserve the bounded first-packet fallback for them.
+            NotificationCenter.default.post(
+                name: .ghosttyDidReceiveWheelScroll,
+                object: self,
+                userInfo: [GhosttyNotificationKey.requiresAuthoritativeWheelResponse: true]
+            )
             if let authoritativeScrollbar = authoritativeScrollbarSnapshot() {
                 // The synchronous snapshot supersedes any callback payload
                 // that was queued before this wheel event.
                 discardPendingScrollbar()
-                NotificationCenter.default.post(
-                    name: .ghosttyDidReceiveWheelScroll,
-                    object: self,
-                    userInfo: [GhosttyNotificationKey.requiresAuthoritativeWheelResponse: true]
-                )
                 publishScrollbarUpdate(
                     authoritativeScrollbar,
                     isAuthoritativeWheelResponse: true
