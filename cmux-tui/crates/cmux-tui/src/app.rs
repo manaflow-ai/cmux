@@ -9477,13 +9477,18 @@ impl App {
                 ui.clear_connection_progress(machine);
             }
         }
+        let presented_live = self.machine_presented == Some(machine)
+            && self.machine_ui.as_ref().is_some_and(|ui| ui.session_available);
         if let Some(ui) = self.machine_ui.as_mut() {
-            let phase = if self.machine_presented == Some(machine)
+            let phase = if presented_live
                 || ui.connection_phase(machine) == MachineConnectionPhase::Ready
             {
                 // A warm pooled connection stays Ready: the switch reuses it,
                 // so neither the rail badge nor the content interstitial
-                // should flash "connecting".
+                // should flash "connecting". A presented machine whose
+                // session is gone (it paused; the stream died) is NOT ready:
+                // reselecting it starts a real wake, and the interstitial
+                // must say so instead of briefly claiming Ready.
                 MachineConnectionPhase::Ready
             } else {
                 MachineConnectionPhase::Connecting
@@ -36765,6 +36770,36 @@ mod tests {
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
         assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
         assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn reselecting_a_sleeping_presented_machine_queues_a_wake_switch() {
+        let mux = Mux::new("machine-sleep-reselect-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+        assert!(app.request_current_machine_session());
+
+        // Rail click on the same, now-asleep machine: the switch is queued
+        // (session_available is false) and the interstitial must not claim
+        // Ready while the wake is in flight.
+        app.activate_machine(MachineKey(9));
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
     }
 
     #[test]
