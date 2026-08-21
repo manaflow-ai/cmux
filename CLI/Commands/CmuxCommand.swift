@@ -173,4 +173,29 @@ struct CmuxCommand: ParsableCommand {
         "__dump-command-tree",
         "completion",
     ]
+
+    /// Runs the facade while preserving the legacy CLI's exit-status contract
+    /// for command-specific validation. ArgumentParser uses EX_USAGE (64) for
+    /// `ValidationError`; cmux historically reports these selector errors as 2.
+    static func runFacade() {
+        do {
+            var command = try parseAsRoot()
+            try command.run()
+        } catch let error as FacadeValidationError {
+            CMUXCLIOutput.writeStandardError("Error: \(error.message)\n")
+            CMUXCLIOutput.writeStandardError("\(usageString(for: error.command))\n")
+            exit(error.exitCode)
+        } catch {
+            exit(withError: error)
+        }
+    }
+}
+
+/// A validation failure whose diagnostic needs cmux's historical exit code.
+/// Rendering and process termination stay at the facade boundary, not in a
+/// command declaration.
+struct FacadeValidationError: Error {
+    let message: String
+    let command: ParsableCommand.Type
+    let exitCode: Int32 = 2
 }
