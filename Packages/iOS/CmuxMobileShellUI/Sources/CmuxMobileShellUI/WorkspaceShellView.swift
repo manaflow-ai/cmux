@@ -6,6 +6,7 @@ import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
+import os
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
@@ -517,6 +518,10 @@ struct WorkspaceShellView: View {
     /// same in onboarding), marked seen the moment it first shows so a kill
     /// mid-presentation cannot re-show it forever.
     private func presentConnectionsUpdateNoticeIfNeeded() {
+        // Temporary gate diagnostics for dogfood; remove before merge.
+        Logger(subsystem: "dev.cmux.mobile", category: "ConnectionsUpdateNotice").log(
+            "gate acknowledged=\(UserDefaults.standard.bool(forKey: MobileConnectionsUpdateSheet.acknowledgedKey)) pairedMacs=\(store.pairedMacs.count) presented=\(showsConnectionsUpdateNotice)"
+        )
         guard !UserDefaults.standard.bool(
             forKey: MobileConnectionsUpdateSheet.acknowledgedKey
         ), !store.pairedMacs.isEmpty, !showsConnectionsUpdateNotice else { return }

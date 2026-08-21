@@ -9590,9 +9590,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds.contains(route.kind)
             }
         }
-        let irohRoutes = supportedRoutes.filter { route in
-            route.kind == .iroh
-        }
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
@@ -9618,12 +9615,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return authorizedTailscale
         }
         // The Iroh method is just as strict as Tailscale Only: no raw
-        // host/port fallback, ever. Debug loopback stays dialable as the
-        // dev-build convenience (compiled out of production route sets).
-        if !irohRoutes.isEmpty {
-            return irohRoutes
-        }
-        return supportedRoutes.filter { $0.kind == .debugLoopback }
+        // host/port fallback, ever. Debug loopback rides alongside Iroh as
+        // the dev-build convenience (compiled out of production route sets):
+        // it is the same-machine lane, not a cross-method fallback, and an
+        // Iroh endpoint advertising no relays and no direct addresses must
+        // not starve it or a dev simulator can never pair.
+        return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.

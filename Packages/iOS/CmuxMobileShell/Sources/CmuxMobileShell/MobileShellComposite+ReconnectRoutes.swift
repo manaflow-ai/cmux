@@ -253,7 +253,6 @@ extension MobileShellComposite {
         if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
-        let irohRoutes = ordered.filter { $0.kind == .iroh }
         if let tailscaleRequirement {
             let authorizedTailscale = ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
@@ -264,14 +263,13 @@ extension MobileShellComposite {
             }
             return authorizedTailscale
         }
-        if !irohRoutes.isEmpty {
-            return irohRoutes
-        }
         // The Iroh method never falls back to raw host/port routes: a pairing
         // without an Iroh identity stays disconnected until the user either
-        // upgrades the Mac or selects Tailscale for it. Debug loopback remains
-        // the dev-build convenience.
-        return ordered.filter { $0.kind == .debugLoopback }
+        // upgrades the Mac or selects Tailscale for it. Debug loopback rides
+        // alongside Iroh as the dev-build convenience — same-machine lane,
+        // not a cross-method fallback — so an Iroh endpoint that advertises
+        // no relays and no direct addresses cannot starve it.
+        return ordered.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 
     /// The dial order for one stored Mac, honoring the user's connection-method
