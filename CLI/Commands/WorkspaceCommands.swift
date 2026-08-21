@@ -10,18 +10,6 @@ extension LegacyWorkspaceCommand {
     }
 }
 
-private protocol WorkspaceTargetCommand: LegacyWorkspaceCommand {}
-
-extension WorkspaceTargetCommand {
-    static var workspace: CompletionKind {
-        .custom(CompletionCandidates.workspaces)
-    }
-
-    static var window: CompletionKind {
-        .custom(CompletionCandidates.windows)
-    }
-}
-
 struct ListWorkspacesCommand: LegacyWorkspaceCommand {
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     static let configuration = CommandConfiguration(commandName: "list-workspaces", helpNames: [])
@@ -43,15 +31,15 @@ struct NewWorkspaceCommand: LegacyWorkspaceCommand {
     static let configuration = CommandConfiguration(commandName: "new-workspace", helpNames: [])
 }
 
-struct CloseWorkspaceCommand: WorkspaceTargetCommand {
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+struct CloseWorkspaceCommand: LegacyWorkspaceCommand {
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     static let configuration = CommandConfiguration(commandName: "close-workspace", helpNames: [])
 }
 
-struct SelectWorkspaceCommand: WorkspaceTargetCommand {
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+struct SelectWorkspaceCommand: LegacyWorkspaceCommand {
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     static let configuration = CommandConfiguration(commandName: "select-workspace", helpNames: [])
 }
 
@@ -60,19 +48,19 @@ struct CurrentWorkspaceCommand: LegacyWorkspaceCommand {
     static let configuration = CommandConfiguration(commandName: "current-workspace", helpNames: [])
 }
 
-struct RenameWorkspaceCommand: WorkspaceTargetCommand {
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+struct RenameWorkspaceCommand: LegacyWorkspaceCommand {
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Argument(parsing: .allUnrecognized) var title: [String] = []
     static let configuration = CommandConfiguration(commandName: "rename-workspace", helpNames: [])
 }
 
-struct ReorderWorkspaceCommand: WorkspaceTargetCommand {
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
+struct ReorderWorkspaceCommand: LegacyWorkspaceCommand {
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("index")) var index: Int?
-    @Option(name: [.customLong("before"), .customLong("before-workspace")], completion: workspace) var before: String?
-    @Option(name: [.customLong("after"), .customLong("after-workspace")], completion: workspace) var after: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+    @Option(name: [.customLong("before"), .customLong("before-workspace")], completion: .custom(CompletionCandidates.workspaces)) var before: String?
+    @Option(name: [.customLong("after"), .customLong("after-workspace")], completion: .custom(CompletionCandidates.workspaces)) var after: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Flag(name: .customLong("dry-run")) var dryRun = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "reorder-workspace", helpNames: [])
@@ -85,9 +73,9 @@ struct ReorderWorkspacesCommand: LegacyWorkspaceCommand {
     static let configuration = CommandConfiguration(commandName: "reorder-workspaces", helpNames: [])
 }
 
-struct MoveWorkspaceToWindowCommand: WorkspaceTargetCommand {
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+struct MoveWorkspaceToWindowCommand: LegacyWorkspaceCommand {
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     static let configuration = CommandConfiguration(commandName: "move-workspace-to-window", helpNames: [])
 }
 
@@ -96,10 +84,10 @@ struct WorkspaceCommand: LegacyWorkspaceCommand {
     static let configuration = CommandConfiguration(commandName: "workspace", helpNames: [])
 }
 
-struct WorkspaceActionCommand: WorkspaceTargetCommand {
+struct WorkspaceActionCommand: LegacyWorkspaceCommand {
     @Option(name: .customLong("action")) var action: String?
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Option(name: .customLong("title")) var title: String?
     @Option(name: .customLong("color")) var color: String?
     @Option(name: .customLong("description")) var description: String?
@@ -107,16 +95,16 @@ struct WorkspaceActionCommand: WorkspaceTargetCommand {
     static let configuration = CommandConfiguration(commandName: "workspace-action", helpNames: [])
 }
 
-struct WorkspaceGroupCommand: WorkspaceTargetCommand {
+struct WorkspaceGroupCommand: LegacyWorkspaceCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "workspace-group", helpNames: [])
 }
 
-struct MoveTabToNewWorkspaceCommand: WorkspaceTargetCommand {
+struct MoveTabToNewWorkspaceCommand: LegacyWorkspaceCommand {
     @Option(name: .customLong("tab"), completion: .custom(CompletionCandidates.tabs)) var tab: String?
     @Option(name: .customLong("surface"), completion: .custom(CompletionCandidates.surfaces)) var surface: String?
-    @Option(name: .customLong("workspace"), completion: workspace) var workspace: String?
-    @Option(name: .customLong("window"), completion: window) var window: String?
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Option(name: .customLong("title")) var title: String?
     @Option(name: .customLong("focus")) var focus: String?
     static let configuration = CommandConfiguration(commandName: "move-tab-to-new-workspace", helpNames: [])
