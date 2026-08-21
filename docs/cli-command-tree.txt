@@ -267,7 +267,7 @@ command  browser wait  aliases=-
   arg  --text  kind=option  completion=-
   arg  --timeout  kind=option  completion=-
   arg  --timeout-ms  kind=option  completion=-
-  arg  --url  kind=option  completion=-
+  arg  --url-contains  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  selector  kind=argument  completion=-
 command  browser zoom  aliases=-
