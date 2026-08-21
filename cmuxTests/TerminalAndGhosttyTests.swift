@@ -4734,13 +4734,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         surfaceView.cellSize = CGSize(width: 10, height: 10)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidReceiveWheelScroll,
-            object: surfaceView,
-            userInfo: [GhosttyNotificationKey.requiresAuthoritativeWheelResponse: true]
-        )
-        XCTAssertTrue(hostedView.scrollbackViewportIntent.isAwaitingExplicitScrollbarSync)
-
         let cancelled = expectation(
             forNotification: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
@@ -4750,6 +4743,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             }
         )
         surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+        surfaceView.scrollWheel(with: scrollEvent)
         wait(for: [cancelled], timeout: 1)
 
         XCTAssertEqual(hostedView.scrollbackViewportIntent, .followingOutput)

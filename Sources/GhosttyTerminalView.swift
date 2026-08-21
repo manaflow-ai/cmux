@@ -7730,11 +7730,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 return
             }
+            _ = flushPendingScrollbarIfAvailable()
             postWheelScroll(
                 requiresAuthoritativeResponse: false,
                 authoritativeResponseUnavailable: true
             )
-            _ = flushPendingScrollbarIfAvailable()
             return
         }
         postWheelScroll(requiresAuthoritativeResponse: true)
