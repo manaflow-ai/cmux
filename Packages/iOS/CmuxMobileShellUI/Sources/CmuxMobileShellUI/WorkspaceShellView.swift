@@ -490,16 +490,16 @@ struct WorkspaceShellView: View {
             guard !UserDefaults.standard.bool(
                 forKey: MobileConnectionsUpdateSheet.acknowledgedKey
             ), store.hasKnownPairedMac else { return }
+            // Mark as seen the moment it first shows: a kill mid-presentation
+            // must not re-show the notice on every subsequent launch.
+            UserDefaults.standard.set(
+                true,
+                forKey: MobileConnectionsUpdateSheet.acknowledgedKey
+            )
             showsConnectionsUpdateNotice = true
         }
         .sheet(
-            isPresented: $showsConnectionsUpdateNotice,
-            onDismiss: {
-                UserDefaults.standard.set(
-                    true,
-                    forKey: MobileConnectionsUpdateSheet.acknowledgedKey
-                )
-            }
+            isPresented: $showsConnectionsUpdateNotice
         ) {
             MobileConnectionsUpdateSheet {
                 showsConnectionsUpdateNotice = false
