@@ -149,6 +149,8 @@ struct BrowserOpenSplitCommand: LegacyBrowserCommand {
 }
 
 struct BrowserDesignModeCommand: LegacyBrowserCommand {
+    @Argument(completion: .list(["enable", "disable", "toggle", "status"])) var action: String?
+    @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(
         commandName: "design-mode",
@@ -243,7 +245,7 @@ struct BrowserScrollCommand: LegacyBrowserCommand {
 // and completion metadata. `arguments` forwards any positional tail that the
 // legacy command still interprets (for example profile names and CSS values).
 struct BrowserReactGrabCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["toggle"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Option(name: .customLong("return-to"), completion: .custom(CompletionCandidates.surfaces)) var returnTo: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -251,35 +253,35 @@ struct BrowserReactGrabCommand: LegacyBrowserCommand {
 }
 
 struct BrowserDevtoolsCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["toggle", "console"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "devtools", helpNames: [], aliases: ["dev-tools"])
 }
 
 struct BrowserFocusModeCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["enter", "exit", "toggle", "on", "off"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "focus-mode", helpNames: [])
 }
 
 struct BrowserZoomCommand: LegacyBrowserCommand {
-    @Argument var factor: String?
+    @Argument(completion: .list(["in", "out", "reset"])) var factor: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "zoom", helpNames: [])
 }
 
 struct BrowserHistoryCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["clear"])) var action: String?
     @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "history", helpNames: [])
 }
 
 struct BrowserGetCommand: LegacyBrowserCommand {
-    @Argument var property: String?
+    @Argument(completion: .list(["url", "title", "text", "html", "value", "attr", "count", "box", "styles"])) var property: String?
     @Argument var selector: String?
     @OptionGroup var target: BrowserTargetOptions
     @Option(name: .customLong("attr")) var attribute: String?
@@ -288,7 +290,7 @@ struct BrowserGetCommand: LegacyBrowserCommand {
 }
 
 struct BrowserIsCommand: LegacyBrowserCommand {
-    @Argument var property: String?
+    @Argument(completion: .list(["visible", "enabled", "checked"])) var property: String?
     @Argument var selector: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -296,7 +298,7 @@ struct BrowserIsCommand: LegacyBrowserCommand {
 }
 
 struct BrowserFindCommand: LegacyBrowserCommand {
-    @Argument var locator: String?
+    @Argument(completion: .list(["role", "text", "label", "placeholder", "alt", "title", "testid", "first", "last", "nth"])) var locator: String?
     @Argument var value: String?
     @Argument var selector: String?
     @OptionGroup var target: BrowserTargetOptions
@@ -305,14 +307,14 @@ struct BrowserFindCommand: LegacyBrowserCommand {
 }
 
 struct BrowserFrameCommand: LegacyBrowserCommand {
-    @Argument var selector: String?
+    @Argument(completion: .list(["main"])) var selector: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "frame", helpNames: [])
 }
 
 struct BrowserDialogCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["accept", "dismiss"])) var action: String?
     @Argument var text: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -320,7 +322,7 @@ struct BrowserDialogCommand: LegacyBrowserCommand {
 }
 
 struct BrowserDownloadCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["wait"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Option(name: .customLong("path"), completion: .file()) var path: String?
     @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: Int?
@@ -330,7 +332,7 @@ struct BrowserDownloadCommand: LegacyBrowserCommand {
 }
 
 struct BrowserProfilesCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["list", "add", "rename", "clear", "delete"])) var action: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "profiles", helpNames: [], aliases: ["profile"])
 }
@@ -349,7 +351,7 @@ struct BrowserImportCommand: LegacyBrowserCommand {
 }
 
 struct BrowserCookiesCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["get", "set", "clear"])) var action: String?
     @Argument var name: String?
     @Argument var value: String?
     @OptionGroup var target: BrowserTargetOptions
@@ -364,8 +366,8 @@ struct BrowserCookiesCommand: LegacyBrowserCommand {
 }
 
 struct BrowserStorageCommand: LegacyBrowserCommand {
-    @Argument var type: String?
-    @Argument var action: String?
+    @Argument(completion: .list(["local", "session"])) var type: String?
+    @Argument(completion: .list(["get", "set", "clear"])) var action: String?
     @Argument var key: String?
     @Argument var value: String?
     @OptionGroup var target: BrowserTargetOptions
@@ -374,7 +376,7 @@ struct BrowserStorageCommand: LegacyBrowserCommand {
 }
 
 struct BrowserTabCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["new", "list", "switch", "close"])) var action: String?
     @Argument var targetTab: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -382,14 +384,14 @@ struct BrowserTabCommand: LegacyBrowserCommand {
 }
 
 struct BrowserConsoleCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["list", "clear"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "console", helpNames: [])
 }
 
 struct BrowserErrorsCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["list", "clear"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "errors", helpNames: [])
@@ -404,7 +406,7 @@ struct BrowserHighlightCommand: LegacyBrowserCommand {
 }
 
 struct BrowserStateCommand: LegacyBrowserCommand {
-    @Argument var action: String?
+    @Argument(completion: .list(["save", "load"])) var action: String?
     @Argument(completion: .file()) var path: String?
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
