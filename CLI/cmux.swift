@@ -4903,7 +4903,7 @@ struct CMUXCLI {
         return true
     }
 
-    private func localizedCoderouterAliases() -> String {
+    static func localizedCoderouterAliases() -> String {
         let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
@@ -41333,7 +41333,7 @@ export default CMUXSessionRestore;
           automation <list|show|test|enable|disable|logs|reload> [args]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          \(localizedCoderouterAliases())
+          \(Self.localizedCoderouterAliases())
           \(localizedCoderouterCommands())
           vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
