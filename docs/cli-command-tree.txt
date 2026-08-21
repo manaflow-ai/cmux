@@ -25,79 +25,135 @@ command  browser  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  browser addinitscript  aliases=-
+  arg  --script  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  script  kind=argument  completion=-
 command  browser addscript  aliases=-
+  arg  --script  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  script  kind=argument  completion=-
 command  browser addstyle  aliases=-
+  arg  --css  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  css  kind=argument  completion=-
 command  browser back  aliases=-
+  arg  --snapshot-after  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
 command  browser click  aliases=check,dblclick,focus,hover,scroll-into-view,scrollinto,scrollintoview,uncheck
-  arg  --json  kind=flag  completion=-
   arg  --snapshot-after  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  selector  kind=argument  completion=-
 command  browser console  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(clear,list)
   arg  arguments  kind=argument  completion=-
 command  browser cookies  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --domain  kind=option  completion=-
+  arg  --expires  kind=option  completion=-
+  arg  --path  kind=option  completion=file()
+  arg  --secure  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --url  kind=option  completion=-
+  arg  action  kind=argument  completion=list(clear,get,set)
   arg  arguments  kind=argument  completion=-
+  arg  name  kind=argument  completion=-
+  arg  value  kind=argument  completion=-
 command  browser design-mode  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(disable,enable,status,toggle)
   arg  arguments  kind=argument  completion=-
 command  browser devtools  aliases=dev-tools
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(console,toggle)
   arg  arguments  kind=argument  completion=-
 command  browser dialog  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(accept,dismiss)
   arg  arguments  kind=argument  completion=-
+  arg  text  kind=argument  completion=-
 command  browser disable  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser download  aliases=-
+  arg  --path  kind=option  completion=file()
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --timeout  kind=option  completion=-
+  arg  --timeout-ms  kind=option  completion=-
+  arg  action  kind=argument  completion=list(wait)
   arg  arguments  kind=argument  completion=-
 command  browser enable  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser errors  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(clear,list)
   arg  arguments  kind=argument  completion=-
 command  browser eval  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  script  kind=argument  completion=-
 command  browser fill  aliases=-
-  arg  --json  kind=flag  completion=-
   arg  --snapshot-after  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  selector  kind=argument  completion=-
   arg  text  kind=argument  completion=-
 command  browser find  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  locator  kind=argument  completion=list(alt,first,label,last,nth,placeholder,role,testid,text,title)
+  arg  selector  kind=argument  completion=-
+  arg  value  kind=argument  completion=-
 command  browser focus-mode  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(enter,exit,off,on,toggle)
   arg  arguments  kind=argument  completion=-
 command  browser focus-webview  aliases=focus_webview
   arg  arguments  kind=argument  completion=-
 command  browser forward  aliases=-
+  arg  --snapshot-after  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
 command  browser frame  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  selector  kind=argument  completion=list(main)
 command  browser geolocation  aliases=geo
   arg  arguments  kind=argument  completion=-
 command  browser get  aliases=-
+  arg  --attr  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  property  kind=argument  completion=list(attr,box,count,html,styles,text,title,url,value)
+  arg  selector  kind=argument  completion=-
 command  browser goto  aliases=navigate
-  arg  --json  kind=flag  completion=-
   arg  --snapshot-after  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  url  kind=argument  completion=-
 command  browser highlight  aliases=-
+  arg  --selector  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  selector  kind=argument  completion=-
 command  browser history  aliases=-
+  arg  --force  kind=flag  completion=-
+  arg  action  kind=argument  completion=list(clear)
   arg  arguments  kind=argument  completion=-
 command  browser identify  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  browser import  aliases=-
+  arg  --all-profiles  kind=flag  completion=-
+  arg  --create-profile  kind=flag  completion=-
+  arg  --domain  kind=option  completion=-
+  arg  --from  kind=option  completion=-
+  arg  --interactive  kind=flag  completion=-
+  arg  --non-interactive  kind=flag  completion=-
+  arg  --profile  kind=option  completion=-
+  arg  --to  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
 command  browser input  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -108,12 +164,11 @@ command  browser input_mouse  aliases=-
 command  browser input_touch  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser is  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  property  kind=argument  completion=list(checked,enabled,visible)
+  arg  selector  kind=argument  completion=-
 command  browser is-webview-focused  aliases=is_webview_focused
-  arg  arguments  kind=argument  completion=-
-command  browser keydown  aliases=-
-  arg  arguments  kind=argument  completion=-
-command  browser keyup  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser network  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -124,65 +179,79 @@ command  browser offline  aliases=-
 command  browser open  aliases=-
   arg  --focus  kind=option  completion=-
   arg  --profile  kind=option  completion=-
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  url  kind=argument  completion=-
 command  browser open-split  aliases=-
-  arg  --focus  kind=option  completion=-
   arg  --profile  kind=option  completion=-
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  url  kind=argument  completion=-
-command  browser press  aliases=key
+command  browser press  aliases=key,keydown,keyup
+  arg  --snapshot-after  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  key  kind=argument  completion=-
 command  browser profiles  aliases=profile
+  arg  action  kind=argument  completion=list(add,clear,delete,list,rename)
   arg  arguments  kind=argument  completion=-
 command  browser react-grab  aliases=reactgrab
+  arg  --return-to  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(toggle)
   arg  arguments  kind=argument  completion=-
 command  browser reload  aliases=-
+  arg  --snapshot-after  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
 command  browser screencast  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser screenshot  aliases=-
-  arg  --json  kind=flag  completion=-
   arg  --out  kind=option  completion=file()
   arg  --surface  kind=option  completion=custom-deprecated
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  browser scroll  aliases=-
+  arg  --dx  kind=option  completion=-
+  arg  --dy  kind=option  completion=-
+  arg  --selector  kind=option  completion=-
+  arg  --snapshot-after  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  browser select  aliases=-
+  arg  --snapshot-after  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  selector  kind=argument  completion=-
+  arg  value  kind=argument  completion=-
 command  browser snapshot  aliases=-
   arg  --compact  kind=flag  completion=-
   arg  --cursor  kind=flag  completion=-
   arg  --interactive  kind=flag  completion=-
-  arg  --json  kind=flag  completion=-
   arg  --max-depth  kind=option  completion=-
   arg  --selector  kind=option  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  browser state  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(load,save)
   arg  arguments  kind=argument  completion=-
+  arg  path  kind=argument  completion=file()
 command  browser status  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser storage  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(clear,get,set)
   arg  arguments  kind=argument  completion=-
+  arg  key  kind=argument  completion=-
+  arg  type  kind=argument  completion=list(local,session)
+  arg  value  kind=argument  completion=-
 command  browser tab  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(close,list,new,switch)
   arg  arguments  kind=argument  completion=-
+  arg  target-tab  kind=argument  completion=-
 command  browser trace  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser type  aliases=-
-  arg  --json  kind=flag  completion=-
   arg  --snapshot-after  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  selector  kind=argument  completion=-
   arg  text  kind=argument  completion=-
@@ -192,7 +261,6 @@ command  browser viewport  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser wait  aliases=-
   arg  --function  kind=option  completion=-
-  arg  --json  kind=flag  completion=-
   arg  --load-state  kind=option  completion=list(complete,interactive)
   arg  --selector  kind=option  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
@@ -200,12 +268,12 @@ command  browser wait  aliases=-
   arg  --timeout  kind=option  completion=-
   arg  --timeout-ms  kind=option  completion=-
   arg  --url  kind=option  completion=-
-  arg  --window  kind=option  completion=custom-deprecated
-  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  selector  kind=argument  completion=-
 command  browser zoom  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  factor  kind=argument  completion=list(in,out,reset)
 command  browser-back  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser-forward  aliases=-
