@@ -38559,6 +38559,7 @@ mod tests {
         assert!(text.contains("no machines"), "{text}");
         assert!(text.contains("+ new vm"), "{text}");
         assert!(text.contains("+ ssh host"), "{text}");
+        assert!(!text.contains("+ +"), "the renderer owns the plus prefix: {text}");
         assert!(
             !app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::CreateWorkspace { .. }) })
         );

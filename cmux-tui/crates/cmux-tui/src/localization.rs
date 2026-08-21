@@ -1516,8 +1516,8 @@ OPTIONS:
         tabs: "tabs",
         agents: "agents",
         projection_path_separator: " › ",
-        new_machine: "+ new vm",
-        connect_machine: "+ ssh host",
+        new_machine: "new vm",
+        connect_machine: "ssh host",
         no_machines: "no machines",
         no_workspaces: "no workspaces",
         no_panes: "no panes",
@@ -1530,9 +1530,9 @@ OPTIONS:
         purge_machine: "Delete permanently",
         confirm_delete_machine: "Type CONFIRM to delete this machine after a final snapshot",
         confirm_purge_machine: "Type CONFIRM to permanently delete this machine and its snapshots",
-        new_workspace: "+ new workspace",
-        new_isolated_workspace: "+ new isolated",
-        new_shared_workspace: "+ new shared",
+        new_workspace: "new workspace",
+        new_isolated_workspace: "new isolated",
+        new_shared_workspace: "new shared",
         recoverable_workspace: "recoverable",
         rename_workspace: "Rename workspace",
         delete_workspace: "Delete workspace",
@@ -2105,8 +2105,8 @@ ID とセッション:
         tabs: "タブ",
         agents: "エージェント",
         projection_path_separator: " › ",
-        new_machine: "+ 新規VM",
-        connect_machine: "+ SSHホスト",
+        new_machine: "新規VM",
+        connect_machine: "SSHホスト",
         no_machines: "マシンがありません",
         no_workspaces: "ワークスペースがありません",
         no_panes: "ペインがありません",
@@ -2119,9 +2119,9 @@ ID とセッション:
         purge_machine: "完全に削除",
         confirm_delete_machine: "最終スナップショット後に削除するには CONFIRM と入力してください",
         confirm_purge_machine: "マシンとスナップショットを完全に削除するには CONFIRM と入力してください",
-        new_workspace: "+ 新規ワークスペース",
-        new_isolated_workspace: "+ 新規隔離",
-        new_shared_workspace: "+ 新規共有",
+        new_workspace: "新規ワークスペース",
+        new_isolated_workspace: "新規隔離",
+        new_shared_workspace: "新規共有",
         recoverable_workspace: "復元可能",
         rename_workspace: "ワークスペース名を変更",
         delete_workspace: "ワークスペースを削除",
@@ -2409,8 +2409,8 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "+ new vm");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "+ 新規VM");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new vm");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規VM");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"
