@@ -729,9 +729,13 @@ impl MachineUiState {
             }
         }
         // Progress is transient connect-time state; a snapshot rebuild
-        // mid-connect must not blank the interstitial's live message.
+        // mid-connect must not blank the interstitial's live message - but a
+        // machine no longer Connecting (settled, failed, or disconnected via
+        // this very snapshot) must not keep narrating a finished open.
         for (machine, message) in &previous.connection_progress {
-            if visible.contains(machine) {
+            if visible.contains(machine)
+                && self.connection_phase(*machine) == MachineConnectionPhase::Connecting
+            {
                 self.connection_progress.entry(*machine).or_insert_with(|| message.clone());
             }
         }

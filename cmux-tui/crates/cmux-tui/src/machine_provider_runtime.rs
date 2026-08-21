@@ -1076,6 +1076,7 @@ impl ProviderMachineRuntime {
                 // (see MachineUpdate::ConnectionProgress).
                 let mut progress_cells: HashMap<String, Arc<Mutex<Option<String>>>> =
                     HashMap::new();
+                let mut progress_last_sent: HashMap<String, std::time::Instant> = HashMap::new();
                 while !refresh_stop.load(Ordering::Acquire) {
                     if worker_refresh_overflowed.load(Ordering::Acquire) {
                         let mut ui = machine_ui_state(
@@ -1179,6 +1180,18 @@ impl ProviderMachineRuntime {
                         {
                             continue;
                         }
+                        // Rate floor per machine, checked before any state is
+                        // written: a provider emitting stages faster than
+                        // 20/s buys no fidelity and would drive main-loop
+                        // redraws at its own cadence. Dropped events leave
+                        // the cell untouched, so the in-flight invariant
+                        // holds (progress is advisory; the settle clears it).
+                        let now = std::time::Instant::now();
+                        if let Some(last) = progress_last_sent.get(&machine_id)
+                            && now.duration_since(*last) < std::time::Duration::from_millis(50)
+                        {
+                            continue;
+                        }
                         let cell = progress_cells.entry(machine_id.clone()).or_default();
                         let already_in_flight = {
                             let mut slot =
@@ -1192,6 +1205,7 @@ impl ProviderMachineRuntime {
                             // it will deliver this newer message when read.
                             continue;
                         }
+                        progress_last_sent.insert(machine_id.clone(), now);
                         if refresh_output
                             .send(MachineUpdate::ConnectionProgress {
                                 machine_id,
