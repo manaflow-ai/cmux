@@ -3067,6 +3067,7 @@ mod tests {
         assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
     }
 
+    #[cfg(unix)]
     #[test]
     fn absent_socket_recovery_only_shows_reset_when_supported() {
         let messages = &localization::catalog_for_locale("en_US.UTF-8").startup;
@@ -3103,29 +3104,82 @@ mod tests {
         assert!(!unsupported.contains("reset-state"), "{unsupported}");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn scoped_terminal_attach_does_not_publish_session_default_colors() {
-        let mux = Mux::new("scoped-terminal-color-test", SurfaceOptions::default());
-        let original = cmux_tui_core::DefaultColors {
-            fg: Some(cmux_tui_core::Rgb { r: 1, g: 2, b: 3 }),
+    fn remote_host_colors_stay_client_local_across_concurrent_attaches() {
+        let dark = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0xee, g: 0xee, b: 0xee }),
+            bg: Some(cmux_tui_core::Rgb { r: 0x11, g: 0x11, b: 0x11 }),
             ..Default::default()
         };
-        let client = cmux_tui_core::DefaultColors {
-            fg: Some(cmux_tui_core::Rgb { r: 4, g: 5, b: 6 }),
+        let light = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0x22, g: 0x22, b: 0x22 }),
+            bg: Some(cmux_tui_core::Rgb { r: 0xee, g: 0xee, b: 0xee }),
             ..Default::default()
         };
-        mux.set_default_colors(original);
-        let session = Session::Local(mux.clone());
+        let mux = Mux::new(
+            format!("remote-host-color-test-{}", std::process::id()),
+            SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
+        );
+        mux.set_default_colors(dark);
+        let authoritative = mux.new_workspace(None, Some((12, 4))).unwrap();
+        let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
 
-        publish_session_default_colors(&session, client, Some(7)).unwrap();
+        let existing = Session::Remote(RemoteSession::connect(&socket).unwrap());
+        let session::SurfaceAttach::Attached(existing_surface) =
+            existing.try_surface_sized(authoritative.id, Some((12, 4))).unwrap()
+        else {
+            panic!("existing client did not attach");
+        };
+        let light_client = Session::Remote(RemoteSession::connect(&socket).unwrap());
+        let session::SurfaceAttach::Attached(light_surface) =
+            light_client.try_surface_sized(authoritative.id, Some((12, 4))).unwrap()
+        else {
+            panic!("light client did not attach");
+        };
+
+        publish_session_default_colors(&light_client, light, None).unwrap();
         assert_eq!(
             mux.default_colors(),
-            original,
-            "scoped terminal attach must retain the session and sibling tabs' colors"
+            dark,
+            "a second client's host colors must not mutate the shared session"
+        );
+        let mut existing_render = ghostty_vt::RenderState::new().unwrap();
+        assert_eq!(
+            existing_surface.render_frame(&mut existing_render).unwrap().frame.default_colors.0,
+            dark.bg.unwrap(),
+            "the already-attached dark client must stay dark"
+        );
+        assert_eq!(
+            config::ChromeTheme::for_defaults(config::ChromeMode::Auto, light),
+            config::ChromeTheme::light(),
+            "the light client may still project compatible local chrome"
         );
 
-        publish_session_default_colors(&session, client, None).unwrap();
-        assert_eq!(mux.default_colors(), client, "full-session clients still publish their colors");
+        let application_background = cmux_tui_core::Rgb { r: 0x17, g: 0x1b, b: 0x2e };
+        authoritative
+            .try_with_terminal(|terminal| terminal.vt_write(b"\x1b]11;#171b2e\x1b\\"))
+            .unwrap();
+        mux.emit(cmux_tui_core::MuxEvent::SurfaceOutput(authoritative.id));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let mut existing_render = ghostty_vt::RenderState::new().unwrap();
+            let existing_background =
+                existing_surface.render_frame(&mut existing_render).unwrap().frame.default_colors.0;
+            let mut light_render = ghostty_vt::RenderState::new().unwrap();
+            let light_background =
+                light_surface.render_frame(&mut light_render).unwrap().frame.default_colors.0;
+            if existing_background == application_background
+                && light_background == application_background
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "application-authored OSC defaults did not reach both client projections"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     #[test]
