@@ -105,13 +105,14 @@ const memberRowsOf = (id) => {
   return membersOf(id).filter((w) => !g || w.id !== g.anchorId);
 };
 
-// One flat entry list: a group renders (header + expanded member rows) at its
-// first member's position; ungrouped workspaces are plain rows.
+// One flat entry list. A group renders (header + expanded member rows) at
+// its ANCHOR's tabs position - the app's canonical block position - so a
+// stray member sitting early in the tabs order can never yank the whole
+// group upward. Pinned groups and pinned ungrouped workspaces float to a
+// cluster at the top.
 const flatEntries = computed(() => {
   const ws = visibleWorkspaces();
   const groups = new Map((data.groups() ?? []).map((g) => [g.id, g]));
-  const out = [];
-  const seen = new Set();
   const editing = editingId();
   const wsEntry = (w, groupId) => ({
     kind: "ws",
@@ -120,27 +121,43 @@ const flatEntries = computed(() => {
     editing: editing === w.id,
     groupId,
   });
+  const groupSection = (g) => {
+    const out = [{
+      kind: "header",
+      id: "h:" + g.id + (editing === "h:" + g.id ? ":edit" : ""),
+      groupId: g.id,
+      editing: editing === "h:" + g.id,
+    }];
+    if (!isCollapsed(g)) {
+      for (const m of memberRowsOf(g.id)) out.push(wsEntry(m, g.id));
+    }
+    return out;
+  };
+
+  const pinned = [];
+  const rest = [];
+  const seen = new Set();
   for (const w of ws) {
     if (w.group && groups.has(w.group)) {
-      if (seen.has(w.group)) continue;
-      seen.add(w.group);
       const g = groups.get(w.group);
-      out.push({
-        kind: "header",
-        id: "h:" + g.id + (editing === "h:" + g.id ? ":edit" : ""),
-        groupId: g.id,
-        editing: editing === "h:" + g.id,
-      });
-      if (!isCollapsed(g)) {
-        for (const m of memberRowsOf(g.id)) {
-          out.push(wsEntry(m, g.id));
-        }
-      }
+      // Emit the group at its anchor's position; a group whose anchor is
+      // hidden (optimistically closed) falls back to its first member.
+      const isAnchor = w.id === g.anchorId || !ws.some((x) => x.id === g.anchorId);
+      if (seen.has(g.id) || !isAnchor) continue;
+      seen.add(g.id);
+      (g.pinned ? pinned : rest).push(...groupSection(g));
     } else if (!w.group) {
-      out.push(wsEntry(w, null));
+      (w.pinned ? pinned : rest).push(wsEntry(w, null));
     }
   }
-  return out;
+  // Groups whose anchor never appeared (edge churn): append at the end.
+  for (const g of groups.values()) {
+    if (!seen.has(g.id) && ws.some((x) => x.group === g.id)) {
+      seen.add(g.id);
+      (g.pinned ? pinned : rest).push(...groupSection(g));
+    }
+  }
+  return [...pinned, ...rest];
 });
 
 // --- drop resolution ---------------------------------------------------------
@@ -244,6 +261,9 @@ function workspaceRow(w, entry) {
       .truncation("tail")
       .color(() => (isSelected(w()) ? "primary" : "secondary")),
     Spacer(),
+    Image("pin.fill")
+      .font(8).color("tertiary")
+      .opacity(() => (w()?.pinned ? 1 : 0)),
     ZStack({}, [
       // Unread badge at rest; on hover it yields to the close button.
       Text(() => (w()?.unread > 0 ? String(w().unread) : ""))
