@@ -387,6 +387,7 @@ extension TerminalController {
             let tables = SidebarWorkspaceTableController.debugInstances.allObjects
             let layouts = SidebarLayoutModel.debugInstances.allObjects
             return .ok([
+                "boundary_style": SidebarBoundaryStyleStore.shared.style.rawValue,
                 "layouts": layouts.map { $0.debugState() },
                 "persisted_leading_mode": context.sidebarState.persistedLeadingColumnMode.rawValue,
                 "persisted_primary_mode": context.sidebarState.persistedPrimaryColumnMode.rawValue,
@@ -394,6 +395,27 @@ extension TerminalController {
                 "persisted_leading_width": Double(context.sidebarState.persistedLeadingColumnWidth),
                 "tables": tables.map { $0.debugColumnState() },
             ])
+        }
+    }
+#endif
+
+#if DEBUG
+    /// Debug-only: switches the sidebar boundary style (same store as the
+    /// Debug menu picker) so variants can be screenshotted over the socket.
+    nonisolated func v2DebugSidebarBoundaryStyle(params: [String: Any]) -> V2CallResult {
+        guard let raw = params["style"] as? String,
+              let style = SidebarBoundaryStyle(rawValue: raw)
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "style must be one of: "
+                    + SidebarBoundaryStyle.allCases.map(\.rawValue).joined(separator: ", "),
+                data: nil
+            )
+        }
+        return v2MainSync {
+            SidebarBoundaryStyleStore.shared.style = style
+            return .ok(["style": style.rawValue])
         }
     }
 #endif

@@ -25,16 +25,10 @@ struct SidebarColumnsContainer<Leading: View, Trailing: View>: View {
             leading()
                 .frame(width: max(0, leadingWidth))
                 .frame(maxHeight: .infinity)
+                .background(SidebarColumnRailWash())
                 .clipped()
                 .overlay(alignment: .trailing) {
-                    // Runs exactly between the top and bottom chrome bands,
-                    // so both endpoints land on a horizontal boundary.
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor).opacity(0.72))
-                        .frame(width: 1)
-                        .padding(.top, SidebarChromeBandMetrics.topBandHeight)
-                        .padding(.bottom, SidebarChromeBandMetrics.bottomBandHeight)
-                        .allowsHitTesting(false)
+                    SidebarColumnBoundaryEdge()
                 }
 
             trailing()

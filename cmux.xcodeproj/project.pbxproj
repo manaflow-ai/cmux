@@ -1973,6 +1973,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7AB34310000000000000003 /* SidebarBonsplitTabDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
 		D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000002 /* SidebarBonsplitWorkspaceRowDropModifier.swift */; };
+		3721C02926ACDDAD18FFBD5E /* SidebarBoundaryStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F58CFEEE9B34CFC6AA5AF03 /* SidebarBoundaryStyle.swift */; };
 		B7856CA9B2B34DEA2E3CA0F4 /* SidebarColumnDisplayPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64925FB18F7E4DE5E76B8E61 /* SidebarColumnDisplayPolicy.swift */; };
 		0D65BA983CB6422861446680 /* SidebarColumnDisplayPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2F18E06E14A457C9D3FBE9 /* SidebarColumnDisplayPolicyTests.swift */; };
 		46FCE4369D48D2C2A923440C /* SidebarColumnsContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141EE4DEE65E7D01210C984A /* SidebarColumnsContainer.swift */; };
@@ -4775,6 +4776,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabDropDelegate.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
 		D7AB34310000000000000002 /* SidebarBonsplitWorkspaceRowDropModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitWorkspaceRowDropModifier.swift; sourceTree = "<group>"; };
+		0F58CFEEE9B34CFC6AA5AF03 /* SidebarBoundaryStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBoundaryStyle.swift; sourceTree = "<group>"; };
 		64925FB18F7E4DE5E76B8E61 /* SidebarColumnDisplayPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarColumnDisplayPolicy.swift; sourceTree = "<group>"; };
 		0E2F18E06E14A457C9D3FBE9 /* SidebarColumnDisplayPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarColumnDisplayPolicyTests.swift; sourceTree = "<group>"; };
 		141EE4DEE65E7D01210C984A /* SidebarColumnsContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarColumnsContainer.swift; sourceTree = "<group>"; };
@@ -6305,6 +6307,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B804B0290000000000000029 /* SidebarLayoutModel.swift */,
 				5B1DC0020000000000000002 /* SidebarCreationContext.swift */,
 				5B1DC0040000000000000004 /* SidebarMachineColumnView.swift */,
+				0F58CFEEE9B34CFC6AA5AF03 /* SidebarBoundaryStyle.swift */,
 				7C598A533ECEAA393568F2DF /* SidebarWorkspaceHoverCardView.swift */,
 				96ED688A8C652F86C1E54E6E /* SidebarWorkspaceIconTableCellView.swift */,
 				970EE8675EAF2845EC948608 /* SidebarHoverCard.swift */,
@@ -10216,6 +10219,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB34310000000000000003 /* SidebarBonsplitTabDropDelegate.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
 				D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */,
+				3721C02926ACDDAD18FFBD5E /* SidebarBoundaryStyle.swift in Sources */,
 				B7856CA9B2B34DEA2E3CA0F4 /* SidebarColumnDisplayPolicy.swift in Sources */,
 				46FCE4369D48D2C2A923440C /* SidebarColumnsContainer.swift in Sources */,
 				5B1DC0010000000000000001 /* SidebarCreationContext.swift in Sources */,

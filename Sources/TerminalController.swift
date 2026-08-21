@@ -2545,6 +2545,8 @@ class TerminalController {
         #if DEBUG
         case "debug.sidebar.column_state":
             return v2Result(id: id, self.v2DebugSidebarColumnState(params: params))
+        case "debug.sidebar.boundary_style":
+            return v2Result(id: id, self.v2DebugSidebarBoundaryStyle(params: params))
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":

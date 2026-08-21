@@ -2070,31 +2070,16 @@ struct ContentView: View {
                     )
                     .frame(width: max(0, totalWidth), alignment: .leading)
                     .frame(height: SidebarChromeBandMetrics.bottomBandHeight, alignment: .bottomLeading)
-                    .background {
-                        SidebarChromeBandMetrics.bandFill
-                            .overlay(alignment: .top) {
-                                Rectangle()
-                                    .fill(Color(nsColor: .separatorColor).opacity(0.72))
-                                    .frame(height: 1)
-                            }
-                    }
+                    .background(SidebarChromeFooterBandBackground())
                     .clipped()
                 }
             }
             .background(alignment: .topLeading) {
-                // Distinct top band: the titlebar strip over the sidebar
-                // region carries its own tint, terminated by the full-width
-                // titlebar hairline. The column divider runs between the two
-                // bands and never intersects chrome. Background, not overlay:
+                // Distinct top band (style-gated): background, not overlay —
                 // the titlebar controls (bell, +, nav) live inside the column
                 // subtrees and must stay above the tint.
                 if sidebarState.isVisible {
-                    SidebarChromeBandMetrics.bandFill
-                        .frame(
-                            width: max(0, totalWidth),
-                            height: SidebarChromeBandMetrics.topBandHeight
-                        )
-                        .allowsHitTesting(false)
+                    SidebarChromeTopBandView(width: totalWidth)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -2541,12 +2526,13 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
-            // Full-width: the sidebar region's top band terminates on this
-            // line, Finder-toolbar style, so the column divider has a real
-            // boundary to land on.
-            WindowChromeBorder(
-                orientation: .horizontal,
-                backgroundColor: appearance.resolvedChromeBackgroundColor
+            // Bands styles extend this line across the sidebar region so the
+            // top band terminates on it; other styles keep the original
+            // terminal-side-only span.
+            SidebarTitlebarBottomBorder(
+                layout: sidebarLayout,
+                backgroundColor: appearance.resolvedChromeBackgroundColor,
+                sidebarVisible: sidebarState.isVisible
             )
         }
     }
