@@ -26,12 +26,17 @@ command  capabilities  aliases=-
 command  close-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  close-workspace  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
 command  config  aliases=-
   arg  arguments  kind=argument  completion=-
 command  current-window  aliases=-
   arg  arguments  kind=argument  completion=-
+command  current-workspace  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
 command  docs  aliases=-
   arg  arguments  kind=argument  completion=-
 command  feedback  aliases=-
@@ -51,12 +56,37 @@ command  last-window  aliases=-
   arg  arguments  kind=argument  completion=-
 command  list-windows  aliases=-
   arg  arguments  kind=argument  completion=-
+command  list-workspaces  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
 command  login  aliases=-
   arg  arguments  kind=argument  completion=-
 command  logout  aliases=-
   arg  arguments  kind=argument  completion=-
+command  move-tab-to-new-workspace  aliases=-
+  arg  --focus  kind=option  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --tab  kind=option  completion=custom-deprecated
+  arg  --title  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+command  move-workspace-to-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
 command  new-window  aliases=-
   arg  arguments  kind=argument  completion=-
+command  new-workspace  aliases=-
+  arg  --command  kind=option  completion=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --description  kind=option  completion=-
+  arg  --env  kind=option  completion=-
+  arg  --env-file  kind=option  completion=file()
+  arg  --focus  kind=option  completion=-
+  arg  --group  kind=option  completion=-
+  arg  --group-placement  kind=option  completion=list(afterCurrent,end,top)
+  arg  --group-reference  kind=option  completion=custom-deprecated
+  arg  --layout  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
 command  next-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
@@ -85,6 +115,25 @@ command  rename-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  title  kind=argument  completion=-
+command  rename-workspace  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  title  kind=argument  completion=-
+command  reorder-workspace  aliases=-
+  arg  --after  kind=option  completion=custom-deprecated
+  arg  --before  kind=option  completion=custom-deprecated
+  arg  --dry-run  kind=flag  completion=-
+  arg  --index  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  reorder-workspaces  aliases=-
+  arg  --dry-run  kind=flag  completion=-
+  arg  --order  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+command  select-workspace  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
 command  settings  aliases=-
   arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
@@ -165,4 +214,16 @@ command  vm status  aliases=info
 command  vm tools  aliases=tool-inspector
   arg  id  kind=argument  completion=custom-deprecated
 command  welcome  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  workspace  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  workspace-action  aliases=-
+  arg  --action  kind=option  completion=-
+  arg  --color  kind=option  completion=-
+  arg  --description  kind=option  completion=-
+  arg  --title  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  workspace-group  aliases=-
   arg  arguments  kind=argument  completion=-
