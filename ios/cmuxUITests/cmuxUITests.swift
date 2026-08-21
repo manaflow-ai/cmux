@@ -32,7 +32,7 @@ final class cmuxUITests: XCTestCase {
             mockData: false,
             clearAuth: true,
             launchArguments: [
-                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "-dev.cmux.mobile.onboarding.v3.progress.v1",
                 "complete",
             ]
         )
@@ -60,20 +60,19 @@ final class cmuxUITests: XCTestCase {
     /// Exercises the complete first-run activation path without Stack auth,
     /// a Mac, camera hardware, or network access. The first launch forces the
     /// durable progress key to `welcome`; advancing to Connect writes the real
-    /// `.connect` milestone. The default connection scene must describe
-    /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first product scene uses the shipped workspace-list capture,
-    /// while the notification scene shows the shipped chronological feed. The
-    /// connection scene keeps its live connection-state illustration. Relaunching
-    /// after the simulated search finishes must resume at Connect without
-    /// exposing manual pairing until Tailscale is selected.
+    /// `.connect` milestone. The connect scene must describe same-account
+    /// automatic discovery, introduce all three transports (Auto-Connect,
+    /// Direct, Tailscale), and keep QR as fallback only. Relaunching after the
+    /// simulated search finishes must resume at Connect, tapping the Tailscale
+    /// mechanism must open the scanner, and the push scene must show the
+    /// inline-reply vignette with Enable/Not Now.
     @MainActor
-    func testOnboardingScenesNotificationFeedResumeAndTailscaleScanner() throws {
+    func testOnboardingScenesConnectMechanismsResumeScannerAndPushPreview() throws {
         let app = XCUIApplication()
         XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
-            "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+            "-dev.cmux.mobile.onboarding.v3.progress.v1",
             "welcome",
         ]
         app.launchArguments = baseArguments + progressOverride
@@ -100,8 +99,8 @@ final class cmuxUITests: XCTestCase {
             add(attachment)
         }
 
-        let agentsScene = element("MobileOnboardingAgentsScene")
-        XCTAssertTrue(agentsScene.waitForExistence(timeout: 8))
+        let welcomeScene = element("MobileOnboardingWelcomeScene")
+        XCTAssertTrue(welcomeScene.waitForExistence(timeout: 8))
         let header = element("MobileOnboardingHeader")
         let progress = element("MobileOnboardingProgressIndicator")
         let footer = element("MobileOnboardingFooter")
@@ -213,158 +212,139 @@ final class cmuxUITests: XCTestCase {
             assertStableChrome(includeFooter: includeFooter, file: file, line: line)
         }
 
-        capture("onboarding-01-agents")
-        let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
-        let agentsBody = app.staticTexts["Track every workspace from your phone."]
-        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
+        capture("onboarding-01-welcome")
+        let welcomeTitle = app.staticTexts["Your agents keep working on your Mac"]
+        let welcomeBody = app.staticTexts[
+            "Watch every workspace live, and step in the moment an agent needs you."
+        ]
+        let welcomeScreenshot = element("MobileOnboardingScreenshot-workspaces")
         assertPageContentFitsWithoutScrolling(
-            title: agentsTitle,
-            visual: agentsScreenshot,
-            additionalContent: [agentsBody]
+            title: welcomeTitle,
+            visual: welcomeScreenshot,
+            additionalContent: [welcomeBody]
         )
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
 
-        let notificationsScene = element("MobileOnboardingNotificationsScene")
-        assertPageVisible(notificationsScene)
-        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
-        let notificationsBody = app.staticTexts.matching(NSPredicate(
-            format: "label == %@",
-            "Review every agent alert in one feed."
-        )).firstMatch
-        XCTAssertTrue(notificationsBody.exists)
-        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
-        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
-        XCTAssertTrue(notificationsScreenshot.exists)
-        XCTAssertTrue(primaryButton.exists)
-        assertStableChrome()
-        assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Every agent alert, in one place"],
-            visual: notificationsScreenshot,
-            additionalContent: [notificationsBody]
-        )
-        capture("onboarding-02-notifications")
-
-        let backButton = app.buttons["MobileOnboardingBackButton"]
-        backButton.tap()
-        assertPageVisible(agentsScene)
-        XCTAssertTrue(backButton.waitForNonExistence(timeout: 2))
-        assertStableChrome()
-        capture("onboarding-02a-agents-after-back")
-
-        primaryButton.tap()
-        assertPageVisible(notificationsScene)
-        XCTAssertTrue(backButton.waitForExistence(timeout: 2))
-        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
-        assertStableChrome()
-        capture("onboarding-02b-notifications-after-return")
-
-        primaryButton.tap()
-
         let connectScene = element("MobileOnboardingConnectScene")
         assertPageVisible(connectScene)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
-        XCTAssertTrue(app.staticTexts[
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Connect your Mac"].exists)
+        let connectBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
             "Use the same cmux account on both devices. Your Mac connects automatically."
-        ].exists)
+        )).firstMatch
+        XCTAssertTrue(connectBody.exists)
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
         XCTAssertFalse(app.buttons["signin.apple"].exists)
-        XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
-        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
+        // All three transports are introduced; Direct is informational while
+        // Auto-Connect and Tailscale stay selectable.
+        let mechanisms = element("MobileOnboardingConnectionMechanisms")
+        XCTAssertTrue(mechanisms.exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingMechanismAutomatic"].exists)
+        XCTAssertTrue(element("MobileOnboardingMechanismDirect").exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingMechanismTailscale"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
         assertStableChrome(includeFooter: false)
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Your Mac connects automatically"],
+            title: app.staticTexts["Connect your Mac"],
             visual: element("MobileOnboardingConnectionPreview"),
-            additionalContent: [app.staticTexts[
-                "Use the same cmux account on both devices. Your Mac connects automatically."
-            ]],
+            additionalContent: [connectBody, mechanisms],
             includeFooter: false
         )
-        capture("onboarding-03-connect")
+        capture("onboarding-02-connect")
+
+        let backButton = app.buttons["MobileOnboardingBackButton"]
+        backButton.tap()
+        assertPageVisible(welcomeScene)
+        XCTAssertTrue(backButton.waitForNonExistence(timeout: 2))
+        assertStableChrome()
+        capture("onboarding-02a-welcome-after-back")
+
+        primaryButton.tap()
+        assertPageVisible(connectScene)
+        XCTAssertTrue(backButton.waitForExistence(timeout: 2))
+        assertStableChrome(includeFooter: false)
+        capture("onboarding-02b-connect-after-return")
 
         // Drop only the launch-domain override. The application-domain value
         // written while entering Connect must now be the source of truth. The
-        // preview marks automatic discovery finished so QR appears only as the
-        // fallback on this second launch.
+        // preview marks automatic discovery finished so both recovery paths
+        // show on this second launch: retry primary, QR scanner secondary.
         app.terminate()
         app.launchArguments = baseArguments
         app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
         app.launch()
 
         assertPageVisible(connectScene, timeout: 8)
-        XCTAssertTrue(app.buttons["Check Again"].exists)
-        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
-        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
-        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
-        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
-        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
-        tap(tailscaleMethod, in: app)
-        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
-        let tailscaleDescription = app.staticTexts.matching(
-            NSPredicate(
-                format: "label == %@",
-                "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
-            )
-        ).firstMatch
-        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
-        // The choice is exclusive: selecting one method must deselect the other.
-        XCTAssertTrue(tailscaleMethod.isSelected)
-        XCTAssertFalse(automaticMethod.isSelected)
-        let tailscaleRetry = app.buttons["MobileOnboardingSecondaryButton"]
-        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
-        XCTAssertTrue(tailscaleRetry.label.contains("Check Again"))
-        tap(automaticMethod, in: app)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
-        XCTAssertTrue(automaticMethod.isSelected)
-        XCTAssertFalse(tailscaleMethod.isSelected)
-        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
-        tap(tailscaleMethod, in: app)
-        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
-
-        let scanPairingCodeButton = app.buttons["MobileOnboardingPrimaryButton"]
-        XCTAssertTrue(scanPairingCodeButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(scanPairingCodeButton.label.contains("Scan Pairing Code"))
-        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
-        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
-        XCTAssertTrue(scanPairingCodeButton.isHittable)
+        let fallbackPrimary = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(fallbackPrimary.waitForExistence(timeout: 4))
+        XCTAssertTrue(fallbackPrimary.label.contains("Check Again"))
+        let fallbackSecondary = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(fallbackSecondary.waitForExistence(timeout: 4))
+        XCTAssertTrue(fallbackSecondary.label.contains("Scan Pairing Code"))
+        let fallbackBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "No Mac yet. Get cmux at cmux.com, sign in with this same account, and your Mac appears here on its own."
+        )).firstMatch
+        XCTAssertTrue(fallbackBody.waitForExistence(timeout: 4))
         recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Connect over Tailscale"],
+            title: app.staticTexts["Connect your Mac"],
             visual: element("MobileOnboardingConnectionPreview"),
-            additionalContent: [
-                tailscaleDescription,
-                element("MobileOnboardingConnectionMethodPicker"),
-            ],
-            includeFooter: true
+            additionalContent: [fallbackBody, mechanisms]
         )
-        capture("onboarding-04-resumed-connect")
+        capture("onboarding-03-resumed-connect-fallback")
 
-        scanPairingCodeButton.tap()
+        // Tapping the Tailscale mechanism selects it and opens the scanner.
+        let tailscaleMechanism = app.buttons["MobileOnboardingMechanismTailscale"]
+        let automaticMechanism = app.buttons["MobileOnboardingMechanismAutomatic"]
+        XCTAssertTrue(automaticMechanism.isSelected)
+        tap(tailscaleMechanism, in: app)
 
         let scannerPreview = element("MobilePairingScannerPreview")
-        let scannerGuidance = element("MobilePairingScannerGuidance")
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
-        XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
-        XCTAssertEqual(
-            scannerGuidance.label,
-            "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
-        )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
-        capture("onboarding-05-scanner-fallback")
+        capture("onboarding-04-tailscale-scanner")
 
         scannerCancel.tap()
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
-        capture("onboarding-06-scanner-cancelled")
-        tap(automaticMethod, in: app)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
+        // Tailscale keeps scanning primary; retry moves to secondary.
+        XCTAssertTrue(tailscaleMechanism.isSelected)
+        XCTAssertFalse(automaticMechanism.isSelected)
+        XCTAssertTrue(fallbackPrimary.label.contains("Scan Pairing Code"))
+        XCTAssertTrue(fallbackSecondary.label.contains("Check Again"))
+        capture("onboarding-05-scanner-cancelled")
+        tap(automaticMechanism, in: app)
+        XCTAssertTrue(fallbackBody.waitForExistence(timeout: 4))
+        XCTAssertTrue(automaticMechanism.isSelected)
+        XCTAssertFalse(tailscaleMechanism.isSelected)
+
+        // Skip on connect defers Mac setup and advances to the push offer,
+        // which renders the inline-reply vignette without any OS prompt.
+        app.buttons["MobileOnboardingSkipButton"].tap()
+        let pushScene = element("MobileOnboardingPushScene")
+        assertPageVisible(pushScene)
+        let pushPreview = element("MobileOnboardingPushPreview")
+        XCTAssertTrue(pushPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(notNowButton.label.contains("Not Now"))
+        XCTAssertFalse(app.buttons["MobileOnboardingSkipButton"].exists)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Know the moment an agent needs you"],
+            visual: pushPreview
+        )
+        capture("onboarding-06-push")
 
         app.terminate()
         XCUIDevice.shared.orientation = .landscapeRight
@@ -372,48 +352,30 @@ final class cmuxUITests: XCTestCase {
         app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
         app.launch()
 
-        assertPageVisible(agentsScene, timeout: 8)
+        assertPageVisible(welcomeScene, timeout: 8)
         XCTAssertNotNil(waitForFrame(of: pageViewport, timeout: 4) { frame in
             frame.width > frame.height
         })
         recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
-            title: agentsTitle,
-            visual: agentsScreenshot,
-            additionalContent: [agentsBody]
+            title: welcomeTitle,
+            visual: welcomeScreenshot,
+            additionalContent: [welcomeBody]
         )
-        capture("onboarding-07-agents-compact-height")
-
-        primaryButton.tap()
-        assertPageVisible(notificationsScene)
-        assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Every agent alert, in one place"],
-            visual: notificationsScreenshot,
-            additionalContent: [notificationsBody]
-        )
-        capture("onboarding-08-notifications-compact-height")
+        capture("onboarding-07-welcome-compact-height")
 
         primaryButton.tap()
         assertPageVisible(connectScene)
-        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(compactRetryButton.waitForExistence(timeout: 4))
         XCTAssertTrue(compactRetryButton.label.contains("Check Again"))
-        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactRetryButton.frame))
-        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactRetryButton.frame))
-        XCTAssertTrue(compactRetryButton.isHittable)
         recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Your Mac connects automatically"],
+            title: app.staticTexts["Connect your Mac"],
             visual: element("MobileOnboardingConnectionPreview"),
-            additionalContent: [
-                app.staticTexts[
-                    "Use the same cmux account on both devices. Your Mac connects automatically."
-                ],
-                element("MobileOnboardingConnectionMethodPicker"),
-            ]
+            additionalContent: [element("MobileOnboardingConnectionMechanisms")]
         )
-        capture("onboarding-09-connect-compact-height")
+        capture("onboarding-08-connect-compact-height")
     }
 
     /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must
@@ -532,13 +494,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
     }
 
+    /// Signed out, advancing past welcome persists the `.connect` milestone
+    /// and hands off to sign-in; the connect and push scenes wait behind
+    /// authentication instead of rendering for a signed-out person. A relaunch
+    /// must return to sign-in, not replay the welcome pitch.
     @MainActor
-    func testSignedOutOnboardingCompletesBeforeShowingSignIn() throws {
+    func testSignedOutWelcomeHandsOffToSignInAndDoesNotReplay() throws {
         let app = launchApp(
             mockData: false,
             clearAuth: true,
             launchArguments: [
-                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "-dev.cmux.mobile.onboarding.v3.progress.v1",
                 "welcome",
             ]
         )
@@ -549,16 +515,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
-        XCTAssertTrue(element("MobileOnboardingAgentsScene").waitForExistence(timeout: 8))
-        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
-        primaryButton.tap()
-
-        XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
-        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
-        primaryButton.tap()
-
-        XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
-        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertTrue(element("MobileOnboardingWelcomeScene").waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
 
@@ -566,6 +523,16 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
         XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
+        XCTAssertFalse(element("MobileOnboardingWelcomeScene").exists)
+
+        // The `.connect` milestone is durable: relaunching without the launch
+        // override lands on sign-in again, not the welcome pitch.
+        app.terminate()
+        app.launchArguments = []
+        app.launch()
+
+        XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
+        XCTAssertFalse(element("MobileOnboardingWelcomeScene").exists)
     }
 
     /// A migrating BETA install sees the minimum Mac versions once. Choosing

@@ -3,13 +3,12 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Full-height Simulator captures from the production workspace list and
-/// notification feed preview entrypoints, presented inside the same iPhone
-/// product frame used by the App Store screenshot pipeline.
+/// Full-height Simulator captures from the production workspace list preview
+/// entrypoint, presented inside the same iPhone product frame used by the App
+/// Store screenshot pipeline.
 struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
         case workspaces
-        case notifications
 
         var accessibilityIdentifier: String {
             "MobileOnboardingScreenshot-\(rawValue)"

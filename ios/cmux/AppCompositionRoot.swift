@@ -43,6 +43,8 @@ final class AppCompositionRoot {
     /// auto-pair attach URL is active, so neither path is wedged behind the
     /// one-time onboarding screen.
     let onboardingStore: MobileOnboardingStore
+    /// One-time in-app guidance tips that continue onboarding into real use.
+    let guidanceStore: MobileGuidanceStore
     /// The process-wide tailnet detector behind the shell UI's read-only
     /// observing port, injected down so pairing and disconnected surfaces can
     /// explain a Tailscale-off phone.
@@ -280,6 +282,7 @@ final class AppCompositionRoot {
             defaults: .standard,
             forceComplete: bypassOnboarding
         )
+        self.guidanceStore = MobileGuidanceStore(defaults: .standard)
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
         self.pushReachabilityTask = Task { @MainActor [weak pushCoordinator] in
             for await _ in reachability.pathChanges() {

@@ -5090,13 +5090,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+            "value": "Install Tailscale on both devices and join the same network. In cmux on your Mac, choose Connect iPhone/iPad and scan the pairing code once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+            "value": "両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。Macのcmuxで「Connect iPhone/iPad」を選び、ペアリングコードを一度スキャンします。"
           }
         }
       }
@@ -19142,6 +19142,448 @@
         }
       }
     },
+    "mobile.guidance.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss tip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.guidance.firstWorkspace.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap any workspace to watch its terminal in real time and type as if you were at your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをタップするとターミナルをリアルタイムで確認でき、Macの前にいるように入力できます。"
+          }
+        }
+      }
+    },
+    "mobile.guidance.firstWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac's workspaces are live"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのワークスペースはライブです"
+          }
+        }
+      }
+    },
+    "mobile.guidance.push.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Push"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ通知を有効にする"
+          }
+        }
+      }
+    },
+    "mobile.guidance.push.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This feed works without alerts, but push pings you the moment an agent needs you, and you can reply from the notification."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフィードは通知なしでも使えますが、プッシュ通知ならエージェントが必要とした瞬間に届き、通知から直接返信できます。"
+          }
+        }
+      }
+    },
+    "mobile.guidance.push.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get these as push notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ通知でも受け取る"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.fallbackBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac yet. Get cmux at cmux.com, sign in with this same account, and your Mac appears here on its own."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだMacが見つかりません。cmux.com でcmuxを入手し、同じアカウントでサインインすると、Macが自動的にここに表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイレクト"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.directBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.directDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the same Wi-Fi or LAN, the connection upgrades to a direct local link on its own."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じWi-FiやLAN上では、接続は自動的にローカルの直接リンクに切り替わります。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.irohDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Works anywhere. Encrypted relays find your Mac, then traffic moves peer to peer when the network allows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どこからでも接続できます。暗号化されたリレーがMacを見つけ、ネットワークが許せばピアツーピア通信に切り替わります。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanism.tailscaleDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already on a tailnet? That is a private direct network. Scan the pairing code on your Mac once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにtailnetをご利用ですか？それはプライベートな直接ネットワークです。Macのペアリングコードを一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.mechanisms.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How your iPhone reaches your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneがMacにつながる仕組み"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get pinged when an agent finishes or wants approval, and reply right from the notification."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが完了したときや承認が必要なときに通知を受け取り、通知から直接返信できます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.previewAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Example cmux notification: the agent claude asks for approval, and you reply from the notification without opening the app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux通知の例：エージェントclaudeが承認を求め、アプリを開かずに通知から返信します。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.previewBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認が必要です"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.previewSent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに送信済み"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.previewTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を有効にする"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.secondary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Know the moment an agent needs you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが必要とした瞬間にわかる"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.welcome.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watch every workspace live, and step in the moment an agent needs you."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースをライブで見守り、エージェントが必要とした瞬間に対応できます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.welcome.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめる"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.welcome.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agents keep working on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはMacで作業を続けます"
+          }
+        }
+      }
+    },
     "mobile.onboarding.agents.body": {
       "extractionState": "manual",
       "localizations": {
@@ -19386,13 +19828,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac connects automatically"
+            "value": "Connect your Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macは自動的に接続されます"
+            "value": "Macを接続する"
           }
         }
       }

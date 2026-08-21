@@ -12,7 +12,7 @@ final class PushReadinessUITests: XCTestCase {
         app.launchArguments = [
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
-            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "welcome",
+            "-dev.cmux.mobile.onboarding.v3.progress.v1", "welcome",
         ]
         app.launchEnvironment = [
             "CMUX_UITEST_MOCK_DATA": "1",
@@ -20,7 +20,7 @@ final class PushReadinessUITests: XCTestCase {
         ]
         app.launch()
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileOnboardingAgentsScene"]
+            app.descendants(matching: .any)["MobileOnboardingWelcomeScene"]
                 .waitForExistence(timeout: 8)
         )
         XCTAssertFalse(springboard.buttons["Allow"].waitForExistence(timeout: 1))

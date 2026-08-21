@@ -809,10 +809,15 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether first-run onboarding has an unfinished durable milestone.
+    /// Whether first-run onboarding has an unfinished durable milestone that
+    /// the current authentication state can present. Post-welcome milestones
+    /// wait behind sign-in, so the root shows `SignInView` in between and
+    /// onboarding resumes at the persisted step afterward.
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
-        return onboardingStore.progress.shouldShowOnboarding
+        return onboardingStore.progress.shouldShowOnboarding(
+            isAuthenticated: isAuthenticated
+        )
         #else
         return false
         #endif
@@ -829,8 +834,11 @@ struct CMUXMobileRootView: View {
         // stores (app-lifetime objects), never the view struct: environment
         // values like `scenePhase` are only valid during body evaluation, so
         // scene-phase gating stays in the pushed `shouldKeepSearching` below.
+        // Runs on the welcome and push pages. The connect page owns explicit
+        // retry UX, so the loop yields to it there, and it stops for good on
+        // connect or completion.
         let isStillEligible: @MainActor () -> Bool = { [store, onboardingStore] in
-            onboardingStore.progress == .welcome
+            (onboardingStore.progress == .welcome || onboardingStore.progress == .push)
                 && store.connectionState != .connected
         }
         onboardingMacDiscoveryKeepAlive.update(
@@ -859,14 +867,16 @@ struct CMUXMobileRootView: View {
         OnboardingFlowView(
             initialStage: initialOnboardingStage,
             context: .firstRun,
-            isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
-            onSkip: completeOnboarding,
+            onReachedPush: markOnboardingReadyForPush,
+            onSkipFlow: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onEnablePush: enableOnboardingPush,
+            onDeclinePush: { pushCoordinator.recordOnboardingPushDecline() },
             onComplete: completeOnboarding
         )
         #else
@@ -880,16 +890,17 @@ struct CMUXMobileRootView: View {
         OnboardingFlowView(
             initialStage: initialOnboardingStage,
             context: .preview,
-            isAuthenticated: true,
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
-            onSkip: completeOnboarding,
+            onReachedPush: markOnboardingReadyForPush,
+            onSkipFlow: completeOnboarding,
             onRetryConnection: {},
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onEnablePush: { true },
             onComplete: completeOnboarding
         )
         #else
@@ -899,7 +910,11 @@ struct CMUXMobileRootView: View {
 
     #if os(iOS)
     private var initialOnboardingStage: OnboardingStage {
-        onboardingStore.progress == .connect ? .connect : .agents
+        switch onboardingStore.progress {
+        case .connect: .connect
+        case .push: .push
+        case .welcome, .complete: .welcome
+        }
     }
 
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
@@ -919,6 +934,22 @@ struct CMUXMobileRootView: View {
             defer { isAwaitingOnboardingReconnectStart = false }
             _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
         }
+    }
+
+    private func markOnboardingReadyForPush() {
+        onboardingStore.markReadyForPush()
+    }
+
+    /// Requests push authorization attributed to onboarding. A decline is
+    /// recorded so the workspace list's automatic prompt does not immediately
+    /// re-ask someone who just said "Not Now"; Settings and in-app guidance
+    /// remain the recovery paths.
+    private func enableOnboardingPush() async -> Bool {
+        let granted = await pushCoordinator.enable(trigger: "onboarding")
+        if !granted {
+            pushCoordinator.recordOnboardingPushDecline()
+        }
+        return granted
     }
 
     private func completeOnboarding() {

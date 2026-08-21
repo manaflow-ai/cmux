@@ -210,6 +210,9 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// Optional so previews and package hosts without the app root still render.
+    @Environment(MobileGuidanceStore.self) private var guidanceStore:
+        MobileGuidanceStore?
     #endif
 
     var usesCompactStack: Bool {
@@ -371,7 +374,44 @@ struct WorkspaceShellView: View {
         workspaceActionToastOverlay {
             layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
         }
+        #if os(iOS)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if showsFirstWorkspaceGuidance {
+                MobileGuidanceCallout(
+                    icon: "hand.tap",
+                    title: L10n.string(
+                        "mobile.guidance.firstWorkspace.title",
+                        defaultValue: "Your Mac's workspaces are live"
+                    ),
+                    message: L10n.string(
+                        "mobile.guidance.firstWorkspace.message",
+                        defaultValue: "Tap any workspace to watch its terminal in real time and type as if you were at your Mac."
+                    ),
+                    dismiss: { guidanceStore?.dismiss(.openFirstWorkspace) }
+                )
+            }
+        }
+        .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
+            // Opening a workspace proves the tip's point; retire it.
+            guard selectedWorkspaceID != nil else { return }
+            guidanceStore?.dismiss(.openFirstWorkspace)
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// One-time first-visit tip on the connected workspace list. Hidden while
+    /// a workspace is open or a compact push is active, and gone for good once
+    /// a workspace has ever been opened or the card is dismissed.
+    private var showsFirstWorkspaceGuidance: Bool {
+        guard let guidanceStore,
+              !guidanceStore.isDismissed(.openFirstWorkspace),
+              store.connectionState == .connected,
+              !store.workspaces.isEmpty,
+              store.selectedWorkspaceID == nil else { return false }
+        return !usesCompactStack || compactNavigationPath.isEmpty
+    }
+    #endif
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {

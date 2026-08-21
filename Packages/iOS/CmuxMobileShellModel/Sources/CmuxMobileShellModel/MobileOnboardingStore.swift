@@ -3,22 +3,21 @@ import Observation
 
 /// Persists the durable milestone reached in first-run onboarding.
 ///
-/// The flow presents a short product tour, then signs in if needed, and finally
-/// starts same-account computer discovery. Persisting the transition to
-/// ``MobileOnboardingProgress/connect`` means a person who leaves during sign-in
-/// or connection resumes at the remaining prerequisite instead of replaying the
-/// product tour. QR pairing remains an explicit fallback.
+/// The flow presents a welcome pitch, then sign-in when needed, then computer
+/// connection, then the push-notification offer. Persisting each milestone
+/// means a person who leaves mid-flow resumes at the remaining step instead of
+/// replaying what they already saw. Every step is individually skippable.
 ///
 /// The backing `UserDefaults` is injected so the store is testable without
 /// touching `.standard`; the app constructs it at the composition root with
 /// `UserDefaults.standard`.
 ///
-/// `forceComplete` lets automated launch paths bypass onboarding without writing
-/// through to the real install's progress.
+/// `forceComplete` lets automated launch paths bypass onboarding without
+/// writing through to the real install's progress.
 ///
 /// ```swift
 /// let store = MobileOnboardingStore(defaults: .standard)
-/// if store.progress == .welcome { /* present the product tour */ }
+/// if store.progress == .welcome { /* present the welcome pitch */ }
 /// store.markReadyToConnect()
 /// ```
 @MainActor
@@ -28,7 +27,7 @@ public final class MobileOnboardingStore {
     ///
     /// This key is intentionally independent from prior onboarding designs so
     /// completing an older tour does not suppress this one.
-    public static let progressKey = "dev.cmux.mobile.onboarding.redesign.progress.v1"
+    public static let progressKey = "dev.cmux.mobile.onboarding.v3.progress.v1"
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -56,12 +55,18 @@ public final class MobileOnboardingStore {
         }
     }
 
-    /// Persist that the product demonstration is complete and setup remains.
+    /// Persist that the welcome pitch is complete and connection setup remains.
     public func markReadyToConnect() {
         setProgress(.connect)
     }
 
-    /// Persist that onboarding was skipped or computer activation succeeded.
+    /// Persist that connection setup finished or was skipped and the
+    /// push-notification offer remains.
+    public func markReadyForPush() {
+        setProgress(.push)
+    }
+
+    /// Persist that onboarding finished (steps may have been skipped).
     public func markComplete() {
         setProgress(.complete)
     }

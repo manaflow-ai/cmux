@@ -6,77 +6,70 @@ import Testing
 import UIKit
 
 @Suite struct OnboardingSceneChromeTests {
-    @Test func productPagesKeepExpectedNavigationChrome() {
-        let agents = OnboardingSceneChrome(
-            stage: .agents,
-            isAuthenticated: true,
-            connectionPhase: .searching
-        )
-        let notifications = OnboardingSceneChrome(
-            stage: .notifications,
-            isAuthenticated: true,
+    @Test func welcomeKeepsExpectedNavigationChrome() {
+        let welcome = OnboardingSceneChrome(
+            stage: .welcome,
             connectionPhase: .searching
         )
 
-        #expect(!agents.showsBack)
-        #expect(agents.showsSkip)
-        #expect(agents.primaryTitle != nil)
-        #expect(agents.secondaryTitle == nil)
-
-        #expect(notifications.showsBack)
-        #expect(notifications.showsSkip)
-        #expect(notifications.primaryTitle != nil)
-        #expect(notifications.secondaryTitle == nil)
+        #expect(!welcome.showsBack)
+        #expect(welcome.showsSkip)
+        #expect(welcome.primaryTitle != nil)
+        #expect(welcome.secondaryTitle == nil)
     }
 
-    @Test func connectionChromeFollowsAuthenticationAndDiscoveryPhase() {
-        let signIn = OnboardingSceneChrome(
-            stage: .connect,
-            isAuthenticated: false,
-            connectionPhase: .searching
-        )
+    @Test func connectionChromeFollowsDiscoveryPhase() {
         let searching = OnboardingSceneChrome(
             stage: .connect,
-            isAuthenticated: true,
             connectionPhase: .searching
         )
         let idle = OnboardingSceneChrome(
             stage: .connect,
-            isAuthenticated: true,
             connectionPhase: .idle
         )
         let automaticFallback = OnboardingSceneChrome(
             stage: .connect,
-            isAuthenticated: true,
             connectionPhase: .fallback
         )
         let tailscaleFallback = OnboardingSceneChrome(
             stage: .connect,
-            isAuthenticated: true,
             connectionPhase: .fallback,
             connectionMethod: .tailscale
         )
         let ready = OnboardingSceneChrome(
             stage: .connect,
-            isAuthenticated: true,
             connectionPhase: .ready
         )
 
-        #expect(signIn.showsBack)
-        #expect(!signIn.showsSkip)
-        #expect(signIn.primaryTitle != nil)
-        #expect(signIn.secondaryTitle == nil)
-
+        #expect(searching.showsBack)
+        #expect(searching.showsSkip)
         #expect(searching.primaryTitle == nil)
         #expect(searching.secondaryTitle == nil)
         #expect(idle.primaryTitle != nil)
         #expect(idle.secondaryTitle == nil)
+        // QR fallback stays reachable for either method: whichever action is
+        // not primary becomes the secondary.
         #expect(automaticFallback.primaryTitle != nil)
-        #expect(automaticFallback.secondaryTitle == nil)
+        #expect(automaticFallback.secondaryTitle != nil)
         #expect(tailscaleFallback.primaryTitle != nil)
         #expect(tailscaleFallback.secondaryTitle != nil)
+        #expect(tailscaleFallback.primaryTitle != automaticFallback.primaryTitle)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
+        #expect(!ready.showsSkip)
+    }
+
+    @Test func pushChromeOffersEnableAndNotNow() {
+        let push = OnboardingSceneChrome(
+            stage: .push,
+            connectionPhase: .searching
+        )
+
+        #expect(push.showsBack)
+        // "Not Now" is the one decline affordance; no duplicate header Skip.
+        #expect(!push.showsSkip)
+        #expect(push.primaryTitle != nil)
+        #expect(push.secondaryTitle != nil)
     }
 
     @Test func screenshotLanguageMatchesTheSupportedLocale() {
