@@ -86,6 +86,29 @@ import Testing
     )
 }
 
+// MARK: - B. Backoff streak resets at a session boundary (does not carry over)
+
+@Test func deadStreamRedialBackoffResetClearsStreak() {
+    var backoff = MobileDeadStreamRedialBackoff()
+    // The first barren stream recovers immediately; each subsequent one backs
+    // off exponentially, coalescing while a delayed redial is already scheduled.
+    #expect(backoff.nextRedialDelay() == .zero)
+    #expect(backoff.nextRedialDelay() == .seconds(1))
+    #expect(backoff.nextRedialDelay() == nil)
+    backoff.redialFired()
+    #expect(backoff.nextRedialDelay() == .seconds(2))
+    backoff.redialFired()
+    #expect(backoff.nextRedialDelay() == .seconds(4))
+    backoff.redialFired()
+
+    // A new-session boundary (sign-out, new pairing, method change) resets the
+    // streak, so the next session's first barren stream recovers immediately
+    // instead of inheriting the previous session's accrued backoff (#10482).
+    backoff.reset()
+    #expect(backoff.nextRedialDelay() == .zero)
+    #expect(backoff.nextRedialDelay() == .seconds(1))
+}
+
 // MARK: - A. Files-changed chips survive a transient reconnect
 
 @MainActor

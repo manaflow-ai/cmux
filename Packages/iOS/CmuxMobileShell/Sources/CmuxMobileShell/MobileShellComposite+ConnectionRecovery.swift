@@ -123,7 +123,11 @@ extension MobileShellComposite {
             // in-flight recovery. The replacement below owns a new generation
             // and is the only attempt allowed to publish a foreground client.
             connectionRecoveryOwner.cancel()
-            cancelDeadTerminalEventStreamRedial()
+            // A deliberate connection-method change restarts connectivity from
+            // scratch (it already clears the automatic reconnect backoff), so
+            // clear the barren-stream streak too instead of inheriting a stale
+            // backoff on the fresh method.
+            resetDeadTerminalEventStreamBackoff()
             applyConnectionRecoveryOwnerState()
             invalidateStoredMacReconnectAttempt()
         } else {
@@ -268,11 +272,14 @@ extension MobileShellComposite {
     }
 
     /// Cancel a pending backoff redial. Every `connectionRecoveryOwner.cancel()`
-    /// pairs with this so the single recovery owner's lifecycle also invalidates
-    /// the dead-stream redial (foreground resume and a stream that proved itself
-    /// alive supersede it too). Clearing the backoff's scheduled flag is part of
-    /// the cancel: a cancelled redial is no longer scheduled, so the next barren
-    /// stream may schedule again instead of coalescing into a dead timer.
+    /// pairs with this — directly (background suspend), or through
+    /// ``resetDeadTerminalEventStreamBackoff()`` at new-session boundaries
+    /// (sign-out, new pairing, method change) — so the single recovery owner's
+    /// lifecycle also invalidates the dead-stream redial. Clearing the backoff's
+    /// scheduled flag is part of the cancel: a cancelled redial is no longer
+    /// scheduled, so the next barren stream may schedule again instead of
+    /// coalescing into a dead timer. It keeps the barren-stream streak, so a
+    /// suspend/resume of the same session preserves the accrued backoff.
     func cancelDeadTerminalEventStreamRedial() {
         deadTerminalEventStreamRedialTaskGeneration = UUID()
         deadTerminalEventStreamRedialTask?.cancel()
