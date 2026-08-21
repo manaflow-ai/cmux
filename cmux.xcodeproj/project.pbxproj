@@ -1649,6 +1649,7 @@
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
 		7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */; };
+		E15A00000000000000000002 /* NotificationCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15A00000000000000000001 /* NotificationCommands.swift */; };
 		A11E00010000000000000001 /* NotificationDebugEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E00010000000000000004 /* NotificationDebugEmitter.swift */; };
 		A11E00010000000000000002 /* NotificationDebugMenuButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E00010000000000000005 /* NotificationDebugMenuButtons.swift */; };
 		A11E00010000000000000003 /* NotificationDebugTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E00010000000000000006 /* NotificationDebugTarget.swift */; };
@@ -4640,6 +4641,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
 		7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NotificationCacheMemoryPressureResponder.swift; sourceTree = "<group>"; };
+		E15A00000000000000000001 /* NotificationCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCommands.swift; sourceTree = "<group>"; };
 		A11E00010000000000000004 /* NotificationDebugEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDebugEmitter.swift; sourceTree = "<group>"; };
 		A11E00010000000000000005 /* NotificationDebugMenuButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDebugMenuButtons.swift; sourceTree = "<group>"; };
 		A11E00010000000000000006 /* NotificationDebugTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDebugTarget.swift; sourceTree = "<group>"; };
@@ -8378,6 +8380,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1A90000000000000000001A /* BrowserCommands.swift */,
 				C1A90000000000000000001C /* TmuxCompatCommands.swift */,
 				C1A90000000000000000001E /* HookCommands.swift */,
+				E15A00000000000000000001 /* NotificationCommands.swift */,
 				D10A00000000000000000001 /* WorkspaceCommands.swift */,
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
@@ -11713,6 +11716,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
 				C1A900000000000000000017 /* MetaCommands.swift in Sources */,
+				E15A00000000000000000002 /* NotificationCommands.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
