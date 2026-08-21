@@ -609,6 +609,58 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertTrue(totalPIDs.contains(monitorPID))
     }
 
+    /// Regression for the 0.64.22 SIGBUS crash loop: a self-spawning `npm exec`
+    /// shim built a ~1250-deep parent chain, and `processTreeNode` recursed one
+    /// stack frame per level on the 512 KB control-socket client thread.
+    func testProcessTreePayloadStaysBoundedOnPathologicallyDeepProcessChain() {
+        let chainLength = 2_000
+        let rootPID = 5_000
+        let processes = (0..<chainLength).map { index in
+            CmuxTopProcessInfo(
+                pid: rootPID + index,
+                parentPID: index == 0 ? 1 : rootPID + index - 1,
+                name: "metacube-mcp",
+                path: "/bin/sh",
+                ttyDevice: nil,
+                cmuxWorkspaceID: nil,
+                cmuxSurfaceID: nil,
+                cmuxAttributionReason: nil,
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(),
+            includesProcessDetails: false
+        )
+
+        let payload = snapshot.processTreePayload(for: Set(processes.map(\.pid)))
+
+        // Walked with an explicit stack: verifying the fix must not reintroduce
+        // the very recursion under test.
+        var seenPIDs: Set<Int> = []
+        var maxNesting = 0
+        var stack: [([String: Any], Int)] = payload.map { ($0, 1) }
+        while let (node, level) = stack.popLast() {
+            maxNesting = max(maxNesting, level)
+            if let pid = node["pid"] as? Int {
+                XCTAssertTrue(seenPIDs.insert(pid).inserted, "pid \(pid) emitted more than once")
+            }
+            for child in node["children"] as? [[String: Any]] ?? [] {
+                stack.append((child, level + 1))
+            }
+        }
+
+        XCTAssertEqual(seenPIDs.count, chainLength, "flattening must not drop processes")
+        // 64 nested levels, then one level of flattened descendants.
+        XCTAssertLessThanOrEqual(maxNesting, 66, "tree nesting must stay bounded, got \(maxNesting)")
+    }
+
     private func makeProcessInfo(
         processGroupID: Int?,
         terminalProcessGroupID: Int?
