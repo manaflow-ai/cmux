@@ -20,20 +20,22 @@ struct SidebarColumnsContainer<Leading: View, Trailing: View>: View {
     @ViewBuilder let leading: () -> Leading
     @ViewBuilder let trailing: () -> Trailing
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         HStack(spacing: 0) {
             leading()
                 .frame(width: max(0, leadingWidth))
                 .frame(maxHeight: .infinity)
-                .clipped()
-                .overlay(alignment: .trailing) {
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor).opacity(0.72))
-                        .frame(width: 1)
-                        .padding(.top, SidebarColumnDividerMetrics.topInset)
-                        .padding(.bottom, SidebarColumnDividerMetrics.bottomInset)
+                // No divider line (a line either cuts through the titlebar
+                // and footer strips or dangles between them). The machines
+                // column separates from the workspaces column the way a
+                // rail does everywhere else: a slightly darker wash.
+                .background(
+                    Color.black.opacity(colorScheme == .dark ? 0.14 : 0.05)
                         .allowsHitTesting(false)
-                }
+                )
+                .clipped()
 
             trailing()
                 .id(trailingIdentity)
