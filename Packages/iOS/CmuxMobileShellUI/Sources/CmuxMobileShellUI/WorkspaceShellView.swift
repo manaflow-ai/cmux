@@ -167,6 +167,8 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    /// One-time what's-new notice for the per-Computer connection update.
+    @State private var showsConnectionsUpdateNotice = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -480,6 +482,29 @@ struct WorkspaceShellView: View {
                 store: store,
                 submitTaskComposer: submitTaskComposerFromShell
             )
+        }
+        // One-time what's-new notice for the per-Computer connection-method
+        // update. Only users who already HAVE Computers see it (fresh installs
+        // learn the same in onboarding); any dismissal acknowledges it.
+        .onAppear {
+            guard !UserDefaults.standard.bool(
+                forKey: MobileConnectionsUpdateSheet.acknowledgedKey
+            ), store.hasKnownPairedMac else { return }
+            showsConnectionsUpdateNotice = true
+        }
+        .sheet(
+            isPresented: $showsConnectionsUpdateNotice,
+            onDismiss: {
+                UserDefaults.standard.set(
+                    true,
+                    forKey: MobileConnectionsUpdateSheet.acknowledgedKey
+                )
+            }
+        ) {
+            MobileConnectionsUpdateSheet {
+                showsConnectionsUpdateNotice = false
+            }
+            .presentationDetents([.large])
         }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
