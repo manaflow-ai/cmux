@@ -423,6 +423,7 @@ impl ProviderMachineController {
         self.provider.commit_replacement(true)?;
         self.pending_active_local.take();
         self.active_local = active_local;
+        self.local_connections.note_presented(active_local);
         self.pending_provider_switch = false;
         Ok(())
     }
@@ -1141,10 +1142,17 @@ impl ProviderMachineRuntime {
                         // serialized control loop is busy inside open_machine
                         // while it pushes these, so a snapshot request would
                         // stall exactly the message it is meant to show.
-                        let _ = refresh_output.send(MachineUpdate::ConnectionProgress {
-                            machine_id: progress.machine_id.as_str().to_string(),
-                            message: progress.message.clone(),
-                        });
+                        if refresh_output
+                            .send(MachineUpdate::ConnectionProgress {
+                                machine_id: progress.machine_id.as_str().to_string(),
+                                message: progress.message.clone(),
+                            })
+                            .is_err()
+                        {
+                            // The app side is gone (shutdown): stop pumping
+                            // like every other update path does.
+                            break;
+                        }
                         continue;
                     }
                     let mut notice = None;
@@ -1646,6 +1654,7 @@ impl ProviderMachineRuntime {
                     self.connections.remove(key);
                 }
                 self.open = None;
+                self.connections.note_presented(None);
             }
             return Ok(());
         }
@@ -1653,6 +1662,9 @@ impl ProviderMachineRuntime {
             anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_not_pending)
         })?;
         self.open = pending.candidate;
+        let presented =
+            self.open.as_ref().and_then(|open| key_for_id(&self.keys, &open.machine_id));
+        self.connections.note_presented(presented);
         Ok(())
     }
 
@@ -1677,6 +1689,7 @@ impl ProviderMachineRuntime {
                 self.connections.remove(key);
             }
             self.open = None;
+            self.connections.note_presented(None);
         }
     }
 

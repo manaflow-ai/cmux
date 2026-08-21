@@ -451,6 +451,11 @@ struct MachineConnectionHubInner {
     closed: AtomicBool,
     warm_limit: usize,
     use_counter: AtomicU64,
+    /// The machine whose session is on screen. Its warm connection is never
+    /// evicted, whatever its LRU age: evicting it would kill the session the
+    /// user is looking at and break switch rollback while a replacement is
+    /// still uncommitted.
+    presented: Mutex<Option<MachineKey>>,
 }
 
 struct MachineConnectionSlot {
@@ -501,12 +506,35 @@ impl MachineConnectionHub {
                 // evicted while it is still presented.
                 warm_limit: warm_limit.max(2),
                 use_counter: AtomicU64::new(0),
+                presented: Mutex::new(None),
             }),
         }
     }
 
     fn next_use_stamp(&self) -> u64 {
         self.inner.use_counter.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// Record which machine's session is presented on screen (None when no
+    /// commit is live). Called at presentation commit; eviction never touches
+    /// this connection. Presentation is also a use, so the slot moves to the
+    /// front of the LRU order.
+    pub(crate) fn note_presented(&self, key: Option<MachineKey>) {
+        if let Ok(mut presented) = self.inner.presented.lock() {
+            *presented = key;
+        }
+        if let Some(key) = key {
+            let stamp = self.next_use_stamp();
+            if let Ok(mut slots) = self.inner.slots.lock()
+                && let Some(slot) = slots.get_mut(&key)
+            {
+                slot.last_used = stamp;
+            }
+        }
+    }
+
+    fn presented(&self) -> Option<MachineKey> {
+        self.inner.presented.lock().ok().and_then(|guard| *guard)
     }
 
     /// Drop the least recently used Ready connections beyond the warm limit,
@@ -516,22 +544,30 @@ impl MachineConnectionHub {
         slots: &mut HashMap<MachineKey, MachineConnectionSlot>,
         warm_limit: usize,
         keep: MachineKey,
+        presented: Option<MachineKey>,
     ) -> Vec<MachineConnection> {
+        let protected = |key: MachineKey| key == keep || presented == Some(key);
         let mut ready = slots
             .iter()
             .filter(|(key, slot)| {
-                **key != keep && matches!(slot.state, MachineConnectionState::Ready(_))
+                !protected(**key) && matches!(slot.state, MachineConnectionState::Ready(_))
             })
             .map(|(key, slot)| (slot.last_used, *key))
             .collect::<Vec<_>>();
-        let ready_count = ready.len() + 1; // plus the kept connection
+        let protected_ready = slots
+            .iter()
+            .filter(|(key, slot)| {
+                protected(**key) && matches!(slot.state, MachineConnectionState::Ready(_))
+            })
+            .count();
+        let ready_count = ready.len() + protected_ready;
         if ready_count <= warm_limit {
             return Vec::new();
         }
         ready.sort_unstable();
         ready
             .into_iter()
-            .take(ready_count - warm_limit)
+            .take((ready_count - warm_limit).min(ready.len()))
             .filter_map(|(_, key)| {
                 let slot = slots.get_mut(&key)?;
                 match std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected) {
@@ -564,12 +600,13 @@ impl MachineConnectionHub {
 
     pub(crate) fn insert_ready(&self, key: MachineKey, connection: MachineConnection) {
         let stamp = self.next_use_stamp();
+        let presented = self.presented();
         let evicted = {
             let Ok(mut slots) = self.inner.slots.lock() else { return };
             let Some(slot) = slots.get_mut(&key) else { return };
             slot.state = MachineConnectionState::Ready(connection);
             slot.last_used = stamp;
-            Self::evict_beyond_warm_limit(&mut slots, self.inner.warm_limit, key)
+            Self::evict_beyond_warm_limit(&mut slots, self.inner.warm_limit, key, presented)
         };
         for connection in evicted {
             connection.session.begin_shutdown();
@@ -637,6 +674,7 @@ impl MachineConnectionHub {
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
                     let result = connector();
+                    let presented = self.presented();
                     let mut slots = self.inner.slots.lock().map_err(|_| {
                         anyhow::anyhow!(
                             crate::localization::catalog().sidebar.machine_catalog_updates_failed
@@ -661,6 +699,7 @@ impl MachineConnectionHub {
                                 &mut slots,
                                 self.inner.warm_limit,
                                 key,
+                                presented,
                             );
                             drop(slots);
                             for connection in evicted {
