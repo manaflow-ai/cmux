@@ -288,6 +288,12 @@ struct PairingView: View {
     }
 
     private var navigationTitle: String {
+        if initialPresentation == .tailscaleSetup {
+            return L10n.string(
+                "mobile.connections.tailscale.add",
+                defaultValue: "Add Tailscale Connection"
+            )
+        }
         if initialPresentation.showsManualPairingControls {
             return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
         }

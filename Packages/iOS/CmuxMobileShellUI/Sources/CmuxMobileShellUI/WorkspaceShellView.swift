@@ -157,6 +157,9 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
+    /// Opens the add-connection sheet titled for Tailscale from a Computer's
+    /// method section (scanner one tap away inside).
+    var addTailscaleConnection: (() -> Void)? = nil
     /// Whether Tailscale still needs its one-time Mac authorization.
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
@@ -727,6 +730,7 @@ struct WorkspaceShellView: View {
             showAddDevice: showAddDevice,
             showComputers: showComputers,
             showPairingScanner: showPairingScanner,
+            addTailscaleConnection: addTailscaleConnection,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
             customizeWorkspace: customizeWorkspaceClosure,

@@ -22,10 +22,11 @@ struct MacComputerDetailView: View {
     /// The route kind of the Connections row that opened this detail; its
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
-    /// Present the Tailscale pairing-code scanner: choosing Tailscale for
-    /// this Computer without a usable grant launches it, so the choice never
-    /// silently strands the Computer as Disconnected.
-    var showPairingScanner: (() -> Void)? = nil
+    /// Present the add-connection sheet titled for Tailscale: choosing
+    /// Tailscale for this Computer without a usable grant offers it under the
+    /// picker, so the choice never silently strands the Computer as
+    /// Disconnected. The scanner is one tap away inside the sheet.
+    var addTailscaleConnection: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var newDirectAddress = ""
     @State private var newDirectAddressLabel = ""
@@ -194,16 +195,16 @@ struct MacComputerDetailView: View {
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
             // Tailscale Only with no authorized route for THIS computer is
-            // undialable until the Mac's pairing code is scanned once. The
-            // choice never auto-opens the scanner; it hints the consequence
-            // and offers the scan right under the picker for when the user
-            // wants it.
+            // undialable until a Tailscale connection is added once. The
+            // choice never auto-opens anything; it hints the consequence and
+            // offers the add-connection sheet right under the picker for when
+            // the user wants it.
             if (pendingConnectionMethod ?? selectedMethod) == .tailscale,
                !computerHasUsableTailscaleAuthorization {
                 Label {
                     Text(L10n.string(
                         "mobile.connections.tailscaleUnauthorizedWarning",
-                        defaultValue: "No authorized Tailscale route yet — this computer stays disconnected until you scan its pairing code."
+                        defaultValue: "No authorized Tailscale route yet — this computer stays disconnected until you add a Tailscale connection."
                     ))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -212,19 +213,19 @@ struct MacComputerDetailView: View {
                         .foregroundStyle(.orange)
                 }
                 .accessibilityIdentifier("MobileComputerTailscaleUnauthorizedWarning")
-                if let showPairingScanner {
+                if let addTailscaleConnection {
                     Button {
-                        showPairingScanner()
+                        addTailscaleConnection()
                     } label: {
                         Label(
                             L10n.string(
-                                "mobile.settings.connectionMethod.scanCode",
-                                defaultValue: "Scan Pairing Code"
+                                "mobile.connections.tailscale.add",
+                                defaultValue: "Add Tailscale Connection"
                             ),
-                            systemImage: "qrcode.viewfinder"
+                            systemImage: "plus.circle"
                         )
                     }
-                    .accessibilityIdentifier("MobileComputerTailscaleScanButton")
+                    .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
                 }
             }
         } footer: {
@@ -247,15 +248,30 @@ struct MacComputerDetailView: View {
                 Button {
                     toggleDirectAddress(entry)
                 } label: {
-                    HStack {
+                    HStack(spacing: 12) {
                         Image(systemName: entry.enabled ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
                             .foregroundStyle(entry.enabled ? Color.accentColor : Color.secondary)
-                        Text(entry.id)
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.primary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let label = entry.label, !label.isEmpty {
+                                Text(label)
+                                    .foregroundStyle(.primary)
+                                Text(entry.id)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(entry.id)
+                                    .font(.callout.monospaced())
+                                    .foregroundStyle(.primary)
+                            }
+                        }
                         Spacer()
                     }
+                    .contentShape(Rectangle())
                 }
+                // Plain style keeps the row text primary/secondary; only the
+                // check circle carries the accent color.
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("MobileComputerDirectAddress-\(entry.id)")
             }
             .onDelete(perform: deleteDirectAddresses)
