@@ -40,6 +40,8 @@ import {
 // Standby time is free on Blaxel, so the cost lever ("smart sleep" while every PTY sits at
 // an idle prompt) is a later optimization on top of the same bootstrap.
 const CMUXD_WS_PORT = 7777;
+// 8080 is the Blaxel sandbox-api (control channel); never expose it through a preview.
+const CMUX_SANDBOX_API_PORT = 8080;
 const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
 const CMUXD_WS_RPC_LEASE_PATH = "/tmp/cmux/attach-rpc-lease.json";
 const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
@@ -251,20 +253,29 @@ export class BlaxelProvider implements VMProvider {
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "create", "cmux.vm.image": image },
       async (span) => {
         try {
-          const name = `cmux-vm-${randomSuffix()}`;
           const memoryMb = positiveIntEnv("CMUX_VM_BLAXEL_MEMORY_MB", DEFAULT_MEMORY_MB);
-          const created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
-            metadata: { name },
-            spec: {
-              runtime: {
-                image,
-                memory: memoryMb,
-                envs: [{ name: "LANG", value: "C.UTF-8" }],
-                ports: [{ name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT }],
-              },
-            },
-          });
-          const sandboxUrl = created.metadata?.url;
+          let name = friendlyVmName();
+          let created: BlaxelSandbox | null = null;
+          for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
+            try {
+              created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
+                metadata: { name },
+                spec: {
+                  runtime: {
+                    image,
+                    memory: memoryMb,
+                    envs: [{ name: "LANG", value: "C.UTF-8" }],
+                    ports: [{ name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT }],
+                  },
+                },
+              });
+            } catch (err) {
+              const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
+              if (!conflict || attempt === 3) throw err;
+              name = friendlyVmName(attempt >= 1);
+            }
+          }
+          const sandboxUrl = created?.metadata?.url;
           if (!sandboxUrl) {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
@@ -318,6 +329,14 @@ export class BlaxelProvider implements VMProvider {
     }
     await this.startDaemonProcess(sandboxUrl);
     await this.startWatcherProcess(sandboxUrl);
+    // Agents come with the machine, exe.dev-style: install coding agents in the background so
+    // `claude` and `codex` work by the time the user needs them, without delaying attach.
+    // Guarded on npm so images without node (e.g. the xfce desktop) skip quietly.
+    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+      name: "cmux-agents-install",
+      command: "command -v npm >/dev/null 2>&1 && npm install -g @anthropic-ai/claude-code @openai/codex >/tmp/cmux/agents-install.log 2>&1 || true",
+      waitForCompletion: false,
+    }).catch(() => undefined);
   }
 
   // The daemon itself is NOT keepAlive: while every shell is idle and no client is attached,
@@ -602,21 +621,21 @@ export class BlaxelProvider implements VMProvider {
     }
   }
 
-  private async ensurePreview(vmId: string): Promise<string> {
+  private async ensurePreview(vmId: string, previewName = CMUXD_PREVIEW_NAME, port = CMUXD_WS_PORT): Promise<string> {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
     const existing = await blaxelFetch<BlaxelPreview>(
       "GET",
-      `${base}/${CMUXD_PREVIEW_NAME}`,
+      `${base}/${previewName}`,
     ).catch(() => null);
     const existingUrl = usablePrivatePreviewUrl(existing);
     if (existingUrl) return existingUrl;
     if (existing?.spec?.url) {
       // The preview exists but is public; drop it and recreate private below.
-      await blaxelFetch("DELETE", `${base}/${CMUXD_PREVIEW_NAME}`);
+      await blaxelFetch("DELETE", `${base}/${previewName}`);
     }
     const created = await blaxelFetch<BlaxelPreview>("POST", base, {
-      metadata: { name: CMUXD_PREVIEW_NAME },
-      spec: { port: CMUXD_WS_PORT, public: false },
+      metadata: { name: previewName },
+      spec: { port, public: false },
     });
     const url = usablePrivatePreviewUrl(created);
     if (!url) {
@@ -625,11 +644,11 @@ export class BlaxelProvider implements VMProvider {
     return url;
   }
 
-  private async mintPreviewToken(vmId: string): Promise<string> {
+  private async mintPreviewToken(vmId: string, previewName = CMUXD_PREVIEW_NAME): Promise<string> {
     const expiresAt = new Date(Date.now() + PREVIEW_TOKEN_TTL_SECONDS * 1000).toISOString();
     const created = await blaxelFetch<{ spec?: { token?: string } }>(
       "POST",
-      `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews/${CMUXD_PREVIEW_NAME}/tokens`,
+      `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews/${previewName}/tokens`,
       { spec: { expiresAt } },
     );
     const token = created.spec?.token;
@@ -637,6 +656,28 @@ export class BlaxelProvider implements VMProvider {
       throw new ProviderError("blaxel", `preview token mint for ${vmId} returned no token`);
     }
     return token;
+  }
+
+  // The exe.dev "https://vmname.exe.xyz:3456" equivalent: a private, token-gated preview URL
+  // for any HTTP port on the machine. The token rides as ?bl_preview_token=... (the gateway
+  // sets a cookie on first load, so pages and their websockets keep working in a browser).
+  async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string }> {
+    return withVmSpan(
+      "cmux.vm.provider.open_port",
+      { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "open_port", "cmux.vm.id": vmId, "cmux.vm.port": port },
+      async () => {
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_SANDBOX_API_PORT) {
+          throw new ProviderError("blaxel", `openPort(${vmId}) requires a valid port other than ${CMUX_SANDBOX_API_PORT}`);
+        }
+        // Wake the sandbox (status read) so the preview answers immediately.
+        await this.getSandbox(vmId);
+        const previewName = `port-${port}`;
+        const url = await this.ensurePreview(vmId, previewName, port);
+        const token = await this.mintPreviewToken(vmId, previewName);
+        const openUrl = `${url.replace(/\/+$/, "")}/?bl_preview_token=${encodeURIComponent(token)}`;
+        return { url, token, openUrl };
+      },
+    );
   }
 }
 
@@ -672,9 +713,30 @@ async function ensureWebSocketHealthy(previewUrl: string, headers: Record<string
   throw new ProviderError("blaxel", "cmuxd websocket health check failed", lastError);
 }
 
-function randomSuffix(): string {
+// Machines are addressed by name everywhere (`cmux vm ssh brave-otter`), so names are
+// generated memorable instead of opaque. Blaxel sandbox names ARE the provider VM id, so
+// this is the whole naming story — no display-name mapping to keep in sync. Collisions
+// retry with fresh picks, then fall back to a random suffix.
+const NAME_ADJECTIVES = [
+  "amber", "bold", "brave", "brisk", "calm", "clever", "coral", "crisp",
+  "eager", "fleet", "gold", "happy", "keen", "kind", "lively", "lucid",
+  "mellow", "noble", "quick", "quiet", "rapid", "sharp", "silver", "smooth",
+  "solid", "spry", "steady", "sunny", "swift", "tidy", "vivid", "warm",
+];
+const NAME_ANIMALS = [
+  "badger", "bison", "crane", "dolphin", "falcon", "finch", "fox", "gecko",
+  "heron", "ibex", "jay", "koala", "lemur", "lynx", "marmot", "marten",
+  "newt", "orca", "osprey", "otter", "owl", "panda", "petrel", "puffin",
+  "raven", "seal", "sparrow", "stoat", "swan", "tern", "wombat", "wren",
+];
+
+export function friendlyVmName(withSuffix = false): string {
+  const pick = (list: readonly string[]) => list[randomBytes(1)[0] % list.length];
+  const base = `${pick(NAME_ADJECTIVES)}-${pick(NAME_ANIMALS)}`;
+  if (!withSuffix) return base;
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  return Array.from(randomBytes(10), (byte) => alphabet[byte % alphabet.length]).join("");
+  const suffix = Array.from(randomBytes(4), (byte) => alphabet[byte % alphabet.length]).join("");
+  return `${base}-${suffix}`;
 }
 
 function positiveIntEnv(name: string, fallback: number): number {

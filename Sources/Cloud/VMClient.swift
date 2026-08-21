@@ -272,6 +272,13 @@ struct VMExecResult {
     let stderr: String
 }
 
+struct VMOpenPortEndpoint {
+    let url: String
+    let token: String
+    /// URL with the preview token embedded as a query parameter, ready for a browser.
+    let openUrl: String
+}
+
 struct VMSnapshotResult {
     let id: String
     let name: String?
@@ -719,6 +726,24 @@ actor VMClient {
         let stdout = (obj["stdout"] as? String) ?? ""
         let stderr = (obj["stderr"] as? String) ?? ""
         return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
+    }
+
+    func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/open-port",
+            jsonBody: ["port": port],
+            timeoutSeconds: 60
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let url = obj["url"] as? String,
+              let token = obj["token"] as? String,
+              let openUrl = obj["openUrl"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM open-port response was missing required fields.")
+        }
+        return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
     }
 
     // MARK: - HTTP

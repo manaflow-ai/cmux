@@ -107,6 +107,17 @@ extension TerminalController {
                 let result = try await VMClient.shared.exec(id: vmId, command: command, timeoutMs: timeoutMs)
                 return ["exit_code": result.exitCode, "stdout": result.stdout, "stderr": result.stderr]
             }
+        case "vm.open_port":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.open_port requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let port = Self.socketWorkerInt(params["port"]), (1...65535).contains(port) else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.open_port requires `port` between 1 and 65535. From the CLI, use `cmux vm open <id> <port>`.")
+            }
+            return v2VmCall(id: id) {
+                let endpoint = try await VMClient.shared.openPort(id: vmId, port: port)
+                return ["url": endpoint.url, "token": endpoint.token, "open_url": endpoint.openUrl]
+            }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")

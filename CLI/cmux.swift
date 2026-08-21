@@ -3176,6 +3176,26 @@ struct CMUXCLI {
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
+    /// Blaxel image that boots an xfce desktop with a noVNC web front end.
+    private static let cloudVMDesktopImage = "blaxel/xfce-vnc:latest"
+    private static let cloudVMDesktopPort = 6901
+    private static func cloudVMImageHasDesktop(_ image: String) -> Bool {
+        image.contains("xfce-vnc")
+    }
+
+    /// Streams the VM's desktop (noVNC) into a browser split beside the shell. Best effort:
+    /// a machine without a desktop, or a backend without open-port, just skips the split.
+    private func openVMDesktopSplit(vmId: String, client: SocketClient) {
+        guard let payload = try? client.sendV2(
+            method: "vm.open_port",
+            params: ["id": vmId, "port": Self.cloudVMDesktopPort],
+            responseTimeout: 90
+        ), let openUrl = payload["open_url"] as? String, !openUrl.isEmpty else { return }
+        _ = try? client.sendV2(
+            method: "browser.open_split",
+            params: ["url": openUrl + "&autoconnect=1&resize=remote"]
+        )
+    }
     private static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
@@ -4319,12 +4339,53 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                for vm in vms {
-                    let id = (vm["id"] as? String) ?? "?"
-                    let provider = (vm["provider"] as? String) ?? "?"
-                    let status = (vm["status"] as? String) ?? "unknown"
-                    let image = (vm["image"] as? String) ?? "?"
-                    print("\(id)  [\(provider)] \(status)  \(image)")
+                let rows: [(String, String, String, String)] = vms.map { vm in
+                    (
+                        (vm["id"] as? String) ?? "?",
+                        (vm["status"] as? String) ?? "unknown",
+                        (vm["provider"] as? String) ?? "?",
+                        (vm["image"] as? String) ?? "?"
+                    )
+                }
+                let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
+                let stateWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
+                let providerWidth = max(8, rows.map { $0.2.count }.max() ?? 8)
+                func pad(_ text: String, _ width: Int) -> String {
+                    text.padding(toLength: width, withPad: " ", startingAt: 0)
+                }
+                print("\(pad("NAME", nameWidth))  \(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
+                for row in rows {
+                    print("\(pad(row.0, nameWidth))  \(pad(row.1, stateWidth))  \(pad(row.2, providerWidth))  \(row.3)")
+                }
+
+            case "open", "port":
+                // `cmux vm open brave-otter 3000` — the exe.dev "https://vm:3456" move: mint a
+                // private tokened URL for any HTTP port on the machine and show it in a browser
+                // split beside the shell. `--print` skips the split and just prints the URL.
+                let printOnly = hasFlag(rest, name: "--print")
+                let openArgs = rest.filter { $0 != "--print" }
+                guard let vmId = openArgs.first, let portArg = openArgs.dropFirst().first, let port = Int(portArg), (1...65535).contains(port) else {
+                    throw CLIError(message: """
+                        Usage: cmux vm open <id> <port> [--print]
+
+                        Examples:
+                          cmux vm open brave-otter 3000
+                          cmux vm open brave-otter 8000 --print
+
+                        Find a machine:
+                          cmux vm ls
+                        """)
+                }
+                let payload = try client.sendV2(method: "vm.open_port", params: ["id": vmId, "port": port], responseTimeout: 90)
+                if jsonOutput {
+                    print(jsonString(payload))
+                    break
+                }
+                let openUrl = (payload["open_url"] as? String) ?? ""
+                print("\(vmId):\(port)")
+                print("  \(openUrl)")
+                if !printOnly {
+                    _ = try? client.sendV2(method: "browser.open_split", params: ["url": openUrl])
                 }
 
             case "status", "info":
@@ -4387,12 +4448,16 @@ struct CMUXCLI {
                 }
 
             case "new", "create":
-                let (imageOpt, rem0) = parseOption(rest, name: "--image")
+                let (imageOptRaw, rem0) = parseOption(rest, name: "--image")
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
                 let (windowOpt, rem2) = parseOption(rem1a, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-                let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
+                let desktop = hasFlag(rem2, name: "--desktop")
+                let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" && $0 != "--desktop" }
+                // --desktop provisions the VNC desktop image so the machine has a screen; the
+                // attach flow streams it into a browser split beside the shell.
+                let imageOpt = imageOptRaw ?? (desktop ? Self.cloudVMDesktopImage : nil)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
@@ -4401,6 +4466,7 @@ struct CMUXCLI {
                           --image <image-id>
                           --provider <provider>
                           --workspace <workspace-id>
+                          --desktop
                           --detach, -d
 
                         Try:
@@ -4464,9 +4530,21 @@ struct CMUXCLI {
                 let image = (response["image"] as? String) ?? "?"
                 if detach {
                     Self.clearVMCreateIdempotency(idempotency)
-                    print("OK \(id)")
-                    print("  provider: \(provider)")
-                    print("  image:    \(image)")
+                    let readyMessage = String(
+                        format: String(
+                            localized: "cli.vm.create.machineReady",
+                            defaultValue: "%@ is ready"
+                        ),
+                        id
+                    )
+                    print(readyMessage)
+                    print("")
+                    print("  shell    cmux vm shell \(id)")
+                    print("  run      cmux vm exec \(id) -- uname -a")
+                    print("  web      cmux vm open \(id) <port>")
+                    print("  remove   cmux vm rm \(id)")
+                    print("")
+                    print("  provider \(provider) · \(image)")
                     break
                 }
                 // Create the VM then drop the user into a cmux-managed workspace. Managed
@@ -4492,6 +4570,11 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                // A machine with a screen shows it: stream the noVNC desktop into a browser
+                // split beside the shell so the workspace opens as terminal + desktop.
+                if Self.cloudVMImageHasDesktop(image) {
+                    openVMDesktopSplit(vmId: id, client: client)
+                }
                 Self.clearVMCreateIdempotency(idempotency)
 
             case "snapshot", "checkpoint":
@@ -4626,6 +4709,11 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
+                   let image = status["image"] as? String,
+                   Self.cloudVMImageHasDesktop(image) {
+                    openVMDesktopSplit(vmId: vmId, client: client)
+                }
 
             case "rm", "destroy", "delete":
                 guard let vmId = rest.first else {
@@ -16233,7 +16321,7 @@ struct CMUXCLI {
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--image <template>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+              new [--image <template>] [--provider <provider>] [--desktop] [--window <id|ref|index>] [--detach|-d]
                                         Create a new VM. By default, with no image or
                                         provider override, this is kept compatible with
                                         Base. Pass --image or --provider to create a
@@ -16248,7 +16336,11 @@ struct CMUXCLI {
                                         Restore a snapshot as a tracked Cloud VM.
               shell <id> [--window <id|ref|index>]
                                         Drop into an interactive shell on an existing VM.
-                                        Alias: `attach <id>`.
+                                        Alias: `attach <id>`. Machines with a desktop image
+                                        also stream their screen into a browser split.
+              open <id> <port> [--print]
+                                        Mint a private HTTPS URL for an HTTP port on the VM
+                                        and show it in a browser split. --print only prints.
               ssh <id> [--window <id|ref|index>]
                                         Drop into a cmux-managed SSH workspace for an existing
                                         VM, using the same session path as `cmux ssh`.

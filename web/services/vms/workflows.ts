@@ -932,7 +932,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "fork";
+type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port";
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
 // post-start "starting" state to "creating"), so poll briefly until the VM is
@@ -1415,6 +1415,48 @@ export function execVm(input: {
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
     return result satisfies ExecResult;
+  });
+}
+
+export function openVmPort(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly port: number;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "open_port",
+    );
+    if (!providers.openPort) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "openPort",
+          cause: new Error("open-port is not supported by this deployment"),
+        }),
+      );
+    }
+    const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.open_port",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { port: input.port },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
   });
 }
 

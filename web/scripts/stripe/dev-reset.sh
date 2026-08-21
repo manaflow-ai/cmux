@@ -434,9 +434,13 @@ process.stdin.on("end", () => {
   const user = JSON.parse(input);
   const raw = user.client_read_only_metadata ?? user.clientReadOnlyMetadata ?? {};
   const metadata = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
-  const hadCmuxPlan = Object.prototype.hasOwnProperty.call(metadata, "cmuxPlan");
-  const vmPlan = typeof metadata.cmuxVmPlan === "string" && metadata.cmuxVmPlan.trim() ? metadata.cmuxVmPlan.trim() : "";
+  const hadCmuxPlan = Object.prototype.hasOwnProperty.call(metadata, "cmuxPlan") ||
+    Object.prototype.hasOwnProperty.call(metadata, "cmuxVmPlan");
+  const vmPlan = "";
   delete metadata.cmuxPlan;
+  // dev-grant.sh writes the manual override key; a reset must clear it too or the
+  // account stays entitled after every "un-Pro".
+  delete metadata.cmuxVmPlan;
   console.log(JSON.stringify({
     hadCmuxPlan,
     vmPlan,
@@ -460,7 +464,7 @@ if [[ "$had_cmux_plan" == "1" ]]; then
   )"
   encoded_user_id="$(urlencode "$stack_user_id")"
   stack_request PATCH "/users/${encoded_user_id}" "$patch_body" >/dev/null
-  SUMMARY+=("Removed clientReadOnlyMetadata.cmuxPlan")
+  SUMMARY+=("Removed clientReadOnlyMetadata cmuxPlan/cmuxVmPlan")
 else
   SUMMARY+=("clientReadOnlyMetadata.cmuxPlan was already absent")
 fi

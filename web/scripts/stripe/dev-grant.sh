@@ -14,8 +14,8 @@ usage() {
   cat >&2 <<'EOF'
 Usage: web/scripts/stripe/dev-grant.sh [--allow-project] [--plan <id>] <email>
 
-Fake-pays a Stack Auth dev account: writes clientReadOnlyMetadata.cmuxPlan
-(default "pro") so billing-gated features unlock without checkout. This is the
+Fake-pays a Stack Auth dev account: writes clientReadOnlyMetadata.cmuxVmPlan
+(default "pro"), the manual override that survives purchase reconciliation, so billing-gated features unlock without checkout. This is the
 inverse of dev-reset.sh; run dev-reset.sh <email> to undo it. For the full
 checkout path at $0 instead, use promotion code CMUXDEV100 in test-mode
 checkout (allow_promotion_codes is already enabled).
@@ -217,8 +217,8 @@ process.stdin.on("end", () => {
   const user = JSON.parse(input);
   const raw = user.client_read_only_metadata ?? user.clientReadOnlyMetadata ?? {};
   const metadata = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
-  const previous = typeof metadata.cmuxPlan === "string" ? metadata.cmuxPlan : "";
-  metadata.cmuxPlan = plan;
+  const previous = typeof metadata.cmuxVmPlan === "string" ? metadata.cmuxVmPlan : "";
+  metadata.cmuxVmPlan = plan;
   console.log(JSON.stringify({
     userId: user.id,
     previous,
@@ -240,5 +240,5 @@ patch_body="$(
 encoded_user_id="$(urlencode "$stack_user_id")"
 stack_request PATCH "/users/${encoded_user_id}" "$patch_body" >/dev/null
 
-echo "Granted clientReadOnlyMetadata.cmuxPlan=${PLAN} to ${stack_user_id}${previous_plan:+ (was: ${previous_plan})}"
+echo "Granted clientReadOnlyMetadata.cmuxVmPlan=${PLAN} to ${stack_user_id}${previous_plan:+ (was: ${previous_plan})}"
 echo "Undo with: web/scripts/stripe/dev-reset.sh ${EMAIL}"
