@@ -6664,7 +6664,6 @@ pub struct App {
     #[cfg(test)]
     config_reload_applications: usize,
     pub chrome: ChromeTheme,
-    default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
@@ -8015,7 +8014,6 @@ enum MachineControllerCommand {
 
 struct MachineSessionPreparation {
     initial_size: Option<(u16, u16)>,
-    default_colors: cmux_tui_core::DefaultColors,
     generation: u64,
     pty_input: PtyInputSender,
     surface_filter: Option<SurfaceId>,
@@ -8030,7 +8028,6 @@ struct PreparedMachineSession {
     tree: TreeView,
     label: String,
     session_available: bool,
-    color_error: Option<String>,
     machine: Option<MachineKey>,
 }
 
@@ -8377,15 +8374,7 @@ fn prepare_machine_session(
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = if replacement.reused {
-        None
-    } else {
-        replacement
-            .session
-            .set_default_colors(preparation.default_colors)
-            .err()
-            .map(|error| error.to_string())
-    };
+
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -8404,7 +8393,6 @@ fn prepare_machine_session(
         tree,
         label: replacement.label,
         session_available,
-        color_error,
         machine: replacement.machine,
     })
 }
@@ -8881,7 +8869,6 @@ fn run_with_machine_updates_inner(
         #[cfg(test)]
         config_reload_applications: 0,
         chrome,
-        default_colors,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
@@ -10379,7 +10366,6 @@ impl App {
                 self.config.scrollbar.position,
                 self.config.pane.padding,
             ),
-            default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
             surface_filter: self.surface_only,
@@ -11081,7 +11067,6 @@ impl App {
             tree,
             label,
             session_available,
-            color_error,
             machine: _,
         } = prepared;
         self.pty_input.activate_session_generation(generation);
@@ -11095,12 +11080,6 @@ impl App {
         self.reset_session_presentation(tree);
         if let Some(worker) = self.session_event_worker.as_ref() {
             worker.activate();
-        }
-        if let Some(error) = color_error {
-            self.status_message = Some(format!(
-                "{}: {error}",
-                localization::catalog().sidebar.machine_terminal_colors_failed
-            ));
         }
         if session_available {
             if publishes_global_cell_metrics(self.surface_only) {
@@ -39941,7 +39920,6 @@ mod tests {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         super::MachineSessionPreparation {
             initial_size: None,
-            default_colors: cmux_tui_core::DefaultColors::default(),
             generation: 2,
             pty_input: dispatcher.sender(),
             surface_filter: None,
@@ -39981,7 +39959,6 @@ mod tests {
                     tree,
                     label: label.into(),
                     session_available: true,
-                    color_error: None,
                     machine: None,
                 },
             },
@@ -40332,7 +40309,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -40410,7 +40386,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -40459,62 +40434,6 @@ mod tests {
     }
 
     #[test]
-    fn machine_color_failure_status_uses_the_selected_locale() {
-        const CHILD_ENV: &str = "CMUX_MACHINE_COLOR_FAILURE_LOCALE_CHILD";
-        if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .arg("app::tests::machine_color_failure_status_uses_the_selected_locale")
-                .arg("--exact")
-                .arg("--nocapture")
-                .env(CHILD_ENV, "1")
-                .env("LC_ALL", "ja_JP.UTF-8")
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "Japanese machine color failure child failed:\nstdout:\n{}\nstderr:\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return;
-        }
-
-        let first = Mux::new("machine-color-locale-first", SurfaceOptions::default());
-        let second = Mux::new("machine-color-locale-second", SurfaceOptions::default());
-        let (mut app, _events) = test_app_with_events(Session::Local(first));
-        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
-            Session::Local(second),
-            pty_input.sender(),
-            app.app_events.clone(),
-            2,
-            None,
-        )
-        .unwrap();
-        let tree = session.tree();
-
-        app.install_prepared_machine_session(
-            super::PreparedMachineSession {
-                session,
-                event_worker,
-                generation: 2,
-                mux_titles,
-                mux_recovery_generation,
-                tree,
-                label: "second".into(),
-                session_available: false,
-                color_error: Some("offline".into()),
-                machine: None,
-            },
-            true,
-        );
-
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("ターミナルの色を適用できませんでした: offline")
-        );
-    }
-
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
@@ -40561,7 +40480,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -40898,7 +40816,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -41408,7 +41325,6 @@ mod tests {
                 tree,
                 label: "replacement".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -41489,7 +41405,6 @@ mod tests {
             config: Config::default(),
             config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
-            default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
