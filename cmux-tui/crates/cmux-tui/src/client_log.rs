@@ -75,7 +75,26 @@ fn queue() -> Option<&'static SyncSender<Message>> {
             std::thread::Builder::new()
                 .name("client-log".into())
                 .spawn(move || {
-                    let Some(mut sink) = open_sink(path) else {
+                    // Bound the open itself: a FIFO override or a dead
+                    // network mount can block open(2) forever, and while the
+                    // writer waits the queue fills and the stderr pump
+                    // backpressures into the pipe, blocking noisy children.
+                    // After the deadline the sink is declared broken and
+                    // stderr goes back to the terminal; if the stray open
+                    // ever completes, the opener thread just drops the file.
+                    let (sink_sender, sink_receiver) = sync_channel(1);
+                    let opened = std::thread::Builder::new()
+                        .name("client-log-open".into())
+                        .spawn(move || {
+                            let _ = sink_sender.try_send(open_sink(path));
+                        })
+                        .is_ok();
+                    let sink = if opened {
+                        sink_receiver.recv_timeout(std::time::Duration::from_secs(10)).ok().flatten()
+                    } else {
+                        None
+                    };
+                    let Some(mut sink) = sink else {
                         // The log is unreachable. Give stderr back to the
                         // terminal (idempotent; no-op unless redirected) so
                         // diagnostics are not swallowed by the pump, and
@@ -464,6 +483,13 @@ pub(crate) fn redirect_stderr_into_log() {
             .is_ok();
         if spawned {
             STDERR_REDIRECTED.store(true, Ordering::Release);
+            // The writer may have declared the sink broken between our
+            // earlier check and this store; its restore would have no-oped
+            // on an unset flag. Re-check now that the flag is published so
+            // one of the two sides always restores.
+            if SINK_BROKEN.load(Ordering::Acquire) {
+                restore_stderr_from_log();
+            }
         } else {
             // Undo: put the terminal stderr back.
             let saved = SAVED_STDERR.load(Ordering::Acquire);
