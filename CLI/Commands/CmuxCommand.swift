@@ -134,6 +134,23 @@ struct CmuxCommand: ParsableCommand {
             CoderouterCommand.self,
             CodexTeamsWatchCommand.self,
             CodexTeamsAppServerSupervisorCommand.self,
+            NotifyCommand.self,
+            ListNotificationsCommand.self,
+            DismissNotificationCommand.self,
+            MarkNotificationReadCommand.self,
+            OpenNotificationCommand.self,
+            JumpToUnreadCommand.self,
+            ClearNotificationsCommand.self,
+            FeedCommand.self,
+            EventsCommand.self,
+            LogCommand.self,
+            ListLogCommand.self,
+            ClearLogCommand.self,
+            SetStatusCommand.self,
+            ListStatusCommand.self,
+            ClearStatusCommand.self,
+            SetProgressCommand.self,
+            ClearProgressCommand.self,
         ]
     )
 
