@@ -199,33 +199,56 @@ struct SidebarMachineColumnView: View, Equatable {
         _ machine: SidebarCreationContextSnapshot,
         settings: SidebarTabItemSettingsSnapshot
     ) -> some View {
-        // Finder cascade: the machines column is the ancestor of the focused
-        // workspaces column, so its selection uses the quiet system tint
-        // (unemphasized) instead of competing with the accent selection next
-        // to it.
+        // The machines column is the same sidebar as the workspaces column:
+        // identical row surface, metrics, palette, and selection treatment.
         let palette = SidebarListRowPalette(
-            isActive: false,
+            isActive: machine.isSelected,
             colorScheme: colorScheme,
             selectionColorHex: settings.selectionColorHex
         )
+        let backgroundStyle = sidebarListRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: machine.isSelected,
+            isMultiSelected: false,
+            customColorHex: nil,
+            colorScheme: colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex
+        )
+        let usesBorder = machine.isSelected && settings.activeTabIndicatorStyle == .solidFill
 
         Group {
             switch displayMode {
             case .regular:
-                HStack(spacing: 7) {
-                    machineIcon(machine, palette: palette, pointSize: 13)
-                        .frame(width: 18, height: 16)
-                    Text(machine.title)
-                        .font(rowFont(SidebarListMetrics.titleFontSize, settings: settings))
-                        .foregroundColor(Color(nsColor: palette.primary))
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: SidebarListMetrics.rowContentSpacing) {
+                    HStack(spacing: 6) {
+                        machineIcon(machine, palette: palette, pointSize: 13)
+                            .frame(width: 18, height: 16)
+                        Text(machine.title)
+                            .font(rowFont(
+                                SidebarListMetrics.titleFontSize,
+                                weight: .semibold,
+                                settings: settings
+                            ))
+                            .foregroundColor(Color(nsColor: palette.primary))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        connectionDot(machine)
+                    }
+                    Text(machine.subtitle)
+                        .font(rowFont(SidebarListMetrics.subtitleFontSize, settings: settings))
+                        .foregroundColor(Color(nsColor: palette.secondary(0.8)))
+                        .lineLimit(2)
                         .truncationMode(.tail)
-                    Spacer(minLength: 4)
-                    connectionDot(machine)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .sidebarListRowSurface(
+                    backgroundStyle: backgroundStyle,
+                    borderColor: usesBorder ? Color.primary.opacity(0.5) : .clear,
+                    borderLineWidth: usesBorder ? 1.5 : 0
+                )
+                .sidebarListRowOuterChrome()
             case .icons:
                 machineIcon(machine, palette: palette, pointSize: 15)
                     .frame(width: 22, height: 20)
@@ -235,18 +258,26 @@ struct SidebarMachineColumnView: View, Equatable {
                     }
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .background {
+                        if machine.isSelected {
+                            RoundedRectangle(
+                                cornerRadius: SidebarListMetrics.rowCornerRadius,
+                                style: .continuous
+                            )
+                            .fill(rowBackgroundColor(backgroundStyle))
+                        }
+                    }
+                    .padding(.horizontal, SidebarListMetrics.rowOuterHorizontalPadding)
+                    .contentShape(Rectangle())
             }
         }
-        .background {
-            if machine.isSelected {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
-            }
-        }
-        .padding(.horizontal, SidebarListMetrics.rowOuterHorizontalPadding)
-        .contentShape(Rectangle())
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.18), value: displayMode)
+    }
+
+    private func rowBackgroundColor(_ style: SidebarListRowBackgroundStyle) -> Color {
+        guard let color = style.color else { return .clear }
+        return Color(nsColor: color).opacity(style.opacity)
     }
 
     /// This Mac renders the actual hardware icon (like Finder's sidebar);
