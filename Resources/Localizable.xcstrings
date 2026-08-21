@@ -138458,6 +138458,23 @@
         }
       }
     },
+    "mobile.pairing.localOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local pairing · Tailscale only · No cmux account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルペアリング · Tailscale のみ · cmux アカウント不要"
+          }
+        }
+      }
+    },
     "mobile.pairing.manual.copied": {
       "extractionState": "manual",
       "localizations": {

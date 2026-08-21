@@ -33,7 +33,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public var usesLocallyAuthorizedTailscaleRoute: Bool {
         guard route.kind == .tailscale else { return false }
         switch transportRequest.authorizationMode {
-        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing, .localTailscalePairing:
             return true
         case .stackBearer, .transportAdmission:
             return false
@@ -99,9 +99,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                       host: host,
                       port: port
                   ) {
-            authorizationMode = .userAuthorizedTailscalePairing(
-                userTailscalePairingAuthorization
-            )
+            authorizationMode = ticket.localPairing
+                ? .localTailscalePairing(userTailscalePairingAuthorization)
+                : .userAuthorizedTailscalePairing(userTailscalePairingAuthorization)
         } else {
             authorizationMode = .stackBearer
         }
@@ -540,6 +540,26 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 stackAccessToken: nil
             )
         }
+        if case .localTailscalePairing = transportRequest.authorizationMode {
+            guard let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !attachToken.isEmpty else {
+                throw MobileShellConnectionError.authorizationFailed(
+                    L10n.string(
+                        "mobile.pairing.localCredentialUnavailable",
+                        defaultValue: "Pair this Mac again to refresh its local credential."
+                    )
+                )
+            }
+            if Self.requestRequiresAuth(request) || isHostStatusRequest(request) {
+                request["auth"] = ["attach_token": attachToken]
+            } else {
+                request.removeValue(forKey: "auth")
+            }
+            return AuthenticatedRequestPayload(
+                data: try JSONSerialization.data(withJSONObject: request),
+                stackAccessToken: nil
+            )
+        }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
@@ -560,14 +580,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
-        // The host treats Stack auth as the SOLE authorization gate: EVERY
-        // authorized request must carry the owner's stack_access_token, even when
-        // an attach_token is also present. The attach ticket is route-discovery
-        // and workspace-selection only and never authorizes on its own, so a
-        // request that ships attach_token-only (e.g. ticket-covered workspace.list)
-        // is rejected host-side with `missingStackTokens`. Always present the
-        // Stack token for authorized requests; attach_token rides along as
-        // supplementary route/workspace context.
+        // This is the account-authorized path; the local-pairing capability
+        // returned above never reaches it. Every authorized account request
+        // carries the owner's stack_access_token, even when an attach_token is
+        // also present. In this mode the attach ticket only supplies route and
+        // workspace context.
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
             guard canSendStackBearer else {
@@ -645,7 +662,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch transportRequest.authorizationMode {
         case .stackBearer, .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
             true
-        case .transportAdmission:
+        case .localTailscalePairing, .transportAdmission:
             false
         }
     }
@@ -669,6 +686,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 port: port
             )
         case let .userAuthorizedTailscalePairing(authorization):
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return false
+            }
+            return authorization.authorizes(host: host, port: port)
+        case let .localTailscalePairing(authorization):
             guard route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint else {
                 return false

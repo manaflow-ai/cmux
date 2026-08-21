@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxControlSocket
 import CmuxGit
 import CmuxIrohTransport
 import CmuxMobileTransport
@@ -323,13 +324,12 @@ final class MobileHostService {
     /// cached identity-free payload without touching the main actor or the
     /// Stack verifier — the DoS posture of the public probe is unchanged, and
     /// an arbitrary process that can reach the port receives no private route
-    /// hints or account identity. A request that does present the owner's
-    /// same-account Stack token (the iOS client attaches it to status
-    /// whenever it has one) is verified and answered with the Mac's identity,
-    /// which is what a freshly QR-paired phone needs to key its paired-Mac
-    /// record. A token that fails verification degrades to the identity-free
-    /// payload rather than an error: reachability stays observable, and the
-    /// authorized verbs that follow surface the auth failure properly.
+    /// hints or account identity. A request that presents either the approved
+    /// local capability or the owner's same-account Stack token is answered
+    /// with the Mac's identity, which a freshly paired phone needs to key its
+    /// paired-Mac record. A token that fails verification degrades to the
+    /// identity-free payload rather than an error: reachability stays
+    /// observable, and authorized verbs surface the auth failure properly.
     /// Verification goes through the same gate as the authorized verbs
     /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
     /// list workspaces also sees identity.
@@ -343,6 +343,13 @@ final class MobileHostService {
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
     nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        if await MainActor.run(body: {
+            MobileHostService.shared.localPairingAuthority.verifies(
+                request.auth?.attachToken
+            )
+        }) {
+            return MobileHostPublicStatusCache.result(includeIdentity: true)
+        }
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
             return MobileHostPublicStatusCache.result(includeIdentity: false)
@@ -370,6 +377,7 @@ final class MobileHostService {
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
+    private let localPairingAuthority = MobileLocalPairingAuthority()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -1481,6 +1489,30 @@ final class MobileHostService {
         )
     }
 
+    /// Creates an account-free pairing code restricted to Tailscale routes.
+    /// Scanning the code is the explicit authorization event.
+    func createLocalTailscalePairingTicket(
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
+    ) throws -> [String: Any] {
+        let routes = MobileHostPublicStatusCache.snapshot().filter {
+            $0.kind == .tailscale
+        }
+        let build = MobileHostBuildIdentity.current()
+        let ticket = try ticketStore.createLocalPairingTicket(
+            routes: routes,
+            capability: localPairingAuthority.issueCapability(),
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: build.appVersion,
+            macAppBuild: build.appBuild
+        )
+        return try ticketStore.payload(
+            for: ticket,
+            routeDisclosureMode: .localTailscalePairing,
+            pairingURLScheme: pairingURLScheme
+        )
+    }
+
     private static func filteredRoutes(
         _ routes: [CmxAttachRoute],
         routeID: String?,
@@ -1644,13 +1676,14 @@ final class MobileHostService {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        // Stack auth is the SOLE authorization gate for the mobile data plane.
-        // The attach ticket is route-discovery and workspace-selection only; it
-        // never authorizes on its own. Every operation must present the Mac
-        // owner's same-account Stack access token. Consequences: a leaked or
-        // photographed QR is useless without the owner's signed-in account, and
-        // pairing is bound to "who is signed in on this Mac" rather than a stored
-        // ticket, so it survives Mac restarts and ticket expiry.
+        if localPairingAuthority.verifies(request.auth?.attachToken) {
+            return nil
+        }
+        // The opt-in local capability was checked above. In the normal account
+        // path, Stack auth remains the authorization gate: every operation must
+        // present the Mac owner's same-account access token. The ordinary attach
+        // ticket only supplies route and workspace context and never authorizes
+        // on its own.
         if devStackTokenAuthorized(request) {
             return ticketAuthorizationResultIfNeeded(for: request)
         }

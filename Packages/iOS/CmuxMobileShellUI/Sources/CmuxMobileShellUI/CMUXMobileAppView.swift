@@ -25,6 +25,8 @@ public struct CMUXMobileAppView: View {
     /// reconnect decision. Root view lifecycle callbacks share this instance.
     @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
     private let signOutHook: MobileSignOutHook
+    private let localPairingCredentialStore:
+        any MobileLocalPairingCredentialStoring
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
     #endif
@@ -46,7 +48,9 @@ public struct CMUXMobileAppView: View {
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
-        signOutHook: MobileSignOutHook = MobileSignOutHook()
+        signOutHook: MobileSignOutHook = MobileSignOutHook(),
+        localPairingCredentialStore: any MobileLocalPairingCredentialStoring =
+            NoopMobileLocalPairingCredentialStore()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
@@ -54,6 +58,7 @@ public struct CMUXMobileAppView: View {
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
+        self.localPairingCredentialStore = localPairingCredentialStore
     }
     #else
     /// Creates the app view on non-iOS platforms.
@@ -74,6 +79,7 @@ public struct CMUXMobileAppView: View {
         _browserStreamStore = State(initialValue: browserStreamStore)
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.signOutHook = signOutHook
+        self.localPairingCredentialStore = NoopMobileLocalPairingCredentialStore()
     }
     #endif
 
@@ -84,6 +90,7 @@ public struct CMUXMobileAppView: View {
             store: store,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook,
+            localPairingCredentialStore: localPairingCredentialStore,
             startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)

@@ -11,6 +11,9 @@ public enum CmxTransportAuthorizationMode: Equatable, Sendable {
     /// the pairing UI is the authorization event, and the value never outlives
     /// that pairing dial.
     case userAuthorizedTailscalePairing(CmxUserTailscalePairingAuthorization)
+    /// A user-approved local-pairing QR may send its device-local bearer only
+    /// to the exact Tailscale peer named by that QR.
+    case localTailscalePairing(CmxUserTailscalePairingAuthorization)
     /// The transport handshake admitted this exact peer and account binding.
     case transportAdmission
 }

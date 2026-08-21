@@ -495,6 +495,13 @@ struct MobilePairingView: View {
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+            } else if model.isUsingLocalPairing {
+                Text(String(
+                    localized: "mobile.pairing.localOnly",
+                    defaultValue: "Local pairing · Tailscale only · No cmux account"
+                ))
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }

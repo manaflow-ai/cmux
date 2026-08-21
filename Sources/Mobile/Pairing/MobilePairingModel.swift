@@ -4,11 +4,11 @@ import CmuxAuthRuntime
 import Foundation
 import Observation
 
-/// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
-/// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// Drives the in-app iOS pairing window. Signed-in Macs mint the existing
+/// same-account code; signed-out Macs mint a local capability restricted to
+/// the advertised Tailscale route. Automatic Iroh discovery needs no QR. The
+/// displayed code never expires and is never regenerated on a timer; Refresh
+/// Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -86,6 +86,9 @@ final class MobilePairingModel {
     private(set) var state: State = .loading
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
+    /// Whether the displayed QR authorizes through a device-local capability
+    /// instead of a Stack account.
+    private(set) var isUsingLocalPairing = false
     /// Exact iOS apps this Mac build can intentionally address.
     let availableIOSAppTargets: [MobileIOSAppTarget]
     /// The exact iOS app addressed by newly minted QR codes.
@@ -109,10 +112,9 @@ final class MobilePairingModel {
     ///     instance. (Resolved in the `@MainActor` init body rather than as a
     ///     default argument, since default args are evaluated nonisolated and
     ///     `MobileHostService.shared` is main-actor isolated.)
-    ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
-    ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; the displayed Tailscale QR carries no token and never
-    ///     expires.
+    ///   - ticketTTL: Lifetime of the account-authorized attach token in
+    ///     seconds. Defaults to 600. Local pairing uses a separate durable
+    ///     capability and ignores this value.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
@@ -152,9 +154,8 @@ final class MobilePairingModel {
         await refresh()
     }
 
-    /// Re-evaluates sign-in state and, when signed in, brings the listener up
-    /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
-    /// or the view re-running it when auth state settles).
+    /// Re-evaluates sign-in state, brings the listener up, and mints the
+    /// appropriate account or local attach ticket. Safe to call repeatedly.
     func refresh() async {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
@@ -172,11 +173,8 @@ final class MobilePairingModel {
         }
         await coordinator.awaitBootstrapped()
         guard generation == refreshGeneration else { return }
-        guard coordinator.isAuthenticated else {
-            signedInEmail = nil
-            state = .signedOut
-            return
-        }
+        let usesLocalPairing = !coordinator.isAuthenticated
+        isUsingLocalPairing = usesLocalPairing
         signedInEmail = coordinator.currentUser?.primaryEmail
         state = .preparing
         enablePairingHost()
@@ -200,13 +198,19 @@ final class MobilePairingModel {
             return
         }
         do {
-            let payload = try await host.createAttachTicket(
-                workspaceID: "",
-                terminalID: nil,
-                ttl: ticketTTL,
-                routeDisclosureMode: routePlan.disclosureMode,
-                pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
-            )
+            let payload = if usesLocalPairing {
+                try host.createLocalTailscalePairingTicket(
+                    pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
+                )
+            } else {
+                try await host.createAttachTicket(
+                    workspaceID: "",
+                    terminalID: nil,
+                    ttl: ticketTTL,
+                    routeDisclosureMode: routePlan.disclosureMode,
+                    pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
+                )
+            }
             guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
                 state = .failed(

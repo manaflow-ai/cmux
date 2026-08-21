@@ -4283,7 +4283,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macAppBuild: ticket.macAppBuild,
             routes: ticket.routes,
             expiresAt: ticket.expiresAt,
-            authToken: ticket.authToken
+            authToken: ticket.authToken,
+            localPairing: ticket.localPairing
             ) {
             resolvedTicket = adopted
         } else {
@@ -4495,9 +4496,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // An explicit in-app code entry (the Mac's Tailscale pairing window
         // shows either the tokenless v1 compatibility ticket or the bare-route
         // v2 grammar) authorizes the exact Tailscale destinations it named.
-        // External URL opens never mint this.
+        // A v4 local-pairing URL is itself an explicit capability grant, so a
+        // Camera/deep-link open receives the same exact-route authorization.
         let userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization]
-        if userEnteredPairingCode {
+        if userEnteredPairingCode || ticket.localPairing {
             userTailscalePairingAuthorizations = ticket.routes.compactMap { route in
                 guard route.kind == .tailscale,
                       case let .hostPort(host, port) = route.endpoint else {
@@ -9805,7 +9807,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 macAppBuild: ticket.macAppBuild,
                 routes: ticket.routes,
                 expiresAt: ticket.expiresAt,
-                authToken: ticket.authToken
+                authToken: ticket.authToken,
+                localPairing: ticket.localPairing
               ) else {
             return ticket
         }

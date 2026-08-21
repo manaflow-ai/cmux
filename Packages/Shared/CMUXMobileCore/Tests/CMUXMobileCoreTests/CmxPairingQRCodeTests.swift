@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for the minimal v2 pairing-QR grammar: bare Tailscale
-/// `host:port` routes in the URL query, nothing else.
+/// Coverage for the compact pairing-QR grammars, including local Tailscale
+/// capabilities and the legacy account-authorized forms.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
         index: Int,
@@ -49,6 +49,33 @@ import Testing
             ticket,
             routeDisclosureMode: .legacyPrivateNetworkCompatibility
         )
+    }
+
+    @Test func localPairingRoundTripsCapabilityAndExactRoutes() throws {
+        let routes = [try tailscaleRoute(index: 0, host: "100.64.0.5")]
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            macDisplayName: "Local Mac",
+            macPairingCompatibilityVersion: 1,
+            routes: routes,
+            authToken: "v1.local-capability",
+            localPairing: true
+        )
+
+        let url = try #require(CmxPairingQRCode().encode(
+            ticket,
+            routeDisclosureMode: .localTailscalePairing
+        ))
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+
+        #expect(url.contains("v=4"))
+        #expect(decoded.macDeviceID == ticket.macDeviceID)
+        #expect(decoded.authToken == ticket.authToken)
+        #expect(decoded.localPairing)
+        #expect(decoded.routes == routes)
+        #expect(decoded.expiresAt == nil)
     }
 
     @Test func roundTripsSingleRoute() throws {
@@ -303,6 +330,26 @@ import Testing
     }
 
     @Test(arguments: [
+        "cmux-ios://attach?v=4&d=mac&k=secret",
+        "cmux-ios://attach?v=4&d=&k=secret&r=100.64.0.5:58465",
+        "cmux-ios://attach?v=4&d=mac&k=&r=100.64.0.5:58465",
+        "cmux-ios://attach?v=4&d=mac&d=other&k=secret&r=100.64.0.5:58465",
+        "cmux-ios://attach?v=4&d=mac&k=secret&k=other&r=100.64.0.5:58465",
+    ])
+    func decodeRejectsMalformedLocalPairingCodes(url: String) throws {
+        #expect(throws: (any Error).self) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func localPairingRejectsLoopbackRoute() throws {
+        let url = "cmux-ios://attach?v=4&d=mac&k=secret&r=127.0.0.1:58465"
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test(arguments: [
         "cmux-ios://attach?v=3",
         "cmux-ios://attach?v=3&i=",
         "cmux-ios://attach?v=3&i=abc",
@@ -329,6 +376,9 @@ import Testing
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
         #expect(CmxPairingQRCode().isPairingCodeURLString(
             "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+        ))
+        #expect(CmxPairingQRCode().isPairingCodeURLString(
+            "cmux-ios://attach?v=4&d=mac&k=secret&r=100.64.0.5:58465"
         ))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))

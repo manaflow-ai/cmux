@@ -25,10 +25,15 @@ import Foundation
 /// build (`av`/`ab`) only ever decorated that warning's message, so they are
 /// no longer written; the decoder still reads them from older Macs' codes.
 ///
-/// Both grammars share these properties:
-/// - **No auth token.** The owner's Stack access token is the host's sole
-///   authorization gate; a token in the QR authorized nothing and made the
-///   code look like a leaked credential.
+/// Opt-in local-only pairing uses v4:
+/// `cmux-ios://attach?v=4&d=<mac-device-id>&pc=<compat>&k=<bearer>&r=<host>:<port>...`.
+/// Unlike the compatibility grammar, this code deliberately carries a bearer
+/// capability. Possession of that code plus reachability through the tailnet
+/// replaces the Stack same-account check.
+///
+/// The legacy v2 and v3 grammars share these properties:
+/// - **No auth token.** The owner's Stack access token authorizes those paths;
+///   a token in either legacy QR authorized nothing.
 /// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
 ///   screen for an hour still pairs.
 /// - **No display name, no device id, no build metadata.** All arrive
@@ -46,10 +51,10 @@ import Foundation
 ///   into an `NWConnection` `.waiting` black hole for the full request
 ///   timeout before the Tailscale route was ever tried.
 ///
-/// The payloads are deliberately *not* wrapped in base64 JSON: anyone can read
-/// the URL off the QR and see for themselves that it carries only an address.
-/// Plain text is also smaller, which lowers the QR version (fewer, larger
-/// modules) and makes the code scan faster from a Mac screen.
+/// The payloads are deliberately *not* wrapped in base64 JSON. Plain text is
+/// smaller, which lowers the QR version (fewer, larger modules) and makes the
+/// code scan faster from a Mac screen. A v4 URL is a credential and must be
+/// handled like any other bearer secret.
 ///
 /// Compatibility: the Mac pairing window emits only a Tailscale pairing
 /// payload. v3 remains decodable for existing Iroh links and explicit
@@ -61,12 +66,14 @@ public struct CmxPairingQRCode: Sendable {
     /// The newest grammar version this build can decode.
     ///
     /// Distinct from ``CmxAttachTicket/currentVersion`` (the ticket structure
-    /// version): v1 URLs carry base64 JSON, v2 carries Tailscale routes, and
-    /// v3 carries one bare Iroh EndpointID.
-    public static let version = 3
+    /// version): v1 URLs carry base64 JSON, v2 carries account-authorized
+    /// Tailscale routes, v3 carries one bare Iroh EndpointID, and v4 carries a
+    /// local capability plus exact Tailscale routes.
+    public static let version = 4
 
     private static let tailscaleVersion = 2
     private static let irohVersion = 3
+    private static let localTailscaleVersion = 4
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -123,6 +130,27 @@ public struct CmxPairingQRCode: Sendable {
                 return "r=\(hostPortString(host: host, port: port))"
             })
             items = compatibilityItems
+        case .localTailscalePairing:
+            guard let routes = encodableTailscaleRoutes(of: ticket),
+                  let deviceID = normalizedNonEmpty(ticket.macDeviceID),
+                  let bearer = normalizedNonEmpty(ticket.authToken) else {
+                return nil
+            }
+            var localItems = [
+                "v=\(Self.localTailscaleVersion)",
+                "d=\(percentEncodeQueryValue(deviceID))",
+                "k=\(percentEncodeQueryValue(bearer))",
+            ]
+            if let compatibilityVersion = ticket.macPairingCompatibilityVersion {
+                localItems.append("pc=\(compatibilityVersion)")
+            }
+            localItems.append(contentsOf: routes.map { route -> String in
+                guard case let .hostPort(host, port) = route.endpoint else {
+                    return ""
+                }
+                return "r=\(hostPortString(host: host, port: port))"
+            })
+            items = localItems
         }
         // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
         // Mac's QR opens the dev iOS build, a release Mac's QR opens the
@@ -141,6 +169,10 @@ public struct CmxPairingQRCode: Sendable {
             encodableIrohIdentity(of: ticket) != nil
         case .legacyPrivateNetworkCompatibility:
             encodableTailscaleRoutes(of: ticket) != nil
+        case .localTailscalePairing:
+            encodableTailscaleRoutes(of: ticket) != nil
+                && normalizedNonEmpty(ticket.macDeviceID) != nil
+                && normalizedNonEmpty(ticket.authToken) != nil
         }
     }
 
@@ -212,7 +244,9 @@ public struct CmxPairingQRCode: Sendable {
         guard let version = Self.attachURLVersion(components) else {
             return false
         }
-        return version == Self.tailscaleVersion || version == Self.irohVersion
+        return version == Self.tailscaleVersion
+            || version == Self.irohVersion
+            || version == Self.localTailscaleVersion
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -243,9 +277,10 @@ public struct CmxPairingQRCode: Sendable {
 
     /// Decode a supported plain pairing URL into a validated ticket.
     ///
-    /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
+    /// Legacy tickets come back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
-    /// - Parameter components: A parsed v2 or v3 attach URL.
+    /// Local v4 tickets carry the stable device id needed for persistence.
+    /// - Parameter components: A parsed v2, v3, or v4 attach URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
     ///   when any route names a loopback host (a scanned code must never
@@ -259,6 +294,8 @@ public struct CmxPairingQRCode: Sendable {
             return try decodeTailscale(components)
         case Self.irohVersion:
             return try decodeIroh(components)
+        case Self.localTailscaleVersion:
+            return try decodeLocalTailscale(components)
         default:
             throw MobileSyncPairingPayloadError.invalidURL
         }
@@ -299,6 +336,36 @@ private extension CmxPairingQRCode {
             routes: routes,
             expiresAt: nil,
             authToken: nil
+        )
+        try ticket.validate()
+        return ticket
+    }
+
+    /// Decode the v4 local-only Tailscale grammar.
+    func decodeLocalTailscale(_ components: URLComponents) throws -> CmxAttachTicket {
+        let items = components.queryItems ?? []
+        guard items.filter({ $0.name == "v" }).count == 1,
+              items.filter({ $0.name == "d" }).count == 1,
+              items.filter({ $0.name == "k" }).count == 1,
+              let deviceID = queryValue(named: "d", in: components),
+              !deviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let bearer = queryValue(named: "k", in: components),
+              !bearer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        let routeTicket = try decodeTailscale(components)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: deviceID,
+            macDisplayName: nil,
+            macUserEmail: nil,
+            macUserID: nil,
+            macPairingCompatibilityVersion: routeTicket.macPairingCompatibilityVersion,
+            routes: routeTicket.routes,
+            expiresAt: nil,
+            authToken: bearer,
+            localPairing: true
         )
         try ticket.validate()
         return ticket

@@ -62,6 +62,8 @@ public struct CMUXMobileRootScene: View {
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    private let localPairingCredentialStore:
+        any MobileLocalPairingCredentialStoring
     /// The app-wide toast presenter, hosted at this root so toasts float over
     /// every screen (including sheets) and any descendant can present through
     /// `@Environment(ToastCenter.self)`.
@@ -147,6 +149,9 @@ public struct CMUXMobileRootScene: View {
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
+        self.localPairingCredentialStore = MobileLocalPairingKeychainStore(
+            accessGroup: auth.keychainAccessGroup
+        )
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
@@ -172,6 +177,7 @@ public struct CMUXMobileRootScene: View {
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
+        self.localPairingCredentialStore = NoopMobileLocalPairingCredentialStore()
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
         _toastCenter = State(initialValue: ToastCenter())
@@ -421,7 +427,8 @@ public struct CMUXMobileRootScene: View {
             browserStreamStore: browserStreamStore,
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: signOutHook,
+            localPairingCredentialStore: localPairingCredentialStore
         )
         #else
         return CMUXMobileAppView(

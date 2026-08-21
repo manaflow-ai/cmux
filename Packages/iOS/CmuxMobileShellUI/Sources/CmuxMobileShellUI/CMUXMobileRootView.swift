@@ -30,6 +30,8 @@ struct CMUXMobileRootView: View {
     @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
+    private let localPairingCredentialStore:
+        any MobileLocalPairingCredentialStoring
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
@@ -76,11 +78,13 @@ struct CMUXMobileRootView: View {
         store: CMUXMobileShellStore,
         onboardingStore: MobileOnboardingStore,
         signOutHook: MobileSignOutHook,
+        localPairingCredentialStore: any MobileLocalPairingCredentialStoring,
         startupConnectionCoordinator: MobileStartupConnectionCoordinator
     ) {
         self.store = store
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
+        self.localPairingCredentialStore = localPairingCredentialStore
         self.startupConnectionCoordinator = startupConnectionCoordinator
         var initialRootPresentation = MobileRootPresentationState()
         #if DEBUG
@@ -110,6 +114,7 @@ struct CMUXMobileRootView: View {
     ) {
         self.store = store
         self.signOutHook = signOutHook
+        self.localPairingCredentialStore = NoopMobileLocalPairingCredentialStore()
         self.startupConnectionCoordinator = startupConnectionCoordinator
     }
     #endif
@@ -304,6 +309,9 @@ struct CMUXMobileRootView: View {
             // barrier; the coordinator still serializes this with the normal
             // lifecycle callbacks, so it cannot start a duplicate dial.
             await finishAuthenticationBootstrapAndConnect()
+        }
+        .task {
+            await restoreLocalPairingIfNeeded()
         }
         .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
             tailscaleSetupPrompt.apply(.shellStatusChanged(status))
@@ -1175,6 +1183,9 @@ struct CMUXMobileRootView: View {
                 result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
                 failure: failure
             )
+            if result.didConnect, isLocalPairingURL(rawURL) {
+                await localPairingCredentialStore.saveAttachURL(rawURL)
+            }
             switch followUp {
             case .none:
                 break
@@ -1272,6 +1283,7 @@ struct CMUXMobileRootView: View {
             // store.signOut() makes; this clears everything up front.
             toasts.dismissAll()
             store.signOut()
+            await localPairingCredentialStore.clearAttachURL()
             let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
             diagnosticLog?.recordAppEvent(
@@ -1279,6 +1291,24 @@ struct CMUXMobileRootView: View {
                 failure: authManager.isAuthenticated ? .protocolViolation : nil
             )
         }
+    }
+
+    private func restoreLocalPairingIfNeeded() async {
+        await authManager.awaitBootstrapped()
+        guard !authManager.isAuthenticated,
+              !didAuthenticateWithAttachTicket,
+              store.connectionState != .connected,
+              let attachURL = await localPairingCredentialStore.loadAttachURL(),
+              isLocalPairingURL(attachURL) else { return }
+        connectAttachURL(attachURL)
+    }
+
+    private func isLocalPairingURL(_ rawURL: String) -> Bool {
+        guard let components = URLComponents(string: rawURL),
+              let ticket = try? CmxPairingQRCode().decode(components) else {
+            return false
+        }
+        return ticket.localPairing
     }
 
     @discardableResult

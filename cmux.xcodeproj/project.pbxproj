@@ -1452,6 +1452,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */; };
 		58812E32EA724C5CAB36BE98 /* MobileIOSAppTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */; };
 		86BEAF78BDAB4871996E9EF2 /* MobileIOSPairingTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */; };
+		A8C0A1100000000000000002 /* MobileLocalPairingAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C0A1100000000000000001 /* MobileLocalPairingAuthority.swift */; };
 		C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
@@ -4254,6 +4255,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostWorkspaceTicketAuthorizationTests.swift; sourceTree = "<group>"; };
 		0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobileIOSAppTarget.swift"; sourceTree = "<group>"; };
 		1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileIOSPairingTargetStore.swift; sourceTree = "<group>"; };
+		A8C0A1100000000000000001 /* MobileLocalPairingAuthority.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileLocalPairingAuthority.swift; sourceTree = "<group>"; };
 		C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedWireItem.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
@@ -5906,6 +5908,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
+				A8C0A1100000000000000001 /* MobileLocalPairingAuthority.swift */,
 				D80AFFF3844843A789F89241 /* MobileRemoteControlPolicy.swift */,
 				A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */,
 				1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */,
@@ -9861,6 +9864,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */,
 				58812E32EA724C5CAB36BE98 /* MobileIOSAppTarget.swift in Sources */,
 				86BEAF78BDAB4871996E9EF2 /* MobileIOSPairingTargetStore.swift in Sources */,
+				A8C0A1100000000000000002 /* MobileLocalPairingAuthority.swift in Sources */,
 				C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */,
 				0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */,
 				325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */,

@@ -11,4 +11,9 @@ public enum CmxPairingRouteDisclosureMode: Equatable, Sendable {
     /// Preserve the pre-Iroh compact route grammar for a Tailscale pairing
     /// code. This discloses the selected tailnet destination.
     case legacyPrivateNetworkCompatibility
+    /// Encode a Tailscale destination together with an explicit local-pairing
+    /// bearer. This mode is opt-in because possession of the QR grants access
+    /// without a Stack account; the surrounding tailnet remains the network
+    /// boundary.
+    case localTailscalePairing
 }

@@ -159,8 +159,9 @@ struct CmxTailscaleRouteProofValidator {
             ) else {
                 throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
             }
-        case let .userAuthorizedTailscalePairing(authorization):
-            // A user-entered code authorizes only its exact destination; any
+        case let .userAuthorizedTailscalePairing(authorization),
+             let .localTailscalePairing(authorization):
+            // A user-approved code authorizes only its exact destination; any
             // device identity it claims is self-reported and grants nothing.
             guard authorization.authorizes(host: host, port: port) else {
                 throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch

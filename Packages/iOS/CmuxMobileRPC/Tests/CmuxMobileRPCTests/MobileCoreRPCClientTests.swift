@@ -685,6 +685,60 @@ import Testing
         _ = try? await task.value
     }
 
+    @Test func localTailscalePairingCarriesOnlyItsLocalCapability() async throws {
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let stackTokenRequested = AsyncFlag()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessTokenProvider: {
+                await stackTokenRequested.set()
+                return "must-not-cross-local-pairing"
+            }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            macDisplayName: "Local Mac",
+            routes: [route],
+            authToken: "local-capability",
+            localPairing: true
+        )
+        let authorization = try CmxUserTailscalePairingAuthorization(
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            userTailscalePairingAuthorization: authorization
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        let frame = try #require(sent.first)
+
+        #expect(frame.attachToken == "local-capability")
+        #expect(frame.stackAccessToken == nil)
+        #expect(frame.hasAuth)
+        #expect(!(await stackTokenRequested.isSet()))
+        #expect(capture.request()?.authorizationMode == .localTailscalePairing(authorization))
+        task.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await task.value
+    }
+
     @Test func exactLegacyTailscaleEvidenceCarriesStackBearer() async throws {
         let macDeviceID = "123e4567-e89b-42d3-a456-426614174004"
         let route = try hostPortRoute(

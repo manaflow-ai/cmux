@@ -23,6 +23,34 @@ final class MobileAttachTicketStore {
     private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
 
+    /// Creates a non-expiring local-only pairing ticket. Its capability is
+    /// independently verified by ``MobileLocalPairingAuthority`` and is not
+    /// entered into the temporary attach-ticket registry.
+    func createLocalPairingTicket(
+        routes: [CmxAttachRoute],
+        capability: String,
+        macPairingCompatibilityVersion: Int? = nil,
+        macAppVersion: String? = nil,
+        macAppBuild: String? = nil
+    ) throws -> CmxAttachTicket {
+        guard !routes.isEmpty else {
+            throw MobileAttachTicketStoreError.noRoutes
+        }
+        return try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: MobileHostIdentity.deviceID(),
+            macDisplayName: MobileHostIdentity.instanceDisplayName(),
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes,
+            expiresAt: nil,
+            authToken: capability,
+            localPairing: true
+        )
+    }
+
     func createTicket(
         workspaceID: String,
         terminalID: String?,

@@ -6529,6 +6529,23 @@
         }
       }
     },
+    "mobile.pairing.localCredentialUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair this Mac again to refresh its local credential."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac をもう一度ペアリングして、ローカル認証情報を更新してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.secureRouteRequired": {
       "extractionState": "manual",
       "localizations": {

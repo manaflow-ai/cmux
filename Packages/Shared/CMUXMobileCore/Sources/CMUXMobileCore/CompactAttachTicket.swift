@@ -79,6 +79,8 @@ private extension Array where Element == CmxAttachRoute {
             }
         case .legacyPrivateNetworkCompatibility:
             return self
+        case .localTailscalePairing:
+            return filter { $0.kind == .tailscale }
         }
     }
 

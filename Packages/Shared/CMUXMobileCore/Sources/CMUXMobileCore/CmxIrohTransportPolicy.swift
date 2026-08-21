@@ -172,7 +172,8 @@ extension CmxAttachTicket {
                 $0.disclosed(for: .authenticated, at: now)
             },
             expiresAt: expiresAt,
-            authToken: authToken
+            authToken: authToken,
+            localPairing: localPairing
         )
     }
 }

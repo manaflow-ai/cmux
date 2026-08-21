@@ -73,8 +73,9 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 ) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
-            case let .userAuthorizedTailscalePairing(authorization):
-                // Anchored on the exact user-entered destination; any claimed
+            case let .userAuthorizedTailscalePairing(authorization),
+                 let .localTailscalePairing(authorization):
+                // Anchored on the exact user-approved destination; any claimed
                 // device identity is self-reported and grants nothing extra.
                 guard authorization.authorizes(host: host, port: port) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
