@@ -1,3 +1,5 @@
+command  __complete-candidates  aliases=-
+  arg  kind  kind=argument  completion=-
 command  __dump-command-tree  aliases=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
