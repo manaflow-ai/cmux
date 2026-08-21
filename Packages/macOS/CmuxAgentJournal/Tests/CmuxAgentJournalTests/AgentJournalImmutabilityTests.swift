@@ -26,7 +26,7 @@ struct AgentJournalImmutabilityTests {
         // Tamper through a raw second connection: the schema itself (not the
         // Swift wrapper) must reject mutation of committed history.
         var handle: OpaquePointer?
-        #expect(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
+        try #require(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
         defer { sqlite3_close_v2(handle) }
         let update = sqlite3_exec(handle, "UPDATE agent_journal SET kind = 'agent.turn.completed';", nil, nil, nil)
         #expect(update != SQLITE_OK)

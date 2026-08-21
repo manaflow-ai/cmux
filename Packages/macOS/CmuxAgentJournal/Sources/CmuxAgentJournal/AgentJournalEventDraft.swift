@@ -12,7 +12,8 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     /// Wire schema version; bump when the draft shape changes incompatibly.
     public static let currentSchemaVersion = 1
 
-    /// Longest accepted ``detail`` in UTF-8 form; longer values are truncated.
+    /// Longest accepted ``detail`` in UTF-8 bytes; longer values are
+    /// truncated on a character boundary.
     public static let maximumDetailLength = 500
 
     /// Schema version of this draft (``currentSchemaVersion`` for new events).
@@ -123,11 +124,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         self.pendingWork = pendingWork
         self.nativeEvent = nativeEvent
         self.declaredPhase = declaredPhase
-        self.detail = detail.map { value in
-            value.count > Self.maximumDetailLength
-                ? String(value.prefix(Self.maximumDetailLength))
-                : value
-        }
+        self.detail = detail.map(Self.boundedDetail)
     }
 
     /// Validates the draft for journal admission.
@@ -145,13 +142,37 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         if unattributedReason != nil, workspaceId != nil || surfaceId != nil {
             return "unattributed events must not carry a target"
         }
+        if (workspaceId == nil) != (surfaceId == nil) {
+            return "attribution requires both workspace_id and surface_id"
+        }
+        if workspaceId == nil, surfaceId == nil, unattributedReason == nil {
+            return "an event without a target must carry unattributed_reason"
+        }
         if let unattributedReason, unattributedReason.isEmpty || unattributedReason.count > 128 {
             return "unattributed_reason must be 1-128 characters"
         }
-        if let detail, detail.count > Self.maximumDetailLength {
-            return "detail exceeds \(Self.maximumDetailLength) characters"
+        if let detail, detail.utf8.count > Self.maximumDetailLength {
+            return "detail exceeds \(Self.maximumDetailLength) UTF-8 bytes"
         }
         return nil
+    }
+
+    /// Truncates `value` to ``maximumDetailLength`` UTF-8 bytes on a
+    /// character boundary.
+    ///
+    /// - Parameter value: The raw detail text.
+    /// - Returns: The bounded detail.
+    public static func boundedDetail(_ value: String) -> String {
+        guard value.utf8.count > maximumDetailLength else { return value }
+        var result = ""
+        var bytes = 0
+        for character in value {
+            let characterBytes = String(character).utf8.count
+            if bytes + characterBytes > maximumDetailLength { break }
+            bytes += characterBytes
+            result.append(character)
+        }
+        return result
     }
 
     /// Whether `value` is a valid lowercase agent slug (1-64 characters of

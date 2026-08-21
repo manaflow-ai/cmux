@@ -47,13 +47,27 @@ final class AgentJournalLifecycleCenter: Sendable {
             let reducer = AgentLifecycleReducer()
             let replayPolicy = AgentJournalReplayPolicy()
             var state = AgentLifecycleReducerState()
+            // Loaded once from the store, then maintained in memory as
+            // restore records new aliases: canonicalizing a replay fold via
+            // per-event SQL lookups would cost two round-trips per event.
+            var aliases: AgentJournalAliasResolver?
+            func resolver(_ store: AgentJournalStore) -> AgentJournalAliasResolver {
+                if let aliases { return aliases }
+                let maps = (try? store.aliasMaps()) ?? (workspaces: [:], surfaces: [:])
+                let loaded = AgentJournalAliasResolver(
+                    workspaces: maps.workspaces,
+                    surfaces: maps.surfaces
+                )
+                aliases = loaded
+                return loaded
+            }
             for await operation in stream {
                 guard let store = lazyStore.store() else { continue }
                 switch operation {
                 case .ingest(let event):
                     if let application = Self.reduceIngest(
                         event,
-                        store: store,
+                        aliases: resolver(store),
                         reducer: reducer,
                         state: &state
                     ) {
@@ -69,6 +83,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                             workspaceAliases: workspaces,
                             surfaceAliases: surfaces
                         )
+                        aliases?.merge(workspaces: workspaces, surfaces: surfaces)
 #if DEBUG
                         cmuxDebugLog(
                             "agentJournal.aliases.recorded surfaces=\(surfaces.count) " +
@@ -83,6 +98,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                 case .startupReplay:
                     let assignments = Self.reduceStartupReplay(
                         store: store,
+                        aliases: resolver(store),
                         reducer: reducer,
                         replayPolicy: replayPolicy,
                         state: &state
@@ -105,9 +121,10 @@ final class AgentJournalLifecycleCenter: Sendable {
         lazyStore?.close()
     }
 
-    /// Whether the journal is usable (opens it if this is the first access;
-    /// callers must be off-main).
-    var isAvailable: Bool { lazyStore?.store() != nil }
+    /// Whether the journal is configured (a database URL resolved). The
+    /// store itself opens lazily off-main on first append/consume; this
+    /// check never opens it, so it is safe from any context.
+    var isAvailable: Bool { lazyStore != nil }
 
     /// Full body of the `agent_journal_append` socket verb: decode, commit
     /// durably, enqueue reduction, and reply with the committed sequence.
@@ -195,11 +212,11 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     private static func reduceIngest(
         _ event: AgentJournalEvent,
-        store: AgentJournalStore,
+        aliases: AgentJournalAliasResolver,
         reducer: AgentLifecycleReducer,
         state: inout AgentLifecycleReducerState
     ) -> LifecycleApplication? {
-        let canonical = canonicalized(event, store: store)
+        let canonical = canonicalized(event, aliases: aliases)
         reducer.apply(canonical, to: &state)
         guard canonical.draft.unattributedReason == nil else {
             publishUnattributedDiagnostic(canonical)
@@ -222,22 +239,27 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     private static func reduceStartupReplay(
         store: AgentJournalStore,
+        aliases: AgentJournalAliasResolver,
         reducer: AgentLifecycleReducer,
         replayPolicy: AgentJournalReplayPolicy,
         state: inout AgentLifecycleReducerState
     ) -> [AgentLifecycleAssignment] {
         var cursor: Int64 = 0
         var folded = 0
+        var skipped = 0
         while true {
-            guard let page = try? store.events(afterSequence: cursor, limit: 2_048),
+            guard let page = try? store.readPage(afterSequence: cursor, limit: 2_048),
                   !page.isEmpty else {
                 break
             }
-            for event in page {
-                reducer.apply(canonicalized(event, store: store), to: &state)
+            for event in page.events {
+                reducer.apply(canonicalized(event, aliases: aliases), to: &state)
             }
-            folded += page.count
-            cursor = page[page.count - 1].sequence
+            folded += page.events.count
+            skipped += page.skippedSequences.count
+            // Advance over undecodable rows too so a foreign-schema run can
+            // never stall the fold or hide the events behind it.
+            cursor = page.scannedThroughSequence
         }
         let startup = replayPolicy.startupSnapshot(from: state.snapshot())
         var assignments: [AgentLifecycleAssignment] = []
@@ -250,8 +272,8 @@ final class AgentJournalLifecycleCenter: Sendable {
         }
 #if DEBUG
         cmuxDebugLog(
-            "agentJournal.replay folded=\(folded) painted=\(assignments.count) " +
-                "unattributed=\(state.unattributedEvents.count)"
+            "agentJournal.replay folded=\(folded) skipped=\(skipped) " +
+                "painted=\(assignments.count) unattributed=\(state.unattributedEvents.count)"
         )
 #endif
         return assignments
@@ -261,15 +283,18 @@ final class AgentJournalLifecycleCenter: Sendable {
     /// sessions that span an app relaunch reduce under one canonical surface.
     private static func canonicalized(
         _ event: AgentJournalEvent,
-        store: AgentJournalStore
+        aliases: AgentJournalAliasResolver
     ) -> AgentJournalEvent {
         var draft = event.draft
+        // A nil resolution means the alias chain hit its cycle cap; keep the
+        // original identity, which fails closed downstream (a dead surface
+        // is skipped at apply, never guessed).
         if let surfaceId = draft.surfaceId,
-           let resolved = try? store.resolvedSurfaceId(surfaceId) {
+           let resolved = aliases.resolvedSurfaceId(surfaceId) {
             draft.surfaceId = resolved
         }
         if let workspaceId = draft.workspaceId,
-           let resolved = try? store.resolvedWorkspaceId(workspaceId) {
+           let resolved = aliases.resolvedWorkspaceId(workspaceId) {
             draft.workspaceId = resolved
         }
         return AgentJournalEvent(

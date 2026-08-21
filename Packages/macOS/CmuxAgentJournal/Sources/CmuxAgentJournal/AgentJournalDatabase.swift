@@ -41,8 +41,9 @@ final class AgentJournalDatabase: @unchecked Sendable {
         ] {
             let prc = sqlite3_exec(handle, pragma, nil, nil, nil)
             guard prc == SQLITE_OK else {
+                let message = sqlite3_errmsg(handle).map { String(cString: $0) } ?? ""
                 sqlite3_close_v2(handle)
-                throw AgentJournalStoreError.stepFailed(prc, "")
+                throw AgentJournalStoreError.stepFailed(prc, "\(pragma) failed: \(message)")
             }
         }
         self.handle = handle

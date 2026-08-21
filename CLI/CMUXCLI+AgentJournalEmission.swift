@@ -31,15 +31,29 @@ extension CMUXCLI {
         store: ClaudeHookSessionStore? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
+        // A malformed or partial target (empty string, non-UUID, missing
+        // half) is never trusted: the event is journaled as an explicit
+        // diagnostic instead of being rejected at admission or guessed.
+        let validWorkspaceId = workspaceId.flatMap { UUID(uuidString: $0) != nil ? $0 : nil }
+        let validSurfaceId = surfaceId.flatMap { UUID(uuidString: $0) != nil ? $0 : nil }
+        let hasCompleteTarget = validWorkspaceId != nil && validSurfaceId != nil
+        let resolvedReason: String?
+        if let unattributedReason {
+            resolvedReason = unattributedReason
+        } else if !hasCompleteTarget {
+            resolvedReason = "malformed-target"
+        } else {
+            resolvedReason = nil
+        }
         let draft = AgentJournalEventDraft(
             kind: kind,
             occurredAtMs: Int64(Date().timeIntervalSince1970 * 1000),
             source: source,
             agentKey: agentKey,
             sessionId: sessionId,
-            workspaceId: unattributedReason == nil ? workspaceId : nil,
-            surfaceId: unattributedReason == nil ? surfaceId : nil,
-            unattributedReason: unattributedReason,
+            workspaceId: resolvedReason == nil ? validWorkspaceId : nil,
+            surfaceId: resolvedReason == nil ? validSurfaceId : nil,
+            unattributedReason: resolvedReason,
             isSubagent: isSubagent,
             pendingWork: pendingWork,
             nativeEvent: nativeEvent,
@@ -178,13 +192,13 @@ extension CMUXCLI {
             let lineData = try JSONSerialization.data(withJSONObject: record)
             guard var line = String(data: lineData, encoding: .utf8) else { return }
             line += "\n"
-            if fileManager.fileExists(atPath: url.path) {
-                let handle = try FileHandle(forWritingTo: url)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: Data(line.utf8))
-            } else {
-                try line.write(to: url, atomically: true, encoding: .utf8)
+            // O_APPEND with one write(2) call keeps concurrent hook
+            // processes' records intact (no read-modify-write interleaving).
+            let descriptor = open(url.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+            guard descriptor >= 0 else { return }
+            defer { close(descriptor) }
+            _ = Array(line.utf8).withUnsafeBufferPointer { buffer in
+                write(descriptor, buffer.baseAddress, buffer.count)
             }
         } catch {
             // stderr warning above already made the failure visible.

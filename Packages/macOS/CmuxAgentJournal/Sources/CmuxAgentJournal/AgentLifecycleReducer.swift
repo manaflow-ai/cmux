@@ -51,25 +51,18 @@ public struct AgentLifecycleReducer: Sendable {
             agentKey: agentKey,
             sessionKey: sessionKey
         )
-        if let previous, event.sequence <= previous.lastSequence {
-            // Duplicate or out-of-order stale arrival: the newest event by
-            // journal sequence already governs this session.
+        guard let transition = transition(for: event.draft, previous: previous) else {
+            // Non-lifecycle kind: a pure observation. It deliberately does
+            // not touch the session watermark, so a lifecycle event that
+            // arrives after a higher-sequence observation still applies —
+            // the fold stays a function of the highest-sequence
+            // lifecycle-bearing event alone, independent of delivery order.
             return false
         }
-        guard let transition = transition(for: event.draft, previous: previous) else {
-            // Non-lifecycle kind: bump the sequence watermark so replays stay
-            // idempotent, but keep the previous phase.
-            if let previous {
-                var bumped = previous
-                bumped.lastSequence = event.sequence
-                bumped.lastOccurredAtMs = event.draft.occurredAtMs
-                state.updateSession(
-                    surfaceId: surfaceId,
-                    agentKey: agentKey,
-                    sessionKey: sessionKey,
-                    state: bumped
-                )
-            }
+        if let previous, event.sequence <= previous.lastSequence {
+            // Duplicate or out-of-order stale arrival: the newest
+            // lifecycle-bearing event by journal sequence already governs
+            // this session.
             return false
         }
         let next = AgentSessionLifecycleState(

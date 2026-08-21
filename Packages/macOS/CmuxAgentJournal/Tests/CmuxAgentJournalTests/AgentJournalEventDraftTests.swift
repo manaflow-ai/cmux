@@ -29,18 +29,43 @@ struct AgentJournalEventDraftTests {
         draft.workspaceId = nil
         draft.surfaceId = nil
         #expect(draft.validationProblem() == nil)
+
+        // Attribution must be complete: half a target is rejected, and an
+        // event with no target must say why.
+        draft.unattributedReason = nil
+        #expect(draft.validationProblem() != nil)
+        draft.workspaceId = UUID().uuidString
+        #expect(draft.validationProblem() != nil)
+        draft.surfaceId = UUID().uuidString
+        #expect(draft.validationProblem() == nil)
     }
 
-    @Test func detailIsBounded() {
+    @Test func detailIsBoundedByUTF8Bytes() {
         let long = String(repeating: "x", count: 2_000)
-        let draft = AgentJournalEventDraft(
+        let ascii = AgentJournalEventDraft(
             kind: .turnCompleted,
             occurredAtMs: 1,
             source: "codex",
             agentKey: "codex",
+            unattributedReason: "test",
             detail: long
         )
-        #expect(draft.detail?.count == AgentJournalEventDraft.maximumDetailLength)
+        #expect(ascii.detail?.utf8.count == AgentJournalEventDraft.maximumDetailLength)
+
+        // Multi-byte characters truncate on a character boundary and never
+        // exceed the byte limit (500 emoji = 2000 UTF-8 bytes).
+        let emoji = AgentJournalEventDraft(
+            kind: .turnCompleted,
+            occurredAtMs: 1,
+            source: "codex",
+            agentKey: "codex",
+            unattributedReason: "test",
+            detail: String(repeating: "\u{1F600}", count: 500)
+        )
+        let bytes = emoji.detail?.utf8.count ?? 0
+        #expect(bytes <= AgentJournalEventDraft.maximumDetailLength)
+        #expect(bytes == 500)
+        #expect(emoji.validationProblem() == nil)
     }
 
     @Test func jsonRoundTripsWithSnakeCaseKeys() throws {

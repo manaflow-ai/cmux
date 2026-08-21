@@ -182,6 +182,20 @@ struct AgentLifecycleReducerTests {
         #expect(mutated == state)
     }
 
+    @Test func observationArrivingBeforeLifecycleEventDoesNotMaskIt() {
+        // A pure observation carries no watermark: a lifecycle event that
+        // arrives after a higher-sequence observation still applies, so the
+        // fold converges regardless of delivery order.
+        let events = [
+            event(1, .turnStarted),
+            event(2, .stateChanged),
+        ]
+        let inOrder = fold(events)
+        let reversed = fold([events[1], events[0]])
+        #expect(inOrder.snapshot() == reversed.snapshot())
+        #expect(reversed.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
     @Test func declaredPhaseCorrectionApplies() {
         let state = fold([
             event(1, .turnStarted),

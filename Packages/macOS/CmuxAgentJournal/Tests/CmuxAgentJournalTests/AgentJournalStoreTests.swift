@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import CmuxAgentJournal
 
@@ -9,6 +10,15 @@ struct AgentJournalStoreTests {
             .appendingPathComponent("agent-journal-tests-\(UUID().uuidString)", isDirectory: true)
         let url = directory.appendingPathComponent("journal.sqlite3")
         return (try AgentJournalStore(databaseURL: url), url)
+    }
+
+    private func withStore(_ body: (AgentJournalStore, URL) throws -> Void) throws {
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        try body(store, url)
     }
 
     private func draft(
@@ -30,7 +40,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func appendAssignsMonotonicSequences() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         let first = try store.append(draft())
         let second = try store.append(draft())
         #expect(first.sequence == 1)
@@ -41,7 +55,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func appendIsIdempotentByEventId() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         let event = draft(eventId: "stable-id")
         let first = try store.append(event)
         let replay = try store.append(event)
@@ -52,7 +70,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func appendRejectsSameIdWithDifferentContent() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         _ = try store.append(draft(eventId: "stable-id", kind: .turnStarted))
         #expect(throws: AgentJournalStoreError.self) {
             _ = try store.append(draft(eventId: "stable-id", kind: .turnCompleted))
@@ -61,7 +83,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func appendRejectsGuessedTargets() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         var bad = draft()
         bad.unattributedReason = "target-unresolved"
         #expect(throws: AgentJournalStoreError.self) {
@@ -71,7 +97,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func unattributedEventsAreDurable() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         var diagnostic = draft(surfaceId: nil, workspaceId: nil)
         diagnostic.unattributedReason = "target-unresolved"
         let outcome = try store.append(diagnostic)
@@ -83,7 +113,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func roundTripsAllFields() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         var event = draft(kind: .turnCompleted)
         event.pendingWork = true
         event.isSubagent = true
@@ -98,7 +132,8 @@ struct AgentJournalStoreTests {
     }
 
     @Test func journalIsAppendOnlyAcrossReopen() throws {
-        let (store, url) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let outcome = try store.append(draft())
         store.close()
         let reopened = try AgentJournalStore(databaseURL: url)
@@ -109,7 +144,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func surfaceAliasChainsResolve() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         let a = UUID().uuidString
         let b = UUID().uuidString
         let c = UUID().uuidString
@@ -124,7 +163,11 @@ struct AgentJournalStoreTests {
     }
 
     @Test func workspaceAliasResolves() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         let old = UUID().uuidString
         let new = UUID().uuidString
         try store.recordRestoreAliases(workspaceAliases: [old: new], surfaceAliases: [:])
@@ -133,20 +176,27 @@ struct AgentJournalStoreTests {
     }
 
     @Test func aliasCyclesTerminate() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         let a = UUID().uuidString
         let b = UUID().uuidString
         try store.recordRestoreAliases(workspaceAliases: [:], surfaceAliases: [a: b])
         try store.recordRestoreAliases(workspaceAliases: [:], surfaceAliases: [b: a])
-        // Chain following is bounded; the resolved id is one of the cycle
-        // members rather than an infinite loop.
-        let resolved = try store.resolvedSurfaceId(a)
-        #expect(resolved == a || resolved == b)
+        // Chain following is bounded; a recorded cycle fails closed with nil
+        // rather than returning an arbitrary intermediate identity.
+        #expect(try store.resolvedSurfaceId(a) == nil)
         store.close()
     }
 
     @Test func readsPageBySequence() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         for _ in 0..<5 { _ = try store.append(draft()) }
         let firstPage = try store.events(afterSequence: 0, limit: 2)
         #expect(firstPage.map(\.sequence) == [1, 2])
@@ -155,19 +205,48 @@ struct AgentJournalStoreTests {
         store.close()
     }
 
+    @Test func readPageAdvancesOverUndecodableRows() throws {
+        try withStore { store, url in
+            _ = try store.append(draft())
+            // A row written by a hypothetical newer schema: valid SQL, but a
+            // kind this build cannot decode. INSERT is allowed by design —
+            // only UPDATE/DELETE are trigger-blocked.
+            var handle: OpaquePointer?
+            #expect(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
+            defer { sqlite3_close_v2(handle) }
+            let insert = """
+            INSERT INTO agent_journal(
+                event_id, schema_version, kind, occurred_at_ms, committed_at_ms,
+                source, agent_key, is_subagent, pending_work, unattributed_reason
+            ) VALUES ('future-1', 2, 'agent.future.kind', 1, 1, 'claude', 'claude_code', 0, 0, 'x');
+            """
+            #expect(sqlite3_exec(handle, insert, nil, nil, nil) == SQLITE_OK)
+            _ = try store.append(draft())
+
+            let page = try store.readPage(afterSequence: 0, limit: 10)
+            #expect(page.events.map(\.sequence) == [1, 3])
+            #expect(page.skippedSequences == [2])
+            #expect(page.scannedThroughSequence == 3)
+
+            // Pagination cannot stall on an undecodable run: a page that
+            // decodes nothing still advances the cursor.
+            let onlyBad = try store.readPage(afterSequence: 1, limit: 1)
+            #expect(onlyBad.events.isEmpty)
+            #expect(onlyBad.scannedThroughSequence == 2)
+            #expect(!onlyBad.isEmpty)
+        }
+    }
+
     @Test func closedStoreThrows() throws {
-        let (store, _) = makeStoreOrFail()
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
         store.close()
         #expect(throws: AgentJournalStoreError.closed) {
             _ = try store.headSequence()
         }
     }
 
-    private func makeStoreOrFail() -> (AgentJournalStore, URL) {
-        do {
-            return try makeStore()
-        } catch {
-            fatalError("failed to open test store: \(error)")
-        }
-    }
 }

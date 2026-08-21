@@ -70,6 +70,10 @@ public final class AgentJournalStore: @unchecked Sendable {
         }
     }
 
+    deinit {
+        close()
+    }
+
     /// Appends one event, or replays the receipt of a previous append with
     /// the same `event_id`.
     ///
@@ -131,11 +135,15 @@ public final class AgentJournalStore: @unchecked Sendable {
                         .optionalText(draft.detail),
                     ]
                 )
-                let sequence = try Self.scalarInt64(
+                guard let sequence = try Self.scalarInt64(
                     database,
                     "SELECT sequence FROM agent_journal WHERE event_id = ?1;",
                     binding: [.text(draft.eventId)]
-                ) ?? 0
+                ) else {
+                    // The insert happened in this same transaction; a missing
+                    // sequence is a storage fault, never a receipt.
+                    throw AgentJournalStoreError.stepFailed(0, "committed row has no sequence")
+                }
                 return AgentJournalAppendOutcome(
                     sequence: sequence,
                     committedAtMs: committedAtMs,
@@ -145,14 +153,19 @@ public final class AgentJournalStore: @unchecked Sendable {
         }
     }
 
-    /// Reads committed events in sequence order.
+    /// Reads one page of committed events in sequence order.
+    ///
+    /// The page's ``AgentJournalReadPage/scannedThroughSequence`` advances
+    /// over undecodable rows too (foreign kinds from a newer schema), so
+    /// pagination can never stall on them and skipped rows stay visible as
+    /// diagnostics instead of vanishing silently.
     ///
     /// - Parameters:
     ///   - afterSequence: Exclusive lower bound (pass 0 to read from the start).
-    ///   - limit: Maximum number of events returned.
-    /// - Returns: Events ordered by ascending sequence.
+    ///   - limit: Maximum number of rows scanned.
+    /// - Returns: The scanned page.
     /// - Throws: A storage error.
-    public func events(afterSequence: Int64, limit: Int) throws -> [AgentJournalEvent] {
+    public func readPage(afterSequence: Int64, limit: Int) throws -> AgentJournalReadPage {
         try withDatabase { database in
             let statement = try database.prepare(
                 """
@@ -168,13 +181,37 @@ public final class AgentJournalStore: @unchecked Sendable {
                 .int(afterSequence),
                 .int(Int64(max(0, limit))),
             ])
-            var results: [AgentJournalEvent] = []
+            var events: [AgentJournalEvent] = []
+            var scannedThrough: Int64 = 0
+            var skipped: [Int64] = []
             while database.step(statement) == SQLITE_ROW {
-                guard let event = Self.decodeRow(database, statement) else { continue }
-                results.append(event)
+                let sequence = database.columnInt64(statement, 0)
+                scannedThrough = max(scannedThrough, sequence)
+                if let event = Self.decodeRow(database, statement) {
+                    events.append(event)
+                } else {
+                    skipped.append(sequence)
+                }
             }
-            return results
+            return AgentJournalReadPage(
+                events: events,
+                scannedThroughSequence: scannedThrough,
+                skippedSequences: skipped
+            )
         }
+    }
+
+    /// Convenience over ``readPage(afterSequence:limit:)`` returning only the
+    /// decoded events. Callers that paginate must use the page form so the
+    /// cursor advances over undecodable rows.
+    ///
+    /// - Parameters:
+    ///   - afterSequence: Exclusive lower bound (pass 0 to read from the start).
+    ///   - limit: Maximum number of rows scanned.
+    /// - Returns: Events ordered by ascending sequence.
+    /// - Throws: A storage error.
+    public func events(afterSequence: Int64, limit: Int) throws -> [AgentJournalEvent] {
+        try readPage(afterSequence: afterSequence, limit: limit).events
     }
 
     /// The highest committed sequence (0 when the journal is empty).
@@ -222,13 +259,42 @@ public final class AgentJournalStore: @unchecked Sendable {
         }
     }
 
+    /// Loads the complete alias tables into memory, so a replay fold can
+    /// resolve identities without per-event SQL round-trips (see
+    /// ``AgentJournalAliasResolver``).
+    ///
+    /// - Returns: The workspace and surface alias maps (old id → new id).
+    /// - Throws: A storage error.
+    public func aliasMaps() throws -> (workspaces: [String: String], surfaces: [String: String]) {
+        try withDatabase { database in
+            func load(_ sql: String) throws -> [String: String] {
+                let statement = try database.prepare(sql)
+                defer { sqlite3_finalize(statement) }
+                var map: [String: String] = [:]
+                while database.step(statement) == SQLITE_ROW {
+                    guard let old = database.columnText(statement, 0),
+                          let new = database.columnText(statement, 1) else { continue }
+                    map[old] = new
+                }
+                return map
+            }
+            return (
+                workspaces: try load("SELECT old_workspace_id, new_workspace_id FROM workspace_alias;"),
+                surfaces: try load("SELECT old_surface_id, new_surface_id FROM surface_alias;")
+            )
+        }
+    }
+
     /// Resolves a surface UUID through the recorded alias chain to the most
     /// current identity.
     ///
     /// - Parameter surfaceId: The (possibly stale) surface UUID string.
-    /// - Returns: The most current surface UUID string.
+    /// - Returns: The most current surface UUID string, or `nil` when the
+    ///   chain exceeds ``maximumAliasChainLength`` (a recorded cycle) — the
+    ///   caller must treat the identity as unresolvable rather than trusting
+    ///   a partially resolved value.
     /// - Throws: A storage error.
-    public func resolvedSurfaceId(_ surfaceId: String) throws -> String {
+    public func resolvedSurfaceId(_ surfaceId: String) throws -> String? {
         try resolveAlias(
             surfaceId,
             sql: "SELECT new_surface_id FROM surface_alias WHERE old_surface_id = ?1;"
@@ -239,16 +305,17 @@ public final class AgentJournalStore: @unchecked Sendable {
     /// current identity.
     ///
     /// - Parameter workspaceId: The (possibly stale) workspace UUID string.
-    /// - Returns: The most current workspace UUID string.
+    /// - Returns: The most current workspace UUID string, or `nil` when the
+    ///   chain exceeds ``maximumAliasChainLength`` (a recorded cycle).
     /// - Throws: A storage error.
-    public func resolvedWorkspaceId(_ workspaceId: String) throws -> String {
+    public func resolvedWorkspaceId(_ workspaceId: String) throws -> String? {
         try resolveAlias(
             workspaceId,
             sql: "SELECT new_workspace_id FROM workspace_alias WHERE old_workspace_id = ?1;"
         )
     }
 
-    private func resolveAlias(_ identifier: String, sql: String) throws -> String {
+    private func resolveAlias(_ identifier: String, sql: String) throws -> String? {
         try withDatabase { database in
             var current = identifier
             var hops = 0
@@ -264,7 +331,9 @@ public final class AgentJournalStore: @unchecked Sendable {
                 current = next
                 hops += 1
             }
-            return current
+            // Chain cap exhausted: a recorded cycle. Fail closed instead of
+            // returning an arbitrary intermediate identity.
+            return nil
         }
     }
 
@@ -414,6 +483,16 @@ public final class AgentJournalStore: @unchecked Sendable {
             binding: []
         ) ?? 0
         guard count > Int64(maximumEventCountAtOpen) else { return }
+        // Cut by row rank, not by sequence arithmetic: prior prunes leave
+        // sequence gaps, so MAX(sequence) - N would retain the wrong count.
+        guard let cutoff = try scalarInt64(
+            database,
+            """
+            SELECT sequence FROM agent_journal
+            ORDER BY sequence DESC LIMIT 1 OFFSET ?1;
+            """,
+            binding: [.int(Int64(retainedEventCountAfterPrune - 1))]
+        ) else { return }
         try database.transaction {
             try database.exec(
                 """
@@ -422,12 +501,8 @@ public final class AgentJournalStore: @unchecked Sendable {
                 """
             )
             try database.exec(
-                """
-                DELETE FROM agent_journal WHERE sequence <= (
-                    SELECT COALESCE(MAX(sequence), 0) - ?1 FROM agent_journal
-                );
-                """,
-                binding: [.int(Int64(retainedEventCountAfterPrune))]
+                "DELETE FROM agent_journal WHERE sequence < ?1;",
+                binding: [.int(cutoff)]
             )
             try installImmutabilityTriggers(database)
         }
