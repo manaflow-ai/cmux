@@ -13263,6 +13263,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     }
                 }
+                if accepted, deliverCompatFallbackAsReplacement {
+                    // A compatibility replacement carries only the visible
+                    // screen; the Mac still owns the full scrollback. Mark the
+                    // mirror for re-hydration so the next screen-anchored
+                    // replay refetches history instead of treating the
+                    // truncated mirror as complete.
+                    self.terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+                }
                 if accepted, let replaySeq {
                     // Only a sequence-carrying acceptance re-bases the stale
                     // floor; a seq-less tail leaves it for the ack restore.

@@ -193,6 +193,9 @@ import Testing
         surfaceID: surfaceID,
         streamToken: replacementChunk.streamToken
     )
+    // The replacement covers only the visible screen; the mirror must be
+    // marked for scrollback re-hydration on the next screen-anchored replay.
+    #expect(store.terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID))
     let recoverySettled = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
             && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
