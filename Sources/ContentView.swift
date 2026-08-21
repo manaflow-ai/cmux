@@ -11598,14 +11598,12 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    // Gentle fades inside the floating card (the card clears the titlebar
-    // and footer bands itself, so the old chrome-sized scrims are gone).
     private var sidebarTopScrimHeight: CGFloat {
-        16
+        SidebarListMetrics.topScrimHeight
     }
 
     private var sidebarBottomScrimHeight: CGFloat {
-        16
+        SidebarListMetrics.bottomScrimHeight
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
