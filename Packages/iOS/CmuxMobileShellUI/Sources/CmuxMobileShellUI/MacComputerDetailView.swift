@@ -28,6 +28,7 @@ struct MacComputerDetailView: View {
     var showPairingScanner: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var newDirectAddress = ""
+    @State private var showsAddDirectAddress = false
     /// Optimistic method selection: moves the picker the moment the user taps
     /// while the persist + store reload reconcile the authoritative value.
     @State private var pendingConnectionMethod: MobileConnectionMethod?
@@ -99,6 +100,31 @@ struct MacComputerDetailView: View {
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .alert(
+            L10n.string("mobile.connections.direct.add", defaultValue: "Add Address"),
+            isPresented: $showsAddDirectAddress
+        ) {
+            TextField(
+                L10n.string(
+                    "mobile.connections.direct.addPlaceholder",
+                    defaultValue: "Address or address:port"
+                ),
+                text: $newDirectAddress
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(.URL)
+            .accessibilityIdentifier("MobileComputerDirectAddressField")
+            Button(L10n.string("mobile.connections.direct.addConfirm", defaultValue: "Add")) {
+                addDirectAddress()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.connections.direct.addMessage",
+                defaultValue: "Where this computer is reachable, like 192.168.1.20 or mac.local:64000. Without a port, the Mac's advertised port is used."
+            ))
+        }
         .onAppear {
             guard !didLoadEdits else { return }
             didLoadEdits = true
@@ -224,27 +250,19 @@ struct MacComputerDetailView: View {
                 .accessibilityIdentifier("MobileComputerDirectAddress-\(entry.id)")
             }
             .onDelete(perform: deleteDirectAddresses)
-            HStack {
-                TextField(
+            Button {
+                newDirectAddress = ""
+                showsAddDirectAddress = true
+            } label: {
+                Label(
                     L10n.string(
-                        "mobile.connections.direct.addPlaceholder",
-                        defaultValue: "Address or address:port"
+                        "mobile.connections.direct.add",
+                        defaultValue: "Add Address"
                     ),
-                    text: $newDirectAddress
+                    systemImage: "plus.circle.fill"
                 )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .onSubmit(addDirectAddress)
-                .accessibilityIdentifier("MobileComputerDirectAddressField")
-                Button {
-                    addDirectAddress()
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                }
-                .disabled(parsedNewDirectAddress == nil)
-                .accessibilityIdentifier("MobileComputerDirectAddressAdd")
             }
+            .accessibilityIdentifier("MobileComputerDirectAddressAdd")
         } header: {
             Text(L10n.string(
                 "mobile.connections.direct.title",
