@@ -53,11 +53,19 @@ final class PhoneReplyInboxCoordinator {
 
     /// Schedule one debounced sweep. Safe to call from any trigger at any rate.
     func sweepSoon(reason: String) {
-        guard client != nil else { return }
+        guard client != nil else {
+            #if DEBUG
+            cmuxDebugLog("phoneReply.sweepSkipped reason=\(reason) cause=no_client")
+            #endif
+            return
+        }
         if sweepTask != nil {
             sweepQueuedWhileRunning = true
             return
         }
+        #if DEBUG
+        cmuxDebugLog("phoneReply.sweepScheduled reason=\(reason)")
+        #endif
         phoneReplySweepLog.debug("reply sweep scheduled: \(reason, privacy: .public)")
         sweepTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -74,8 +82,23 @@ final class PhoneReplyInboxCoordinator {
     }
 
     private func sweepOnce() async {
-        guard let client, let inject = injectTerminalInput else { return }
-        guard let pending = await client.fetchPending(), !pending.isEmpty else { return }
+        guard let client, let inject = injectTerminalInput else {
+            #if DEBUG
+            cmuxDebugLog("phoneReply.sweepAborted cause=\(client == nil ? "no_client" : "no_injector")")
+            #endif
+            return
+        }
+        guard let pending = await client.fetchPending() else {
+            #if DEBUG
+            cmuxDebugLog("phoneReply.sweepFetchFailed")
+            #endif
+            return
+        }
+        #if DEBUG
+        cmuxDebugLog("phoneReply.sweepFetched count=\(pending.count)")
+        #endif
+        guard !pending.isEmpty else { return }
+        var retryableCount = 0
         var ackIds: [String] = []
         for reply in pending {
             if seenReplyIds.contains(reply.replyId) {
@@ -92,7 +115,11 @@ final class PhoneReplyInboxCoordinator {
             if !reply.workspaceId.isEmpty {
                 params["workspace_id"] = reply.workspaceId
             }
-            switch inject(params) {
+            let outcome = inject(params)
+            #if DEBUG
+            cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(reply.surfaceId.prefix(8))")
+            #endif
+            switch outcome {
             case .delivered:
                 seenReplyIds.insert(reply.replyId)
                 ackIds.append(reply.replyId)
@@ -106,12 +133,21 @@ final class PhoneReplyInboxCoordinator {
                     "relayed phone reply dropped: target gone surface=\(reply.surfaceId.prefix(8), privacy: .public)"
                 )
             case .retryable:
+                retryableCount += 1
                 phoneReplySweepLog.info(
                     "relayed phone reply deferred surface=\(reply.surfaceId.prefix(8), privacy: .public)"
                 )
             }
         }
         await client.acknowledge(replyIds: ackIds)
+        if retryableCount > 0 {
+            // A transiently unavailable surface (session restore still loading,
+            // input queue full) produces no further nudge; poll until the
+            // target recovers or the entries age out server-side (15 min TTL
+            // bounds this loop).
+            try? await Task.sleep(for: .seconds(3))
+            sweepSoon(reason: "retryable-replies")
+        }
     }
 }
 

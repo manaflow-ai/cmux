@@ -87,6 +87,9 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                 },
                 handler: { invalidation in
                     await MainActor.run {
+                        #if DEBUG
+                        cmuxDebugLog("connectivity.frame revision=\(invalidation.revision)")
+                        #endif
                         mobileHostIrohLog.info(
                             "Connectivity revision invalidated; reconciling authoritative routes"
                         )
