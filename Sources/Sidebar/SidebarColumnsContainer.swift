@@ -30,6 +30,8 @@ struct SidebarColumnsContainer<Leading: View, Trailing: View>: View {
                     Rectangle()
                         .fill(Color(nsColor: .separatorColor).opacity(0.72))
                         .frame(width: 1)
+                        .padding(.top, SidebarColumnDividerMetrics.topInset)
+                        .padding(.bottom, SidebarColumnDividerMetrics.bottomInset)
                         .allowsHitTesting(false)
                 }
 

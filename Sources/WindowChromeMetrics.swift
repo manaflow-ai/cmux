@@ -56,6 +56,15 @@ enum RightSidebarChromeMetrics {
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
+/// Vertical extent of the machines/workspaces divider hairline: it spans
+/// the list band only, clearing the titlebar strip (traffic lights, bell,
+/// +) above and the footer strip (account, help, upgrade) below so the
+/// line never cuts through chrome.
+enum SidebarColumnDividerMetrics {
+    static var topInset: CGFloat { SidebarListMetrics.firstRowTopOffset }
+    static let bottomInset: CGFloat = 44
+}
+
 /// Shared layout language for every first-party sidebar list column.
 ///
 /// Machine, workspace, and future extension-owned columns use these values so
