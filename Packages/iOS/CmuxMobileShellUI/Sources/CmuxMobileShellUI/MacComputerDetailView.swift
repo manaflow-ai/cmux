@@ -317,6 +317,13 @@ struct MacComputerDetailView: View {
         }
     }
 
+    /// Whether THIS Computer already has a Tailscale route this iPhone is
+    /// authorized to dial (grant matching an advertised route).
+    private var computerHasUsableTailscaleAuthorization: Bool {
+        guard let pairedMac else { return false }
+        return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
+    }
+
     private var connectionMethodFooterText: String {
         switch pendingConnectionMethod ?? selectedMethod {
         case .direct:
