@@ -4727,6 +4727,34 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertEqual(surfaceView.scrollbar?.offset, 90)
     }
 
+    func testQueuedScrollbarWithoutRuntimeCancelsAuthoritativeWheelIntent() {
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidReceiveWheelScroll,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.requiresAuthoritativeWheelResponse: true]
+        )
+        XCTAssertTrue(hostedView.scrollbackViewportIntent.isAwaitingExplicitScrollbarSync)
+
+        let cancelled = expectation(
+            forNotification: .ghosttyDidReceiveWheelScroll,
+            object: surfaceView,
+            handler: { notification in
+                notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
+                    as? Bool == true
+            }
+        )
+        surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        wait(for: [cancelled], timeout: 1)
+
+        XCTAssertEqual(hostedView.scrollbackViewportIntent, .followingOutput)
+    }
+
     func testScrollbackReviewSurvivesPaneResize() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
