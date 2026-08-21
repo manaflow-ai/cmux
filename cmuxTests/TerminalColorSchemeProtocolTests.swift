@@ -16,19 +16,20 @@ struct TerminalColorSchemeProtocolTests {
         let surface: TerminalSurface
         let window: NSWindow
         let outputURL: URL
+        let scriptURL: URL
     }
 
     @Test("CSI 996 reports the effective dark and light schemes")
     func queryReportsEffectiveColorScheme() throws {
         let terminal = try makeHostedTerminal()
         defer { tearDown(terminal) }
-        guard terminal.surface.hasLiveSurface else { return }
+        let runtimeSurface = try #require(terminal.surface.surface)
 
-        ghostty_surface_set_color_scheme(try #require(terminal.surface.surface), GHOSTTY_COLOR_SCHEME_DARK)
+        ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("query-dark", to: terminal)
         #expect(try waitForReport("query-dark=1b5b3f3939373b316e", from: terminal))
 
-        ghostty_surface_set_color_scheme(try #require(terminal.surface.surface), GHOSTTY_COLOR_SCHEME_LIGHT)
+        ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
         try sendProbe("query-light", to: terminal)
         #expect(try waitForReport("query-light=1b5b3f3939373b326e", from: terminal))
     }
@@ -37,16 +38,21 @@ struct TerminalColorSchemeProtocolTests {
     func mode2031ReportsOnlyWhileEnabled() throws {
         let terminal = try makeHostedTerminal()
         defer { tearDown(terminal) }
-        guard terminal.surface.hasLiveSurface else { return }
         let runtimeSurface = try #require(terminal.surface.surface)
 
+        ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("enable", to: terminal)
-        #expect(try waitForReport("enable=ready", from: terminal))
+        #expect(try waitForReport("initial=1b5b3f3939373b316e", from: terminal))
+
+        try sendProbe("await-transition", to: terminal)
+        #expect(try waitForReport("await-transition=ready", from: terminal))
         ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
         #expect(try waitForReport("transition=1b5b3f3939373b326e", from: terminal))
 
         try sendProbe("disable", to: terminal)
         #expect(try waitForReport("disable=ready", from: terminal))
+        try sendProbe("await-disabled-transition", to: terminal)
+        #expect(try waitForReport("await-disabled-transition=ready", from: terminal))
         ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_DARK)
         #expect(try waitForReport("disabled=none", from: terminal))
     }
@@ -59,7 +65,8 @@ struct TerminalColorSchemeProtocolTests {
             tearDown(first)
             tearDown(second)
         }
-        guard first.surface.hasLiveSurface, second.surface.hasLiveSurface else { return }
+        _ = try #require(first.surface.surface)
+        _ = try #require(second.surface.surface)
 
         ghostty_surface_set_color_scheme(try #require(first.surface.surface), GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("first", to: first)
@@ -100,6 +107,7 @@ struct TerminalColorSchemeProtocolTests {
             with open(output_path, 'a', encoding='utf-8') as handle:
                 handle.write(value + '\\n')
                 handle.flush()
+        record('ready')
 
         try:
             for command in sys.stdin:
@@ -109,11 +117,15 @@ struct TerminalColorSchemeProtocolTests {
                     record(command + '=' + read_report(1.0))
                 elif command == 'enable':
                     os.write(fd, b'\\x1b[?2031h')
-                    record('enable=ready')
+                    record('initial=' + read_report(1.0))
+                elif command == 'await-transition':
+                    record('await-transition=ready')
                     record('transition=' + read_report(2.0))
                 elif command == 'disable':
                     os.write(fd, b'\\x1b[?2031l')
                     record('disable=ready')
+                elif command == 'await-disabled-transition':
+                    record('await-disabled-transition=ready')
                     record('disabled=' + read_report(0.35))
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -143,9 +155,18 @@ struct TerminalColorSchemeProtocolTests {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        return HostedTerminal(surface: surface, window: window, outputURL: outputURL)
+        let terminal = HostedTerminal(
+            surface: surface,
+            window: window,
+            outputURL: outputURL,
+            scriptURL: scriptURL
+        )
+        guard try waitForReport("ready", from: terminal) else {
+            tearDown(terminal)
+            Issue.record("Terminal color-scheme probe did not become ready")
+            throw ProbeError.notReady
+        }
+        return terminal
     }
 
     private func sendProbe(_ command: String, to terminal: HostedTerminal) throws {
@@ -171,6 +192,11 @@ struct TerminalColorSchemeProtocolTests {
         terminal.window.orderOut(nil)
         terminal.surface.releaseSurfaceForTesting()
         try? FileManager.default.removeItem(at: terminal.outputURL)
+        try? FileManager.default.removeItem(at: terminal.scriptURL)
+    }
+
+    private enum ProbeError: Error {
+        case notReady
     }
 
     private func shellSingleQuoted(_ value: String) -> String {
