@@ -3,6 +3,21 @@ import CmuxGit
 import Observation
 import SwiftUI
 
+enum GitGraphAccessibility {
+    static func commitLabel(
+        subject: String,
+        author: String,
+        abbreviatedOID: String,
+        locale: Locale = .current
+    ) -> String {
+        String(
+            localized: "gitGraph.commit.accessibilityLabel",
+            defaultValue: "\(subject), \(author), \(abbreviatedOID)",
+            locale: locale
+        )
+    }
+}
+
 @MainActor
 @Observable
 final class GitGraphPanelModel {
@@ -310,9 +325,10 @@ private struct GitGraphCommitRow: View {
         .overlay(alignment: .bottom) { Divider().opacity(0.28) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            String(
-                localized: "gitGraph.commit.accessibilityLabel",
-                defaultValue: "\(row.commit.subject), \(row.commit.author), \(abbreviatedOID)"
+            GitGraphAccessibility.commitLabel(
+                subject: row.commit.subject,
+                author: row.commit.author,
+                abbreviatedOID: abbreviatedOID
             )
         )
     }

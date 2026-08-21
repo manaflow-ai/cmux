@@ -46,6 +46,19 @@ struct FileBrowserSurfaceTests {
     }
 
     @Test
+    func gitGraphAccessibilityLabelInterpolatesCommitMetadata() {
+        let label = GitGraphAccessibility.commitLabel(
+            subject: "Fix graph",
+            author: "Ada",
+            abbreviatedOID: "abc12345",
+            locale: Locale(identifier: "en")
+        )
+
+        #expect(label == "Fix graph, Ada, abc12345")
+        #expect(!label.contains("%1$@"))
+    }
+
+    @Test
     func repositoryToolDirectoryFailsClosedWithoutDirectoryProvenance() {
         let workspace = Workspace()
         workspace.currentDirectory = "   "
