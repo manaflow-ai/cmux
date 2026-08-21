@@ -80,6 +80,8 @@ Environment:
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
 | `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
+| `sessions` | Print saved agent session records from `~/.cmuxterm/*-hook-sessions.json`: `sessions [list] [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--state-dir <path>] [--codex-home <path>] [--limit <n>] [--all] [--json]`. Reads hook state from disk, so it works without a running cmux socket. Default output keeps active, restorable, launch-backed, or transcript-backed records; a record filter (`--session`, `--workspace`, `--surface`, `--cwd`) also prints records outside that set, `--all` prints every saved record, and `--limit` defaults to 100. `--json` is the scripting interface and is preferred over parsing the hook state files directly. |
+| `session-debug` | Compatibility alias for `sessions debug`. `sessions`, `sessions list`, and `sessions debug` all run the same listing. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
@@ -532,6 +534,7 @@ the expected text without connecting to a cmux socket.
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
+- `cmux --help` -> `sessions [list] [--agent <name>]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
@@ -569,6 +572,8 @@ the expected text without connecting to a cmux socket.
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
 - `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
+- `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux session-debug --help` -> `Usage: cmux sessions list [options]`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
 - `cmux omx --help` -> `Usage: cmux omx [omx-args...]`

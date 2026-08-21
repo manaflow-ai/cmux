@@ -36593,6 +36593,7 @@ export default CMUXSessionRestore;
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
+          \(sessionsCommandUsageLine)
           ping
           iroh-diag
           version
