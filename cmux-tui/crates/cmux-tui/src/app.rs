@@ -9076,7 +9076,12 @@ impl TerminalRestoreGuard {
         if let Some(graphics_shutdown) = &self.graphics_shutdown {
             graphics_shutdown.cancel_and_wait();
         }
-        restore_terminal(Some(&self.stdout_lock), &self.host_keyboard_protocol)
+        let result = restore_terminal(Some(&self.stdout_lock), &self.host_keyboard_protocol);
+        // The terminal is the user's again; diagnostics from here on must
+        // reach it instead of the client log. Explicit restoration disarms
+        // the guard, so Drop will not do this (idempotent regardless).
+        crate::client_log::restore_stderr_from_log();
+        result
     }
 
     fn restore_after_error(&mut self, error: anyhow::Error) -> anyhow::Error {
