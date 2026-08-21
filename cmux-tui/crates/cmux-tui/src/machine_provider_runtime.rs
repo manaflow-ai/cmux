@@ -1155,6 +1155,15 @@ impl ProviderMachineRuntime {
                         // while it pushes these, so a snapshot request would
                         // stall exactly the message it is meant to show.
                         let machine_id = progress.machine_id.as_str().to_string();
+                        // Hard bound against a provider spraying distinct
+                        // ids while no snapshot prunes the map. Clearing
+                        // drops only coalescing state: an update already
+                        // queued still delivers through its own Arc.
+                        if progress_cells.len() >= 128
+                            && !progress_cells.contains_key(&machine_id)
+                        {
+                            progress_cells.clear();
+                        }
                         let cell = progress_cells.entry(machine_id.clone()).or_default();
                         let already_in_flight = {
                             let mut slot =
