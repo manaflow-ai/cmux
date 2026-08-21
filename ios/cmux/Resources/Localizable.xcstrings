@@ -1735,6 +1735,40 @@
         }
       }
     },
+    "mobile.browser.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを待機中"
+          }
+        }
+      }
+    },
+    "mobile.browser.waitingDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser will appear when the Mac is ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の準備ができるとブラウザが表示されます。"
+          }
+        }
+      }
+    },
     "mobile.browser.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -3737,6 +3771,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "何が起きましたか？"
+          }
+        }
+      }
+    },
+    "mobile.chat.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを待機中"
+          }
+        }
+      }
+    },
+    "mobile.chat.waitingDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation will appear when it is ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備ができると会話が表示されます。"
           }
         }
       }

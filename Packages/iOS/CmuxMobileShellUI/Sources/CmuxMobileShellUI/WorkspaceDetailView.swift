@@ -196,8 +196,12 @@ struct WorkspaceDetailView: View {
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
+                store.refreshWorkspaceSelection()
             }
-            .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
+            .onChange(of: workspace.simulators) { _, _ in
+                syncSimulatorStreamPanels()
+                store.refreshWorkspaceSelection()
+            }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             // Structural removal drops the item's retained measurement so a
             // returning item takes the fail-safe unmeasured reserve instead of

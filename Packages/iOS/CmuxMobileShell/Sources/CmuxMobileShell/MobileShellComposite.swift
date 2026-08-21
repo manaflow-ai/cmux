@@ -1804,6 +1804,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
         startObservingConnectionMethodChanges()
+        syncSelectedTerminalForWorkspace()
     }
 
     isolated deinit {
@@ -10833,6 +10834,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+        if selectedTerminalID == nil {
+            syncDefaultSurfaceForWorkspace()
+        }
+    }
+
+    /// Re-evaluates the default surface after the workspace's panel lists
+    /// finish loading. Panel discovery can arrive after the workspace is
+    /// already selected, so this lets the shell promote the first available
+    /// non-terminal once it exists.
+    public func refreshWorkspaceSelection() {
+        syncSelectedTerminalForWorkspace()
+    }
+
+    /// Promotes the first available non-terminal surface when the workspace has
+    /// no terminal to show. Keeps the default-open workspace from landing on an
+    /// empty terminal frame when only Mac surfaces or streamed panels exist.
+    private func syncDefaultSurfaceForWorkspace() {
+        guard let selectedWorkspace else { return }
+        if selectedMacSurfaceID != nil {
+            return
+        }
+        let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
+        if let selectedSurface = selectedWorkspace.selectedMacSurface(id: nil) {
+            selectedMacSurfaceID = selectedSurface.id
+            return
+        }
+        if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID).first?.panelID {
+            _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
+            return
+        }
+        if let browserStore = browserStreamEvents as? BrowserStreamStore,
+           let browserPanelID = browserStore.panels(in: workspaceID).first?.panelID {
+            _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
+        }
     }
 
     // MARK: - Per-terminal composer drafts
