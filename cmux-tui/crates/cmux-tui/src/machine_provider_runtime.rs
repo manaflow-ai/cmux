@@ -1188,7 +1188,7 @@ impl ProviderMachineRuntime {
                         // holds (progress is advisory; the settle clears it).
                         let now = std::time::Instant::now();
                         if let Some(last) = progress_last_sent.get(&machine_id)
-                            && now.duration_since(*last) < std::time::Duration::from_millis(50)
+                            && now.duration_since(*last) < Duration::from_millis(50)
                         {
                             continue;
                         }
