@@ -129,14 +129,19 @@ struct ReorderableColumnView: View {
             }
         }
         // Animate DATA-driven structural changes (collapse/expand, external
-        // reorders) so the accordion unfolds instead of popping. Never during
-        // a drag: the drop commit relies on an unanimated transaction, and
-        // draggedId stays set through the settle.
-        .animation(model.draggedId == nil ? Self.accordionSpring : nil, value: displayOrder)
+        // reorders, a bulk drop's gather during the settle) so rows glide
+        // instead of popping. Never while tracking a drag: the drop commit
+        // relies on an unanimated transaction, which runs before isSettling
+        // flips on.
+        .animation(model.draggedId == nil || model.isSettling ? Self.accordionSpring : nil, value: displayOrder)
         // The authoritative order arriving (the reorder round-tripped through
-        // the host command) supersedes the optimistic local copy.
+        // the host command) supersedes the optimistic local copy. This must
+        // also happen DURING the settle: a bulk drop's optimistic gather
+        // (the JS reorders children the moment the drop dispatches) would
+        // otherwise stay masked behind the frozen local order until the
+        // slower socket echo arrived.
         .onChange(of: node.children) { _, _ in
-            if model.draggedId == nil { localOrder = nil }
+            if model.draggedId == nil || model.isSettling { localOrder = nil }
         }
         // Suppress hover washes on every row but the dragged one while a
         // drag is in flight (see SceneBoxStyle).

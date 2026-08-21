@@ -274,6 +274,8 @@ function handleMove(id, index, extra) {
   const movingIds = bulk
     ? visibleRowIds().filter((rid) => multiSelected.has(rid) || rid === id)
     : [id];
+  setDropDebug("drop id=" + String(id).slice(0, 8) + " bulk=" + bulk
+    + " sel=" + multiSelected.size + " moving=" + movingIds.length + " idx=" + index);
   const moving = new Set(movingIds);
 
   const entries = flatEntries().filter((e) => e.id !== id);
@@ -472,8 +474,6 @@ function groupHeader(groupId) {
     Text(() => g().name).font(12).weight("semibold").lineLimit(1).truncation("tail")
       .color(() => (isSelected(anchor()) ? "primary" : "secondary")),
     Spacer(),
-    Text(() => String(membersOf(groupId).length))
-      .font("caption2").color("tertiary").monospaced(),
   ])
     .paddingLeading(8)
     .paddingTrailing(10)
@@ -524,8 +524,12 @@ function groupEditRow(groupId) {
     .fixed();
 }
 
+// TEMP DEBUG (remove after multi-drag diagnosis): last drop summary.
+const [dropDebug, setDropDebug] = signal("");
+
 // --- root ------------------------------------------------------------------------
 sidebar(() =>
+  VStack({ spacing: 4 }, [
   Reorderable(
     {
       items: flatEntries,
@@ -542,5 +546,7 @@ sidebar(() =>
       return entry.editing ? workspaceEditRow(w, e) : workspaceRow(w, e);
     }
   ),
+  Text(() => dropDebug()).font(9).color("tertiary").paddingHorizontal(10).lineLimit(2),
+  ]),
   { surface: "glass" }
 )
