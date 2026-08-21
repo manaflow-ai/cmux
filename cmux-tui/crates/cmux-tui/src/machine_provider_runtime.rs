@@ -592,7 +592,7 @@ impl ProviderMachineRuntime {
                 .as_ref()
                 .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
             let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
-                if snapshot.machines.iter().any(|machine| machine.id.as_str() == machine_id) {
+                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
                     snapshot.selected_machine_id = Some(machine_id.clone());
                     true
                 } else {
@@ -1241,7 +1241,7 @@ impl ProviderMachineRuntime {
                     // long-lived provider emitting many distinct ids cannot
                     // grow the registry without bound.
                     progress_cells.retain(|machine_id, _| {
-                        snapshot.machines.iter().any(|machine| &machine.id == machine_id)
+                        snapshot.machines.iter().any(|machine| machine.id.as_str() == machine_id.as_str())
                     });
                     let changed_snapshot_notice =
                         if !durable_notices_supported && snapshot.notice != last_snapshot_notice {
