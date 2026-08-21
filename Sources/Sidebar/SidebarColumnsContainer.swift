@@ -6,11 +6,11 @@ import SwiftUI
 /// values (regular width or icon rail), so this container stays a dumb
 /// geometry shell.
 ///
-/// There is no divider chrome here at all (the floated design draws its
-/// only border around the workspaces card). Divider interaction —
-/// synchronous drag tracking, cursor management, occlusion, double-click
-/// collapse — lives in ContentView's shared resizer overlay
-/// (`.columnDivider` handle), the same machinery as the region divider.
+/// The divider here is VISUAL ONLY (a hairline). Interaction — synchronous
+/// drag tracking, cursor management, occlusion, double-click collapse —
+/// lives in ContentView's shared resizer overlay (`.columnDivider` handle),
+/// the same machinery as the region divider, so both dividers feel
+/// identical.
 struct SidebarColumnsContainer<Leading: View, Trailing: View>: View {
     let leadingWidth: CGFloat
     let trailingWidth: CGFloat
@@ -26,6 +26,12 @@ struct SidebarColumnsContainer<Leading: View, Trailing: View>: View {
                 .frame(width: max(0, leadingWidth))
                 .frame(maxHeight: .infinity)
                 .clipped()
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor).opacity(0.72))
+                        .frame(width: 1)
+                        .allowsHitTesting(false)
+                }
 
             trailing()
                 .id(trailingIdentity)

@@ -2036,10 +2036,7 @@ struct ContentView: View {
                 sidebar
             }
         }
-        .modifier(SidebarWidthFrameModifier(
-            layout: sidebarLayout,
-            widthInset: SidebarFloatingCardMetrics.horizontalInsets
-        ))
+        .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(SidebarPointerEventHost(
             { sidebarFocusBoundary.attach($0) },
@@ -2059,33 +2056,6 @@ struct ContentView: View {
                         .equatable()
                 } trailing: {
                     sidebarChildColumn(tabManager.selectedSidebarChildColumn)
-                        .background {
-                            SidebarFloatingCardBackground(
-                                cornerRadius: SidebarFloatingCardMetrics.cornerRadius,
-                                tintColor: windowAppearanceSnapshot
-                                    .resolvedChromeBackgroundColor
-                                    .withAlphaComponent(SidebarFloatingCardMetrics.themeTintOpacity)
-                            )
-                        }
-                        .clipShape(RoundedRectangle(
-                            cornerRadius: SidebarFloatingCardMetrics.cornerRadius,
-                            style: .continuous
-                        ))
-                        .overlay {
-                            // The one border in the region.
-                            RoundedRectangle(
-                                cornerRadius: SidebarFloatingCardMetrics.cornerRadius,
-                                style: .continuous
-                            )
-                            .strokeBorder(
-                                Color(nsColor: .separatorColor).opacity(0.85),
-                                lineWidth: 1
-                            )
-                        }
-                        .padding(.top, SidebarFloatingCardMetrics.topInset)
-                        .padding(.bottom, SidebarFloatingCardMetrics.bottomInset)
-                        .padding(.leading, SidebarFloatingCardMetrics.leadingInset)
-                        .padding(.trailing, SidebarFloatingCardMetrics.trailingInset)
                 }
 
                 // The footer spans the whole region (not one column) so both
@@ -2290,13 +2260,10 @@ struct ContentView: View {
         alignment: Alignment,
         role: WindowBackdropRole,
         appearance: WindowAppearanceSnapshot,
-        drawsBackdrop: Bool = true,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack(alignment: alignment) {
-            if drawsBackdrop {
-                sidebarBackdropLayer(width: width, role: role, appearance: appearance)
-            }
+            sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
                 .environment(\.colorScheme, appearance.sidebarContentColorScheme)
         }
@@ -2309,16 +2276,7 @@ struct ContentView: View {
 
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
         SidebarRegionWidthReader(layout: sidebarLayout) { width in
-            // Floated design: the region draws no panel backdrop. The
-            // machines rail sits directly on the theme-colored window root;
-            // only the workspaces card carries its own (glass) background.
-            sidebarPanelContainer(
-                width: width,
-                alignment: .leading,
-                role: .leftSidebar,
-                appearance: appearance,
-                drawsBackdrop: false
-            ) {
+            sidebarPanelContainer(width: width, alignment: .leading, role: .leftSidebar, appearance: appearance) {
                 sidebarColumnsView
             }
         }
@@ -11861,6 +11819,12 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
+        .overlay(alignment: .trailing) {
+            WindowChromeBorder(
+                orientation: .vertical,
+                backgroundColor: chromeBackgroundColor
+            )
+        }
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
                 modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
