@@ -1,3 +1,7 @@
+command  __codex-teams-app-server-supervisor  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  __codex-teams-watch  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  __complete-candidates  aliases=-
   arg  kind  kind=argument  completion=-
 command  __dump-command-tree  aliases=-
@@ -6,6 +10,8 @@ command  __internal_flags  aliases=-
 command  __sidebar_footer_icon_balance  aliases=-
   arg  arguments  kind=argument  completion=-
 command  __tmux-compat  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  agent-hibernation  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ai-accounts  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -300,6 +306,10 @@ command  capture-pane  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+command  claude-hook  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  claude-teams  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  clear-history  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
@@ -316,6 +326,14 @@ command  close-window  aliases=-
 command  close-workspace  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  coderouter  aliases=cr
+  arg  arguments  kind=argument  completion=-
+command  codex  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  codex-hook  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  codex-teams  aliases=-
   arg  arguments  kind=argument  completion=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
@@ -354,6 +372,8 @@ command  drag-surface-to-split  aliases=-
   arg  direction  kind=argument  completion=list(down,left,right,up)
 command  enable-browser  aliases=-
   arg  arguments  kind=argument  completion=-
+command  feed-hook  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  feedback  aliases=-
   arg  arguments  kind=argument  completion=-
 command  find-window  aliases=-
@@ -378,6 +398,8 @@ command  focus-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  get-url  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  hooks  aliases=-
   arg  arguments  kind=argument  completion=-
 command  iroh-diag  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -494,6 +516,12 @@ command  new-workspace  aliases=-
   arg  arguments  kind=argument  completion=-
 command  next-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  omc  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  omo  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  omx  aliases=-
   arg  arguments  kind=argument  completion=-
 command  open-browser  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -624,6 +652,8 @@ command  set-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  settings  aliases=-
   arg  arguments  kind=argument  completion=-
+command  setup-hooks  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
   arg  arguments  kind=argument  completion=-
 command  sidebar-state  aliases=-
@@ -691,6 +721,8 @@ command  themes set  aliases=-
   arg  --light  kind=option  completion=custom-deprecated
   arg  themes  kind=argument  completion=custom-deprecated
 command  unbind-key  aliases=-
+command  uninstall-hooks  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  version  aliases=-
   arg  arguments  kind=argument  completion=-
 command  vm  aliases=cloud
