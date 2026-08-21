@@ -67,6 +67,48 @@ struct BrowserURLAllowlistPolicyTests {
         #expect(!restricted.allows(try #require(URL(string: "https://example.com"))))
     }
 
+    @Test func suggestedLoopbackDefaultsCanBeCustomizedOrRemoved() throws {
+        #expect(BrowserURLAllowlistPolicy.defaultPatterns.contains("localhost"))
+        #expect(BrowserURLAllowlistPolicy.defaultPatterns.contains("127.0.0.1"))
+        #expect(BrowserCatalogSection().urlAllowlist.defaultValue == BrowserURLAllowlistPolicy.defaultAllowlistText)
+        let suiteName = "BrowserURLAllowlistPolicyTests.defaults.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let resolver = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil)
+
+        let defaultPolicy = BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: resolver
+        )
+        #expect(defaultPolicy.source == .none)
+        #expect(defaultPolicy.patterns.count == BrowserURLAllowlistPolicy.defaultPatterns.count)
+        #expect(defaultPolicy.patterns.contains { $0.host == "localhost" })
+        #expect(defaultPolicy.patterns.contains { $0.host == "::1" })
+        #expect(defaultPolicy.allows(try #require(URL(string: "http://localhost:3000"))))
+        #expect(defaultPolicy.allows(try #require(URL(string: "http://127.0.0.1:5173"))))
+        #expect(defaultPolicy.allows(try #require(URL(string: "https://example.com"))))
+
+        // Saving a custom list removes the built-in loopback entries that the
+        // user deleted, rather than silently merging them back in.
+        defaults.set("internal.example.com", forKey: BrowserURLAllowlistPolicy.userDefaultsKey)
+        let customPolicy = BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: resolver
+        )
+        #expect(customPolicy.source == .user)
+        #expect(!customPolicy.allows(try #require(URL(string: "http://localhost:3000"))))
+        #expect(customPolicy.allows(try #require(URL(string: "https://internal.example.com"))))
+
+        // Clearing the optional user restriction is also supported explicitly.
+        defaults.set("", forKey: BrowserURLAllowlistPolicy.userDefaultsKey)
+        let unrestrictedPolicy = BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: resolver
+        )
+        #expect(unrestrictedPolicy.source == .none)
+        #expect(unrestrictedPolicy.allows(try #require(URL(string: "https://example.com"))))
+    }
+
     @Test func userDefaultsStringAndArrayValuesResolveToTheSameRules() throws {
         let suiteName = "BrowserURLAllowlistPolicyTests.userDefaults.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
