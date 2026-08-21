@@ -199,6 +199,25 @@ struct TuiTerminalAttachSpikeTests {
     }
 
     @Test
+    func newSurfaceAttachCommandIsConfigIsolated() {
+        // Regression: new-surface provisioning built the attach command
+        // without a config path, so only REATTACH commands carried the
+        // `env CMUX_TUI_CONFIG=...` isolation prefix and a brand-new tab's
+        // attach client parsed the user's interactive
+        // ~/.config/cmux/cmux-tui.json. With a machine_provider block in
+        // that file the client enters provider mode and dies at spawn
+        // ("machine provider mode cannot be combined with attach,
+        // --session"). Every attach command the bridge emits must be
+        // config-isolated, not just the reattach path.
+        let command = TuiTerminalAttachPolicy.attachCommand(
+            binaryPath: "/Users/x/.local/bin/cmux-tui",
+            sessionName: "cmux-tuispk",
+            terminalID: "term_abc"
+        )
+        #expect(command.hasPrefix("env CMUX_TUI_CONFIG="))
+    }
+
+    @Test
     func daemonSocketPathFollowsTuiConvention() {
         let path = TuiTerminalAttachPolicy.daemonSocketPath(
             sessionName: "cmux-tuispk",
