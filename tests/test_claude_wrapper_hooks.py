@@ -1127,7 +1127,7 @@ def expect_cua_driver_config(
     expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
     if config is None:
         return
-    server = config.get("mcpServers", {}).get("cmux-computer-use", {})
+    server = config.get("mcpServers", {}).get("cmux-cua", {})
     command = server.get("command")
     expect(
         isinstance(command, str) and Path(command).is_absolute() and Path(command).name == expected_name,

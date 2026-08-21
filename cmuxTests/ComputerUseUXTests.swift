@@ -238,15 +238,25 @@ struct ComputerUseUXTests {
             sessionId: "session-1",
             hookEventName: .preToolUse,
             source: "claude",
-            toolName: "mcp__cmux-computer-use__start_session"
+            toolName: "mcp__cmux-cua__start_session"
         )
         #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(invocation))
+
+        // Sessions started by a pre-rename wrapper still carry the old server
+        // name and must keep triggering onboarding.
+        let legacyInvocation = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "mcp__cmux-computer-use__start_session"
+        )
+        #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(legacyInvocation))
 
         let sessionStart = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .sessionStart,
             source: "claude",
-            toolName: "mcp__cmux-computer-use__start_session"
+            toolName: "mcp__cmux-cua__start_session"
         )
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(sessionStart))
 
@@ -2365,7 +2375,7 @@ struct ComputerUseUXTests {
         let skillURL = try #require(Bundle.main.url(
             forResource: "SKILL",
             withExtension: "md",
-            subdirectory: "cmux-computer-use"
+            subdirectory: "cmux-cua"
         ))
         let skill = try String(contentsOf: skillURL, encoding: .utf8)
 

@@ -62,22 +62,22 @@ def expect_scrubbed_mcp_env(
     *,
     helper_owned: bool,
 ) -> None:
-    embedded = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=")
-    daemon_app = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DAEMON_APP=")
-    force_proxy = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY=")
-    external_flow = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=")
-    auth_token = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=")
-    default_session = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=")
-    state_owner_pid = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_OWNER_PID=")
-    permissions_gate = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_PERMISSIONS_GATE=")
-    telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
-    update_check = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=")
-    cursor_gradient = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_GRADIENT=")
-    cursor_bloom = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_BLOOM=")
-    cursor_label = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_LABEL=")
-    state_dir = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=")
-    node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
-    bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
+    embedded = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_EMBEDDED=")
+    daemon_app = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_DAEMON_APP=")
+    force_proxy = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_MCP_FORCE_PROXY=")
+    external_flow = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=")
+    auth_token = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=")
+    default_session = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_DEFAULT_SESSION=")
+    state_owner_pid = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_OWNER_PID=")
+    permissions_gate = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_PERMISSIONS_GATE=")
+    telemetry = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
+    update_check = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_UPDATE_CHECK=")
+    cursor_gradient = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_GRADIENT=")
+    cursor_bloom = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_BLOOM=")
+    cursor_label = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_LABEL=")
+    state_dir = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_DIR=")
+    node_options = arg_value(args, "mcp_servers.cmux-cua.env.NODE_OPTIONS=")
+    bun_options = arg_value(args, "mcp_servers.cmux-cua.env.BUN_OPTIONS=")
     expect(embedded is None, f"{context}: computer use must never be embedded: {args}", failures)
     expect(daemon_app is None, f"{context}: wrapper must not launch the helper daemon: {args}", failures)
     expect(permissions_gate is None, f"{context}: proxy must not own the daemon permission gate: {args}", failures)
@@ -157,6 +157,8 @@ def run_wrapper(
     live_app_enabled: bool | None = None,
     install_global_skill: bool = False,
     global_skill_opt_out: bool = False,
+    preexisting_legacy_link: bool = False,
+    preexisting_skill_directory: bool = False,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -168,11 +170,11 @@ def run_wrapper(
         wrapper = wrapper_dir / "cmux-codex-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
-        bundled_skill = wrapper_dir.parent / "cmux-computer-use"
+        bundled_skill = wrapper_dir.parent / "cmux-cua"
         bundled_skill.mkdir()
         (bundled_skill / "SKILL.md").write_text(
             "---\n"
-            "name: cmux-computer-use\n"
+            "name: cmux-cua\n"
             "description: Test bundled cmux Computer Use skill.\n"
             "---\n"
             "\n"
@@ -261,6 +263,16 @@ exit 1
             env.pop("CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL", None)
             env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
             env["CMUX_COMPUTER_USE_APP_ENABLED"] = "1"
+            skills_root = sandbox_home / ".agents" / "skills"
+            if preexisting_legacy_link:
+                skills_root.mkdir(parents=True, exist_ok=True)
+                (skills_root / "cmux-computer-use").symlink_to(
+                    "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
+                )
+            if preexisting_skill_directory:
+                owned = skills_root / "cmux-cua"
+                owned.mkdir(parents=True, exist_ok=True)
+                (owned / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
             if live_app_enabled is not None:
                 live_setting = (
                     sandbox_home
@@ -346,8 +358,9 @@ exit 1
                 sandbox_home
                 / ".agents"
                 / "skills"
-                / "cmux-computer-use"
+                / "cmux-cua"
             )
+            legacy_skill = installed_skill.parent / "cmux-computer-use"
             skill_probe: dict[str, object] = {
                 "exists": installed_skill.exists(),
                 "is_symlink": installed_skill.is_symlink(),
@@ -361,6 +374,7 @@ exit 1
                     if (installed_skill / "SKILL.md").is_file()
                     else None
                 ),
+                "legacy_present": legacy_skill.exists() or legacy_skill.is_symlink(),
             }
         finally:
             if test_socket is not None:
@@ -370,11 +384,11 @@ exit 1
 
 
 def command_config(args: list[str]) -> str | None:
-    return arg_value(args, "mcp_servers.cmux-computer-use.command=")
+    return arg_value(args, "mcp_servers.cmux-cua.command=")
 
 
 def args_config(args: list[str]) -> str | None:
-    return arg_value(args, "mcp_servers.cmux-computer-use.args=")
+    return arg_value(args, "mcp_servers.cmux-cua.args=")
 
 
 def configured_skill_path(args: list[str]) -> Path | None:
@@ -397,23 +411,18 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
-    skill_path = configured_skill_path(args)
+    # skills.config alongside the installed link would render the skill twice
+    # and dir-qualified (cmux-cua:cmux-cua) in Codex's picker.
     expect(
-        skill_path is not None
-        and skill_path.parts[-4:] == (
-            "Contents",
-            "Resources",
-            "cmux-computer-use",
-            "SKILL.md",
-        ),
-        f"expected invocation-scoped app-bundled skill config, got {args}",
+        configured_skill_path(args) is None,
+        f"expected no invocation-scoped skill config when the link installs, got {args}",
         failures,
     )
     expect(
         skill["exists"] is True
         and skill["is_symlink"] is True
         and isinstance(skill["target"], str)
-        and skill["target"].endswith("/Contents/Resources/cmux-computer-use"),
+        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
         f"default launch must keep the skill discoverable in Codex's picker, got {skill}",
         failures,
     )
@@ -467,17 +476,54 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     )
 
 
-def test_codex_skill_is_global_and_session_scoped_by_default(failures: list[str]) -> None:
+def test_codex_skill_is_global_without_config_duplicate_by_default(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(["hello"])
     expect(code == 0, f"session-skill wrapper exited {code}: {stderr}", failures)
     expect(
-        configured_skill_path(args) is not None,
-        f"expected the bundled skill in invocation-scoped config, got {args}",
+        skill["exists"] is True and skill["is_symlink"] is True,
+        f"expected the shared picker link by default, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is None,
+        f"expected no invocation-scoped duplicate of the installed skill, got {args}",
+        failures,
+    )
+
+
+def test_codex_migrates_legacy_computer_use_link(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(["hello"], preexisting_legacy_link=True)
+    expect(code == 0, f"legacy-migration wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["legacy_present"] is False,
+        f"expected the cmux-owned legacy cmux-computer-use link removed, got {skill}",
         failures,
     )
     expect(
         skill["exists"] is True and skill["is_symlink"] is True,
-        f"expected the shared picker link by default, got {skill}",
+        f"expected the cmux-cua link installed after migration, got {skill}",
+        failures,
+    )
+
+
+def test_codex_falls_back_to_config_for_user_owned_skill_path(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(["hello"], preexisting_skill_directory=True)
+    expect(code == 0, f"user-owned-path wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["is_symlink"] is False and skill["content"] == "user-owned\n",
+        f"expected the user-owned skill directory untouched, got {skill}",
+        failures,
+    )
+    skill_path = configured_skill_path(args)
+    expect(
+        skill_path is not None
+        and skill_path.parts[-4:] == (
+            "Contents",
+            "Resources",
+            "cmux-cua",
+            "SKILL.md",
+        ),
+        f"expected the invocation-scoped fallback for a user-owned path, got {args}",
         failures,
     )
 
@@ -606,10 +652,13 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
         failures,
     )
     expect(
-        configured_skill_path(args) is not None
-        and skill["exists"] is True
-        and skill["is_symlink"] is True,
+        skill["exists"] is True and skill["is_symlink"] is True,
         "the bundled skill must remain discoverable even before the helper broker is available",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is None,
+        f"expected no invocation-scoped duplicate before the broker is available, got {args}",
         failures,
     )
 
@@ -731,7 +780,9 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua_driver(failures)
-    test_codex_skill_is_global_and_session_scoped_by_default(failures)
+    test_codex_skill_is_global_without_config_duplicate_by_default(failures)
+    test_codex_migrates_legacy_computer_use_link(failures)
+    test_codex_falls_back_to_config_for_user_owned_skill_path(failures)
     test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)

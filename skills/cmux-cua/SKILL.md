@@ -1,5 +1,5 @@
 ---
-name: cmux-computer-use
+name: cmux-cua
 description: "Drive real macOS apps from a cmux agent session via the bundled computer-use engine (accessibility tree + screenshot perception, click/type/scroll/drag, branded agent cursor). Use when an agent should see and operate GUI apps on the local Mac, when computer-use tools are missing or failing, or when explaining how to grant permissions, brand the cursor, or focus the driving session."
 ---
 
@@ -8,7 +8,7 @@ description: "Drive real macOS apps from a cmux agent session via the bundled co
 cmux bundles a local computer-use engine (packaged as `cmux Computer Use` with
 the MCP proxy named `cmux-computer-use-client`, from a pinned build of
 the `manaflow-ai/cmux-cua` fork) and attaches it as an MCP tool server named
-`cmux-computer-use` to every agent session cmux launches (Claude Code, Codex).
+`cmux-cua` to every agent session cmux launches (Claude Code, Codex).
 The agent can then perceive and operate real macOS apps: read the accessibility
 tree, take screenshots, and click / type / scroll / drag.
 
@@ -36,9 +36,11 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   `codex-cua.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
 - The wrappers keep the signed, app-bundled skill discoverable in both agent
-  pickers: they repair `~/.agents/skills/cmux-computer-use` before launching,
-  then add Codex's invocation-scoped `skills.config` entry or Claude's
-  session-only `--plugin-dir`. A user-owned directory or unrelated symlink at
+  pickers: they repair `~/.agents/skills/cmux-cua` (migrating any older
+  cmux-owned `cmux-computer-use` link) before launching. Only when that repair
+  fails do they fall back to Codex's invocation-scoped `skills.config` entry or
+  Claude's session-only `--plugin-dir`, so the picker normally shows one plain
+  `cmux-cua` entry. A user-owned directory or unrelated symlink at
   that path is never replaced. Set
   `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` when a strictly session-local
   launch is required.

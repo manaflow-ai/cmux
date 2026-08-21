@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
-  "name": "cmux-computer-use",
+  "name": "cmux-cua",
   "version": "1.0.0",
   "description": "cmux Computer Use skill",
   "author": {

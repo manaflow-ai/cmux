@@ -256,34 +256,53 @@ cmux_codex_global_skill_install_enabled() {
 cmux_codex_install_computer_use_skill() {
     # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
     # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns.
+    # Never replace a real directory or a symlink the user owns. Returns 0 only
+    # when the cmux-cua link now points at this app bundle, so callers can skip
+    # the namespaced invocation-scoped fallback.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target
+    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
-    source_dir="$resource_dir/cmux-computer-use"
+    source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
 
     skills_root="$home/.agents/skills"
-    destination="$skills_root/cmux-computer-use"
+    destination="$skills_root/cmux-cua"
     /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
+
+    # Retire the pre-rename cmux-computer-use link so pickers do not show two
+    # copies of the same skill. Only a symlink into a cmux app bundle is
+    # removed; user-owned paths at that name are left alone.
+    legacy="$skills_root/cmux-computer-use"
+    if [[ -L "$legacy" ]]; then
+        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
+        case "$legacy_target" in
+            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
+                /bin/rm -f "$legacy" 2>/dev/null || true
+                ;;
+        esac
+    fi
 
     if [[ -L "$destination" ]]; then
         target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
         case "$target" in
-            */Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null
+            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
+                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
                 ;;
             *)
                 return 1
                 ;;
         esac
     elif [[ -e "$destination" ]]; then
-        return 0
+        # A user-owned path wins; report not-installed so the invocation-scoped
+        # fallback still delivers the current bundled skill.
+        return 1
     else
-        /bin/ln -s "$source_dir" "$destination" 2>/dev/null
+        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
     fi
+    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+    [[ "$target" == "$source_dir" ]]
 }
 
 cmux_codex_computer_use_skill_path() {
@@ -293,7 +312,7 @@ cmux_codex_computer_use_skill_path() {
     local self_dir resource_dir skill_path
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
-    skill_path="$resource_dir/cmux-computer-use/SKILL.md"
+    skill_path="$resource_dir/cmux-cua/SKILL.md"
     [[ -f "$skill_path" ]] || return 1
     printf '%s' "$skill_path"
 }
@@ -330,8 +349,15 @@ cmux_codex_computer_use_enabled_for_invocation() {
 
 cmux_codex_emit_computer_use_args() {
     cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
+    # Invocation-scoped fallback only: a skills.config entry displays
+    # dir-qualified (cmux-cua:cmux-cua) in Codex's picker, so it must not ride
+    # along when the plain ~/.agents/skills/cmux-cua link already covers this
+    # session.
     local skill_path
-    skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
+    skill_path=""
+    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]]; then
+        skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
+    fi
     if [[ -n "$skill_path" ]]; then
         printf '%s\0' \
             "-c" \
@@ -357,35 +383,35 @@ cmux_codex_emit_computer_use_args() {
     # protected calls also wait for cmux's post-verification readiness signal.
     printf '%s\0' \
         "-c" \
-        "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$client")\"" \
+        "mcp_servers.cmux-cua.command=\"$(cmux_computer_use_json_escape "$client")\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\",\"--codex-computer-use-compat\"]" \
+        "mcp_servers.cmux-cua.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\",\"--codex-computer-use-compat\"]" \
         "-c" \
-        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
+        'mcp_servers.cmux-cua.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
         "-c" \
-        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1"' \
+        'mcp_servers.cmux-cua.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_OWNER_PID=\"$(cmux_computer_use_json_escape "${CMUX_CODEX_PID:-$$}")\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_OWNER_PID=\"$(cmux_computer_use_json_escape "${CMUX_CODEX_PID:-$$}")\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=\"false\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=\"false\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=\"false\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_UPDATE_CHECK=\"false\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_GRADIENT=\"#12c7f5,#2d8cff,#6c5cff\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_GRADIENT=\"#12c7f5,#2d8cff,#6c5cff\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_BLOOM=\"#2d8cff\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_BLOOM=\"#2d8cff\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_LABEL=\"cmux\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_LABEL=\"cmux\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
+        "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
+        "mcp_servers.cmux-cua.env.NODE_OPTIONS=\"\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
+        "mcp_servers.cmux-cua.env.BUN_OPTIONS=\"\""
 }
 
 # The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START
@@ -602,10 +628,15 @@ cmux_codex_read_inject_args() {
 # Keep the bundled skill discoverable by Codex's picker before the session
 # starts. Installation is best-effort so an existing user-owned skill can
 # never prevent Codex from launching; set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0
-# for a strictly invocation-scoped session.
+# for a strictly invocation-scoped session. When the durable link is in place,
+# the emitter skips its invocation-scoped skills.config fallback so the picker
+# shows one plain cmux-cua entry.
+CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
 if cmux_codex_global_skill_install_enabled \
       && cmux_codex_computer_use_enabled_for_invocation "$@"; then
-    cmux_codex_install_computer_use_skill || true
+    if cmux_codex_install_computer_use_skill; then
+        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=1
+    fi
 fi
 
 # Computer-use args are generated independently of hook injection: the bundled

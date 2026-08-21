@@ -71,7 +71,13 @@ final class ComputerUseUXCoordinator {
         else {
             return false
         }
-        return toolName.hasPrefix("mcp__cmux-computer-use__")
+        // "cmux-cua" is the current MCP server name; the "cmux-computer-use"
+        // spellings cover sessions started by an older wrapper.
+        return toolName.hasPrefix("mcp__cmux-cua__")
+            || toolName.hasPrefix("mcp__cmux_cua__")
+            || toolName.hasPrefix("cmux-cua.")
+            || toolName.hasPrefix("cmux_cua.")
+            || toolName.hasPrefix("mcp__cmux-computer-use__")
             || toolName.hasPrefix("mcp__cmux_computer_use__")
             || toolName.hasPrefix("cmux-computer-use.")
             || toolName.hasPrefix("cmux_computer_use.")

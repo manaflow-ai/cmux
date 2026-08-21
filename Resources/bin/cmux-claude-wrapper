@@ -989,7 +989,7 @@ cmux_claude_computer_use_plugin_dir() {
     local self_dir resource_dir plugin_dir
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
-    plugin_dir="$resource_dir/cmux-computer-use"
+    plugin_dir="$resource_dir/cmux-cua"
     [[ -f "$plugin_dir/.claude-plugin/plugin.json" ]] || return 1
     [[ -f "$plugin_dir/SKILL.md" ]] || return 1
     printf '%s' "$plugin_dir"
@@ -1011,7 +1011,7 @@ cmux_computer_use_config() {
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     # The helper owns external onboarding. Mark that contract explicitly so
     # protected calls also wait for cmux's post-verification readiness signal.
-    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1","CUA_DRIVER_SOCKET_AUTH_TOKEN":"%s","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_STATE_OWNER_PID":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1","CUA_DRIVER_SOCKET_AUTH_TOKEN":"%s","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_STATE_OWNER_PID":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$client")" \
         "$(cmux_computer_use_json_escape "$cua_socket")" \
         "$(cmux_computer_use_json_escape "$auth_token")" \
@@ -1034,34 +1034,53 @@ cmux_claude_global_skill_install_enabled() {
 cmux_claude_install_computer_use_skill() {
     # Claude discovers user-wide skills under ~/.agents/skills. Keep the source
     # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns.
+    # Never replace a real directory or a symlink the user owns. Returns 0 only
+    # when the cmux-cua link now points at this app bundle, so callers can skip
+    # the namespaced session-scoped fallback.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target
+    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
-    source_dir="$resource_dir/cmux-computer-use"
+    source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
 
     skills_root="$home/.agents/skills"
-    destination="$skills_root/cmux-computer-use"
+    destination="$skills_root/cmux-cua"
     /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
+
+    # Retire the pre-rename cmux-computer-use link so pickers do not show two
+    # copies of the same skill. Only a symlink into a cmux app bundle is
+    # removed; user-owned paths at that name are left alone.
+    legacy="$skills_root/cmux-computer-use"
+    if [[ -L "$legacy" ]]; then
+        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
+        case "$legacy_target" in
+            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
+                /bin/rm -f "$legacy" 2>/dev/null || true
+                ;;
+        esac
+    fi
 
     if [[ -L "$destination" ]]; then
         target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
         case "$target" in
-            */Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null
+            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
+                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
                 ;;
             *)
                 return 1
                 ;;
         esac
     elif [[ -e "$destination" ]]; then
-        return 0
+        # A user-owned path wins; report not-installed so the session-scoped
+        # fallback still delivers the current bundled skill.
+        return 1
     else
-        /bin/ln -s "$source_dir" "$destination" 2>/dev/null
+        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
     fi
+    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+    [[ "$target" == "$source_dir" ]]
 }
 
 claude_interactive_entry_flag() {
@@ -1388,17 +1407,24 @@ fi
 # Keep the bundled skill discoverable by Claude's picker as well as Codex's.
 # Installation is best-effort and never replaces a user-owned path; set
 # CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0 for a strictly session-local run.
+CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
 if cmux_claude_global_skill_install_enabled \
       && cmux_claude_computer_use_enabled_for_invocation "$@"; then
-    cmux_claude_install_computer_use_skill || true
+    if cmux_claude_install_computer_use_skill; then
+        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=1
+    fi
 fi
 
-# Load the app-bundled skill for this Claude process only. This is independent
-# of helper readiness, so Claude can explain onboarding even before the MCP
-# daemon is attachable. Managed disableSideloadFlags and strict MCP invocations
-# remain fully inert.
+# Session-only fallback: load the app-bundled skill as a plugin only when the
+# durable ~/.agents/skills link is not in place. Plugin skills always display
+# plugin-qualified (cmux-cua:cmux-cua), so the plugin must not ride along when
+# the plain global entry already covers this session. The fallback stays
+# independent of helper readiness, so Claude can explain onboarding even before
+# the MCP daemon is attachable. Managed disableSideloadFlags and strict MCP
+# invocations remain fully inert.
 CMUX_COMPUTER_USE_PLUGIN_DIR=""
-if cmux_claude_computer_use_enabled_for_invocation "$@"; then
+if [[ "$CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED" != 1 ]] \
+      && cmux_claude_computer_use_enabled_for_invocation "$@"; then
     CMUX_COMPUTER_USE_PLUGIN_DIR="$(cmux_claude_computer_use_plugin_dir 2>/dev/null)" \
         || CMUX_COMPUTER_USE_PLUGIN_DIR=""
 fi

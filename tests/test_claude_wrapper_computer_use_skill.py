@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-Regression tests for cmux-claude-wrapper loading the bundled
-cmux-computer-use skill as a picker-visible Claude plugin and a session-scoped
-plugin. Global discovery can be explicitly disabled.
+Regression tests for cmux-claude-wrapper keeping the bundled cmux-cua skill
+picker-visible: the durable ~/.agents/skills/cmux-cua link is the primary
+path (shown unqualified in the picker), the session-scoped --plugin-dir is a
+fallback used only when that link cannot be installed, and the legacy
+cmux-computer-use link is migrated away. Global discovery can be explicitly
+disabled.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 
 SKILL_MD = (
     "---\n"
-    "name: cmux-computer-use\n"
+    "name: cmux-cua\n"
     "description: Test bundled cmux Computer Use skill.\n"
     "---\n"
     "\n"
@@ -44,6 +47,7 @@ def run_wrapper(
     disabled: bool = False,
     preexisting_link_target: Path | None = None,
     preexisting_directory: bool = False,
+    preexisting_legacy_link_target: Path | None = None,
     install_global_skill: bool = False,
     global_skill_opt_out: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
@@ -63,7 +67,7 @@ def run_wrapper(
     wrapper.write_bytes(WRAPPER.read_bytes())
     wrapper.chmod(0o755)
 
-    bundled_skill = bundle_bin.parent / "cmux-computer-use"
+    bundled_skill = bundle_bin.parent / "cmux-cua"
     bundled_skill.mkdir()
     (bundled_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
     manifest = bundled_skill / ".claude-plugin" / "plugin.json"
@@ -71,7 +75,7 @@ def run_wrapper(
     manifest.write_text(
         json.dumps(
             {
-                "name": "cmux-computer-use",
+                "name": "cmux-cua",
                 "version": "1.0.0",
                 "description": "Test bundled cmux Computer Use skill",
                 "skills": ["./"],
@@ -110,13 +114,17 @@ exit 1
 """,
     )
 
-    destination = home / ".agents" / "skills" / "cmux-computer-use"
+    destination = home / ".agents" / "skills" / "cmux-cua"
     if preexisting_link_target is not None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.symlink_to(preexisting_link_target)
     if preexisting_directory:
         destination.mkdir(parents=True, exist_ok=True)
         (destination / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
+    if preexisting_legacy_link_target is not None:
+        legacy = destination.parent / "cmux-computer-use"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.symlink_to(preexisting_legacy_link_target)
 
     env = {
         "HOME": str(home),
@@ -159,7 +167,7 @@ def plugin_dir_arg(args: list[str]) -> str | None:
     return None
 
 
-def test_claude_skill_is_global_and_session_scoped_by_default(failures: list[str]) -> None:
+def test_claude_skill_is_global_without_plugin_duplicate_by_default(failures: list[str]) -> None:
     dangling = Path(
         "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
     )
@@ -173,14 +181,65 @@ def test_claude_skill_is_global_and_session_scoped_by_default(failures: list[str
         failures,
     )
     expect(
-        plugin_dir_arg(args) is not None
-        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
-        f"expected a session-only --plugin-dir for {bundled_skill}, got {args}",
+        link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
+        f"default launch must keep the skill discoverable in Claude's picker at {link}",
+        failures,
+    )
+    # A --plugin-dir alongside the installed link would render the skill twice
+    # and plugin-qualified (cmux-cua:cmux-cua) in the picker.
+    expect(
+        plugin_dir_arg(args) is None,
+        f"expected no session plugin when the global link is installed, got {args}",
+        failures,
+    )
+
+
+def test_claude_migrates_legacy_computer_use_link(failures: list[str]) -> None:
+    legacy_target = Path(
+        "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
+    )
+    result, link, bundled_skill, args = run_wrapper(
+        ["hello"],
+        preexisting_legacy_link_target=legacy_target,
+    )
+    expect(
+        result.returncode == 0,
+        f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
+        failures,
+    )
+    legacy = link.parent / "cmux-computer-use"
+    expect(
+        not legacy.exists() and not legacy.is_symlink(),
+        f"expected the cmux-owned legacy link removed, found {legacy}",
         failures,
     )
     expect(
         link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
-        f"default launch must keep the skill discoverable in Claude's picker at {link}",
+        f"expected the cmux-cua link installed at {link}",
+        failures,
+    )
+    expect(
+        plugin_dir_arg(args) is None,
+        f"expected no session plugin after migration, got {args}",
+        failures,
+    )
+
+
+def test_claude_leaves_user_owned_legacy_links_alone(failures: list[str]) -> None:
+    foreign = Path("/nonexistent/user-owned-computer-use-skill")
+    result, link, _, _ = run_wrapper(
+        ["hello"],
+        preexisting_legacy_link_target=foreign,
+    )
+    expect(
+        result.returncode == 0,
+        f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
+        failures,
+    )
+    legacy = link.parent / "cmux-computer-use"
+    expect(
+        legacy.is_symlink() and os.readlink(legacy) == str(foreign),
+        "expected a user-owned cmux-computer-use link untouched by migration",
         failures,
     )
 
@@ -211,7 +270,7 @@ def test_claude_global_skill_can_be_disabled_explicitly(failures: list[str]) -> 
 
 def test_claude_leaves_user_owned_skill_links_alone(failures: list[str]) -> None:
     foreign = Path("/nonexistent/user-owned-skill")
-    result, link, _, _ = run_wrapper(
+    result, link, bundled_skill, args = run_wrapper(
         ["hello"],
         preexisting_link_target=foreign,
         install_global_skill=True,
@@ -227,10 +286,16 @@ def test_claude_leaves_user_owned_skill_links_alone(failures: list[str]) -> None
         f"{os.readlink(link) if link.is_symlink() else 'replaced'}",
         failures,
     )
+    expect(
+        plugin_dir_arg(args) is not None
+        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
+        f"expected the session plugin fallback when the link is user-owned, got {args}",
+        failures,
+    )
 
 
 def test_claude_leaves_user_owned_skill_directories_alone(failures: list[str]) -> None:
-    result, link, _, _ = run_wrapper(
+    result, link, bundled_skill, args = run_wrapper(
         ["hello"],
         preexisting_directory=True,
         install_global_skill=True,
@@ -249,6 +314,12 @@ def test_claude_leaves_user_owned_skill_directories_alone(failures: list[str]) -
     expect(
         content == "user-owned\n",
         f"expected user-owned SKILL.md preserved, got {content!r}",
+        failures,
+    )
+    expect(
+        plugin_dir_arg(args) is not None
+        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
+        f"expected the session plugin fallback when the path is user-owned, got {args}",
         failures,
     )
 
@@ -296,7 +367,9 @@ def test_strict_mcp_config_skips_all_computer_use_sideloading(failures: list[str
 
 def main() -> int:
     failures: list[str] = []
-    test_claude_skill_is_global_and_session_scoped_by_default(failures)
+    test_claude_skill_is_global_without_plugin_duplicate_by_default(failures)
+    test_claude_migrates_legacy_computer_use_link(failures)
+    test_claude_leaves_user_owned_legacy_links_alone(failures)
     test_claude_global_skill_can_be_disabled_explicitly(failures)
     test_claude_leaves_user_owned_skill_links_alone(failures)
     test_claude_leaves_user_owned_skill_directories_alone(failures)
@@ -306,7 +379,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: claude wrapper keeps the Computer Use skill picker-visible and session-scoped")
+    print("PASS: claude wrapper keeps the cmux-cua skill picker-visible without plugin duplication")
     return 0
 
 

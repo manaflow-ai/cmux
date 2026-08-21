@@ -1,8 +1,8 @@
 # cmux Computer Use
 
 cmux bundles `cua-driver` from the `manaflow-ai/cmux-cua` fork of trycua/cua
-and exposes it as an MCP server named `cmux-computer-use` for compatibility
-with existing cmux-launched agents.
+and exposes it as an MCP server named `cmux-cua` (sessions started by an older
+wrapper may still carry the previous `cmux-computer-use` name).
 
 Claude Code and Codex CLI sessions launched by cmux receive the server
 automatically at session start (injection is implemented in
@@ -22,9 +22,12 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-computer-use` skill. Both agent wrappers (Claude and Codex) repair the
-app-bundled skill link at `~/.agents/skills/cmux-computer-use` before launching,
-so both pickers see the same skill. No `npx skills add` step is required; a
+`$cmux-cua` skill. Both agent wrappers (Claude and Codex) repair the
+app-bundled skill link at `~/.agents/skills/cmux-cua` before launching
+(migrating any older cmux-owned `cmux-computer-use` link), so both pickers see
+the same skill as a single plain `cmux-cua` entry. The session-scoped plugin /
+`skills.config` injection is only a fallback for when that link cannot be
+installed. No `npx skills add` step is required; a
 new agent session is enough after a cmux build. cmux refreshes only a symlink
 that already points at a cmux app bundle and never overwrites a user-owned
 skill directory or unrelated symlink. Set
