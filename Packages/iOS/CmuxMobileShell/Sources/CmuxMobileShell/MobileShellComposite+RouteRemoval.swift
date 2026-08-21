@@ -1,5 +1,5 @@
-import CMUXMobileCore
-import CmuxMobilePairedMac
+public import CMUXMobileCore
+public import CmuxMobilePairedMac
 import Foundation
 
 @MainActor
