@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxAgentChat
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTerminal
@@ -766,7 +767,10 @@ extension GhosttySurfaceRepresentable.Coordinator {
             outputConsumerRecoveryOverlay = overlay
         }
 
-        private func removeOutputConsumerRecoveryOverlay() {
+        // This teardown helper is shared with the coordinator lifecycle in
+        // GhosttySurfaceRepresentable.swift, so it must remain visible across
+        // the two extension files.
+        func removeOutputConsumerRecoveryOverlay() {
             outputConsumerRecoveryOverlay?.removeFromSuperview()
             outputConsumerRecoveryOverlay = nil
         }
