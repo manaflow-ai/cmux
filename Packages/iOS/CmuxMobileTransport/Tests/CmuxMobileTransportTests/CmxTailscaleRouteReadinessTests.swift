@@ -224,7 +224,8 @@ private actor ParkedTailscaleAuthority: CmxTailscaleRouteAuthorizing {
 
     func validate(
         proof _: CmxTailscaleRouteProof,
-        connectionPath _: NWPath
+        connectionPath _: NWPath,
+        phase _: CmxTailscaleRouteValidationPhase
     ) throws {
         throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
     }

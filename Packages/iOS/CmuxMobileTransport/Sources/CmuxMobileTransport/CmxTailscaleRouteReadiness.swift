@@ -134,7 +134,8 @@ actor CmxTailscaleRouteReadiness<Interface: Sendable> {
     /// observation first so this cannot pass against a stale one.
     func validate(
         proof: CmxTailscaleRouteProof,
-        connectionPath: CmxTailscaleConnectionPathSnapshot
+        connectionPath: CmxTailscaleConnectionPathSnapshot,
+        phase: CmxTailscaleRouteValidationPhase = .established
     ) throws {
         guard let snapshot = latestSnapshot else {
             throw CmxTailscaleRouteProofError.pathUnavailable
@@ -142,7 +143,8 @@ actor CmxTailscaleRouteReadiness<Interface: Sendable> {
         try CmxTailscaleRouteProofValidator().validate(
             proof: proof,
             authoritySnapshot: snapshot,
-            connectionPath: connectionPath
+            connectionPath: connectionPath,
+            phase: phase
         )
     }
 

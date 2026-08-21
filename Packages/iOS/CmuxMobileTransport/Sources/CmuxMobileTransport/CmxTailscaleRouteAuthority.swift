@@ -12,7 +12,11 @@ struct CmxPreparedTailscaleRoute: Sendable {
 
 protocol CmxTailscaleRouteAuthorizing: Sendable {
     func prepare(request: CmxByteTransportRequest) async throws -> CmxPreparedTailscaleRoute
-    func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) async throws
+    func validate(
+        proof: CmxTailscaleRouteProof,
+        connectionPath: NWPath,
+        phase: CmxTailscaleRouteValidationPhase
+    ) async throws
 }
 
 /// Platform wiring for ``CmxTailscaleRouteReadiness``: converts every
@@ -79,7 +83,11 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, Send
         )
     }
 
-    func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) async throws {
+    func validate(
+        proof: CmxTailscaleRouteProof,
+        connectionPath: NWPath,
+        phase: CmxTailscaleRouteValidationPhase
+    ) async throws {
         // `currentPath` can advance before the queued callback task lands on
         // the readiness actor. Ingest a fresh capture first so the write
         // boundary can never validate against a stale observation.
@@ -91,7 +99,8 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, Send
         )
         try await readiness.validate(
             proof: proof,
-            connectionPath: Self.connectionPathSnapshot(connectionPath)
+            connectionPath: Self.connectionPathSnapshot(connectionPath),
+            phase: phase
         )
     }
 

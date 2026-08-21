@@ -157,6 +157,20 @@ struct CmxTailscaleRouteProof: Equatable, Sendable {
     let generation: UInt64
 }
 
+/// Which facts a connection-path validation may assert. A connection's path
+/// update can arrive before the socket has bound its local endpoint, so
+/// endpoint-level facts (local/remote address, remote port) only exist once
+/// the connection is established; validating them earlier misreads a
+/// still-connecting dial as an endpoint substitution and kills pairing.
+enum CmxTailscaleRouteValidationPhase: Sendable {
+    /// A path update on a connection that may not be established yet:
+    /// validate route-level facts only.
+    case pathUpdate
+    /// The connection reported ready, or a write is about to begin: the
+    /// path must carry the proven endpoints.
+    case established
+}
+
 struct CmxTailscaleRouteProofValidator {
     func prepare(
         request: CmxByteTransportRequest,
@@ -220,7 +234,8 @@ struct CmxTailscaleRouteProofValidator {
     func validate(
         proof: CmxTailscaleRouteProof,
         authoritySnapshot: CmxTailscaleAuthoritySnapshot,
-        connectionPath: CmxTailscaleConnectionPathSnapshot
+        connectionPath: CmxTailscaleConnectionPathSnapshot,
+        phase: CmxTailscaleRouteValidationPhase
     ) throws {
         guard authoritySnapshot.generation == proof.generation else {
             throw CmxTailscaleRouteProofError.routeGenerationChanged
@@ -239,6 +254,9 @@ struct CmxTailscaleRouteProofValidator {
               connectionPath.availableInterfaces.contains(proof.interface) else {
             throw CmxTailscaleRouteProofError.connectionPathUnavailable
         }
+        // A still-connecting dial has no bound endpoints yet; those facts are
+        // asserted at ready and at every write boundary instead.
+        guard phase == .established else { return }
         guard let localAddress = connectionPath.localAddress,
               proof.selfAddresses.contains(localAddress) else {
             throw CmxTailscaleRouteProofError.localEndpointMismatch
