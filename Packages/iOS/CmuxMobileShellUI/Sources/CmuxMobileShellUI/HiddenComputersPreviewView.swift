@@ -6,15 +6,9 @@ import SwiftUI
 
 /// DEBUG fixture list for unified computer visibility rows
 /// (`CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1`), so UI tests can exercise the
-/// switches and hidden-row Forget action without sign-in or Mac pairing.
-///
-/// The closures mirror production semantics exactly: a Forget swipe tap only
-/// presents the row's confirmation dialog (no synchronous model mutation, the
-/// regression surface for the destructive-role swipe crash), and the dialog's
-/// confirm removes the row.
+/// switches without sign-in or Mac pairing.
 struct HiddenComputersPreviewView: View {
     @State private var visibleIDs: Set<String> = ["preview-mac-2"]
-    @State private var forgottenIDs: Set<String> = []
 
     private let fixtures = [
         Fixture(id: "preview-mac-1", name: "Preview Mac"),
@@ -30,7 +24,6 @@ struct HiddenComputersPreviewView: View {
                         hiddenComputers: hiddenComputers,
                         hide: { computer in setVisible(false, id: computer.id) },
                         unhide: { computer in setVisible(true, id: computer.id) },
-                        forget: { computer in forgottenIDs.insert(computer.id) }
                     )
                 } footer: {
                     Text(L10n.string(
@@ -63,7 +56,7 @@ struct HiddenComputersPreviewView: View {
 
     private var visibleComputers: [MacComputerSnapshot] {
         fixtures.compactMap { fixture in
-            guard visibleIDs.contains(fixture.id), !forgottenIDs.contains(fixture.id) else {
+            guard visibleIDs.contains(fixture.id) else {
                 return nil
             }
             return MacComputerSnapshot(
@@ -87,7 +80,7 @@ struct HiddenComputersPreviewView: View {
 
     private var hiddenComputers: [MobileHiddenComputer] {
         fixtures.compactMap { fixture in
-            guard !visibleIDs.contains(fixture.id), !forgottenIDs.contains(fixture.id) else {
+            guard !visibleIDs.contains(fixture.id) else {
                 return nil
             }
             return MobileHiddenComputer(

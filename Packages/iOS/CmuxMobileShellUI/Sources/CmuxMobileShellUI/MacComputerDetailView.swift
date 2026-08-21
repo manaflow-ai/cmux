@@ -634,6 +634,28 @@ struct MacComputerDetailView: View {
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                if route.kind != .iroh {
+                    Button {
+                        Task {
+                            await store.removeRoute(
+                                route,
+                                macDeviceID: macDeviceID,
+                                instanceTag: instanceTag
+                            )
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel(
+                        L10n.string(
+                            "mobile.connections.route.remove",
+                            defaultValue: "Remove route"
+                        )
+                    )
+                    .accessibilityIdentifier("MobileComputerRemoveRoute-\(route.id)")
+                }
             }
             pingStatusLine(for: route)
         }

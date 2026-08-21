@@ -33,15 +33,8 @@ struct DeviceTreeView: View {
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
-    /// Called after a successful Forget operation. The root host uses this to
-    /// dismiss the Computers sheet when the final saved computer is gone.
-    var didForgetComputer: (() -> Void)? = nil
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
-    /// Message for the always-visible failure alert shown when a Forget cannot be
-    /// completed. An alert, not a toast, so the error still surfaces while the
-    /// toast presenter is disabled.
-    @State private var forgetFailureMessage: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -72,7 +65,6 @@ struct DeviceTreeView: View {
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
                                 hide: hideComputer,
                                 unhide: unhideComputer,
-                                forget: forgetComputer
                             )
                         } header: {
                             Text(section.title)
@@ -86,7 +78,6 @@ struct DeviceTreeView: View {
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
                                 hide: hideComputer,
                                 unhide: unhideComputer,
-                                forget: forgetComputer
                             )
                         } header: {
                             Text(L10n.string(
@@ -156,26 +147,6 @@ struct DeviceTreeView: View {
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
-        .alert(
-            L10n.string(
-                "mobile.connections.forget.failureTitle",
-                defaultValue: "Couldn't forget computer"
-            ),
-            isPresented: Binding(
-                get: { forgetFailureMessage != nil },
-                set: { presented in if !presented { forgetFailureMessage = nil } }
-            ),
-            presenting: forgetFailureMessage
-        ) { _ in
-            Button(
-                L10n.string("mobile.common.ok", defaultValue: "OK"),
-                role: .cancel
-            ) {
-                forgetFailureMessage = nil
-            }
-        } message: { message in
-            Text(message)
-        }
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
@@ -242,18 +213,6 @@ struct DeviceTreeView: View {
             computer.macDeviceID,
             instanceTag: computer.instanceTag
         )
-    }
-
-    private func forgetComputer(_ computer: MobileHiddenComputer) async {
-        let forgot = await store.forgetHiddenComputer(computer)
-        if !forgot {
-            forgetFailureMessage = L10n.string(
-                "mobile.computers.forget.failureMessage",
-                defaultValue: "It's still signed in. Check your connection and try again."
-            )
-        } else {
-            didForgetComputer?()
-        }
     }
 
     private func reload() async {

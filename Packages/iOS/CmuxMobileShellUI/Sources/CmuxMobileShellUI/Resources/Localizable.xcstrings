@@ -852,6 +852,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
       }
     },
+    "mobile.connections.route.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove route" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路を削除" } }
+      }
+    },
     "mobile.common.save" : {
       "extractionState" : "manual",
       "localizations" : {

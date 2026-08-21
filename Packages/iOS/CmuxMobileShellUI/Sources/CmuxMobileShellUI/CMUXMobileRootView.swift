@@ -616,8 +616,7 @@ struct CMUXMobileRootView: View {
                 selectWorkspace: selectWorkspaceFromComputers,
                 showAddDevice: addComputerAction,
                 showPairingScanner: pairingScannerAction,
-                dismissAction: dismissComputers,
-                didForgetComputer: didForgetComputer
+                dismissAction: dismissComputers
             )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
@@ -674,14 +673,6 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
-    }
-
-    /// Forget completes its durable cleanup before this callback fires. Route
-    /// the final-row transition through the same root owner as Done, so the
-    /// authenticated shell and its toolbar become visible together.
-    private func didForgetComputer() {
-        guard !store.hasKnownPairedMac, !store.hasHiddenComputers else { return }
-        dismissComputers()
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {

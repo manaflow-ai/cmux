@@ -22,7 +22,9 @@ struct ComputerVisibilityToggle: View {
             isOn: Binding(
                 get: { isVisible },
                 set: { newValue, transaction in
-                    withTransaction(transaction) {
+                    var animatedTransaction = transaction
+                    animatedTransaction.animation = .easeInOut(duration: 0.2)
+                    withTransaction(animatedTransaction) {
                         setVisible(newValue)
                     }
                 }
@@ -36,6 +38,7 @@ struct ComputerVisibilityToggle: View {
             )
         )
         .accessibilityIdentifier("MobileComputerVisibilityToggle-\(computerID)")
+        .animation(.easeInOut(duration: 0.2), value: isVisible)
         .disabled(isDisabled)
     }
 }
