@@ -7257,7 +7257,7 @@ pub(crate) fn scoped_empty_shutdown_notice(transport_lost: bool) -> ScopedShutdo
 /// The visible line a scoped attach leaves on the host terminal after the
 /// alternate screen is restored, in place of a silent exit.
 pub(crate) fn scoped_shutdown_notice_line(
-    attach: &crate::localization::AttachMessages,
+    attach: &localization::AttachMessages,
     notice: ScopedShutdownNotice,
 ) -> &'static str {
     match notice {
@@ -27556,7 +27556,7 @@ mod tests {
     fn scoped_terminal_exit_quits_with_a_visible_terminal_exited_notice() {
         let mux = Mux::new("scoped-exit-notice-test", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.surface_only = Some(surface.id);
 
         app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id))).unwrap();
@@ -27596,7 +27596,7 @@ mod tests {
 
         let mux = Mux::new("scoped-empty-notice-test", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.surface_only = Some(surface.id);
         app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
         assert!(app.quit, "empty must still stop the scoped client");
@@ -27608,7 +27608,7 @@ mod tests {
 
         let mux = Mux::new("full-empty-notice-test", SurfaceOptions::default());
         let _surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
         assert_eq!(
             app.scoped_shutdown_notice, None,
@@ -27618,7 +27618,7 @@ mod tests {
 
     #[test]
     fn scoped_shutdown_notices_map_to_localized_lines() {
-        let messages = crate::localization::catalog();
+        let messages = localization::catalog();
         assert!(
             !scoped_shutdown_notice_line(&messages.attach, ScopedShutdownNotice::TerminalExited)
                 .is_empty()

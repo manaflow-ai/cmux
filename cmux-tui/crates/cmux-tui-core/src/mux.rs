@@ -2400,8 +2400,6 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         crate::journal_hooks::start(&mux)?;
-        #[cfg(unix)]
-        start_hosted_terminal_liveness_sweep(&mux);
         Ok(mux)
     }
 
@@ -15088,7 +15086,7 @@ fn hosted_terminal_liveness_sweep_interval() -> Option<Duration> {
 /// while attach clients freeze on its last frame. The sweep proves the death
 /// independently and commits the durable exit.
 #[cfg(unix)]
-fn start_hosted_terminal_liveness_sweep(mux: &Arc<Mux>) {
+pub(crate) fn start_hosted_terminal_liveness_sweep(mux: &Arc<Mux>) {
     let Some(interval) = hosted_terminal_liveness_sweep_interval() else { return };
     let weak = Arc::downgrade(mux);
     let _ = std::thread::Builder::new().name("terminal-liveness-sweep".into()).spawn(move || {

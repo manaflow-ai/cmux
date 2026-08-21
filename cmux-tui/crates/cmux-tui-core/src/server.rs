@@ -4675,6 +4675,10 @@ impl Drop for PendingServer {
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
+    // The liveness sweep belongs to a served daemon, not to every Mux:
+    // unit tests build thousands of short-lived muxes and never serve them.
+    #[cfg(unix)]
+    crate::mux::start_hosted_terminal_liveness_sweep(&mux);
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

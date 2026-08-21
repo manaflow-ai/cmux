@@ -1927,7 +1927,7 @@ impl RemoteSession {
             // Connection lost: record why, then tell the app to quit.
             if let Some(session) = reader_session.upgrade() {
                 if crate::debug_tap::enabled() {
-                    crate::debug_tap::line(&format!(
+                    crate::debug_tap::line(format!(
                         "remote.reader.end reason={}",
                         reason.as_deref().unwrap_or("session dropped")
                     ));
@@ -2152,7 +2152,7 @@ impl RemoteSession {
                     // against a dead terminal; surface it once per distinct
                     // error so the user sees why nothing happens.
                     if crate::debug_tap::enabled() {
-                        crate::debug_tap::line(&format!(
+                        crate::debug_tap::line(format!(
                             "remote.response.unmatched id={id} error={error}"
                         ));
                     }
@@ -6104,7 +6104,7 @@ mod tests {
     #[test]
     fn terminal_attach_detects_an_unresponsive_daemon_control_channel() {
         // /tmp directly: macOS per-user temp dirs overflow SUN_LEN.
-        let dir = std::path::PathBuf::from(format!(
+        let dir = PathBuf::from(format!(
             "/tmp/cmux-al-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
@@ -6112,7 +6112,7 @@ mod tests {
                 .unwrap()
                 .subsec_nanos()
         ));
-        std::fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(&dir).unwrap();
         let socket_path = dir.join("mux.sock");
         let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
         let peer = std::thread::spawn(move || {
@@ -6162,7 +6162,7 @@ mod tests {
         );
         drop(session);
         let _ = peer.join();
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
