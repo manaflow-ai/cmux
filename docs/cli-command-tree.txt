@@ -1,5 +1,41 @@
 command  __complete-candidates  aliases=-
   arg  kind  kind=argument  completion=-
 command  __dump-command-tree  aliases=-
+command  __internal_flags  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  __sidebar_footer_icon_balance  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  capabilities  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
+command  config  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  docs  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  feedback  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  iroh-diag  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  ping  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  reload-config  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  settings  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  shortcuts  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  themes  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  themes clear  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  themes list  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  themes set  aliases=-
+  arg  --dark  kind=option  completion=custom-deprecated
+  arg  --light  kind=option  completion=custom-deprecated
+  arg  themes  kind=argument  completion=custom-deprecated
+command  version  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  welcome  aliases=-
+  arg  arguments  kind=argument  completion=-
