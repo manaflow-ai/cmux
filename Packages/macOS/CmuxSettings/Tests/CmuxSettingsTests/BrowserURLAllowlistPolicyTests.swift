@@ -10,6 +10,7 @@ struct BrowserURLAllowlistPolicyTests {
         ("*.example.com", "https://example.com/path", false),
         ("https://git.example.com", "http://git.example.com", false),
         ("https://git.example.com", "https://git.example.com", true),
+        ("https://git.example.com/", "https://git.example.com/path", true),
         ("example.com", "ftp://example.com/file", false),
         ("http://localhost:3000", "http://localhost:3000/app", true),
         ("http://localhost:3000", "http://localhost:4000/app", false),

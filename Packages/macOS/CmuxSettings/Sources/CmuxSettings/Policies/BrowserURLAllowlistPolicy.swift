@@ -37,6 +37,10 @@ public struct BrowserURLAllowlistPattern: Equatable, Hashable, Sendable {
             candidate = String(candidate[schemeSeparator.upperBound...])
         }
 
+        if candidate.hasSuffix("/") {
+            candidate.removeLast()
+        }
+
         guard !candidate.contains("/") && !candidate.contains("?") && !candidate.contains("#") && !candidate.contains("@") else {
             return nil
         }
