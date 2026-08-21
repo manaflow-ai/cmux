@@ -31,6 +31,71 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test(arguments: [
+        ("App.swift", FilePreviewSyntaxLanguage.swift),
+        ("server.ts", FilePreviewSyntaxLanguage.typescript),
+        ("worker.py", FilePreviewSyntaxLanguage.python),
+        (".env.local", FilePreviewSyntaxLanguage.configuration),
+        ("Dockerfile", FilePreviewSyntaxLanguage.shell),
+        ("notes.txt", FilePreviewSyntaxLanguage.plainText),
+    ])
+    func languageIsInferredFromFileName(fileName: String, expected: FilePreviewSyntaxLanguage) {
+        #expect(FilePreviewSyntaxLanguage(fileURL: URL(fileURLWithPath: fileName)) == expected)
+    }
+
+    @Test("Swift previews receive distinct keyword, string, and comment colors")
+    func swiftSyntaxHighlightingAppliesSemanticColors() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let title = \"cmux\" // agent-first editor"
+        textView.string = source
+        let baseColor = NSColor.labelColor
+
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: baseColor)
+
+        let keywordColor = try #require(Self.foregroundColor(of: "let", in: source, textView: textView))
+        let stringColor = try #require(Self.foregroundColor(of: "\"cmux\"", in: source, textView: textView))
+        let commentColor = try #require(Self.foregroundColor(of: "//", in: source, textView: textView))
+        #expect(!keywordColor.isEqual(baseColor))
+        #expect(!stringColor.isEqual(baseColor))
+        #expect(!commentColor.isEqual(baseColor))
+        #expect(!keywordColor.isEqual(stringColor))
+        #expect(!stringColor.isEqual(commentColor))
+    }
+
+    @Test("comment markers inside strings stay string-colored")
+    func commentMarkersInsideStringsAreNotParsedAsComments() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = #"let endpoint = "https://cmux.dev" // production"#
+        textView.string = source
+
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+
+        let stringStartColor = try #require(
+            Self.foregroundColor(of: #""https:"#, in: source, textView: textView)
+        )
+        let stringTailColor = try #require(
+            Self.foregroundColor(of: #"//cmux.dev"#, in: source, textView: textView)
+        )
+        let commentColor = try #require(
+            Self.foregroundColor(of: "// production", in: source, textView: textView)
+        )
+        #expect(stringTailColor.isEqual(stringStartColor))
+        #expect(!commentColor.isEqual(stringStartColor))
+    }
+
+    @Test("large previews keep the plain-text performance path")
+    func largePreviewSkipsSyntaxRules() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let " + String(repeating: "x", count: FilePreviewSyntaxHighlighter.maximumHighlightedUTF16Length)
+        textView.string = source
+        let baseColor = NSColor.labelColor
+
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: baseColor)
+
+        let color = try #require(Self.foregroundColor(of: "let", in: source, textView: textView))
+        #expect(color.isEqual(baseColor))
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -382,8 +447,23 @@ struct FilePreviewTextEditorTextKitTests {
         )
     }
 
+    private static func foregroundColor(
+        of needle: String,
+        in source: String,
+        textView: NSTextView
+    ) -> NSColor? {
+        let range = (source as NSString).range(of: needle)
+        guard range.location != NSNotFound else { return nil }
+        return textView.textStorage?.attribute(
+            .foregroundColor,
+            at: range.location,
+            effectiveRange: nil
+        ) as? NSColor
+    }
+
     private final class TextEditingPanelSpy: FilePreviewTextEditingPanel {
         var textContent = ""
+        var syntaxLanguage: FilePreviewSyntaxLanguage = .plainText
         var saveCount = 0
 
         func attachTextView(_: NSTextView) {}

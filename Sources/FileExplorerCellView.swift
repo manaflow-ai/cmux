@@ -5,11 +5,10 @@ import UniformTypeIdentifiers
 final class FileExplorerCellView: NSTableCellView {
     private let iconView = CmuxResolvedIconImageView()
     private let nameLabel = NSTextField(labelWithString: "")
+    private let gitStatusLabel = NSTextField(labelWithString: "")
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
-    private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
-    private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -24,6 +23,7 @@ final class FileExplorerCellView: NSTableCellView {
     private var iconWidthConstraint: NSLayoutConstraint!
     private var iconHeightConstraint: NSLayoutConstraint!
     private var iconToTextConstraint: NSLayoutConstraint!
+    private var gitStatusWidthConstraint: NSLayoutConstraint!
     private var loadingWidthConstraint: NSLayoutConstraint!
 
     private func setupViews() {
@@ -34,6 +34,12 @@ final class FileExplorerCellView: NSTableCellView {
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
 
+        gitStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        gitStatusLabel.alignment = .center
+        gitStatusLabel.font = .monospacedSystemFont(ofSize: 10, weight: .semibold)
+        gitStatusLabel.isHidden = true
+        gitStatusLabel.setAccessibilityIdentifier("FileExplorerGitStatusIndicator")
+
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.style = .spinning
         loadingIndicator.controlSize = .small
@@ -42,11 +48,13 @@ final class FileExplorerCellView: NSTableCellView {
 
         addSubview(iconView)
         addSubview(nameLabel)
+        addSubview(gitStatusLabel)
         addSubview(loadingIndicator)
 
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 16)
         iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 16)
         iconToTextConstraint = nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4)
+        gitStatusWidthConstraint = gitStatusLabel.widthAnchor.constraint(equalToConstant: 0)
         loadingWidthConstraint = loadingIndicator.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
@@ -57,26 +65,17 @@ final class FileExplorerCellView: NSTableCellView {
 
             iconToTextConstraint,
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            nameLabel.trailingAnchor.constraint(equalTo: gitStatusLabel.leadingAnchor, constant: -2),
+
+            gitStatusLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            gitStatusLabel.trailingAnchor.constraint(equalTo: loadingIndicator.leadingAnchor, constant: -3),
+            gitStatusWidthConstraint,
 
             loadingIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
             loadingWidthConstraint,
             loadingIndicator.heightAnchor.constraint(equalToConstant: 12),
         ])
-
-        nameLabelTrailingToLoadingConstraint = nameLabel.trailingAnchor.constraint(
-            equalTo: loadingIndicator.leadingAnchor,
-            constant: -2
-        )
-        nameLabelTrailingToContainerConstraint = nameLabel.trailingAnchor.constraint(
-            equalTo: trailingAnchor,
-            constant: -2
-        )
-        NSLayoutConstraint.activate([
-            nameLabelTrailingToLoadingConstraint,
-            nameLabelTrailingToContainerConstraint
-        ])
-        nameLabelTrailingToLoadingConstraint.isActive = false
     }
 
     func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
@@ -126,14 +125,23 @@ final class FileExplorerCellView: NSTableCellView {
             loadingWidthConstraint.constant = 12
             loadingIndicator.isHidden = false
             loadingIndicator.startAnimation(nil)
-            nameLabelTrailingToLoadingConstraint.isActive = true
-            nameLabelTrailingToContainerConstraint.isActive = false
         } else {
             loadingWidthConstraint.constant = 0
             loadingIndicator.isHidden = true
             loadingIndicator.stopAnimation(nil)
-            nameLabelTrailingToLoadingConstraint.isActive = false
-            nameLabelTrailingToContainerConstraint.isActive = true
+        }
+
+        if let gitStatus {
+            gitStatusWidthConstraint.constant = 14
+            gitStatusLabel.stringValue = gitStatus.indicator
+            gitStatusLabel.textColor = style.gitColor(for: gitStatus)
+            gitStatusLabel.toolTip = node.path
+            gitStatusLabel.isHidden = false
+        } else {
+            gitStatusWidthConstraint.constant = 0
+            gitStatusLabel.stringValue = ""
+            gitStatusLabel.toolTip = nil
+            gitStatusLabel.isHidden = true
         }
 
         if let error = node.error {

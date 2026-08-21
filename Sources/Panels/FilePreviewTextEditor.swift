@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
+    var syntaxLanguage: FilePreviewSyntaxLanguage { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
@@ -52,6 +53,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
+        textView.applyFilePreviewSyntaxHighlight(
+            language: panel.syntaxLanguage,
+            baseColor: themeForegroundColor
+        )
         return scrollView
     }
 
@@ -69,7 +74,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
+        guard textView.string != panel.textContent else {
+            textView.applyFilePreviewSyntaxHighlight(
+                language: panel.syntaxLanguage,
+                baseColor: themeForegroundColor
+            )
+            return
+        }
         let selectedRanges = textView.selectedRanges
         let visibleOrigin = scrollView.contentView.bounds.origin
         context.coordinator.isApplyingPanelUpdate = true
@@ -90,6 +101,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         )
         clipView.scroll(to: constrained.origin)
         scrollView.reflectScrolledClipView(clipView)
+        textView.applyFilePreviewSyntaxHighlight(
+            language: panel.syntaxLanguage,
+            baseColor: themeForegroundColor
+        )
     }
 
     static func applyTheme(
@@ -242,6 +257,17 @@ final class SavingTextView: NSTextView {
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+
+    func applyFilePreviewSyntaxHighlight(
+        language: FilePreviewSyntaxLanguage,
+        baseColor: NSColor
+    ) {
+        FilePreviewSyntaxHighlighter(
+            language: language,
+            baseColor: baseColor,
+            appearance: effectiveAppearance
+        ).apply(to: self)
+    }
 
     convenience init() {
         self.init(frame: .zero, textContainer: nil)

@@ -9,6 +9,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
+    let sourcePanelID: UUID?
+    let rootDirectory: String?
 
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -20,9 +22,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
 
-    init(workspace: Workspace, mode: RightSidebarMode) {
+    init(
+        workspace: Workspace,
+        mode: RightSidebarMode,
+        sourcePanelID: UUID? = nil,
+        rootDirectory: String? = nil
+    ) {
         self.id = UUID()
         self.mode = mode
+        self.sourcePanelID = sourcePanelID
+        self.rootDirectory = rootDirectory
         reattach(to: workspace)
     }
 
@@ -90,7 +99,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func openFilePreview(_ filePath: String) {
         guard let workspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let paneId = workspace.paneId(forPanelId: id)
+                ?? workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
         if workspace.isRemoteWorkspace {
@@ -209,7 +220,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         sshOptions: configuration.sshOptions
                     ),
                     displayTarget: configuration.displayTarget,
-                    rootPath: workspace.trustedRemoteCurrentDirectory,
+                    rootPath: resolvedFileExplorerDirectory(from: workspace),
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -217,13 +228,36 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return
         }
 
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directory.isEmpty else {
+        guard let directory = resolvedFileExplorerDirectory(from: workspace) else {
             store.applyWorkspaceRoot(.none)
             return
         }
 
         store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
+    }
+
+    private func resolvedFileExplorerDirectory(from workspace: Workspace) -> String? {
+        func normalized(_ directory: String?) -> String? {
+            guard let directory else { return nil }
+            let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if let sourcePanelID {
+            let runtimeDirectory = workspace.terminalPanel(for: sourcePanelID)?.directory
+            if let directory = workspace.effectivePanelDirectory(
+                panelId: sourcePanelID,
+                localFallback: runtimeDirectory
+            ) {
+                return directory
+            }
+        }
+        if let rootDirectory = normalized(rootDirectory) {
+            return rootDirectory
+        }
+        return workspace.usesRemoteDirectoryProvenance
+            ? normalized(workspace.trustedRemoteCurrentDirectory)
+            : normalized(workspace.currentDirectory)
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {

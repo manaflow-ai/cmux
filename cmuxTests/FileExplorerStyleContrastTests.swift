@@ -115,6 +115,23 @@ import Testing
         #expect(nameLabel.textColor?.isEqual(NSColor.labelColor) == true)
     }
 
+    @Test func modifiedFilesShowAnExplicitGitStatusIndicator() throws {
+        let cell = FileExplorerCellView(identifier: NSUserInterfaceItemIdentifier("git-status-test"))
+        let node = FileExplorerNode(name: "changed.swift", path: "/changed.swift", isDirectory: false)
+
+        cell.configure(with: node, gitStatus: .modified)
+
+        let indicator = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first {
+            $0.accessibilityIdentifier() == "FileExplorerGitStatusIndicator"
+        })
+        #expect(indicator.stringValue == "M")
+        #expect(!indicator.isHidden)
+
+        cell.configure(with: node)
+        #expect(indicator.stringValue.isEmpty)
+        #expect(indicator.isHidden)
+    }
+
     private func forEachAppearance(
         _ body: (NSAppearance, NSColor) throws -> Void
     ) throws {

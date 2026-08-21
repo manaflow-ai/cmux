@@ -64945,6 +64945,23 @@
         }
       }
     },
+    "command.newFileBrowserTab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File Browser Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブ（ファイルブラウザ）"
+          }
+        }
+      }
+    },
     "command.newBrowserWorkspace.title": {
       "extractionState": "manual",
       "localizations": {

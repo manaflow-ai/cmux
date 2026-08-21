@@ -16525,6 +16525,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .newFileBrowser:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneID = workspace.bonsplitController.focusedPaneId
+                        ?? workspace.bonsplitController.allPaneIds.first,
+                      workspace.openOrFocusFileBrowserSurface(inPane: paneID, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,

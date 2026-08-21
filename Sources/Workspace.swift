@@ -698,7 +698,11 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(
+                mode: toolPanel.mode,
+                sourcePanelID: toolPanel.sourcePanelID,
+                rootDirectory: toolPanel.rootDirectory
+            )
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .customSidebar:
@@ -1781,7 +1785,9 @@ extension Workspace {
                   let toolPanel = newRightSidebarToolSurface(
                     inPane: paneId,
                     mode: mode,
-                    focus: false
+                    focus: false,
+                    sourcePanelID: snapshot.rightSidebarTool?.sourcePanelID,
+                    rootDirectory: usesRemoteDirectoryProvenance ? nil : snapshot.rightSidebarTool?.rootDirectory
                   ) else {
                 return nil
             }
@@ -9281,14 +9287,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         inPane paneId: PaneID,
         mode: RightSidebarMode,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        sourcePanelID: UUID? = nil,
+        rootDirectory: String? = nil
     ) -> RightSidebarToolPanel? {
         guard mode.canOpenAsPane else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        let toolPanel = RightSidebarToolPanel(
+            workspace: self,
+            mode: mode,
+            sourcePanelID: sourcePanelID,
+            rootDirectory: rootDirectory
+        )
         panels[toolPanel.id] = toolPanel
         panelTitles[toolPanel.id] = toolPanel.displayTitle
 
@@ -13329,6 +13342,8 @@ extension Workspace: BonsplitDelegate {
                 }
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
+            case .newFileBrowser:
+                _ = openOrFocusFileBrowserSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

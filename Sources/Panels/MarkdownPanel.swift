@@ -30,6 +30,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Current raw text shown by the TextEdit mode.
     @Published private(set) var textContent: String = ""
 
+    var syntaxLanguage: FilePreviewSyntaxLanguage { .markdown }
+
     /// Whether TextEdit mode has unsaved changes.
     @Published private(set) var isDirty: Bool = false
 

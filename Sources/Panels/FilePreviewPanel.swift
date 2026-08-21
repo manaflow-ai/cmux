@@ -1013,6 +1013,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         URL(fileURLWithPath: filePath)
     }
 
+    var syntaxLanguage: FilePreviewSyntaxLanguage {
+        FilePreviewSyntaxLanguage(fileURL: fileURL)
+    }
+
     var previewRevision: Int {
         previewRevisionState.value
     }
