@@ -1,6 +1,74 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.terminal.outputRecovery.dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナル出力が予期せず停止しました。再試行してこのターミナルに再接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再試行"
+          }
+        }
+      }
+    },
+    "mobile.terminal.outputRecovery.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal paused"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルを一時停止しました"
+          }
+        }
+      }
+    },
     "mobile.workspaces.statusLine.notConnected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1053,6 +1121,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Update cmux on this Mac before using private addresses." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを使用する前に、このMacのcmuxを更新してください。" } }
+      }
+    },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ (Update cmux)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ (cmux を更新)" } }
       }
     },
     "mobile.iroh.private.lan" : {

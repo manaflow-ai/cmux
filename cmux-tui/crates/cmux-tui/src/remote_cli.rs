@@ -2112,7 +2112,10 @@ fn ensure_daemon(
         return Ok(());
     }
 
-    let executable = std::env::current_exe()?;
+    // Spawn the daemon from this client's own running build (open inode on
+    // Linux) so an in-place binary upgrade cannot leave a long-lived client
+    // exec'ing a "(deleted)" path, and daemon/client builds never skew.
+    let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
     let mux_socket = mux_socket_override
         .map(Path::to_path_buf)

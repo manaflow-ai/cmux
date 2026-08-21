@@ -86,6 +86,21 @@ import Testing
         #expect(map.instanceSummary(deviceId: "mac-a", tag: "missing") == nil)
     }
 
+    @Test func legacyPresenceFallbackRequiresOneAppInstance() {
+        var map = PresenceMap()
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "stable", online: true, lastSeenAt: 1_000),
+            instance(deviceId: "mac-a", tag: "nightly", online: false, lastSeenAt: 9_000),
+        ]))
+
+        #expect(map.soleInstanceSummary(deviceId: "mac-a") == nil)
+
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "stable", online: true, lastSeenAt: 1_000),
+        ]))
+        #expect(map.soleInstanceSummary(deviceId: "mac-a")?.online == true)
+    }
+
     @Test func snapshotReplacesTheWholeMap() {
         var map = PresenceMap()
         map.apply(snapshot([instance(deviceId: "mac-a")]))

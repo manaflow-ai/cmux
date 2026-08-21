@@ -447,7 +447,10 @@ jobs:
       - name: crossterm parser tests
         if: inputs.mode == 'full'
         working-directory: cmux-tui
-        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
+        # Single-threaded: crossterm's colored tests mutate process env vars
+        # (COLORTERM/NO_COLOR) and race each other under parallel test
+        # threads, flaking test_parse_ansi_fg/bg intermittently.
+        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
 
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'

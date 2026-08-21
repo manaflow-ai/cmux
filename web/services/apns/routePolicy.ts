@@ -43,6 +43,8 @@ export type PushPayload = {
    * workspace ids are Mac-local and can collide across paired Macs.
    */
   readonly macDeviceId: string | null;
+  /** The cmux app-instance tag paired with `macDeviceId`. */
+  readonly macInstanceTag: string | null;
   /**
    * Stable Mac-side notification id. Sent to APNs as `apns-collapse-id` and as
    * `cmux.notificationId` so cross-device dismiss-sync can target the exact
@@ -118,6 +120,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   const workspaceId = body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS);
   const surfaceId = body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS);
   const macDeviceId = body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS);
+  const macInstanceTag = body.macInstanceTag == null ? "" : boundedString(body.macInstanceTag, MAX_PUSH_ID_CHARS);
   const notificationId = body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS);
   const replyShape = body.replyShape === "none" || body.replyShape === "text" ? body.replyShape : undefined;
   const correlationId =
@@ -138,6 +141,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   if (workspaceId == null) return { ok: false, error: "workspace_id_too_long" };
   if (surfaceId == null) return { ok: false, error: "surface_id_too_long" };
   if (macDeviceId == null) return { ok: false, error: "mac_device_id_too_long" };
+  if (macInstanceTag == null) return { ok: false, error: "mac_instance_tag_too_long" };
   if (notificationId == null) return { ok: false, error: "notification_id_too_long" };
   if (correlationId == null) return { ok: false, error: "correlation_id_too_long" };
   if (
@@ -171,6 +175,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       workspaceId: workspaceId || null,
       surfaceId: surfaceId || null,
       macDeviceId: macDeviceId || null,
+      macInstanceTag: macInstanceTag || null,
       notificationId: notificationId || null,
       correlationId: correlationId ? correlationId.toLowerCase() : null,
       expirationEpochSeconds,
