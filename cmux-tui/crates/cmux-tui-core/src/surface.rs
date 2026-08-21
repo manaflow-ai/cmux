@@ -1177,8 +1177,7 @@ pub(crate) fn commit_proven_host_death(
     log_hosted_connection_event(identity, "host proven dead; committing durable terminal exit");
     *pty.exit.lock().unwrap() = Some(exit);
     mark_hosted_runtime_exited(pty, identity);
-    pty.host_connection_state
-        .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+    pty.host_connection_state.store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
     pty.stream_progress.notify();
     if let Some(mux) = mux.upgrade() {
         mux.surface_exited(surface.id);

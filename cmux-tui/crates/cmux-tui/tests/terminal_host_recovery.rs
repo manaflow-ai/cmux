@@ -3025,8 +3025,7 @@ fn running_host_sigkill_detaches_exited_terminal_topology() {
 }
 
 fn liveness_file_for(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
-    record_path
-        .with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
+    record_path.with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
 }
 
 fn wait_for_terminal_exit_commit(

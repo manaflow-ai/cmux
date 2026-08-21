@@ -13257,8 +13257,7 @@ impl App {
                 self.retire_surface_state(id);
                 self.remove_surface_from_cached_tree(id);
                 if self.surface_only == Some(id) {
-                    self.scoped_shutdown_notice
-                        .get_or_insert(ScopedShutdownNotice::TerminalExited);
+                    self.scoped_shutdown_notice.get_or_insert(ScopedShutdownNotice::TerminalExited);
                     self.quit = true;
                     return Ok(RenderAction::None);
                 }
@@ -21755,15 +21754,14 @@ mod tests {
         PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
         PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        ScopedShutdownNotice, scoped_empty_shutdown_notice, scoped_shutdown_notice_line,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, ScopedShutdownNotice,
+        Selection, SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
+        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SidebarWidthOverrides, StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer,
+        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
+        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
         WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
@@ -21775,9 +21773,10 @@ mod tests {
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
-        sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        reset_pane_area_projection_work, scoped_empty_shutdown_notice, scoped_shutdown_notice_line,
+        should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
@@ -27592,14 +27591,8 @@ mod tests {
     /// full (non-scoped) TUI must keep its silent quit.
     #[test]
     fn scoped_session_end_and_transport_loss_leave_distinct_notices() {
-        assert_eq!(
-            scoped_empty_shutdown_notice(false),
-            ScopedShutdownNotice::SessionEnded,
-        );
-        assert_eq!(
-            scoped_empty_shutdown_notice(true),
-            ScopedShutdownNotice::ConnectionLost,
-        );
+        assert_eq!(scoped_empty_shutdown_notice(false), ScopedShutdownNotice::SessionEnded,);
+        assert_eq!(scoped_empty_shutdown_notice(true), ScopedShutdownNotice::ConnectionLost,);
 
         let mux = Mux::new("scoped-empty-notice-test", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
@@ -27626,21 +27619,18 @@ mod tests {
     #[test]
     fn scoped_shutdown_notices_map_to_localized_lines() {
         let messages = crate::localization::catalog();
-        assert!(!scoped_shutdown_notice_line(
-            &messages.attach,
-            ScopedShutdownNotice::TerminalExited
-        )
-        .is_empty());
-        assert!(!scoped_shutdown_notice_line(
-            &messages.attach,
-            ScopedShutdownNotice::SessionEnded
-        )
-        .is_empty());
-        assert!(!scoped_shutdown_notice_line(
-            &messages.attach,
-            ScopedShutdownNotice::ConnectionLost
-        )
-        .is_empty());
+        assert!(
+            !scoped_shutdown_notice_line(&messages.attach, ScopedShutdownNotice::TerminalExited)
+                .is_empty()
+        );
+        assert!(
+            !scoped_shutdown_notice_line(&messages.attach, ScopedShutdownNotice::SessionEnded)
+                .is_empty()
+        );
+        assert!(
+            !scoped_shutdown_notice_line(&messages.attach, ScopedShutdownNotice::ConnectionLost)
+                .is_empty()
+        );
     }
 
     /// The bridge relies on this pairing: the mouse-capture reassert tests

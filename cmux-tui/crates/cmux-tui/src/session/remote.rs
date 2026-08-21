@@ -148,7 +148,6 @@ fn parse_graphics_status(value: &Value) -> Option<GraphicsStatus> {
     }
 }
 
-
 /// Watches the daemon control channel from a scoped attach: a periodic
 /// lightweight request proves the daemon still answers this connection, so a
 /// wedged (half-open, stalled) stream converges to a visible disconnect
@@ -176,7 +175,6 @@ pub(crate) fn spawn_attach_liveness_monitor(session: &Arc<RemoteSession>, interv
         }
     });
 }
-
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     if ident.get("app").and_then(Value::as_str) != Some("cmux-tui") {
