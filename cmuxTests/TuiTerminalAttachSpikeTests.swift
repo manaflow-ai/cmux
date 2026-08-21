@@ -179,9 +179,10 @@ struct TuiTerminalAttachSpikeTests {
         let command = TuiTerminalAttachPolicy.attachCommand(
             binaryPath: "/Users/x/.local/bin/cmux-tui-npm",
             sessionName: "cmux-tuispk",
-            terminalID: "term_abc"
+            terminalID: "term_abc",
+            configPath: "/Users/x/Library/Application Support/cmux/tui-bridge.json"
         )
-        #expect(command == "'/Users/x/.local/bin/cmux-tui-npm' attach --session 'cmux-tuispk' --terminal 'term_abc'")
+        #expect(command == "env CMUX_TUI_CONFIG='/Users/x/Library/Application Support/cmux/tui-bridge.json' '/Users/x/.local/bin/cmux-tui-npm' attach --session 'cmux-tuispk' --terminal 'term_abc'")
     }
 
     @Test
@@ -208,13 +209,31 @@ struct TuiTerminalAttachSpikeTests {
         // that file the client enters provider mode and dies at spawn
         // ("machine provider mode cannot be combined with attach,
         // --session"). Every attach command the bridge emits must be
-        // config-isolated, not just the reattach path.
+        // config-isolated, not just the reattach path: the configless
+        // attachCommand overload no longer exists, and the new-surface
+        // provisioning path passes the bridge config explicitly.
         let command = TuiTerminalAttachPolicy.attachCommand(
             binaryPath: "/Users/x/.local/bin/cmux-tui",
             sessionName: "cmux-tuispk",
-            terminalID: "term_abc"
+            terminalID: "term_abc",
+            configPath: "/Users/x/Library/Application Support/cmux/tui-bridge.json"
         )
         #expect(command.hasPrefix("env CMUX_TUI_CONFIG="))
+    }
+
+    @Test
+    func daemonStartArgumentsCarryChildShellTerm() {
+        // The daemon is spawned by the app outside any terminal; without an
+        // explicit --term its child shells inherit the app's TERM (or the
+        // xterm-256color default) instead of the Ghostty terminfo the
+        // rendering surfaces actually speak. --term is a start option and
+        // must follow `server start`.
+        #expect(TuiTerminalAttachPolicy.daemonStartArguments(sessionName: "cmux-tuispk") == [
+            "server", "start",
+            "--session", "cmux-tuispk",
+            "--headless",
+            "--term", "xterm-ghostty",
+        ])
     }
 
     @Test

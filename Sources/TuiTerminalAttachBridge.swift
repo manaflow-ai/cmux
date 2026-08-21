@@ -110,7 +110,8 @@ final class TuiTerminalAttachBridge {
             attachCommand: TuiTerminalAttachPolicy.attachCommand(
                 binaryPath: binary,
                 sessionName: session,
-                terminalID: terminalID
+                terminalID: terminalID,
+                configPath: Self.bridgeConfigPath
             )
         )
     }
@@ -260,7 +261,7 @@ final class TuiTerminalAttachBridge {
         logSpike("daemon.start session=\(session)")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
-        process.arguments = ["server", "start", "--session", session, "--headless"]
+        process.arguments = TuiTerminalAttachPolicy.daemonStartArguments(sessionName: session)
         process.environment = Self.bridgeEnvironment
         let logPath = "/tmp/cmux-tui-\(session).log"
         FileManager.default.createFile(atPath: logPath, contents: nil)

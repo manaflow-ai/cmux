@@ -91,37 +91,59 @@ enum TuiTerminalAttachPolicy {
 
     /// The Ghostty surface command that replaces the shell: attach to exactly
     /// one daemon terminal. Tokens are single-quoted for the shell.
+    ///
+    /// `configPath` is required and must be non-empty: every bridge-spawned
+    /// cmux-tui process is config-isolated, with no configless variant. App
+    /// sessions must never parse the user's interactive
+    /// `~/.config/cmux/cmux-tui.json`, whose schema belongs to a different
+    /// binary version: parse warnings print onto the surface (a flash when
+    /// the alt screen pops on quit), and a `machine_provider` block there
+    /// puts the client in provider mode, which refuses `attach --session`
+    /// outright, killing the tab at spawn. An earlier revision prefixed the
+    /// config only on the reattach path, so brand-new tabs hit exactly that.
+    /// (cmux-tui treats an EMPTY `CMUX_TUI_CONFIG` as unset and falls back
+    /// to the user config, hence the non-empty requirement.)
+    ///
+    /// The prefix uses `env VAR=value <cmd>`, not a bare `VAR=value` prefix:
+    /// Ghostty runs the surface command as `bash -c "exec -l <cmd>"`, and
+    /// `exec` is a builtin, so a leading assignment is treated as the
+    /// program name and the launch fails ("cannot execute: No such file or
+    /// directory"). env(1) execs the real command with the variable set
+    /// regardless of the exec-builtin wrapper.
     static func attachCommand(
         binaryPath: String,
         sessionName: String,
         terminalID: String,
-        configPath: String? = nil
+        configPath: String
     ) -> String {
-        var tokens: [String] = []
-        if let configPath, !configPath.isEmpty {
-            // App-managed sessions must not parse the user's interactive
-            // cmux-tui config: schema drift between binaries prints warnings
-            // onto the surface (visible as a flash when the alt screen pops
-            // on quit) and couples the bridge to unrelated workstreams.
-            //
-            // Ghostty runs the surface command as `bash -c "exec -l <cmd>"`.
-            // `exec` is a builtin, so a leading `VAR=value` is NOT a variable
-            // assignment there: bash treats it as the program name and the
-            // launch fails ("cannot execute: No such file or directory").
-            // Reattach passes a configPath (new-surface provisioning does
-            // not), so the bug stayed masked until the first quit+reopen.
-            // `env VAR=value <cmd>` sets the variable through the env(1)
-            // binary, which execs the real command with the variable in its
-            // environment regardless of the exec-builtin wrapper.
-            tokens.append(contentsOf: ["env", "CMUX_TUI_CONFIG=\(shellQuoted(configPath))"])
-        }
-        tokens.append(contentsOf: [
+        assert(!configPath.isEmpty, "bridge attach commands must be config-isolated")
+        let tokens: [String] = [
+            "env", "CMUX_TUI_CONFIG=\(shellQuoted(configPath))",
             shellQuoted(binaryPath),
             "attach",
             "--session", shellQuoted(sessionName),
             "--terminal", shellQuoted(terminalID),
-        ])
+        ]
         return tokens.joined(separator: " ")
+    }
+
+    /// TERM for the daemon's child shells. The daemon is spawned by the app
+    /// outside any terminal, so without an explicit override its children
+    /// inherit whatever TERM the app process has (usually nothing useful);
+    /// the surfaces rendering these terminals are always Ghostty.
+    static let childShellTerm = "xterm-ghostty"
+
+    /// The argument list that starts the app-managed daemon session.
+    /// `--term` must follow `server start` (it is a start option) and makes
+    /// child shells see the Ghostty terminfo instead of the
+    /// xterm-256color default.
+    static func daemonStartArguments(sessionName: String) -> [String] {
+        [
+            "server", "start",
+            "--session", sessionName,
+            "--headless",
+            "--term", childShellTerm,
+        ]
     }
 
     /// Extracts the created terminal id from `workspace create --json` output
