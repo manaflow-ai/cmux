@@ -618,6 +618,12 @@ impl ProviderMachineRuntime {
         let (session, label, open, _reused) = self.open_selected_candidate()?;
         let session_available = open.is_some();
         self.open = open;
+        // The initial connection is presented without a commit_replacement
+        // round; record it so warm-pool eviction never shuts down the
+        // session on screen.
+        let presented =
+            self.open.as_ref().and_then(|open| key_for_id(&self.keys, &open.machine_id));
+        self.connections.note_presented(presented);
         let mut ui = self.ui_state(session_available);
         ui.notice = self.take_notice();
         Ok((session, label, ui))
@@ -1230,6 +1236,13 @@ impl ProviderMachineRuntime {
                             break;
                         }
                     };
+                    // Each snapshot is the authoritative machine set: drop
+                    // progress cells for machines that no longer exist, so a
+                    // long-lived provider emitting many distinct ids cannot
+                    // grow the registry without bound.
+                    progress_cells.retain(|machine_id, _| {
+                        snapshot.machines.iter().any(|machine| &machine.id == machine_id)
+                    });
                     let changed_snapshot_notice =
                         if !durable_notices_supported && snapshot.notice != last_snapshot_notice {
                             snapshot.notice.clone()
