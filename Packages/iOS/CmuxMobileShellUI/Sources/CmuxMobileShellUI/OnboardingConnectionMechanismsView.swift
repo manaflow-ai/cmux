@@ -138,7 +138,6 @@ struct OnboardingConnectionMechanismsView: View {
             RoundedRectangle(cornerRadius: density.mechanismCornerRadius, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 
@@ -158,10 +157,15 @@ struct OnboardingConnectionMechanismsView: View {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
+                // Compact height (landscape) shows title-only rows so all
+                // three transports stay inside the page viewport; the detail
+                // remains available to VoiceOver via the accessibility label.
+                if density == .regular {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
             }
             Spacer(minLength: 0)
             trailing()
@@ -172,6 +176,8 @@ struct OnboardingConnectionMechanismsView: View {
             .regularMaterial,
             in: RoundedRectangle(cornerRadius: density.mechanismCornerRadius, style: .continuous)
         )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title). \(subtitle)")
     }
 }
 
