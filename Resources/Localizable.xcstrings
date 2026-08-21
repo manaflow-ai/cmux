@@ -171719,7 +171719,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."
           }
         },
         "es": {
@@ -171743,7 +171743,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。エントリを削除するとそのホストをブロックし、リセットでデフォルトに戻せます。"
           }
         },
         "ko": {
@@ -171838,7 +171838,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line. Remove entries to block them."
           }
         },
         "es": {
@@ -171862,7 +171862,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード。エントリを削除するとそのホストをブロックします。"
           }
         },
         "ko": {
@@ -172046,6 +172046,13 @@
         }
       }
     },
+    "settings.browser.httpAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
     "settings.browser.urlAllowlist": {
       "extractionState": "manual",
       "localizations": {
@@ -172056,15 +172063,15 @@
     "settings.browser.urlAllowlist.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Restricts every embedded-browser navigation to matching hosts or URL patterns. Leave empty to allow all web origins. Internal cmux documents remain available." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのすべての移動を、一致するホストまたはURLパターンに制限します。空欄にするとすべてのWebオリジンを許可します。cmux内部ドキュメントは引き続き利用できます。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or clear the list to allow all web origins. Internal cmux documents remain available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、リストを空にするとすべてのWebオリジンを許可します。cmux内部ドキュメントは引き続き利用できます。" } }
       }
     },
     "settings.browser.urlAllowlist.hint": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "One rule per line: example.com, *.example.com, https://git.example.com, or http://localhost:3000." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "1行に1ルール: example.com、*.example.com、https://git.example.com、または http://localhost:3000。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1行に1ルール: localhost、*.localhost、example.com、https://git.example.com、または http://localhost:3000。エントリを削除するとそのURLをブロックします。" } }
       }
     },
     "settings.browser.urlAllowlist.save": {
@@ -172072,6 +172079,20 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Save" } },
         "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "settings.browser.urlAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.search.alias.setting.browser.url-allowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL許可リスト localhost ワイルドカード スキーム ポート 組織 ポリシー" } }
       }
     },
     "settings.browser.import": {

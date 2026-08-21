@@ -164,6 +164,23 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// The regular user preference key used by Settings and `cmux.json`.
     public static let userDefaultsKey = "browserURLAllowlist"
 
+    /// Loopback origins allowed by default for local development servers.
+    ///
+    /// These are suggested user-level entries, not an MDM policy. Saving a
+    /// custom list in Settings or `cmux.json` makes the entries effective, and
+    /// removing one removes that origin from the effective list.
+    public static let defaultPatterns = [
+        "localhost",
+        "*.localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+        "*.localtest.me",
+    ]
+
+    /// The editable text shown for the default user allowlist.
+    public static let defaultAllowlistText = defaultPatterns.joined(separator: "\n")
+
     /// The source that supplied the effective rules.
     public enum Source: Equatable, Sendable {
         /// No restriction is configured.
@@ -184,16 +201,20 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// The effective source.
     public let source: Source
 
-    /// The valid, normalized rules. Invalid user rules are ignored; an invalid
-    /// forced value remains managed and therefore fails closed.
+    /// The valid, normalized rules. When ``source`` is ``Source/none`` because
+    /// no user override exists, this contains the suggested loopback entries
+    /// even though navigation remains unrestricted. Invalid user rules are
+    /// ignored; an invalid forced value remains managed and therefore fails
+    /// closed.
     public let patterns: [BrowserURLAllowlistPattern]
 
     /// Whether the administrator supplied a forced key, including an empty or
     /// malformed forced value.
     public var isManaged: Bool { source == .managed }
 
-    /// Whether navigation is restricted. A user setting with no valid rules is
-    /// treated as unset; a managed empty list is intentionally restrictive.
+    /// Whether navigation is restricted. A missing or explicitly empty user
+    /// value leaves the optional user restriction off. A managed empty list
+    /// remains restrictive.
     public var isActive: Bool { source != .none }
 
     /// Resolves the policy from the supplied preference suite.
@@ -211,6 +232,12 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
             ?? resolver.forcedObject(forUserDefaultsKey: Self.userDefaultsKey) {
             self.source = .managed
             self.patterns = Self.patterns(from: Self.stringValues(from: forced))
+            return
+        }
+
+        guard defaults.object(forKey: Self.userDefaultsKey) != nil else {
+            self.source = .none
+            self.patterns = Self.patterns(from: Self.defaultPatterns)
             return
         }
 

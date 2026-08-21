@@ -51,11 +51,14 @@ Notes:
   servers. Paths, queries, fragments, credentials, and non-HTTP(S) pattern
   schemes are rejected.
 - The same syntax is available to unmanaged users as the `browser.urlAllowlist`
-  setting in Settings → Browser or `cmux.json`. An empty user value leaves the
-  browser unrestricted. A forced `BrowserURLAllowlist` always wins and locks
-  that editor; an administrator may also force the user-level
-  `browserURLAllowlist` key directly, and the importer skips the setting while
-  either key is managed.
+  setting in Settings → Browser or `cmux.json`. Settings shows a suggested
+  loopback list (`localhost`, `*.localhost`, `127.0.0.1`, `::1`, `0.0.0.0`,
+  and `*.localtest.me`); saving that list opts into the restriction, and
+  removing individual entries blocks those origins. An absent or cleared user
+  value leaves ordinary browsing unrestricted. A forced `BrowserURLAllowlist`
+  always wins and locks that editor; an administrator may also force the
+  user-level `browserURLAllowlist` key directly, and the importer skips the
+  setting while either key is managed.
 - Policy changes are applied at app launch, on preference-change
   notifications, whenever the app becomes active, and on a periodic
   re-check (about once a minute) while the app runs — a profile pushed

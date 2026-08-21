@@ -421,7 +421,7 @@ public struct BrowserSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
                 .cmuxFont(size: 13, weight: .semibold)
-            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
+            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $httpAllowlistDraft)
@@ -439,11 +439,12 @@ public struct BrowserSection: View {
                 .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 10) {
-                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line. Remove entries to block them."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
+                    httpAllowlistResetButton(model: model)
                     Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
                         model.set(httpAllowlistDraft)
                         httpAllowlistSyncedValue = httpAllowlistDraft
@@ -455,11 +456,12 @@ public struct BrowserSection: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line. Remove entries to block them."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
                         Spacer(minLength: 0)
+                        httpAllowlistResetButton(model: model)
                         Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
                             model.set(httpAllowlistDraft)
                             httpAllowlistSyncedValue = httpAllowlistDraft
@@ -499,6 +501,18 @@ public struct BrowserSection: View {
         }
     }
 
+    private func httpAllowlistResetButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.httpAllowlist.reset", defaultValue: "Reset to Defaults")) {
+            model.reset()
+            httpAllowlistDraft = catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue
+            httpAllowlistSyncedValue = httpAllowlistDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(model.current == catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue)
+        .accessibilityIdentifier("SettingsBrowserHTTPAllowlistResetButton")
+    }
+
     @ViewBuilder
     private func urlAllowlistRow(model: DefaultsValueModel<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -511,7 +525,7 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts every embedded-browser navigation to matching hosts or URL patterns. Leave empty to allow all web origins. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or clear the list to allow all web origins. Internal cmux documents remain available."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $urlAllowlistDraft)
@@ -532,12 +546,14 @@ public struct BrowserSection: View {
                 HStack(alignment: .center, spacing: 10) {
                     urlAllowlistHint
                     Spacer(minLength: 0)
+                    urlAllowlistResetButton(model: model)
                     urlAllowlistSaveButton(model: model)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     urlAllowlistHint
                     HStack {
                         Spacer(minLength: 0)
+                        urlAllowlistResetButton(model: model)
                         urlAllowlistSaveButton(model: model)
                     }
                 }
@@ -567,7 +583,7 @@ public struct BrowserSection: View {
     }
 
     private var urlAllowlistHint: some View {
-        Text(String(localized: "settings.browser.urlAllowlist.hint", defaultValue: "One rule per line: example.com, *.example.com, https://git.example.com, or http://localhost:3000."))
+        Text(String(localized: "settings.browser.urlAllowlist.hint", defaultValue: "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them."))
             .cmuxFont(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -583,6 +599,22 @@ public struct BrowserSection: View {
         .controlSize(.small)
         .disabled(browserURLAllowlistManagedByPolicy || urlAllowlistDraft == model.current)
         .accessibilityIdentifier("SettingsBrowserURLAllowlistSaveButton")
+    }
+
+    private func urlAllowlistResetButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.urlAllowlist.reset", defaultValue: "Reset to Defaults")) {
+            guard !browserURLAllowlistManagedByPolicy else { return }
+            model.reset()
+            urlAllowlistDraft = BrowserURLAllowlistPolicy.defaultAllowlistText
+            urlAllowlistSyncedValue = urlAllowlistDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(
+            browserURLAllowlistManagedByPolicy
+                || model.current == BrowserURLAllowlistPolicy.defaultAllowlistText
+        )
+        .accessibilityIdentifier("SettingsBrowserURLAllowlistResetButton")
     }
 
     @ViewBuilder
