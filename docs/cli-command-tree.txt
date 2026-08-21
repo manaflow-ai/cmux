@@ -33,6 +33,10 @@ command  feedback  aliases=-
   arg  arguments  kind=argument  completion=-
 command  iroh-diag  aliases=-
   arg  arguments  kind=argument  completion=-
+command  login  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  logout  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  ping  aliases=-
   arg  arguments  kind=argument  completion=-
 command  reload-config  aliases=-
