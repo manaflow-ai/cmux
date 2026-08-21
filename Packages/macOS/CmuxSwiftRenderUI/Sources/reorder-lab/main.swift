@@ -67,23 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dispatch = SidebarActionDispatch { action in
             FileHandle.standardError.write(Data("lab action: \(action)\n".utf8))
         }
-        let view = VStack(spacing: 0) {
-            // Control probe: if this native Button doesn't react to injected
-            // events, the injection is broken, not the sidebar runtime.
-            Button("probe") {
-                FileHandle.standardError.write(Data("lab probe button fired\n".utf8))
-            }
-            .padding(.top, 4)
-            ScrollView {
-                JSSidebarHostView(
-                    source: source,
-                    dataContext: ["items": items],
-                    dispatch: dispatch
-                )
-                .padding(12)
-            }
-        }
-        .frame(width: 280, height: 480)
+        let view = LabRoot(source: source, dispatch: dispatch)
+            .frame(width: 280, height: 480)
 
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 280, height: 480),
@@ -196,6 +181,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+/// Lab content: the sidebar host plus a probe button. With
+/// CMUX_LAB_TOGGLE=1 the item list alternates every 2s between the full and a
+/// reduced set, driving enter/exit slot animations for FPS sampling.
+struct LabRoot: View {
+    let source: String
+    let dispatch: SidebarActionDispatch
+    @State private var reduced = false
+
+    private var context: [String: SwiftValue] {
+        guard reduced, case let .array(all) = items else { return ["items": items] }
+        return ["items": .array(Array(all.prefix(2)) + Array(all.suffix(1)))]
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Control probe: if this native Button doesn't react to injected
+            // events, the injection is broken, not the sidebar runtime.
+            Button("probe") {
+                FileHandle.standardError.write(Data("lab probe button fired\n".utf8))
+            }
+            .padding(.top, 4)
+            ScrollView {
+                JSSidebarHostView(
+                    source: source,
+                    dataContext: context,
+                    dispatch: dispatch
+                )
+                .padding(12)
+            }
+        }
+        .task {
+            guard ProcessInfo.processInfo.environment["CMUX_LAB_TOGGLE"] == "1" else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                reduced.toggle()
+            }
+        }
     }
 }
 

@@ -67,7 +67,10 @@ struct ReorderableColumnView: View {
     @Environment(\.sceneEventSink) private var sink
     @State private var model = ReorderDragModel()
     @State private var localOrder: [String]?
-    @State private var rowHeights: [String: CGFloat] = [:]
+    // Deliberately NOT @State: slot heights change EVERY FRAME during the
+    // accordion fold, and observing them would re-render the whole column
+    // per frame. Geometry is only read at gesture time.
+    @State private var rowHeights = RowHeightsBox()
 
     /// stderr trace of lift/crossing/drop, enabled with CMUX_REORDER_DEBUG=1.
     private static let debugEnabled = ProcessInfo.processInfo.environment["CMUX_REORDER_DEBUG"] == "1"
@@ -101,7 +104,7 @@ struct ReorderableColumnView: View {
                     spacing: rowSpacing
                 )
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                    rowHeights[childId] = height
+                    rowHeights.record(childId, height)
                 }
                 // A `fixed` row is not draggable itself (masking to
                 // .subviews keeps its taps/chevrons working) UNLESS it is a
@@ -186,7 +189,7 @@ struct ReorderableColumnView: View {
                         model.blockRows = []
                         model.sourceIndex = sourceIndex
                         model.targetIndex = sourceIndex
-                        model.draggedHeight = rowHeights[childId] ?? 0
+                        model.draggedHeight = rowHeights.height(childId)
                     }
                     Self.debugLog("lift id=\(childId) source=\(sourceIndex) block=\(model.isBlockDrag) height=\(model.draggedHeight)")
                 }
@@ -217,7 +220,7 @@ struct ReorderableColumnView: View {
 
                 // Discrete: one spring per slot crossing, with hysteresis so
                 // pointer jitter on a boundary can't flip-flop the target.
-                let heights = order.map { rowHeights[$0] ?? 0 }
+                let heights = order.map { rowHeights.height($0) }
                 let indents = order.map { rowIndent($0) }
                 let fixedFlags = order.map { store?.node($0)?.bool("fixed") == true }
                 let target = ReorderMath.targetIndex(
@@ -350,7 +353,7 @@ struct ReorderableColumnView: View {
     /// inside the item (inter-item spacing matches row spacing, so the slot
     /// math stays exact).
     private func itemHeight(_ rows: [String]) -> CGFloat {
-        let total = rows.reduce(CGFloat(0)) { $0 + (rowHeights[$1] ?? 0) }
+        let total = rows.reduce(CGFloat(0)) { $0 + rowHeights.height($1) }
         return total + rowSpacing * CGFloat(max(0, rows.count - 1))
     }
 
@@ -381,6 +384,25 @@ struct ReorderableColumnView: View {
             return childId
         }
         return keys[authoritativeIndex]
+    }
+}
+
+/// Row-height store for gesture-time geometry. A plain class on purpose:
+/// observing heights from a view would re-render the whole column whenever a
+/// slot resizes; geometry is only ever read at gesture time. (Enter/exit slot
+/// animations are interpolated by the render server - onGeometryChange only
+/// reports settled values - so animation frames never touch this path or the
+/// main thread.)
+@MainActor
+final class RowHeightsBox {
+    private var heights: [String: CGFloat] = [:]
+
+    func record(_ id: String, _ height: CGFloat) {
+        heights[id] = height
+    }
+
+    func height(_ id: String) -> CGFloat {
+        heights[id] ?? 0
     }
 }
 
