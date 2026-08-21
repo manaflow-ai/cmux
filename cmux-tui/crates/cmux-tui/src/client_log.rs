@@ -107,9 +107,21 @@ fn queue() -> Option<&'static SyncSender<Message>> {
         .as_ref()
 }
 
+/// Exit the process after draining queued records (bounded). Rust's
+/// `std::process::exit` bypasses CRT atexit handlers on Windows, so the
+/// Unix atexit hook alone cannot make exit-time diagnostics durable
+/// everywhere; call this instead wherever a diagnostic may have just been
+/// logged. The Unix atexit hook stays registered as a backstop for exits
+/// that do not come through here (including a normal return from main).
+pub(crate) fn exit(code: i32) -> ! {
+    #[cfg(unix)]
+    drain_stderr_pipe(std::time::Duration::from_millis(250));
+    flush_with_deadline(std::time::Duration::from_millis(250));
+    std::process::exit(code)
+}
+
 /// Drain the queue to disk, waiting at most `deadline`. Safe to call from
 /// any thread, including the exiting one; never blocks unbounded.
-#[cfg_attr(not(unix), allow(dead_code))]
 fn flush_with_deadline(deadline: std::time::Duration) {
     let Some(sender) = QUEUE.get().and_then(|queue| queue.as_ref()) else {
         return;
