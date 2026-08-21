@@ -2,13 +2,34 @@ import ArgumentParser
 import Foundation
 
 struct CmuxCommand: ParsableCommand {
+    @OptionGroup var globals: GlobalOptions
+
     static let configuration = CommandConfiguration(
         commandName: "cmux",
         abstract: String(
             localized: "cli.root.abstract",
             defaultValue: "Control cmux via Unix socket."
         ),
-        subcommands: [CompleteCandidates.self, Completion.self, DumpCommandTree.self]
+        subcommands: [
+            CompleteCandidates.self,
+            Completion.self,
+            DumpCommandTree.self,
+            WelcomeCommand.self,
+            DocsCommand.self,
+            SettingsCommand.self,
+            ConfigCommand.self,
+            ShortcutsCommand.self,
+            VersionCommand.self,
+            CapabilitiesCommand.self,
+            PingCommand.self,
+            IrohDiagnosticsCommand.self,
+            HelpCommand.self,
+            ReloadConfigCommand.self,
+            FeedbackCommand.self,
+            ThemesCommand.self,
+            InternalFlagsCommand.self,
+            SidebarFooterIconBalanceCommand.self,
+        ]
     )
 
     /// Every command name and alias the facade owns. The router sends only these
