@@ -389,9 +389,13 @@ private struct SceneBoxStyle: ViewModifier {
     @Environment(\.sceneDraggedNodeId) private var draggedNodeId
 
     func body(content: Content) -> some View {
-        // Mid-drag, only the dragged row may show its hover wash.
+        // Mid-drag, only the dragged row may show its hover wash - and the
+        // dragged row ALWAYS shows it: tracking areas lapse while the mouse
+        // is down, so its own hover state can't be trusted mid-drag. The
+        // wash appears at lift and holds until the drag lets go.
         let hoverAllowed = draggedNodeId == nil || draggedNodeId == node.id
-        let backgroundToken = (isHovered && hoverAllowed)
+        let forcedHover = draggedNodeId == node.id
+        let backgroundToken = (forcedHover || (isHovered && hoverAllowed))
             ? (node.string("hoverBackground") ?? node.string("background"))
             : node.string("background")
         let padded = content.padding(paddingInsets)
@@ -442,7 +446,7 @@ private struct SceneBoxStyle: ViewModifier {
                 // Publish hover to descendants only from tracking nodes, so a
                 // non-tracking child doesn't reset an ancestor's state.
                 if node.props["hoverBackground"] != nil {
-                    value = isHovered && hoverAllowed
+                    value = forcedHover || (isHovered && hoverAllowed)
                 }
             }
     }

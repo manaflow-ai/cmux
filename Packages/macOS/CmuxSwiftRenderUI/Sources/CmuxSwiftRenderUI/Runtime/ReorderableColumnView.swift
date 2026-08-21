@@ -33,6 +33,11 @@ private final class ReorderDragModel {
     /// indent prop then matches the projection and the offset becomes zero).
     var settledId: String?
     var settledIndent: CGFloat?
+    /// True while an Escape-cancelled drag springs home; gesture events are
+    /// ignored until the settle completes.
+    var isCancelling = false
+    /// Local Escape key monitor, alive only while a drag is in flight.
+    @ObservationIgnored var escapeMonitor: Any?
     /// Which neighbor's nesting the ambiguous boundary slot resolved to
     /// ("above" or "below"), chosen by the pointer's X position.
     var boundarySide = "above"
@@ -149,6 +154,7 @@ struct ReorderableColumnView: View {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
                 let order = displayOrder
+                if model.isCancelling { return }
                 if model.draggedId == nil {
                     guard let sourceIndex = order.firstIndex(of: childId) else { return }
                     // Freeze the visual order for the whole gesture: a live
@@ -193,6 +199,7 @@ struct ReorderableColumnView: View {
                         model.draggedHeight = rowHeights.height(childId)
                     }
                     Self.debugLog("lift id=\(childId) source=\(sourceIndex) block=\(model.isBlockDrag) height=\(model.draggedHeight)")
+                    installEscapeMonitor()
                 }
                 guard model.draggedId == childId else { return }
                 // Continuous: tracks the pointer, deliberately unanimated.
@@ -258,9 +265,52 @@ struct ReorderableColumnView: View {
                 }
             }
             .onEnded { _ in
-                guard model.draggedId == childId else { return }
+                guard model.draggedId == childId, !model.isCancelling else { return }
                 drop(childId: childId)
             }
+    }
+
+    /// Escape cancels an in-flight drag: the dragged rows spring back to
+    /// their original slot and X level, and nothing is dispatched. The key
+    /// monitor exists only between lift and drop/cancel and swallows the
+    /// Escape it consumes.
+    private func installEscapeMonitor() {
+        removeEscapeMonitor()
+        let model = model
+        model.escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53, model.draggedId != nil, !model.isCancelling else {
+                return event
+            }
+            cancelDrag()
+            return nil
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let monitor = model.escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            model.escapeMonitor = nil
+        }
+    }
+
+    private func cancelDrag() {
+        guard model.draggedId != nil, !model.isCancelling else { return }
+        Self.debugLog("cancel drag")
+        model.isCancelling = true
+        removeEscapeMonitor()
+        withAnimation(Self.settleSpring) {
+            model.translation = 0
+            model.targetIndex = model.sourceIndex
+            model.coarseTarget = model.coarseSource
+            model.projectedIndent = nil
+            model.isSettling = true
+        } completion: {
+            model.draggedId = nil
+            model.isSettling = false
+            model.isBlockDrag = false
+            model.blockRows = []
+            model.isCancelling = false
+        }
     }
 
     /// Commits the drop with visual continuity: reorder the array with NO
@@ -268,6 +318,7 @@ struct ReorderableColumnView: View {
     /// their current visual displacement from the new slot, then spring that
     /// residual to zero.
     private func drop(childId: String) {
+        removeEscapeMonitor()
         let order = displayOrder
         let isBlock = model.isBlockDrag
         let items = isBlock ? coarseItems(order: order) : order.map { [$0] }
