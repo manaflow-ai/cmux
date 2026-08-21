@@ -78,10 +78,8 @@ extension MobileShellComposite {
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         // A dial launched while the scene is inactive suspends with the
-        // process; park the trigger and replay it once on foreground. The
-        // exception is a trigger whose caller holds background runtime for the
-        // dial (an inline notification reply's background task assertion).
-        guard foregroundRefreshIsActive || trigger.permitsBackgroundedDial else {
+        // process; park the trigger and replay it once on foreground.
+        guard foregroundRefreshIsActive else {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
@@ -97,8 +95,7 @@ extension MobileShellComposite {
                 break
             case .networkChange, .presencePush, .foreground, .liveness,
                  .eventStreamEnded, .subscriptionStartFailed,
-                 .transportWriteTimedOut, .automaticBackoffExpired,
-                 .backgroundNotificationReply:
+                 .transportWriteTimedOut, .automaticBackoffExpired:
                 MobileDebugLog.anchormux(
                     "connection.recovery coalesced trigger=\(trigger.description) "
                         + "storedMacGeneration=\(storedMacReconnectGeneration)"
@@ -108,10 +105,7 @@ extension MobileShellComposite {
         }
         if let accountID = identityProvider?.currentUserID {
             switch trigger {
-            case .manual, .networkChange, .foreground, .connectionMethodChanged,
-                 .backgroundNotificationReply:
-                // An inline reply is an explicit user gesture, so it clears
-                // transient backoff exactly like a manual Retry tap.
+            case .manual, .networkChange, .foreground, .connectionMethodChanged:
                 clearTransientAutomaticReconnectBackoff(accountID: accountID)
             case .presencePush:
                 guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
@@ -134,16 +128,10 @@ extension MobileShellComposite {
         } else {
             connectionMethodChanged = false
         }
-        // A backgrounded reply dial skips the probe: the reply lane kicks it
-        // only on direct evidence the channel is dead (a failed send or an
-        // unsendable target), and a failed probe while backgrounded is
-        // abandoned as inconclusive (`lastBackgroundedAt` guard below) — which
-        // would swallow the one dial the reply's background window allows.
         beginConnectionRecovery(
             trigger: trigger,
             expectedClient: remoteClient,
             probeCurrentConnection: !connectionMethodChanged
-                && !trigger.permitsBackgroundedDial
                 && connectionState == .connected
                 && remoteClient != nil,
             resyncAfterHealthy: true
@@ -245,7 +233,7 @@ extension MobileShellComposite {
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
             case .manual, .presencePush, .foreground, .eventStreamEnded,
                  .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired,
-                 .connectionMethodChanged, .backgroundNotificationReply:
+                 .connectionMethodChanged:
                 markMacConnectionUnavailableIfNoStore()
             }
             return

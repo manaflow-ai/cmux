@@ -94,12 +94,22 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                             .reconcileConnectivityFromServerSignal(
                                 revision: invalidation.revision
                             )
+                        // The phone reply inbox rides this channel: enqueue
+                        // re-broadcasts the invalidation frame (revision 1) as
+                        // its nudge, so every frame arrival — whatever the
+                        // revision — also sweeps for parked replies.
+                        PhoneReplyInboxCoordinator.shared
+                            .sweepSoon(reason: "connectivity-invalidation")
                     }
                 }
             )
             guard self.activeScopeKey == scope.key else { return }
             self.subscriber = next
             await next.start()
+            // A reply parked while this Mac was offline produced no frame this
+            // subscriber will ever see; sweep once per (re)subscription so it
+            // is picked up as soon as the account channel is live again.
+            PhoneReplyInboxCoordinator.shared.sweepSoon(reason: "subscriber-start")
         }
     }
 

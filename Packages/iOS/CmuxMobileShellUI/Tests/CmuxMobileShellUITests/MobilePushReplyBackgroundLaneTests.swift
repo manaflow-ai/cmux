@@ -91,16 +91,45 @@ private final class NowBox: @unchecked Sendable {
     }
 }
 
+private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcomes: [Bool]
+    private var storedRequests: [RelayedReply] = []
+
+    var requests: [RelayedReply] { lock.withLock { storedRequests } }
+
+    /// Scripted acceptance per call; the last outcome repeats.
+    init(outcomes: [Bool]) {
+        self.outcomes = outcomes
+    }
+
+    func relay(_ reply: RelayedReply) async -> Bool {
+        lock.withLock {
+            storedRequests.append(reply)
+            if outcomes.count > 1 {
+                return outcomes.removeFirst()
+            }
+            return outcomes.first ?? false
+        }
+    }
+}
+
 @MainActor
 private func makeReplyLaneCoordinator(
     runtime: ReplyRuntimeFake,
     notifier: ReplyNoticeFake,
-    nowBox: NowBox
+    nowBox: NowBox,
+    relay: any ReplyRelaying = NoopReplyRelay(),
+    replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+        try await ContinuousClock().sleep(for: $0)
+    }
 ) -> MobilePushCoordinator {
     MobilePushCoordinator(
         registration: ReplyLanePushRegistration(),
         now: { nowBox.now },
+        replyRetrySleep: replyRetrySleep,
         backgroundRuntime: runtime,
+        replyRelay: relay,
         replyFailureNotifier: notifier
     )
 }
@@ -220,6 +249,126 @@ private func makeReplyLaneCoordinator(
     #expect(released, "an expired reply must release the background assertion")
     // The pre-scheduled notice is the expiry's user-visible report; it must
     // NOT be cancelled.
+    #expect(notifier.cancelCount == 0)
+}
+
+@MainActor
+@Test func relayAcceptanceConsumesTheReplyAndResolvesAssertionAndNotice() async {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [true])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay
+    )
+
+    // No store bound (the store-less background wake): the reply relays.
+    await coordinator.handleReply(
+        text: "looks good, merge it",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: "mac-1",
+        retargetsToLiveSurfaceOwner: true
+    )
+
+    #expect(relay.requests.count == 1)
+    #expect(relay.requests.first?.macDeviceId == "mac-1")
+    #expect(relay.requests.first?.surfaceId == "surface-1")
+    #expect(relay.requests.first?.text == "looks good, merge it")
+    #expect(relay.requests.first.map { !$0.replyId.isEmpty } == true)
+    // Accepted: the reply is the server's now — assertion released, notice
+    // cancelled, nothing left parked.
+    #expect(runtime.endCount == 1)
+    #expect(notifier.cancelCount == 1)
+}
+
+@MainActor
+@Test func relayDeclineKeepsTheReplyParkedWithAssertionAndNotice() async {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [false])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay
+    )
+
+    await coordinator.handleReply(
+        text: "still here",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: "mac-1",
+        retargetsToLiveSurfaceOwner: true
+    )
+
+    #expect(relay.requests.count == 1)
+    #expect(runtime.endCount == 0)
+    #expect(notifier.cancelCount == 0)
+}
+
+@MainActor
+@Test func retryLadderRetriesTheRelayWithTheSameReplyId() async throws {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [false, true])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay,
+        replyRetrySleep: { _ in }
+    )
+
+    await coordinator.handleReply(
+        text: "retry me",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: "mac-1",
+        retargetsToLiveSurfaceOwner: true
+    )
+
+    var resolved = false
+    for _ in 0..<300 {
+        if runtime.endCount == 1 {
+            resolved = true
+            break
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    #expect(resolved, "the ladder must retry the relay until acceptance")
+    #expect(relay.requests.count == 2)
+    // Idempotency across retries: the server dedupes on replyId.
+    #expect(relay.requests.first?.replyId == relay.requests.last?.replyId)
+    #expect(notifier.cancelCount == 1)
+}
+
+@MainActor
+@Test func replyWithoutMacClaimStaysParkedWithoutRelayCall() async {
+    let runtime = ReplyRuntimeFake()
+    let notifier = ReplyNoticeFake()
+    let relay = ReplyRelayFake(outcomes: [true])
+    let coordinator = makeReplyLaneCoordinator(
+        runtime: runtime,
+        notifier: notifier,
+        nowBox: NowBox(),
+        relay: relay
+    )
+
+    // An old-Mac push without a mac claim: the inbox cannot route it (and
+    // that Mac cannot sweep it), so the reply waits for a late direct send.
+    await coordinator.handleReply(
+        text: "old mac",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        macDeviceId: nil,
+        retargetsToLiveSurfaceOwner: true
+    )
+
+    #expect(relay.requests.isEmpty)
+    #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
 }
 

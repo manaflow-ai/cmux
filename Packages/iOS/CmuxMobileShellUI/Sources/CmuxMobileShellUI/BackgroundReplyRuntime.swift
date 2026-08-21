@@ -13,8 +13,8 @@ public struct BackgroundReplyRuntimeAssertion: Equatable, Sendable {
 ///
 /// An inline reply from the lock screen wakes the app in the BACKGROUND; the
 /// notification delegate returns as soon as the reply is parked, and without
-/// an assertion iOS suspends the process seconds later — before the redial to
-/// the Mac and the reply's bounded retry ladder can run. The production
+/// an assertion iOS suspends the process seconds later — before the relay
+/// POST and the reply's bounded retry ladder can run. The production
 /// conformance is ``SystemBackgroundReplyRuntime``; tests inject a fake to
 /// assert the assertion is held exactly while a reply is pending.
 public protocol BackgroundReplyRuntimeAsserting: Sendable {
@@ -32,7 +32,7 @@ public protocol BackgroundReplyRuntimeAsserting: Sendable {
 /// Production ``BackgroundReplyRuntimeAsserting`` backed by
 /// `UIApplication.beginBackgroundTask`. This is the default
 /// ``MobilePushCoordinator`` uses; the ~30 s window it grants covers the
-/// reply's redial (a few seconds) plus several retry-ladder passes.
+/// reply's relay POST (a couple of seconds) plus several retry-ladder passes.
 public struct SystemBackgroundReplyRuntime: BackgroundReplyRuntimeAsserting {
     public init() {}
 

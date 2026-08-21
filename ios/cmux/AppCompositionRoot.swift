@@ -164,12 +164,26 @@ final class AppCompositionRoot {
         let pushNotificationSettings:
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
+        // Inline replies relay through the presence worker when the phone
+        // cannot deliver directly (a backgrounded app never dials). Same
+        // worker origin as the connectivity subscriber, so the account that
+        // subscribes is the account whose inbox the Mac sweeps.
+        let replyRelayBaseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ).flatMap { URL(string: $0) }
+        let replyRelayAccessToken = CMUXMobileRuntime.stackAccessTokenProvider(
+            from: auth.coordinator
+        )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL,
-            notificationSettings: pushNotificationSettings
+            notificationSettings: pushNotificationSettings,
+            replyRelay: SystemReplyRelayClient(
+                serviceBaseURL: replyRelayBaseURL,
+                accessToken: { try? await replyRelayAccessToken() }
+            )
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
