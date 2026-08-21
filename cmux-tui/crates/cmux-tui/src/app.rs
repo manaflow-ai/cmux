@@ -10880,7 +10880,6 @@ impl App {
         if let Some(presented) = self.machine_presented
             && update.snapshot.active.is_none()
             && update.request.is_none()
-            && !update.snapshot.machines.is_empty()
             && self.machine_selection_intent.is_none_or(|intent| {
                 intent == presented
                     || !update.snapshot.machines.iter().any(|machine| machine.key == intent)
@@ -10889,10 +10888,20 @@ impl App {
             && let Some(previous_index) =
                 previous.snapshot.machines.iter().position(|machine| machine.key == presented)
         {
-            let next = previous_index.min(update.snapshot.machines.len() - 1);
-            let next_key = update.snapshot.machines[next].key;
-            update.request = Some(MachineRequest::Switch(next_key));
-            update.select_rail_target(MachineRailTarget::Machine(next_key));
+            if update.snapshot.machines.is_empty() {
+                // The last machine is gone: there is nothing to switch to,
+                // so drop the presentation instead of routing input into the
+                // deleted machine's dead session. The rail keeps its create
+                // and connect rows.
+                self.machine_presented = None;
+                self.machine_selection_intent = None;
+                update.session_available = false;
+            } else {
+                let next = previous_index.min(update.snapshot.machines.len() - 1);
+                let next_key = update.snapshot.machines[next].key;
+                update.request = Some(MachineRequest::Switch(next_key));
+                update.select_rail_target(MachineRailTarget::Machine(next_key));
+            }
         }
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
             && !self.session.workspaces_are_provider_managed())
@@ -21967,7 +21976,7 @@ impl App {
         // actions since their dedicated rail rows were removed. The active
         // scope starts selected, exactly like the old dedicated menu, so a
         // plain Enter never switches scope by accident.
-        if matches!(hit, Some(Hit::NewVm)) {
+        if matches!(hit, Some(Hit::NewVm) | Some(Hit::RailPad(RailKind::Machine))) {
             let scopes = self.provider_scope_menu_items();
             let selected_scope = if scopes.is_empty() {
                 None
