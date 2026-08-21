@@ -5,6 +5,22 @@ command  __internal_flags  aliases=-
   arg  arguments  kind=argument  completion=-
 command  __sidebar_footer_icon_balance  aliases=-
   arg  arguments  kind=argument  completion=-
+command  ai-accounts  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  ai-accounts list  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  ai-accounts remove  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  ai-accounts upload  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  auth  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  auth login  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  auth logout  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  auth status  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  capabilities  aliases=-
   arg  arguments  kind=argument  completion=-
 command  completion  aliases=-
