@@ -7,7 +7,31 @@ import SwiftUI
 /// Prototype-grade styling: these exist so a layout direction can be picked
 /// live; the winner gets polished, the rest deleted.
 
-/// Horizontal chip strip (machines as tabs above the workspace list).
+/// Fades a horizontally scrolling strip at both ends so overflow reads as
+/// scrollable instead of clipped.
+struct SidebarHorizontalEdgeFadeMask: View {
+    var fadeWidth: CGFloat = 14
+
+    var body: some View {
+        HStack(spacing: 0) {
+            LinearGradient(
+                colors: [.clear, .black],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: fadeWidth)
+            Rectangle().fill(Color.black)
+            LinearGradient(
+                colors: [.black, .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: fadeWidth)
+        }
+    }
+}
+
+/// Horizontal chip strip (machines as pills above the workspace list).
 struct SidebarMachineChipStrip: View {
     @EnvironmentObject private var tabManager: TabManager
     @State private var observationRevision: UInt64 = 0
@@ -43,9 +67,10 @@ struct SidebarMachineChipStrip: View {
                     .accessibilityIdentifier("SidebarMachineChip.\(machine.id)")
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 12)
         }
         .frame(height: 30)
+        .mask(SidebarHorizontalEdgeFadeMask())
         .sidebarWorkspaceObservations(
             ids: tabManager.tabs.map(\.id),
             workspaces: tabManager.tabs,
@@ -113,7 +138,8 @@ struct SidebarMachineDropdown: View {
     }
 }
 
-/// Bottom icon dock (Discord-servers style, horizontal, above the footer).
+/// Arc-profile-style bottom bar: the selected machine reads as a named
+/// pill, the others collapse to icons; horizontal scroll with edge fades.
 struct SidebarMachineDock: View {
     @EnvironmentObject private var tabManager: TabManager
     @State private var observationRevision: UInt64 = 0
@@ -121,34 +147,51 @@ struct SidebarMachineDock: View {
     var body: some View {
         let _ = observationRevision
         let machines = tabManager.sidebarCreationContextSnapshots()
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(machines) { machine in
-                    Button {
-                        _ = tabManager.selectSidebarCreationContext(id: machine.id)
-                    } label: {
-                        SidebarMachineAccessoryIcon(machine: machine, pointSize: 13)
-                            .frame(width: 30, height: 30)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(machines) { machine in
+                        Button {
+                            _ = tabManager.selectSidebarCreationContext(id: machine.id)
+                        } label: {
+                            HStack(spacing: 5) {
+                                SidebarMachineAccessoryIcon(machine: machine, pointSize: 11)
+                                if machine.isSelected {
+                                    Text(machine.title)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .lineLimit(1)
+                                        .frame(maxWidth: 140, alignment: .leading)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                }
+                            }
+                            .padding(.horizontal, machine.isSelected ? 10 : 7)
+                            .padding(.vertical, 5)
                             .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.primary.opacity(machine.isSelected ? 0.16 : 0.06))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(
-                                        machine.isSelected ? Color.accentColor : .clear,
-                                        lineWidth: 2
+                                Capsule(style: .continuous)
+                                    .fill(
+                                        machine.isSelected
+                                            ? Color.primary.opacity(0.14)
+                                            : Color.clear
                                     )
                             )
+                        }
+                        .buttonStyle(.plain)
+                        .help(machine.title)
+                        .id(machine.id)
+                        .accessibilityIdentifier("SidebarMachineDockItem.\(machine.id)")
                     }
-                    .buttonStyle(.plain)
-                    .help(machine.title)
-                    .accessibilityIdentifier("SidebarMachineDockItem.\(machine.id)")
+                }
+                .padding(.horizontal, 12)
+            }
+            .frame(height: 36)
+            .mask(SidebarHorizontalEdgeFadeMask())
+            .onChange(of: machines.first(where: \.isSelected)?.id) { selectedID in
+                guard let selectedID else { return }
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    proxy.scrollTo(selectedID, anchor: .center)
                 }
             }
-            .padding(.horizontal, 10)
         }
-        .frame(height: 40)
         .sidebarWorkspaceObservations(
             ids: tabManager.tabs.map(\.id),
             workspaces: tabManager.tabs,
