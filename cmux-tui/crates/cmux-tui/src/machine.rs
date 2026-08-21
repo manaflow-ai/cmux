@@ -886,6 +886,9 @@ impl MachineUiState {
     }
 
     pub fn reconcile_navigation_from(&mut self, previous: &Self) {
+        fn return_target(machine: &MachineDescriptor) -> MachineRailTarget {
+            MachineRailTarget::Machine(machine.key)
+        }
         let targets = self.rail_targets();
         if targets.is_empty() {
             self.selection = 0;
@@ -903,10 +906,28 @@ impl MachineUiState {
                 })
             })
             .unwrap_or_else(|| {
-                let previous_index = previous_target
-                    .and_then(|target| previous_targets.iter().position(|item| *item == target))
-                    .unwrap_or_default();
-                targets[previous_index.min(targets.len() - 1)]
+                // The selected row vanished (a deleted machine, usually):
+                // land on the next available row of the SAME kind. A deleted
+                // machine hands its slot to the machine that moved up, or to
+                // the new last machine - never to a "+" footer, which would
+                // put a create prompt one accidental Enter away.
+                if let Some(MachineRailTarget::Machine(deleted)) = previous_target
+                    && !self.snapshot.machines.is_empty()
+                {
+                    let previous_index = previous
+                        .snapshot
+                        .machines
+                        .iter()
+                        .position(|machine| machine.key == deleted)
+                        .unwrap_or_default();
+                    let next = previous_index.min(self.snapshot.machines.len() - 1);
+                    return_target(&self.snapshot.machines[next])
+                } else {
+                    let previous_index = previous_target
+                        .and_then(|target| previous_targets.iter().position(|item| *item == target))
+                        .unwrap_or_default();
+                    targets[previous_index.min(targets.len() - 1)]
+                }
             });
         self.select_rail_target(target);
     }

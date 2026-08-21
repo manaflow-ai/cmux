@@ -10872,6 +10872,28 @@ impl App {
         update.snapshot.active = self.machine_presented.filter(|presented| {
             update.snapshot.machines.iter().any(|machine| machine.key == *presented)
         });
+        // The presented machine vanished from the catalog (deleted): switch
+        // to the next available machine instead of leaving a dead session on
+        // screen. "Next" is the machine that took its list slot (or the new
+        // last machine). Skipped while the user is already aiming somewhere
+        // else that still exists, or while another request is queued.
+        if let Some(presented) = self.machine_presented
+            && update.snapshot.active.is_none()
+            && update.request.is_none()
+            && !update.snapshot.machines.is_empty()
+            && self.machine_selection_intent.is_none_or(|intent| {
+                intent == presented
+                    || !update.snapshot.machines.iter().any(|machine| machine.key == intent)
+            })
+            && let Some(previous) = self.machine_ui.as_ref()
+            && let Some(previous_index) =
+                previous.snapshot.machines.iter().position(|machine| machine.key == presented)
+        {
+            let next = previous_index.min(update.snapshot.machines.len() - 1);
+            let next_key = update.snapshot.machines[next].key;
+            update.request = Some(MachineRequest::Switch(next_key));
+            update.select_rail_target(MachineRailTarget::Machine(next_key));
+        }
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
             && !self.session.workspaces_are_provider_managed())
         .then(|| self.session.mark_workspaces_provider_managed().err())
@@ -21941,6 +21963,39 @@ impl App {
                 return;
             }
         }
+        // "+ new vm" carries the provider scope switcher and provider
+        // actions since their dedicated rail rows were removed. The active
+        // scope starts selected, exactly like the old dedicated menu, so a
+        // plain Enter never switches scope by accident.
+        if matches!(hit, Some(Hit::NewVm)) {
+            let scopes = self.provider_scope_menu_items();
+            let selected_scope = if scopes.is_empty() {
+                None
+            } else {
+                self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()).and_then(|provider| {
+                    provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id)
+                })
+            };
+            let actions = self.provider_actions_menu_items();
+            if !scopes.is_empty() || !actions.is_empty() {
+                let mut groups = Vec::new();
+                if !scopes.is_empty() {
+                    groups.push(scopes);
+                }
+                if !actions.is_empty() {
+                    groups.push(actions);
+                }
+                groups.push(self.global_menu_items());
+                let mut menu = ContextMenu::with_groups(x, y, groups);
+                if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_scope) {
+                    level.selected = selected;
+                    level.ensure_selection_visible();
+                }
+                self.menu = Some(menu);
+                self.capture_menu_resources();
+                return;
+            }
+        }
         if matches!(hit, Some(Hit::NewScreen)) {
             let items =
                 self.plus_menu_items(&self.config.status_bar.screens_plus, self.active_pane());
@@ -21953,18 +22008,6 @@ impl App {
         if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
             let mut groups = Vec::new();
             match hit {
-                // The scope switcher and provider actions lost their rail
-                // rows; a right click on "+ new vm" is their home now.
-                Some(Hit::NewVm) => {
-                    let scopes = self.provider_scope_menu_items();
-                    if !scopes.is_empty() {
-                        groups.push(scopes);
-                    }
-                    let actions = self.provider_actions_menu_items();
-                    if !actions.is_empty() {
-                        groups.push(actions);
-                    }
-                }
                 Some(Hit::Machine { key, .. }) => {
                     if let Some(machine) = self.managed_machine(key) {
                         let mut actions = Vec::new();
@@ -37006,6 +37049,54 @@ mod tests {
     }
 
     #[test]
+    fn deleting_the_presented_machine_switches_to_the_next_available_one() {
+        let mux = Mux::new("machine-delete-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "birch"), descriptor(3, "cedar")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // The presented middle machine is deleted: the update must aim at the
+        // machine that took its slot (cedar), not leave a dead session up.
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(3, "cedar")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(3))));
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(3)))
+        );
+
+        // Deleting the LAST machine clamps to the new last one.
+        app.machine_presented = Some(MachineKey(3));
+        app.machine_selection_intent = Some(MachineKey(3));
+        app.machine_ui.as_mut().unwrap().request = None;
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+    }
+
+    #[test]
     fn machine_keyboard_switch_returns_focus_to_pane() {
         let mux = Mux::new("machine-keyboard-switch-focus-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -38038,6 +38129,12 @@ mod tests {
                 action: MenuAction::SelectProviderScope(0),
             })
         );
+        // The ACTIVE scope starts selected, so Enter alone changes nothing.
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::SelectProviderScope(1))
+        );
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
         app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
