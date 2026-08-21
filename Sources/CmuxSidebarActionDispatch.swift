@@ -45,7 +45,18 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                         // like v2Int decode them.
                         var typed: [String: Any] = [:]
                         for (key, value) in params {
-                            if let intValue = Int(value) { typed[key] = intValue } else { typed[key] = value }
+                            if let intValue = Int(value) {
+                                typed[key] = intValue
+                            } else if value.hasPrefix("["),
+                                      let data = value.data(using: .utf8),
+                                      let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any] {
+                                // Array-typed v2 params (e.g. child_workspace_ids)
+                                // travel as JSON strings through the string-only
+                                // action pipe; inflate them here.
+                                typed[key] = array
+                            } else {
+                                typed[key] = value
+                            }
                         }
                         payload["params"] = typed
                     }

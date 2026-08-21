@@ -225,15 +225,25 @@ private struct SceneNodeContent: View {
                 // child-first exclusivity.
                 .onTapGesture {
                     let now = Date()
-                    if tappable { sink.send(node.id, "tap", [:]) }
-                    if doubleTappable {
+                    let flags = NSEvent.modifierFlags
+                    let hasModifiers = !flags.intersection([.command, .shift, .option]).isEmpty
+                    if tappable {
+                        sink.send(node.id, "tap", [
+                            "cmd": flags.contains(.command),
+                            "shift": flags.contains(.shift),
+                            "option": flags.contains(.option),
+                        ])
+                    }
+                    // Modifier clicks (multi-select) never arm or fire the
+                    // derived double-click.
+                    if doubleTappable, !hasModifiers {
                         if let last = lastTapAt, now.timeIntervalSince(last) < NSEvent.doubleClickInterval {
                             lastTapAt = nil
                             sink.send(node.id, "doubletap", [:])
                             return
                         }
                     }
-                    lastTapAt = now
+                    lastTapAt = hasModifiers ? nil : now
                 }
         } else {
             base

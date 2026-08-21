@@ -55,6 +55,57 @@ function closeWorkspace(id) {
   cmux("workspace.close", { workspace_id: id });
 }
 
+// Multi-select: Cmd-click toggles, Shift-click extends from the last click
+// over the visible row order, plain click clears. The selection drives the
+// context menu's bulk actions (group together, move, close).
+const multiSelected = new Set();
+const [multiTick, setMultiTick] = signal(0);
+let lastClickedId = null;
+
+function isMultiSelected(w) {
+  multiTick();
+  return !!w && multiSelected.has(w.id);
+}
+
+function clearMultiSelect() {
+  if (multiSelected.size === 0) return;
+  multiSelected.clear();
+  setMultiTick(multiTick() + 1);
+}
+
+function visibleRowIds() {
+  return flatEntries().filter((e) => e.kind === "ws").map((e) => e.wsId);
+}
+
+function handleRowClick(w, payload) {
+  const id = w.id;
+  if (payload && payload.cmd) {
+    if (multiSelected.has(id)) multiSelected.delete(id);
+    else multiSelected.add(id);
+    setMultiTick(multiTick() + 1);
+  } else if (payload && payload.shift && lastClickedId) {
+    const order = visibleRowIds();
+    const a = order.indexOf(lastClickedId);
+    const b = order.indexOf(id);
+    if (a >= 0 && b >= 0) {
+      for (const rid of order.slice(Math.min(a, b), Math.max(a, b) + 1)) multiSelected.add(rid);
+      setMultiTick(multiTick() + 1);
+    }
+  } else {
+    clearMultiSelect();
+    selectWorkspace(id);
+  }
+  lastClickedId = id;
+}
+
+// The set of workspaces a bulk menu action applies to: the multi-selection
+// when the clicked row is part of it, else just the clicked row.
+function bulkIds(w) {
+  multiTick();
+  if (w && multiSelected.has(w.id)) return Array.from(multiSelected);
+  return w ? [w.id] : [];
+}
+
 const titleOverride = new Map();
 const [titleTick, setTitleTick] = signal(0);
 
@@ -231,9 +282,20 @@ function workspaceMenu(w) {
   const act = (action) => () =>
     cmux("workspace.action", { action, workspace_id: w().id });
   const groupItems = (data.groups() ?? []).map((g) =>
-    Button(() => (groupById(g.id)?.name ?? ""), () =>
-      cmux("workspace.group.add", { group_id: g.id, workspace_id: w().id })));
+    Button(() => (groupById(g.id)?.name ?? ""), () => {
+      for (const id of bulkIds(w())) cmux("workspace.group.add", { group_id: g.id, workspace_id: id });
+      clearMultiSelect();
+    }));
+  const count = () => bulkIds(w()).length;
   return [
+    Button(() => (count() > 1 ? "New Group from " + count() + " Workspaces" : "New Group with This"), () => {
+      cmux("workspace.group.create", {
+        name: "New Group",
+        child_workspace_ids: JSON.stringify(bulkIds(w())),
+      });
+      clearMultiSelect();
+    }),
+    Divider(),
     Button("Rename", () => setEditingId(w().id)),
     Button(() => (w()?.pinned ? "Unpin" : "Pin"), () =>
       cmux("workspace.action", { action: w()?.pinned ? "unpin" : "pin", workspace_id: w().id })),
@@ -249,7 +311,10 @@ function workspaceMenu(w) {
     Button("Remove from Group", () => cmux("workspace.group.remove", { workspace_id: w().id })),
     Divider(),
     Button("Close Others", act("close_others")).destructive(),
-    Button("Close", () => cmux("workspace.close", { workspace_id: w().id })).destructive(),
+    Button(() => (count() > 1 ? "Close " + count() + " Workspaces" : "Close"), () => {
+      for (const id of bulkIds(w())) closeWorkspace(id);
+      clearMultiSelect();
+    }).destructive(),
   ];
 }
 
@@ -285,11 +350,11 @@ function workspaceRow(w, entry) {
     .paddingVertical(6)
     .marginLeading(() => (entry().groupId ? 14 : 0))
     .cornerRadius(8)
-    .background(() => (isSelected(w()) ? "#7f7f7f3d" : null))
-    .hoverBackground(() => (isSelected(w()) ? "#7f7f7f3d" : "#7f7f7f24"))
+    .background(() => (isMultiSelected(w()) ? "#4C9EEB33" : (isSelected(w()) ? "#7f7f7f3d" : null)))
+    .hoverBackground(() => (isMultiSelected(w()) ? "#4C9EEB33" : (isSelected(w()) ? "#7f7f7f3d" : "#7f7f7f24")))
     .frame({ maxWidth: "infinity" })
     .block(() => (entry().groupId ? "h:" + entry().groupId : null))
-    .onTap(() => selectWorkspace(w().id))
+    .onTap((payload) => handleRowClick(w(), payload))
     .onDoubleTap(() => setEditingId(w().id))
     .contextMenu(workspaceMenu(w));
 }
