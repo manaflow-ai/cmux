@@ -28,13 +28,13 @@ private struct BrowserLeaf<Name: BrowserLeafName>: LegacyBrowserCommand {
     }
 }
 
-private protocol BrowserLegacyAliasName {
+protocol BrowserLegacyAliasName {
     static var commandName: String { get }
     static var abstract: String { get }
 }
 
 /// A top-level compatibility alias for a browser subcommand.
-private struct BrowserLegacyAlias<Name: BrowserLegacyAliasName>: LegacyBrowserCommand {
+struct BrowserLegacyAlias<Name: BrowserLegacyAliasName>: LegacyBrowserCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
     static var configuration: CommandConfiguration {
@@ -235,47 +235,47 @@ private typealias BrowserInputKeyboardCommand = BrowserLeaf<BrowserInputKeyboard
 private typealias BrowserInputTouchCommand = BrowserLeaf<BrowserInputTouch>
 private typealias BrowserIdentifyCommand = BrowserLeaf<BrowserIdentify>
 
-private enum OpenBrowserAlias: BrowserLegacyAliasName {
+enum OpenBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "open-browser"
     static let abstract = "Legacy alias for 'cmux browser open'. Run 'cmux browser --help' for details."
 }
-private enum NavigateAlias: BrowserLegacyAliasName {
+enum NavigateAlias: BrowserLegacyAliasName {
     static let commandName = "navigate"
     static let abstract = "Legacy alias for 'cmux browser navigate'. Run 'cmux browser --help' for details."
 }
-private enum BrowserBackAlias: BrowserLegacyAliasName {
+enum BrowserBackAlias: BrowserLegacyAliasName {
     static let commandName = "browser-back"
     static let abstract = "Legacy alias for 'cmux browser back'. Run 'cmux browser --help' for details."
 }
-private enum BrowserForwardAlias: BrowserLegacyAliasName {
+enum BrowserForwardAlias: BrowserLegacyAliasName {
     static let commandName = "browser-forward"
     static let abstract = "Legacy alias for 'cmux browser forward'. Run 'cmux browser --help' for details."
 }
-private enum BrowserReloadAlias: BrowserLegacyAliasName {
+enum BrowserReloadAlias: BrowserLegacyAliasName {
     static let commandName = "browser-reload"
     static let abstract = "Legacy alias for 'cmux browser reload'. Run 'cmux browser --help' for details."
 }
-private enum BrowserStatusAlias: BrowserLegacyAliasName {
+enum BrowserStatusAlias: BrowserLegacyAliasName {
     static let commandName = "browser-status"
     static let abstract = "Legacy alias for 'cmux browser status'. Run 'cmux browser --help' for details."
 }
-private enum GetURLAlias: BrowserLegacyAliasName {
+enum GetURLAlias: BrowserLegacyAliasName {
     static let commandName = "get-url"
     static let abstract = "Legacy alias for 'cmux browser get-url'. Run 'cmux browser --help' for details."
 }
-private enum FocusWebviewAlias: BrowserLegacyAliasName {
+enum FocusWebviewAlias: BrowserLegacyAliasName {
     static let commandName = "focus-webview"
     static let abstract = "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
 }
-private enum WebviewFocusedAlias: BrowserLegacyAliasName {
+enum WebviewFocusedAlias: BrowserLegacyAliasName {
     static let commandName = "is-webview-focused"
     static let abstract = "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
 }
-private enum DisableBrowserAlias: BrowserLegacyAliasName {
+enum DisableBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "disable-browser"
     static let abstract = "Legacy alias for 'cmux browser disable'. Run 'cmux browser --help' for details."
 }
-private enum EnableBrowserAlias: BrowserLegacyAliasName {
+enum EnableBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "enable-browser"
     static let abstract = "Legacy alias for 'cmux browser enable'. Run 'cmux browser --help' for details."
 }
