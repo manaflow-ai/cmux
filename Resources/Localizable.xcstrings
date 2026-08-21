@@ -35572,6 +35572,31 @@
         }
       }
     },
+    "cli.browser.legacyAlias.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الاسم المستعار القديم لـ 'cmux browser %@'. شغّل 'cmux browser --help' للتفاصيل." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Naslijeđeni alias za 'cmux browser %@'. Pokrenite 'cmux browser --help' za detalje." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ældre alias for 'cmux browser %@'. Kør 'cmux browser --help' for detaljer." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Veralteter Alias für 'cmux browser %@'. Führe 'cmux browser --help' für Details aus." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Legacy alias for 'cmux browser %@'. Run 'cmux browser --help' for details." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Alias heredado para 'cmux browser %@'. Ejecuta 'cmux browser --help' para más detalles." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Alias historique pour 'cmux browser %@'. Exécutez 'cmux browser --help' pour plus de détails." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Alias legacy per 'cmux browser %@'. Esegui 'cmux browser --help' per i dettagli." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' の互換エイリアスです。詳細は 'cmux browser --help' を実行してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ឈ្មោះហៅកាត់ចាស់សម្រាប់ 'cmux browser %@'។ រត់ 'cmux browser --help' សម្រាប់ព័ត៌មានលម្អិត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "'cmux browser %@'의 레거시 별칭입니다. 자세한 내용은 'cmux browser --help'를 실행하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Eldre alias for 'cmux browser %@'. Kjør 'cmux browser --help' for detaljer." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Starszy alias dla 'cmux browser %@'. Uruchom 'cmux browser --help', aby poznać szczegóły." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Alias legado para 'cmux browser %@'. Execute 'cmux browser --help' para obter detalhes." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Устаревший псевдоним для 'cmux browser %@'. Выполните 'cmux browser --help' для подробностей." } },
+        "th": { "stringUnit": { "state": "translated", "value": "นามแฝงแบบเดิมสำหรับ 'cmux browser %@' เรียกใช้ 'cmux browser --help' เพื่อดูรายละเอียด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' için eski takma ad. Ayrıntılar için 'cmux browser --help' çalıştırın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Застарілий псевдонім для 'cmux browser %@'. Виконайте 'cmux browser --help' для подробиць." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' 的旧版别名。运行 'cmux browser --help' 查看详细信息。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' 的舊版別名。執行 'cmux browser --help' 以取得詳細資訊。" } }
+      }
+    },
     "cli.browser.designMode.rpcExpectedModes": {
       "extractionState": "manual",
       "localizations": {
