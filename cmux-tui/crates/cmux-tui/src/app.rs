@@ -9428,9 +9428,13 @@ impl App {
         }
         // Switching to a machine whose connection is already warm settles in
         // one round-trip: keep painting the current machine instead of
-        // blanking the content with a "connecting" interstitial.
+        // blanking the content with a "connecting" interstitial. Only while
+        // the current machine is actually paintable - if its session is gone
+        // (it paused; its stream died), "keep painting it" would show a dead
+        // screen with no sign a switch is running.
         if self.machine_presented.is_some()
             && self.machine_presented != Some(selected)
+            && ui.session_available
             && ui.connection_phase(selected) == MachineConnectionPhase::Ready
         {
             return None;
@@ -11175,6 +11179,13 @@ impl App {
     /// states. Returns false when there is nothing sensible to wake.
     fn wake_presented_machine(&mut self) -> bool {
         let Some(presented) = self.machine_presented else { return false };
+        // While a switch to a DIFFERENT machine is in flight the key must
+        // not re-aim back at the old machine (that could resume a machine
+        // the user deliberately left paused). Consume it; the transition
+        // interstitial is visible and the switch will settle.
+        if self.machine_selection_intent.is_some_and(|intent| intent != presented) {
+            return true;
+        }
         {
             let Some(machine) = self.machine_ui.as_mut() else { return false };
             if machine.request.is_some() {
@@ -36800,6 +36811,48 @@ mod tests {
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
         assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+    }
+
+    #[test]
+    fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
+        let mux = Mux::new("machine-dead-switch-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle · paused".into(),
+                    status: MachineStatus::Sleeping,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = false;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        // The presented machine is dead, so the warm-target shortcut must
+        // not hide that a switch is running.
+        assert!(app.machine_transition().is_some(), "interstitial must render");
+
+        // A keystroke mid-switch must not re-aim (and wake) the old paused
+        // machine.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "no wake switch back to the old machine");
+        assert!(app.status_message.is_none());
     }
 
     #[test]
