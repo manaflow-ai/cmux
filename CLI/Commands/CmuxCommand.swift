@@ -29,6 +29,8 @@ struct CmuxCommand: ParsableCommand {
             ThemesCommand.self,
             InternalFlagsCommand.self,
             SidebarFooterIconBalanceCommand.self,
+            AuthCommand.self,
+            AIAccountsCommand.self,
         ]
     )
 
