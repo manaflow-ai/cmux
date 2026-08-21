@@ -116,13 +116,21 @@ struct SidebarColumnWidthsReader<Content: View>: View {
 /// content is already built and only the width application must track ticks.
 struct SidebarWidthFrameModifier: ViewModifier {
     @ObservedObject var layout: SidebarLayoutModel
+    @ObservedObject private var navigation = SidebarBoundaryStyleStore.shared
 
     func body(content: Content) -> some View {
         // A sidebar row may be wider than the pane (for example an authored
         // custom row using `.fixedSize()`). Keep that overflow attached to
         // the leading edge so the pane clips/truncates only at its trailing
         // edge instead of shifting every sibling left by the same amount.
-        content.frame(width: layout.effectiveWidth, alignment: .leading)
+        // Single-sidebar navigation layouts give the workspaces list the
+        // whole region.
+        content.frame(
+            width: navigation.navigationLayout.showsMachinesColumn
+                ? layout.effectiveWidth
+                : layout.regionWidth,
+            alignment: .leading
+        )
     }
 }
 

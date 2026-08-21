@@ -2001,6 +2001,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */; };
 		D41A7C01D41A7C01D41A7C01 /* SidebarLazyLayoutScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41A7C02D41A7C02D41A7C02 /* SidebarLazyLayoutScaleTests.swift */; };
 		C0DE10085100000000000001 /* SidebarLeadingEdgeAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10085100000000000002 /* SidebarLeadingEdgeAnchorTests.swift */; };
+		0E45576024F49A426E9D0708 /* SidebarMachineAccessoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B059524298F70C1E5E57561F /* SidebarMachineAccessoryViews.swift */; };
 		5B1DC0030000000000000003 /* SidebarMachineColumnView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1DC0040000000000000004 /* SidebarMachineColumnView.swift */; };
 		385C6BA7E78DB87460E5D930 /* SidebarMarkdownRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */; };
 			A6AC73F20000000000000001 /* SidebarMediaActivityIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73F20000000000000002 /* SidebarMediaActivityIndicators.swift */; };
@@ -4804,6 +4805,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/SidebarLazyContractProbeKey.swift"; sourceTree = "<group>"; };
 		D41A7C02D41A7C02D41A7C02 /* SidebarLazyLayoutScaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLazyLayoutScaleTests.swift; sourceTree = "<group>"; };
 		C0DE10085100000000000002 /* SidebarLeadingEdgeAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLeadingEdgeAnchorTests.swift; sourceTree = "<group>"; };
+		B059524298F70C1E5E57561F /* SidebarMachineAccessoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarMachineAccessoryViews.swift; sourceTree = "<group>"; };
 		5B1DC0040000000000000004 /* SidebarMachineColumnView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarMachineColumnView.swift; sourceTree = "<group>"; };
 		F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMarkdownRendererTests.swift; sourceTree = "<group>"; };
 			A6AC73F20000000000000002 /* SidebarMediaActivityIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarMediaActivityIndicators.swift; sourceTree = "<group>"; };
@@ -6308,6 +6310,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5B1DC0020000000000000002 /* SidebarCreationContext.swift */,
 				5B1DC0040000000000000004 /* SidebarMachineColumnView.swift */,
 				0F58CFEEE9B34CFC6AA5AF03 /* SidebarBoundaryStyle.swift */,
+				B059524298F70C1E5E57561F /* SidebarMachineAccessoryViews.swift */,
 				7C598A533ECEAA393568F2DF /* SidebarWorkspaceHoverCardView.swift */,
 				96ED688A8C652F86C1E54E6E /* SidebarWorkspaceIconTableCellView.swift */,
 				970EE8675EAF2845EC948608 /* SidebarHoverCard.swift */,
@@ -10238,6 +10241,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */,
 				5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */,
 				5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */,
+				0E45576024F49A426E9D0708 /* SidebarMachineAccessoryViews.swift in Sources */,
 				5B1DC0030000000000000003 /* SidebarMachineColumnView.swift in Sources */,
 				A6AC73F20000000000000001 /* SidebarMediaActivityIndicators.swift in Sources */,
 				C0DE5F210000000000000001 /* SidebarMetadataMarkdownRenderer.swift in Sources */,

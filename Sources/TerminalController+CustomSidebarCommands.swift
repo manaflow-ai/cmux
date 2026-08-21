@@ -417,16 +417,34 @@ extension TerminalController {
         } else {
             requestedStyle = nil
         }
+        let requestedLayout: SidebarNavigationLayout?
+        if let raw = params["layout"] as? String {
+            guard let layout = SidebarNavigationLayout(rawValue: raw) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "layout must be one of: "
+                        + SidebarNavigationLayout.allCases.map(\.rawValue).joined(separator: ", "),
+                    data: nil
+                )
+            }
+            requestedLayout = layout
+        } else {
+            requestedLayout = nil
+        }
         let openWindow = params["open_window"] as? Bool ?? false
         return v2MainSync {
             if let requestedStyle {
                 SidebarBoundaryStyleStore.shared.style = requestedStyle
+            }
+            if let requestedLayout {
+                SidebarBoundaryStyleStore.shared.navigationLayout = requestedLayout
             }
             if openWindow {
                 SidebarBoundaryDebugWindowController.shared.show()
             }
             return .ok([
                 "style": SidebarBoundaryStyleStore.shared.style.rawValue,
+                "layout": SidebarBoundaryStyleStore.shared.navigationLayout.rawValue,
                 "window_open": openWindow,
             ])
         }

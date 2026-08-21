@@ -1956,15 +1956,18 @@ struct ContentView: View {
     }
 
     /// Machines/workspaces divider. Same synchronous tracker as the region
-    /// divider so both drags feel identical.
+    /// divider so both drags feel identical. Present only in the two-column
+    /// navigation layout.
     private var sidebarColumnResizerOverlay: some View {
-        SidebarColumnWidthsReader(layout: sidebarLayout) { leadingWidth, _, _ in
-            placedSidebarResizerOverlay(
-                handle: .columnDivider,
-                edge: .leading,
-                accessibilityIdentifier: "SidebarColumnResizer",
-                dividerX: { totalWidth in min(max(leadingWidth, 0), totalWidth) }
-            )
+        SidebarNavigationLayoutGate(requiresMachinesColumn: true) {
+            SidebarColumnWidthsReader(layout: sidebarLayout) { leadingWidth, _, _ in
+                placedSidebarResizerOverlay(
+                    handle: .columnDivider,
+                    edge: .leading,
+                    accessibilityIdentifier: "SidebarColumnResizer",
+                    dividerX: { totalWidth in min(max(leadingWidth, 0), totalWidth) }
+                )
+            }
         }
     }
 
@@ -2047,14 +2050,15 @@ struct ContentView: View {
     private var sidebarColumnsView: some View {
         SidebarColumnWidthsReader(layout: sidebarLayout) { leadingWidth, primaryWidth, totalWidth in
             ZStack(alignment: .bottomLeading) {
-                SidebarColumnsContainer(
+                SidebarNavigationArrangementView(
                     leadingWidth: leadingWidth,
                     trailingWidth: primaryWidth,
+                    totalWidth: totalWidth,
                     trailingIdentity: tabManager.selectedSidebarChildColumn.id
                 ) {
                     SidebarMachineColumnView(displayMode: sidebarLayout.leadingColumnMode)
                         .equatable()
-                } trailing: {
+                } workspaces: {
                     sidebarChildColumn(tabManager.selectedSidebarChildColumn)
                 }
 
