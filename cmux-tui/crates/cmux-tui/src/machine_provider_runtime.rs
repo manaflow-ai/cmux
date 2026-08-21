@@ -1149,9 +1149,7 @@ impl ProviderMachineRuntime {
                         // while it pushes these, so a snapshot request would
                         // stall exactly the message it is meant to show.
                         let machine_id = progress.machine_id.as_str().to_string();
-                        let cell = progress_cells
-                            .entry(machine_id.clone())
-                            .or_default();
+                        let cell = progress_cells.entry(machine_id.clone()).or_default();
                         let already_in_flight = {
                             let mut slot =
                                 cell.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
