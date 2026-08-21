@@ -202,6 +202,108 @@ struct SplitGeometryTests {
         #expect(adjustment?.position == 0.9)
     }
 
+    // MARK: Focused branch growth
+
+    @Test func growWidthIncreasesFocusedBranchOnEitherSide() throws {
+        let splitId = UUID()
+        let tree = split(
+            splitId,
+            orientation: "horizontal",
+            first: pane("left", width: 300),
+            second: pane("right", x: 300, width: 300)
+        )
+
+        let left = try #require(tree.growFocusedBranchAdjustment(
+            targetPaneId: "left",
+            axis: .width,
+            amountPixels: 60
+        ))
+        let right = try #require(tree.growFocusedBranchAdjustment(
+            targetPaneId: "right",
+            axis: .width,
+            amountPixels: 60
+        ))
+
+        #expect(left.splitId == splitId)
+        #expect(abs(left.position - 0.6) < 0.0001)
+        #expect(right.splitId == splitId)
+        #expect(abs(right.position - 0.4) < 0.0001)
+    }
+
+    @Test func growthChoosesNearestSplitOnRequestedAxis() throws {
+        let rootId = UUID()
+        let innerId = UUID()
+        let tree = split(
+            rootId,
+            orientation: "horizontal",
+            first: pane("a", width: 300),
+            second: split(
+                innerId,
+                orientation: "vertical",
+                first: pane("b", x: 300, width: 300, height: 200),
+                second: pane("c", x: 300, y: 200, width: 300, height: 200)
+            )
+        )
+
+        let width = try #require(tree.growFocusedBranchAdjustment(
+            targetPaneId: "c",
+            axis: .width,
+            amountPixels: 60
+        ))
+        let height = try #require(tree.growFocusedBranchAdjustment(
+            targetPaneId: "c",
+            axis: .height,
+            amountPixels: 40
+        ))
+
+        #expect(width.splitId == rootId)
+        #expect(abs(width.position - 0.4) < 0.0001)
+        #expect(height.splitId == innerId)
+        #expect(abs(height.position - 0.4) < 0.0001)
+    }
+
+    @Test func growthClampsAndFailsClosedForMissingOrInvalidSplits() throws {
+        let splitId = UUID()
+        let tree = split(
+            splitId,
+            orientation: "horizontal",
+            dividerPosition: 0.85,
+            first: pane("left", width: 510),
+            second: pane("right", x: 510, width: 90)
+        )
+
+        let clamped = try #require(tree.growFocusedBranchAdjustment(
+            targetPaneId: "left",
+            axis: .width,
+            amountPixels: 300
+        ))
+        #expect(clamped.position == 0.9)
+        #expect(tree.growFocusedBranchAdjustment(
+            targetPaneId: "left",
+            axis: .height,
+            amountPixels: 20
+        ) == nil)
+
+        let invalidNearest = ExternalTreeNode.split(ExternalSplitNode(
+            id: UUID().uuidString,
+            orientation: "horizontal",
+            dividerPosition: 0.5,
+            first: pane("a", width: 300),
+            second: .split(ExternalSplitNode(
+                id: "not-a-uuid",
+                orientation: "horizontal",
+                dividerPosition: 0.5,
+                first: pane("b", x: 300, width: 150),
+                second: pane("c", x: 450, width: 150)
+            ))
+        ))
+        #expect(invalidNearest.growFocusedBranchAdjustment(
+            targetPaneId: "b",
+            axis: .width,
+            amountPixels: 20
+        ) == nil)
+    }
+
     // MARK: Direction values
 
     @Test func splitDirectionMapsOrientationAndInsertionSide() {

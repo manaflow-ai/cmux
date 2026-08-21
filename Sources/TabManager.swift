@@ -4336,6 +4336,33 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Grows the focused pane by one stateless step on `axis`.
+    @discardableResult
+    func growSelectedPane(axis: PaneAxis, amountPixels: UInt16) -> Bool {
+        guard amountPixels > 0,
+              let workspace = selectedWorkspace,
+              workspace.layoutMode != .canvas,
+              !workspace.isRemoteTmuxMirror,
+              !workspace.bonsplitController.isSplitZoomed,
+              let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            return false
+        }
+
+        let controller = workspace.bonsplitController
+        let didGrow = paneLayout.growPane(
+            in: controller.treeSnapshot(),
+            targetPaneId: paneId.id.uuidString,
+            axis: axis,
+            amountPixels: amountPixels,
+            controller: controller
+        )
+        if didGrow {
+            workspace.didProgrammaticallyChangeSplitGeometry()
+        }
+        return didGrow
+    }
+
     /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }

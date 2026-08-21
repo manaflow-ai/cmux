@@ -24,6 +24,52 @@ export type ShortcutCategory = {
   shortcuts: Shortcut[];
 };
 
+const paneWidthGrowthNote: LocalizedText = {
+  ar: "كل ضغطة تزيد عرض اللوحة المركّزة بمقدار 20 بكسل عند أقرب تقسيم عرض؛ لا يتم حفظ حالة مؤقتة",
+  bs: "svaki pritisak povećava širinu fokusiranog panela za 20 px na najbližoj podjeli širine; nema privremenog stanja",
+  da: "hvert tryk øger det fokuserede panels bredde med 20 px ved den nærmeste breddeopdeling; ingen midlertidig tilstand gemmes",
+  de: "jeder Tastendruck vergrößert den fokussierten Bereich an der nächsten Breitenaufteilung um 20 px; kein temporärer Zustand",
+  en: "each press grows the focused pane by 20px at its nearest width split; no temporary state is saved",
+  es: "cada pulsación aumenta 20 px el ancho del panel enfocado en la división de ancho más cercana; no se guarda estado temporal",
+  fr: "chaque pression élargit le panneau ciblé de 20 px à la division de largeur la plus proche ; aucun état temporaire n’est conservé",
+  it: "ogni pressione aumenta di 20 px la larghezza del pannello attivo nella divisione più vicina; non viene salvato alcuno stato temporaneo",
+  ja: "押すたびに最も近い幅方向の分割でフォーカス中のペインが20px広がります。一時状態は保存しません",
+  km: "រាល់ការចុចបង្កើនទទឹងផ្ទាំងដែលផ្តោត 20px នៅការបែងចែកទទឹងជិតបំផុត; មិនរក្សាទុកស្ថានភាពបណ្ដោះអាសន្នទេ",
+  ko: "누를 때마다 가장 가까운 너비 분할에서 포커스된 패널이 20px 늘어나며 임시 상태를 저장하지 않습니다",
+  no: "hvert trykk øker bredden på det fokuserte panelet med 20 px ved nærmeste breddeinndeling; ingen midlertidig tilstand lagres",
+  pl: "każde naciśnięcie zwiększa szerokość aktywnego panelu o 20 px w najbliższym podziale szerokości; stan tymczasowy nie jest zapisywany",
+  "pt-BR": "cada pressionamento aumenta em 20 px a largura do painel em foco na divisão mais próxima; nenhum estado temporário é salvo",
+  ru: "каждое нажатие увеличивает ширину активной панели на 20 px в ближайшем разделении; временное состояние не сохраняется",
+  th: "แต่ละครั้งจะเพิ่มความกว้างของบานหน้าต่างที่โฟกัส 20px ที่การแบ่งความกว้างที่ใกล้ที่สุด โดยไม่บันทึกสถานะชั่วคราว",
+  tr: "her basış odaktaki bölmeyi en yakın genişlik bölmesinde 20px büyütür; geçici durum kaydedilmez",
+  uk: "кожне натискання збільшує ширину активної панелі на 20 px у найближчому поділі; тимчасовий стан не зберігається",
+  "zh-CN": "每次按键都会在最近的宽度分割处将聚焦面板增大 20px；不会保存临时状态",
+  "zh-TW": "每次按鍵都會在最近的寬度分割處將聚焦面板增大 20px；不會儲存暫時狀態",
+};
+
+const paneHeightGrowthNote: LocalizedText = {
+  ar: "كل ضغطة تزيد ارتفاع اللوحة المركّزة بمقدار 20 بكسل عند أقرب تقسيم ارتفاع؛ لا يتم حفظ حالة مؤقتة",
+  bs: "svaki pritisak povećava visinu fokusiranog panela za 20 px na najbližoj podjeli visine; nema privremenog stanja",
+  da: "hvert tryk øger det fokuserede panels højde med 20 px ved den nærmeste højdeopdeling; ingen midlertidig tilstand gemmes",
+  de: "jeder Tastendruck vergrößert den fokussierten Bereich an der nächsten Höhenaufteilung um 20 px; kein temporärer Zustand",
+  en: "each press grows the focused pane by 20px at its nearest height split; no temporary state is saved",
+  es: "cada pulsación aumenta 20 px la altura del panel enfocado en la división de altura más cercana; no se guarda estado temporal",
+  fr: "chaque pression agrandit le panneau ciblé de 20 px à la division de hauteur la plus proche ; aucun état temporaire n’est conservé",
+  it: "ogni pressione aumenta di 20 px l’altezza del pannello attivo nella divisione più vicina; non viene salvato alcuno stato temporaneo",
+  ja: "押すたびに最も近い高さ方向の分割でフォーカス中のペインが20px高くなります。一時状態は保存しません",
+  km: "រាល់ការចុចបង្កើនកម្ពស់ផ្ទាំងដែលផ្តោត 20px នៅការបែងចែកកម្ពស់ជិតបំផុត; មិនរក្សាទុកស្ថានភាពបណ្ដោះអាសន្នទេ",
+  ko: "누를 때마다 가장 가까운 높이 분할에서 포커스된 패널이 20px 늘어나며 임시 상태를 저장하지 않습니다",
+  no: "hvert trykk øker høyden på det fokuserte panelet med 20 px ved nærmeste høydeinndeling; ingen midlertidig tilstand lagres",
+  pl: "każde naciśnięcie zwiększa wysokość aktywnego panelu o 20 px w najbliższym podziale wysokości; stan tymczasowy nie jest zapisywany",
+  "pt-BR": "cada pressionamento aumenta em 20 px a altura do painel em foco na divisão mais próxima; nenhum estado temporário é salvo",
+  ru: "каждое нажатие увеличивает высоту активной панели на 20 px в ближайшем разделении; временное состояние не сохраняется",
+  th: "แต่ละครั้งจะเพิ่มความสูงของบานหน้าต่างที่โฟกัส 20px ที่การแบ่งความสูงที่ใกล้ที่สุด โดยไม่บันทึกสถานะชั่วคราว",
+  tr: "her basış odaktaki bölmeyi en yakın yükseklik bölmesinde 20px büyütür; geçici durum kaydedilmez",
+  uk: "кожне натискання збільшує висоту активної панелі на 20 px у найближчому поділі; тимчасовий стан не зберігається",
+  "zh-CN": "每次按键都会在最近的高度分割处将聚焦面板增大 20px；不会保存临时状态",
+  "zh-TW": "每次按鍵都會在最近的高度分割處將聚焦面板增大 20px；不會儲存暫時狀態",
+};
+
 export const shortcutCategories: ShortcutCategory[] = [
   {
     id: "app",
@@ -357,6 +403,34 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "decreaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "-"]], description: { en: "Decrease font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを小さくする" } },
       { id: "resetWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "0"]], description: { en: "Reset font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズをリセットする" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "⇧", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+      {
+        id: "growPaneWidth",
+        combos: [["⌥", "⌘", "0"]],
+        description: {
+          ar: "زيادة عرض اللوحة", bs: "Povećaj širinu panela", da: "Forøg panelbredden",
+          de: "Bereichsbreite vergrößern", en: "Grow Pane Width", es: "Aumentar ancho del panel",
+          fr: "Augmenter la largeur du panneau", it: "Aumenta larghezza pannello", ja: "ペインの幅を広げる",
+          km: "បង្កើនទទឹងផ្ទាំង", ko: "패널 너비 늘리기", no: "Øk panelbredden",
+          pl: "Zwiększ szerokość panelu", "pt-BR": "Aumentar largura do painel", ru: "Увеличить ширину панели",
+          th: "เพิ่มความกว้างบานหน้าต่าง", tr: "Bölme Genişliğini Artır", uk: "Збільшити ширину панелі",
+          "zh-CN": "增加面板宽度", "zh-TW": "增加面板寬度",
+        },
+        note: paneWidthGrowthNote,
+      },
+      {
+        id: "growPaneHeight",
+        combos: [["⌥", "⌘", "⇧", "0"]],
+        description: {
+          ar: "زيادة ارتفاع اللوحة", bs: "Povećaj visinu panela", da: "Forøg panelhøjden",
+          de: "Bereichshöhe vergrößern", en: "Grow Pane Height", es: "Aumentar altura del panel",
+          fr: "Augmenter la hauteur du panneau", it: "Aumenta altezza pannello", ja: "ペインの高さを広げる",
+          km: "បង្កើនកម្ពស់ផ្ទាំង", ko: "패널 높이 늘리기", no: "Øk panelhøyden",
+          pl: "Zwiększ wysokość panelu", "pt-BR": "Aumentar altura do painel", ru: "Увеличить высоту панели",
+          th: "เพิ่มความสูงบานหน้าต่าง", tr: "Bölme Yüksekliğini Artır", uk: "Збільшити висоту панелі",
+          "zh-CN": "增加面板高度", "zh-TW": "增加面板高度",
+        },
+        note: paneHeightGrowthNote,
+      },
     ],
   },
   {

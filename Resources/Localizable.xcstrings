@@ -215047,6 +215047,56 @@
         }
       }
     },
+    "shortcut.growPaneHeight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "زيادة ارتفاع اللوحة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Povećaj visinu panela" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forøg panelhøjden" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Bereichshöhe vergrößern" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Grow Pane Height" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Aumentar altura del panel" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Augmenter la hauteur du panneau" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Aumenta altezza pannello" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインの高さを広げる" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បង្កើនកម្ពស់ផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "패널 높이 늘리기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Øk panelhøyden" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zwiększ wysokość panelu" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Aumentar altura do painel" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Увеличить высоту панели" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มความสูงบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bölme Yüksekliğini Artır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Збільшити висоту панелі" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "增加面板高度" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "增加面板高度" } }
+      }
+    },
+    "shortcut.growPaneWidth.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "زيادة عرض اللوحة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Povećaj širinu panela" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forøg panelbredden" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Bereichsbreite vergrößern" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Grow Pane Width" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Aumentar ancho del panel" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Augmenter la largeur du panneau" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Aumenta larghezza pannello" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインの幅を広げる" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បង្កើនទទឹងផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "패널 너비 늘리기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Øk panelbredden" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zwiększ szerokość panelu" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Aumentar largura do painel" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Увеличить ширину панели" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มความกว้างบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bölme Genişliğini Artır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Збільшити ширину панелі" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "增加面板宽度" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "增加面板寬度" } }
+      }
+    },
     "shortcut.increaseWorkspaceTerminalFontSize.label": {
       "extractionState": "manual",
       "localizations": {

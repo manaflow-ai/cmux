@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxCanvasUI
 import CmuxTerminal
 import Testing
@@ -570,6 +571,73 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
+    @Test func growPaneShortcutsRepeatWithoutCrossWorkspaceState() throws {
+        try withTemporaryShortcut(action: .growPaneHeight) {
+            try withTemporaryShortcut(action: .growPaneWidth) {
+                let appDelegate = try #require(AppDelegate.shared)
+                let windowId = appDelegate.createMainWindow()
+                defer { closeWindow(withId: windowId) }
+
+                let window = try #require(mainWindow(for: windowId))
+                let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+                let firstWorkspace = try #require(manager.selectedWorkspace)
+                let firstPanelId = try #require(firstWorkspace.focusedPanelId)
+                let rightPanel = try #require(
+                    firstWorkspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+                )
+                let bottomPanel = try #require(
+                    firstWorkspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical)
+                )
+                firstWorkspace.bonsplitController.setContainerFrame(
+                    CGRect(x: 0, y: 0, width: 900, height: 600)
+                )
+                firstWorkspace.focusPanel(bottomPanel.id)
+                window.makeKeyAndOrderFront(nil)
+                window.displayIfNeeded()
+
+                let widthEvent = try #require(makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .option],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber
+                ))
+                let heightEvent = try #require(makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .option, .shift],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber
+                ))
+                let snapshot = firstWorkspace.bonsplitController.treeSnapshot()
+                let widthSplitId = try #require(splitNodes(in: snapshot, orientation: "horizontal").first?.id)
+                let heightSplitId = try #require(splitNodes(in: snapshot, orientation: "vertical").first?.id)
+                let originalWidth = try #require(dividerPosition(of: widthSplitId, in: snapshot))
+                let originalHeight = try #require(dividerPosition(of: heightSplitId, in: snapshot))
+
+#if DEBUG
+                #expect(appDelegate.debugHandleCustomShortcut(event: widthEvent))
+                #expect(appDelegate.debugHandleCustomShortcut(event: widthEvent))
+                #expect(appDelegate.debugHandleCustomShortcut(event: heightEvent))
+                #expect(appDelegate.debugHandleCustomShortcut(event: heightEvent))
+#else
+                Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+                let grownSnapshot = firstWorkspace.bonsplitController.treeSnapshot()
+                let grownWidth = try #require(dividerPosition(of: widthSplitId, in: grownSnapshot))
+                let grownHeight = try #require(dividerPosition(of: heightSplitId, in: grownSnapshot))
+                #expect(grownWidth < originalWidth)
+                #expect(grownHeight < originalHeight)
+
+                _ = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+#if DEBUG
+                #expect(appDelegate.debugHandleCustomShortcut(event: widthEvent))
+#endif
+                let unchangedSnapshot = firstWorkspace.bonsplitController.treeSnapshot()
+                #expect(dividerPosition(of: widthSplitId, in: unchangedSnapshot) == grownWidth)
+                #expect(dividerPosition(of: heightSplitId, in: unchangedSnapshot) == grownHeight)
+            }
+        }
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags = [.control],
@@ -704,5 +772,32 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     private func closeWindow(withId windowId: UUID) {
         guard let window = mainWindow(for: windowId) else { return }
         window.close()
+    }
+
+    private func splitNodes(
+        in node: ExternalTreeNode,
+        orientation: String
+    ) -> [ExternalSplitNode] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            let descendants = splitNodes(in: split.first, orientation: orientation)
+                + splitNodes(in: split.second, orientation: orientation)
+            return split.orientation == orientation ? [split] + descendants : descendants
+        }
+    }
+
+    private func dividerPosition(of splitId: String, in node: ExternalTreeNode) -> Double? {
+        switch node {
+        case .pane:
+            return nil
+        case .split(let split):
+            if split.id == splitId {
+                return split.dividerPosition
+            }
+            return dividerPosition(of: splitId, in: split.first)
+                ?? dividerPosition(of: splitId, in: split.second)
+        }
     }
 }

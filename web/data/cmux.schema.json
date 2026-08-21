@@ -1709,6 +1709,8 @@
               "decreaseWorkspaceTerminalFontSize",
               "resetWorkspaceTerminalFontSize",
               "equalizeSplits",
+              "growPaneWidth",
+              "growPaneHeight",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleCanvasLayout",

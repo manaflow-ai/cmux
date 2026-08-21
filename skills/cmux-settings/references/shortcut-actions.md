@@ -79,6 +79,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`
 - `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.equalizeSplits`
+- `shortcuts.bindings.growPaneWidth` (`cmd+opt+0`; each press grows the focused pane by 20 px at its nearest width split)
+- `shortcuts.bindings.growPaneHeight` (`cmd+opt+shift+0`; each press grows the focused pane by 20 px at its nearest height split)
 
 ## Canvas
 
