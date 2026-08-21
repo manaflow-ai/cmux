@@ -2261,6 +2261,7 @@ fn run_machine_client_with_hub(
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let mut machine_ui = runtime.ui_state(active);
     machine_ui.set_connection_phases(connections.phases());
+    connections.note_presented(Some(active));
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
     match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller))? {
@@ -2332,6 +2333,7 @@ impl MachineController for StaticMachineController {
         })?;
         if present {
             self.active = machine;
+            self.connections.note_presented(Some(machine));
         }
         Ok(())
     }
@@ -2353,11 +2355,11 @@ impl MachineController for StaticMachineController {
 impl StaticMachineController {
     fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
         self.register(machine)?;
-        let session = self.connections.connect(machine)?;
+        let (session, reused) = self.connections.connect_tracked(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
         self.pending = Some(machine);
         let ui = self.ui_state(machine);
-        Ok(MachineActionResult::replace(ui, session, label))
+        Ok(MachineActionResult::replace(ui, session, label).with_reused_session(reused))
     }
 
     fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
@@ -3035,6 +3037,119 @@ mod tests {
 
         connections.close();
         assert_eq!(dropped.load(Ordering::SeqCst), 2, "all leases close with the connection hub");
+    }
+
+    #[test]
+    fn presented_connection_survives_warm_pool_eviction() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-presented-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let third = machine::MachineKey(3);
+        let connections = MachineConnectionHub::with_warm_limit(
+            [connector(first), connector(second), connector(third)],
+            2,
+        );
+
+        // `first` is presented but has the OLDEST use stamp once the others
+        // connect - exactly the shape where plain LRU would evict the
+        // session still on screen mid-switch.
+        connections.connect(first).unwrap();
+        connections.note_presented(Some(first));
+        connections.connect(second).unwrap();
+        connections.connect(third).unwrap();
+        assert_eq!(dropped.load(Ordering::SeqCst), 1, "one eviction past the limit");
+
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(reused, "the presented machine's connection must survive eviction");
+
+        connections.close();
+    }
+
+    #[test]
+    fn connection_hub_evicts_least_recently_used_beyond_the_warm_limit() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connects = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connects = Arc::clone(&connects);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-lru-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let third = machine::MachineKey(3);
+        let connections = MachineConnectionHub::with_warm_limit(
+            [connector(first), connector(second), connector(third)],
+            2,
+        );
+
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(!reused, "first connect opens fresh");
+        connections.connect(second).unwrap();
+        assert_eq!(dropped.load(Ordering::SeqCst), 0, "two warm connections fit the limit");
+
+        connections.connect(third).unwrap();
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "a third connection evicts the least recently used one"
+        );
+
+        // `second` stayed warm; returning to it is a reuse, not a reconnect.
+        let (_, reused) = connections.connect_tracked(second).unwrap();
+        assert!(reused, "recently used connections survive eviction");
+        assert_eq!(connects.load(Ordering::SeqCst), 3);
+
+        // `first` was evicted back to Disconnected; its connector reconnects.
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(!reused, "evicted machines reconnect through their connector");
+        assert_eq!(connects.load(Ordering::SeqCst), 4);
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "reconnecting evicted the next oldest");
+
+        connections.close();
+        assert_eq!(dropped.load(Ordering::SeqCst), 4, "all leases close with the connection hub");
     }
 
     #[cfg(unix)]

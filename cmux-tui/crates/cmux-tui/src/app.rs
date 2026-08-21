@@ -63,10 +63,11 @@ use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
     MachineConnectRoute, MachineConnectionPhase, MachineController, MachineKey,
     MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession, MachineSnapshot,
-    MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
-    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionContext, ProviderActionInputError, ProviderPresentation,
-    WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
+    MachineTransitionView, MachineUiState, MachineUpdate, MachineUpdateStream,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionContext,
+    ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    validate_machine_session,
 };
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
@@ -8366,17 +8367,25 @@ fn prepare_machine_session(
     preparation: MachineSessionPreparation,
     app_events: SyncSender<AppEvent>,
 ) -> anyhow::Result<PreparedMachineSession> {
+    // The managed-workspace guard runs on every presentation, reused or
+    // not: a pooled session can change state while it is not presented, and
+    // the guard is the invariant that makes presenting it safe. Only the
+    // cosmetic default-colors round-trip is skipped for reused sessions.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = replacement
-        .session
-        .set_default_colors(preparation.default_colors)
-        .err()
-        .map(|error| error.to_string());
+    let color_error = if replacement.reused {
+        None
+    } else {
+        replacement
+            .session
+            .set_default_colors(preparation.default_colors)
+            .err()
+            .map(|error| error.to_string())
+    };
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -9433,15 +9442,81 @@ impl App {
         self.machine_selection_intent.or(self.machine_presented)
     }
 
-    pub(crate) fn machine_transition(&self) -> Option<(&str, MachineConnectionPhase)> {
+    pub(crate) fn machine_transition(&self) -> Option<MachineTransitionView<'_>> {
         let selected = self.machine_selection_intent?;
         let ui = self.machine_ui.as_ref()?;
         if self.machine_presented == Some(selected) && ui.session_available {
             return None;
         }
-        let name =
-            ui.snapshot.machines.iter().find(|machine| machine.key == selected)?.name.as_str();
-        Some((name, ui.connection_phase(selected)))
+        // Switching to a machine whose connection is already warm settles in
+        // one round-trip: keep painting the current machine instead of
+        // blanking the content with a "connecting" interstitial. Only while
+        // the current machine is actually paintable - if its session is gone
+        // (it paused; its stream died), "keep painting it" would show a dead
+        // screen with no sign a switch is running.
+        if self.machine_presented.is_some()
+            && self.machine_presented != Some(selected)
+            && ui.session_available
+            && ui.connection_phase(selected) == MachineConnectionPhase::Ready
+        {
+            return None;
+        }
+        let machine = ui.snapshot.machines.iter().find(|machine| machine.key == selected)?;
+        Some(MachineTransitionView {
+            name: machine.name.as_str(),
+            phase: ui.connection_phase(selected),
+            status: machine.status,
+            progress: ui.connection_progress(selected),
+        })
+    }
+
+    /// Latest provider progress for a machine that is opening. Presentation
+    /// only: dropped when the switch settles, fails, or is re-aimed.
+    fn apply_connection_progress(
+        &mut self,
+        machine_id: String,
+        latest: Arc<Mutex<Option<String>>>,
+    ) -> RenderAction {
+        // Latest-value cell: the pump overwrites it while this update sat in
+        // the queue, so this read is the newest stage; an emptied cell means
+        // a newer update for this machine already consumed it.
+        let Some(message) = latest.lock().unwrap_or_else(|p| p.into_inner()).take() else {
+            return RenderAction::None;
+        };
+        let Some(ui) = self.machine_ui.as_mut() else { return RenderAction::None };
+        let Some(key) = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == machine_id)
+            .map(|machine| machine.key)
+        else {
+            return RenderAction::None;
+        };
+        // Progress is only meaningful while an open for this machine is
+        // being shown. A late event queued before the open settled (failed,
+        // or presented) must not repopulate the stage the settle cleared.
+        match ui.connection_phase(key) {
+            MachineConnectionPhase::Connecting => {}
+            MachineConnectionPhase::Ready
+                if self.machine_selection_intent == Some(key)
+                    && self.machine_presented != Some(key) =>
+            {
+                // The aim believed this target was warm, but the provider is
+                // narrating an open: the pooled session was dead and a real
+                // (re)connect or wake is running. Flip to Connecting so the
+                // interstitial appears instead of silently showing the old
+                // machine for the whole reconnect.
+                ui.set_connection_phase(key, MachineConnectionPhase::Connecting);
+            }
+            _ => return RenderAction::None,
+        }
+        ui.set_connection_progress(key, message);
+        if self.machine_selection_intent == Some(key) {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
     }
 
     fn select_machine_intent(&mut self, machine: MachineKey) {
@@ -9450,9 +9525,24 @@ impl App {
             self.machine_selection_generation =
                 self.machine_selection_generation.wrapping_add(1).max(1);
             self.machine_selection_intent = Some(machine);
+            // A fresh aim starts with a fresh interstitial, not the last
+            // attempt's progress message.
+            if let Some(ui) = self.machine_ui.as_mut() {
+                ui.clear_connection_progress(machine);
+            }
         }
+        let presented_live = self.machine_presented == Some(machine)
+            && self.machine_ui.as_ref().is_some_and(|ui| ui.session_available);
         if let Some(ui) = self.machine_ui.as_mut() {
-            let phase = if self.machine_presented == Some(machine) {
+            let phase = if presented_live
+                || ui.connection_phase(machine) == MachineConnectionPhase::Ready
+            {
+                // A warm pooled connection stays Ready: the switch reuses it,
+                // so neither the rail badge nor the content interstitial
+                // should flash "connecting". A presented machine whose
+                // session is gone (it paused; the stream died) is NOT ready:
+                // reselecting it starts a real wake, and the interstitial
+                // must say so instead of briefly claiming Ready.
                 MachineConnectionPhase::Ready
             } else {
                 MachineConnectionPhase::Connecting
@@ -10443,6 +10533,8 @@ impl App {
             && let Some(ui) = self.machine_ui.as_mut()
         {
             ui.set_connection_phase(*machine, MachineConnectionPhase::Failed);
+            // A stale progress message must not sit under "unavailable".
+            ui.clear_connection_progress(*machine);
         }
     }
 
@@ -10666,6 +10758,11 @@ impl App {
                         let target = session.machine;
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.clear_connection_progress(machine);
+                            }
                             self.install_prepared_machine_session(session, false);
                             if let Some(label) = session_label {
                                 self.session_label = label;
@@ -11104,6 +11201,28 @@ impl App {
 
     fn request_current_machine_session(&mut self) -> bool {
         let Some(machine) = self.machine_ui.as_mut() else { return false };
+        // A machine that is sleeping or stopped lost its stream BECAUSE it
+        // was paused; reconnecting would start it right back up and make
+        // pause impossible. Present it as asleep instead - the user's next
+        // input (or a rail click) wakes it through the normal switch path.
+        if let Some(active) = machine.snapshot.active
+            && machine.snapshot.machines.iter().any(|descriptor| {
+                descriptor.key == active
+                    && matches!(
+                        descriptor.status,
+                        crate::machine::MachineStatus::Sleeping
+                            | crate::machine::MachineStatus::Stopped
+                    )
+            })
+        {
+            machine.session_available = false;
+            machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+            // The previous open's narration is stale now; a later wake
+            // reuses the same selection intent, so select_machine_intent
+            // will not clear it.
+            machine.clear_connection_progress(active);
+            return true;
+        }
         if machine.request.is_none() {
             machine.request = Some(
                 machine
@@ -11111,6 +11230,35 @@ impl App {
                     .active
                     .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch),
             );
+        }
+        true
+    }
+
+    /// The user typed at a machine whose session is gone (it paused or the
+    /// stream died while they were away). Queue a switch back to it: the
+    /// provider resumes the VM and the interstitial shows the live loading
+    /// states. Returns false when there is nothing sensible to wake.
+    fn wake_presented_machine(&mut self) -> bool {
+        let Some(presented) = self.machine_presented else { return false };
+        // While a switch to a DIFFERENT machine is in flight the key must
+        // not re-aim back at the old machine (that could resume a machine
+        // the user deliberately left paused). Consume it; the transition
+        // interstitial is visible and the switch will settle.
+        if self.machine_selection_intent.is_some_and(|intent| intent != presented) {
+            return true;
+        }
+        {
+            let Some(machine) = self.machine_ui.as_mut() else { return false };
+            if machine.request.is_some() {
+                return true;
+            }
+            machine.request = Some(MachineRequest::Switch(presented));
+        }
+        self.select_machine_intent(presented);
+        if let Some(ui) = self.machine_ui.as_mut() {
+            // select_machine_intent keeps the presented machine's phase; the
+            // wake is a real reconnect, so the interstitial must show it.
+            ui.set_connection_phase(presented, MachineConnectionPhase::Connecting);
         }
         true
     }
@@ -14152,6 +14300,9 @@ impl App {
                 Ok(match *update {
                     MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
                     MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
+                    MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                        self.apply_connection_progress(machine_id, latest)
+                    }
                 })
             }
             AppEvent::MachineControllerCompleted(completion) => {
@@ -18851,6 +19002,11 @@ impl App {
 
     fn forward_key(&mut self, input: keys::KeyboardInput) {
         if !self.session_available() {
+            // Coming back to a machine that paused or lost its stream: the
+            // first keystroke wakes it instead of bouncing off a dead pane.
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -18861,6 +19017,9 @@ impl App {
 
     fn forward_key_to_surface(&mut self, input: keys::KeyboardInput, surface_id: SurfaceId) {
         if !self.session_available() {
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -18901,6 +19060,9 @@ impl App {
             return;
         }
         if !self.session_available() {
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -22768,9 +22930,9 @@ mod tests {
     use crate::localization;
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-        MachineCapabilities, MachineConnectionTarget, MachineController, MachineCreationSource,
-        MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
-        MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
+        MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineController,
+        MachineCreationSource, MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest,
+        MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
         ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
         ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
         ProviderActionContext, ProviderActionDescriptor, ProviderActionFieldDescriptor,
@@ -36622,6 +36784,245 @@ mod tests {
 
         assert_eq!(app.focus, FocusTarget::Pane);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn machine_transition_shows_progress_then_status_aware_default() {
+        let mux = Mux::new("machine-transition-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(7),
+                id: "vm-7".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.set_connection_phase(MachineKey(7), MachineConnectionPhase::Connecting);
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(7));
+
+        // Status-aware default: a sleeping machine renders as waking, which
+        // the interstitial derives from status when no progress arrived.
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, None);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+
+        // A provider connection_progress event renders live while the switch
+        // is still in flight.
+        let action = app.apply_connection_progress(
+            "vm-7".into(),
+            Arc::new(Mutex::new(Some("resuming the machine".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, Some("resuming the machine"));
+
+        // A failed switch drops the stale message under "unavailable".
+        app.fail_machine_action(Some(&MachineRequest::Switch(MachineKey(7))));
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Failed);
+        assert_eq!(view.progress, None);
+    }
+
+    #[test]
+    fn paused_machine_is_not_auto_resumed_and_wakes_on_input() {
+        let mux = Mux::new("machine-sleep-wake-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+
+        // Stream death for a machine that is asleep: no auto-resume switch;
+        // it presents as sleeping instead, so pause stays paused.
+        assert!(app.request_current_machine_session());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "a paused machine must not auto-resume");
+        assert!(!ui.session_available);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Disconnected);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+
+        // The first keystroke wakes it through the normal switch path with
+        // the connecting interstitial.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn reselecting_a_sleeping_presented_machine_queues_a_wake_switch() {
+        let mux = Mux::new("machine-sleep-reselect-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+        assert!(app.request_current_machine_session());
+
+        // Rail click on the same, now-asleep machine: the switch is queued
+        // (session_available is false) and the interstitial must not claim
+        // Ready while the wake is in flight.
+        app.activate_machine(MachineKey(9));
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+    }
+
+    #[test]
+    fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
+        let mux = Mux::new("machine-dead-switch-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle · paused".into(),
+                    status: MachineStatus::Sleeping,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = false;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        // The presented machine is dead, so the warm-target shortcut must
+        // not hide that a switch is running.
+        assert!(app.machine_transition().is_some(), "interstitial must render");
+
+        // A keystroke mid-switch must not re-aim (and wake) the old paused
+        // machine.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "no wake switch back to the old machine");
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn keystrokes_never_reach_the_old_machine_during_a_warm_switch() {
+        // While a warm switch is in flight the OLD machine is still live and
+        // on screen (session_available field true), but the aim mismatch must
+        // gate input away from it: session_available() requires
+        // selection_intent == presented, and the wake gate consumes the key
+        // instead of forwarding or re-aiming.
+        let mux = Mux::new("machine-warm-switch-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        assert!(!app.session_available(), "aim mismatch must gate the old session");
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "the key must not queue any machine request");
+        assert!(app.status_message.is_none(), "the key is consumed silently mid-switch");
+    }
+
+    #[test]
+    fn progress_for_a_stale_ready_target_reveals_the_reconnect() {
+        let mux = Mux::new("machine-stale-ready-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        // The aim trusted a warm connection, but the pooled session was dead:
+        // the provider starts narrating a real open.
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+        assert!(app.machine_transition().is_none(), "warm shortcut hides the interstitial");
+
+        let action = app.apply_connection_progress(
+            "vm-10".into(),
+            Arc::new(Mutex::new(Some("waiting for sshd".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().expect("reconnect must surface");
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+        assert_eq!(view.progress, Some("waiting for sshd"));
     }
 
     #[test]
