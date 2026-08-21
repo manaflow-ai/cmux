@@ -60,6 +60,7 @@ web/public/pagefind/
 
 # Local scratch (screenshots, etc.)
 tmp/
+.omc/
 tmp-*/
 .iter-logs/
 .claude/worktrees/
