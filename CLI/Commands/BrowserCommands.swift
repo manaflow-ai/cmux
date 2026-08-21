@@ -61,7 +61,7 @@ struct BrowserSnapshotOptions: ParsableArguments {
 struct BrowserWaitOptions: ParsableArguments {
     @OptionGroup var target: BrowserTargetOptions
     @Option(name: .customLong("selector")) var selector: String?
-    @Option(name: .customLong("url")) var url: String?
+    @Option(name: .customLong("url-contains")) var urlContains: String?
     @Option(name: .customLong("text")) var text: String?
     @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: Int?
     @Option(name: .customLong("timeout")) var timeout: Double?
