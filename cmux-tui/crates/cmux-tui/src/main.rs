@@ -748,11 +748,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
-                crate::client_log::exit(0);
+                client_log::exit(0);
             }
             "-V" | "--version" => {
                 println!("cmux {}", version_string());
-                crate::client_log::exit(0);
+                client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -1378,7 +1378,7 @@ fn main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        crate::client_log::exit(agent_browser_provider::run());
+        client_log::exit(agent_browser_provider::run());
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
@@ -1388,7 +1388,7 @@ fn main() {
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
-            crate::client_log::exit(1);
+            client_log::exit(1);
         }
         return;
     }
@@ -1398,17 +1398,17 @@ fn main() {
                 "startup",
                 "cmux-tui: cannot protect machine-provider credentials: {error}"
             );
-            crate::client_log::exit(1);
+            client_log::exit(1);
         }
         discard_provider_secret_environment();
-        crate::client_log::exit(config::run_ghostty_config_helper());
+        client_log::exit(config::run_ghostty_config_helper());
     }
     if let Err(error) = harden_provider_secret_process() {
         crate::client_log::stderr_log!(
             "startup",
             "cmux-tui: cannot protect machine-provider credentials: {error}"
         );
-        crate::client_log::exit(1);
+        client_log::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
         crate::client_log::stderr_log!(
@@ -1416,26 +1416,26 @@ fn main() {
             "cmux-tui: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
-        crate::client_log::exit(1);
+        client_log::exit(1);
     }
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
-        crate::client_log::exit(exit_code);
+        client_log::exit(exit_code);
     }
     if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
         crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
-        crate::client_log::exit(1);
+        client_log::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
-        crate::client_log::exit(remote_cli::run(&raw_args, &usage()));
+        client_log::exit(remote_cli::run(&raw_args, &usage()));
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
             crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
-            crate::client_log::exit(1);
+            client_log::exit(1);
         }
         return;
     }
@@ -1451,7 +1451,7 @@ fn main() {
                     localization::catalog().machine_agent.help
                 );
             }
-            crate::client_log::exit(1);
+            client_log::exit(1);
         }
         return;
     }
@@ -1461,7 +1461,7 @@ fn main() {
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        crate::client_log::exit(cli::run(&raw_args, &usage()));
+        client_log::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -1513,7 +1513,7 @@ fn main() {
     };
     if let Err(e) = result {
         crate::client_log::stderr_log!("startup", "cmux-tui: {e}");
-        crate::client_log::exit(1);
+        client_log::exit(1);
     }
 }
 
@@ -2500,7 +2500,7 @@ where
 
 fn usage_exit(msg: &str) -> ! {
     crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
-    crate::client_log::exit(2);
+    client_log::exit(2);
 }
 
 #[cfg(all(test, unix))]
