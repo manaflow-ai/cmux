@@ -36,6 +36,18 @@ struct AuthLogoutCommand: LegacyAuthCommand {
     static let configuration = CommandConfiguration(commandName: "logout", helpNames: [])
 }
 
+/// Declares the established top-level alias without changing its legacy execution path.
+struct LoginCommand: LegacyAuthCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "login", helpNames: [])
+}
+
+/// Declares the established top-level alias without changing its legacy execution path.
+struct LogoutCommand: LegacyAuthCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "logout", helpNames: [])
+}
+
 struct AIAccountsCommand: LegacyAuthCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
