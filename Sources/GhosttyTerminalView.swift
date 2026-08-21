@@ -7714,7 +7714,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             NotificationCenter.default.post(
                 name: .ghosttyDidReceiveWheelScroll,
-                object: self
+                object: self,
+                userInfo: [GhosttyNotificationKey.authoritativeWheelResponseUnavailable: true]
             )
             _ = flushPendingScrollbarIfAvailable()
             return
