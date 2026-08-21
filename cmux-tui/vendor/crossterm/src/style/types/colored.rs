@@ -197,12 +197,18 @@ mod tests {
         check_format_color(colored, "38;5;255");
     }
 
+    // NO_COLOR-sensitive tests are serialized: the Display impl consulted by
+    // test_parse_ansi_* reads the process-global NO_COLOR variable that
+    // test_no_color mutates, so running them in parallel makes formatting
+    // randomly produce empty strings (observed as parse_ansi == None).
     #[test]
+    #[serial_test::serial(no_color_env)]
     fn test_parse_ansi_fg() {
         test_parse_ansi(Colored::ForegroundColor)
     }
 
     #[test]
+    #[serial_test::serial(no_color_env)]
     fn test_parse_ansi_bg() {
         test_parse_ansi(Colored::ForegroundColor)
     }
@@ -305,6 +311,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial(no_color_env)]
     fn test_no_color() {
         std::env::set_var("NO_COLOR", "1");
         assert!(Colored::ansi_color_disabled());
