@@ -2081,11 +2081,13 @@ struct ContentView: View {
                     .clipped()
                 }
             }
-            .overlay(alignment: .topLeading) {
+            .background(alignment: .topLeading) {
                 // Distinct top band: the titlebar strip over the sidebar
                 // region carries its own tint, terminated by the full-width
                 // titlebar hairline. The column divider runs between the two
-                // bands and never intersects chrome.
+                // bands and never intersects chrome. Background, not overlay:
+                // the titlebar controls (bell, +, nav) live inside the column
+                // subtrees and must stay above the tint.
                 if sidebarState.isVisible {
                     SidebarChromeBandMetrics.bandFill
                         .frame(
