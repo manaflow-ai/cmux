@@ -55,6 +55,61 @@ import CmuxTerminalCore
         #expect(decision.consumedExplicitSync)
     }
 
+    @Test func authoritativeWheelSyncIgnoresUnmarkedPacketsUntilResponse() {
+        let pending = TerminalScrollbackViewportIntent.followingOutput
+            .beginningExplicitScrollbarSync(requiresAuthoritativeResponse: true)
+        let staleDecision = pending.applyingScrollbar(
+            scrollbar(total: 100, offset: 40, visible: 10),
+            targetDistanceFromBottom: 500,
+            bottomThreshold: 5
+        )
+
+        #expect(staleDecision.intent == pending)
+        #expect(!staleDecision.shouldSynchronizeViewport)
+        #expect(!staleDecision.consumedExplicitSync)
+
+        let responseDecision = staleDecision.intent.applyingScrollbar(
+            scrollbar(total: 100, offset: 90, visible: 10),
+            targetDistanceFromBottom: 0,
+            bottomThreshold: 5,
+            isAuthoritativeWheelResponse: true
+        )
+
+        #expect(responseDecision.intent == .followingOutput)
+        #expect(responseDecision.shouldSynchronizeViewport)
+        #expect(responseDecision.consumedExplicitSync)
+    }
+
+    @Test func unavailableAuthoritativeResponseFallsBackToFirstPacket() {
+        let fallback = TerminalScrollbackViewportIntent.reviewingScrollback
+            .beginningExplicitScrollbarSync(requiresAuthoritativeResponse: true)
+            .allowingFirstScrollbarResponse()
+        let decision = fallback.applyingScrollbar(
+            scrollbar(total: 100, offset: 90, visible: 10),
+            targetDistanceFromBottom: 0,
+            bottomThreshold: 5
+        )
+
+        #expect(decision.intent == .followingOutput)
+        #expect(decision.shouldSynchronizeViewport)
+        #expect(decision.consumedExplicitSync)
+    }
+
+    @Test func liveWheelUpgradesPendingLegacySyncToAuthoritativeResponse() {
+        let pending = TerminalScrollbackViewportIntent.followingOutput
+            .beginningExplicitScrollbarSync()
+            .beginningExplicitScrollbarSync(requiresAuthoritativeResponse: true)
+        let passiveDecision = pending.applyingScrollbar(
+            scrollbar(total: 100, offset: 40, visible: 10),
+            targetDistanceFromBottom: 500,
+            bottomThreshold: 5
+        )
+
+        #expect(passiveDecision.intent == pending)
+        #expect(!passiveDecision.shouldSynchronizeViewport)
+        #expect(!passiveDecision.consumedExplicitSync)
+    }
+
     @Test func scrollbarBottomCheckUsesClampedTopRow() {
         #expect(scrollbar(total: 100, offset: 90, visible: 10).isAtBottom)
         #expect(!scrollbar(total: 100, offset: 89, visible: 10).isAtBottom)

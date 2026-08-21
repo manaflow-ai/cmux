@@ -4120,15 +4120,31 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
-    private final class QueuedScrollbarPostingSurfaceView: GhosttyNSView {
-        var nextScrollbar: GhosttyScrollbar?
+    private final class AuthoritativeScrollbarSurfaceView: GhosttyNSView {
+        var authoritativeScrollbar: GhosttyScrollbar?
+        var interveningScrollbar: GhosttyScrollbar?
+        var afterPublishingInterveningScrollbar: (() -> Void)?
 
-        override func scrollWheel(with event: NSEvent) {
-            super.scrollWheel(with: event)
-            guard let nextScrollbar else { return }
-            DispatchQueue.main.async { [weak self] in
-                self?.enqueueScrollbarUpdate(nextScrollbar)
+        override func readAuthoritativeScrollbar(
+            _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+        ) -> Bool {
+            guard let authoritativeScrollbar else { return false }
+            if let interveningScrollbar {
+                self.interveningScrollbar = nil
+                NotificationCenter.default.post(
+                    name: .ghosttyDidUpdateScrollbar,
+                    object: self,
+                    userInfo: [GhosttyNotificationKey.scrollbar: interveningScrollbar]
+                )
+                afterPublishingInterveningScrollbar?()
             }
+            result.pointee = ghostty_surface_scrollbar_s(
+                total: authoritativeScrollbar.total,
+                offset: authoritativeScrollbar.offset,
+                len: authoritativeScrollbar.len,
+                row_space_revision: 1
+            )
+            return true
         }
     }
 
@@ -4512,7 +4528,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surfaceView = QueuedScrollbarPostingSurfaceView(
+        let surfaceView = AuthoritativeScrollbarSurfaceView(
             frame: NSRect(x: 0, y: 0, width: 160, height: 120)
         )
         surfaceView.cellSize = CGSize(width: 10, height: 10)
@@ -4533,6 +4549,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        surfaceView.authoritativeScrollbar = bottomPacket
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
@@ -4545,7 +4562,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // the wheel event. Its main-queue flush must not consume the wheel's
         // explicit synchronization window.
         surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
-        surfaceView.nextScrollbar = bottomPacket
+        surfaceView.authoritativeScrollbar = bottomPacket
 
         guard let cgEvent = CGEvent(
             scrollWheelEvent2Source: nil,
@@ -4560,7 +4577,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         scrollView.scrollWheel(with: scrollEvent)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         XCTAssertEqual(
             scrollView.contentView.bounds.origin.y,
@@ -4584,7 +4600,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surfaceView = GhosttyNSView(
+        let surfaceView = AuthoritativeScrollbarSurfaceView(
             frame: NSRect(x: 0, y: 0, width: 160, height: 120)
         )
         surfaceView.cellSize = CGSize(width: 10, height: 10)
@@ -4605,6 +4621,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         let bottomPacket = makeScrollbar(total: 100, offset: 90, len: 10)
+        surfaceView.authoritativeScrollbar = bottomPacket
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
@@ -4613,36 +4630,89 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidReceiveWheelScroll,
-            object: surfaceView,
-            userInfo: ["ghostty.requiresAuthoritativeWheelResponse": true]
-        )
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [
-                GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)
-            ]
-        )
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+        var interveningOriginY: CGFloat?
+        var interveningIntent: TerminalScrollbackViewportIntent?
+        surfaceView.interveningScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        surfaceView.afterPublishingInterveningScrollbar = {
+            interveningOriginY = scrollView.contentView.bounds.origin.y
+            interveningIntent = hostedView.scrollbackViewportIntent
+        }
+        defer { surfaceView.afterPublishingInterveningScrollbar = nil }
+        scrollView.scrollWheel(with: scrollEvent)
 
         XCTAssertEqual(
-            scrollView.contentView.bounds.origin.y,
+            interveningIntent,
+            .awaitingExplicitScrollbarSync(
+                previousWasReviewing: false,
+                requiresAuthoritativeResponse: true
+            )
+        )
+        XCTAssertEqual(
+            interveningOriginY ?? .nan,
             0,
             accuracy: 0.01,
             "An intervening passive packet must not move the viewport while wheel sync is awaiting its authoritative response"
         )
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [
-                GhosttyNotificationKey.scrollbar: bottomPacket,
-                "ghostty.isAuthoritativeWheelResponse": true
-            ]
-        )
-
+        XCTAssertEqual(hostedView.scrollbackViewportIntent, .followingOutput)
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+    }
+
+    func testCoalescedScrollbarCallbackUsesCurrentRuntimeSnapshot() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = AuthoritativeScrollbarSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 120)
+        )
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        surfaceView.authoritativeScrollbar = makeScrollbar(total: 100, offset: 90, len: 10)
+        let updatePublished = expectation(
+            forNotification: .ghosttyDidUpdateScrollbar,
+            object: surfaceView
+        )
+        surfaceView.enqueueScrollbarUpdate(makeScrollbar(total: 100, offset: 40, len: 10))
+        wait(for: [updatePublished], timeout: 1)
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A delayed callback must publish current runtime geometry instead of its stale payload"
+        )
+        XCTAssertEqual(surfaceView.scrollbar?.offset, 90)
     }
 
     func testScrollbackReviewSurvivesPaneResize() {

@@ -12,7 +12,15 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
     case reviewingScrollback
 
     /// A user gesture is waiting for its authoritative Ghostty scrollbar packet.
-    case awaitingExplicitScrollbarSync(previousWasReviewing: Bool)
+    ///
+    /// Runtime-backed wheel input requires the synchronous snapshot taken
+    /// after forwarding the event. The legacy mode is retained for callers
+    /// that do not have access to that runtime snapshot and therefore fall
+    /// back to the first packet.
+    case awaitingExplicitScrollbarSync(
+        previousWasReviewing: Bool,
+        requiresAuthoritativeResponse: Bool
+    )
 
     /// Whether the viewport is currently reviewing historical scrollback.
     public var isReviewingScrollback: Bool {
@@ -21,7 +29,7 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
             return false
         case .reviewingScrollback:
             return true
-        case .awaitingExplicitScrollbarSync(let previousWasReviewing):
+        case .awaitingExplicitScrollbarSync(let previousWasReviewing, _):
             return previousWasReviewing
         }
     }
@@ -34,20 +42,66 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
         return false
     }
 
+    /// Whether passive packets must wait for a marked runtime response.
+    private var requiresAuthoritativeScrollbarResponse: Bool {
+        guard case .awaitingExplicitScrollbarSync(_, let requiresAuthoritativeResponse) = self else {
+            return false
+        }
+        return requiresAuthoritativeResponse
+    }
+
+    /// Whether layout must preserve the wrapper viewport while intent is unresolved.
+    public var preservesViewportDuringPendingSync: Bool {
+        isReviewingScrollback || isAwaitingExplicitScrollbarSync
+    }
+
     /// Whether a passive runtime packet may move the AppKit viewport.
     ///
-    /// An explicit packet is handled through ``applyingScrollbar(_:targetDistanceFromBottom:bottomThreshold:)``;
+    /// An explicit packet is handled through
+    /// ``applyingScrollbar(_:targetDistanceFromBottom:bottomThreshold:isAuthoritativeWheelResponse:)``;
     /// an unresolved explicit request must not make a stale packet from a
     /// layout pass move the wrapper.
     public var allowsPassiveScrollbarSync: Bool {
         self == .followingOutput
     }
 
-    /// Arms the one-packet window opened by a user wheel gesture.
-    public func beginningExplicitScrollbarSync() -> Self {
-        guard !isAwaitingExplicitScrollbarSync else { return self }
+    /// Arms the synchronization window opened by a user wheel gesture.
+    ///
+    /// - Parameter requiresAuthoritativeResponse: Whether passive packets must
+    ///   wait for a marked snapshot read directly after the wheel input.
+    public func beginningExplicitScrollbarSync(
+        requiresAuthoritativeResponse: Bool = false
+    ) -> Self {
+        guard !isAwaitingExplicitScrollbarSync else {
+            return requiresAuthoritativeResponse
+                ? upgradingToAuthoritativeScrollbarResponse()
+                : self
+        }
         return .awaitingExplicitScrollbarSync(
-            previousWasReviewing: isReviewingScrollback
+            previousWasReviewing: isReviewingScrollback,
+            requiresAuthoritativeResponse: requiresAuthoritativeResponse
+        )
+    }
+
+    private func upgradingToAuthoritativeScrollbarResponse() -> Self {
+        guard case .awaitingExplicitScrollbarSync(let previousWasReviewing, false) = self else {
+            return self
+        }
+        return .awaitingExplicitScrollbarSync(
+            previousWasReviewing: previousWasReviewing,
+            requiresAuthoritativeResponse: true
+        )
+    }
+
+    /// Downgrades an unavailable runtime snapshot to the legacy first-packet
+    /// behavior so a transient surface teardown cannot leave intent pending.
+    public func allowingFirstScrollbarResponse() -> Self {
+        guard case .awaitingExplicitScrollbarSync(let previousWasReviewing, true) = self else {
+            return self
+        }
+        return .awaitingExplicitScrollbarSync(
+            previousWasReviewing: previousWasReviewing,
+            requiresAuthoritativeResponse: false
         )
     }
 
@@ -75,18 +129,37 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
 
     /// Decides whether an authoritative Ghostty scrollbar packet should update
     /// the AppKit wrapper and resolves an outstanding explicit wheel request.
+    ///
+    /// - Parameters:
+    ///   - scrollbar: The scrollbar geometry being considered.
+    ///   - targetDistanceFromBottom: The wrapper target's distance from the
+    ///     live bottom, or `nil` when pixel geometry is unavailable.
+    ///   - bottomThreshold: The maximum target distance treated as live bottom.
+    ///   - isAuthoritativeWheelResponse: Whether this snapshot was read
+    ///     synchronously after forwarding the pending wheel input.
+    /// - Returns: The next intent and whether the wrapper should synchronize.
     public func applyingScrollbar(
         _ scrollbar: GhosttyScrollbar,
         targetDistanceFromBottom: Double?,
-        bottomThreshold: Double
+        bottomThreshold: Double,
+        isAuthoritativeWheelResponse: Bool = false
     ) -> TerminalScrollbackScrollbarSyncDecision {
         let isExplicit = isAwaitingExplicitScrollbarSync
-        let shouldSynchronize = isExplicit ||
-            allowsPassiveScrollbarSync ||
-            !scrollbar.isAtBottom
+        let canConsumeExplicitSync = isExplicit &&
+            (!requiresAuthoritativeScrollbarResponse || isAuthoritativeWheelResponse)
+        let shouldSynchronize: Bool
+        if isExplicit && !canConsumeExplicitSync {
+            // Do not let an identity-less packet from before the wheel move
+            // the wrapper or consume the pending explicit response.
+            shouldSynchronize = false
+        } else {
+            shouldSynchronize = canConsumeExplicitSync ||
+                allowsPassiveScrollbarSync ||
+                !scrollbar.isAtBottom
+        }
 
         let nextIntent: Self
-        if isExplicit {
+        if canConsumeExplicitSync {
             let targetIsAtBottom: Bool
             if let targetDistanceFromBottom,
                targetDistanceFromBottom.isFinite {
@@ -102,7 +175,7 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
         return TerminalScrollbackScrollbarSyncDecision(
             intent: nextIntent,
             shouldSynchronizeViewport: shouldSynchronize,
-            consumedExplicitSync: isExplicit
+            consumedExplicitSync: canConsumeExplicitSync
         )
     }
 }
