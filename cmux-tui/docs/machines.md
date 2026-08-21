@@ -16,7 +16,7 @@ Right-click a client-owned machine or any tab in the tabs column to rename that 
 
 The static catalog shows `+ Connect machine`. It discovers concrete aliases from `Host` directives in `~/.ssh/config` and recursively follows `Include` directives. Wildcard and negated patterns are omitted. Type while the native picker is open to filter large host catalogs, then use Up/Down and Enter. Large pickers have the same wheel, track-click, and thumb-drag scrollbar as other native overlays. `Add SSH host…` accepts `cmux-lawrence`, `user@host`, or the familiar `ssh cmux-lawrence` spelling. Either path adds an SSH target for the current process and connects to its `main` session. SSH performs final config resolution, so aliases retain their configured hostname, user, port, proxy, and identity settings. Temporary targets and renamed machine labels are not written to configuration. To keep `cmux-lawrence` across launches, add a concrete `Host cmux-lawrence` entry to `~/.ssh/config`; the picker discovers it on the next launch.
 
-`+ new machine` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
+`+ new vm` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
 
 ## Static targets
 

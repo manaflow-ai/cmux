@@ -120,7 +120,7 @@ The machine rail is optional. Its position comes from a `sidebar.views` entry wh
 | `machine_sidebar.create_sources` | array | `[]` | Prototype-only native creation choices; no provider command is executed |
 | `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
 
-Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new machine` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
+Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new vm` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
 
 Try the tracked prototype configuration with:
 

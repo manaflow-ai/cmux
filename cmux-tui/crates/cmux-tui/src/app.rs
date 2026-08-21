@@ -3712,8 +3712,6 @@ enum MachineRailCommand {
     Rename(MachineKey),
     Delete(MachineKey),
     Purge(MachineKey),
-    OpenScopes,
-    OpenActions,
     Create,
     Connect,
 }
@@ -3785,8 +3783,6 @@ pub enum Hit {
     },
     NewVm,
     ConnectMachine,
-    ProviderScope,
-    ProviderActions,
     /// Sidebar workspace entry.
     Workspace {
         index: usize,
@@ -3810,8 +3806,6 @@ pub enum Hit {
         view: usize,
         branch: ProjectionBranch,
     },
-    /// A rail header, the explicit pointer entrypoint for sidebar focus.
-    RailHeader(RailKind),
     SidebarAction {
         view: usize,
         action: SidebarActionTarget,
@@ -3865,6 +3859,9 @@ pub enum Hit {
         total_rows: usize,
         visible_rows: usize,
     },
+    /// The one-row top pad of a rail: the pointer entrypoint for focusing
+    /// the rail without activating one of its rows.
+    RailPad(RailKind),
     /// A rail's right border.
     RailResize(RailKind),
     /// Pane border resize handle.
@@ -11476,8 +11473,6 @@ impl App {
         match hit {
             Hit::NewVm
             | Hit::ConnectMachine
-            | Hit::ProviderScope
-            | Hit::ProviderActions
             | Hit::CreateWorkspace { .. }
             | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(_), .. } => {
                 machine_context.cloned().map(PointerHitIdentity::MachineContext)
@@ -11521,7 +11516,7 @@ impl App {
             Hit::Workspace { .. }
             | Hit::ProjectionRow { .. }
             | Hit::ProjectionToggle { .. }
-            | Hit::RailHeader(_)
+            | Hit::RailPad(_)
             | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
             | Hit::StatusMessage
@@ -16981,8 +16976,6 @@ impl App {
                 }
             } else if key.code == KeyCode::Enter {
                 match targets.get(current).copied() {
-                    Some(MachineRailTarget::Scope) => Some(MachineRailCommand::OpenScopes),
-                    Some(MachineRailTarget::Actions) => Some(MachineRailCommand::OpenActions),
                     Some(MachineRailTarget::NewVm) => Some(MachineRailCommand::Create),
                     Some(MachineRailTarget::ConnectMachine) => Some(MachineRailCommand::Connect),
                     Some(MachineRailTarget::Machine(_)) | None => None,
@@ -17005,8 +16998,6 @@ impl App {
             Some(MachineRailCommand::Purge(machine)) => {
                 self.open_purge_managed_machine_prompt(machine);
             }
-            Some(MachineRailCommand::OpenScopes) => self.open_provider_scope_menu(1, 2),
-            Some(MachineRailCommand::OpenActions) => self.open_provider_actions_menu(1, 3),
             Some(MachineRailCommand::Create) => {
                 self.open_machine_creation_menu(1, 3);
             }
@@ -17231,14 +17222,17 @@ impl App {
         self.show_toast("Copied".to_string());
     }
 
-    fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
+    /// Scope-switch entries for the provider rail menu. Empty when only one
+    /// scope exists (nothing to switch to).
+    fn provider_scope_menu_items(&self) -> Vec<MenuItem> {
         let messages = &localization::catalog().sidebar;
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
+            return Vec::new();
         };
-        let selected_index =
-            provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id);
-        let items = provider
+        if provider.scopes.len() < 2 {
+            return Vec::new();
+        }
+        provider
             .scopes
             .iter()
             .enumerate()
@@ -17254,23 +17248,14 @@ impl App {
                     action: MenuAction::SelectProviderScope(index),
                 }
             })
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            let mut menu = ContextMenu::with_groups(x, y, vec![items]);
-            if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_index) {
-                level.selected = selected;
-                level.ensure_selection_visible();
-            }
-            self.menu = Some(menu);
-            self.capture_menu_resources();
-        }
+            .collect()
     }
 
-    fn open_provider_actions_menu(&mut self, x: u16, y: u16) {
+    fn provider_actions_menu_items(&self) -> Vec<MenuItem> {
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
+            return Vec::new();
         };
-        let items = provider
+        provider
             .actions
             .iter()
             .enumerate()
@@ -17282,11 +17267,7 @@ impl App {
                 },
                 action: MenuAction::InvokeProviderAction(index),
             })
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
-            self.capture_menu_resources();
-        }
+            .collect()
     }
 
     fn begin_provider_action(&mut self, index: usize) {
@@ -20772,20 +20753,6 @@ impl App {
                     }
                     self.open_machine_connection_menu(x, y);
                 }
-                Hit::ProviderScope => {
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Scope;
-                    }
-                    self.open_provider_scope_menu(x, y);
-                }
-                Hit::ProviderActions => {
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Actions;
-                    }
-                    self.open_provider_actions_menu(x, y);
-                }
                 Hit::Workspace { index, id } => {
                     self.workspace_rail_follow_selection = true;
                     self.focus = FocusTarget::Pane;
@@ -20817,7 +20784,7 @@ impl App {
                     self.activate_projection_target(target)?;
                     self.focus = FocusTarget::Pane;
                 }
-                Hit::RailHeader(kind) => {
+                Hit::RailPad(kind) => {
                     self.focus_rail(kind);
                 }
                 Hit::SidebarAction { view, action } => {
@@ -21986,6 +21953,18 @@ impl App {
         if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
             let mut groups = Vec::new();
             match hit {
+                // The scope switcher and provider actions lost their rail
+                // rows; a right click on "+ new vm" is their home now.
+                Some(Hit::NewVm) => {
+                    let scopes = self.provider_scope_menu_items();
+                    if !scopes.is_empty() {
+                        groups.push(scopes);
+                    }
+                    let actions = self.provider_actions_menu_items();
+                    if !actions.is_empty() {
+                        groups.push(actions);
+                    }
+                }
                 Some(Hit::Machine { key, .. }) => {
                     if let Some(machine) = self.managed_machine(key) {
                         let mut actions = Vec::new();
@@ -22100,6 +22079,10 @@ impl App {
             groups.push(vec![self.sidebar_presentation_menu_item()]);
             groups.push(self.menu_group([MenuAction::ShowShortcuts]));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
+            // Provider scope/action entries dispatch by displayed index;
+            // capture the stable resources behind them (see the identity
+            // tests) exactly like the dedicated menus used to.
+            self.capture_menu_resources();
             return;
         }
         match hit {
@@ -25142,7 +25125,7 @@ mod tests {
     }
 
     #[test]
-    fn focused_sidebar_uses_an_accent_header_and_divider() {
+    fn focused_sidebar_uses_an_accent_divider() {
         let (mux, _) = test_mux("focused-sidebar-style-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -25160,9 +25143,6 @@ mod tests {
         assert_eq!(divider.symbol(), "┃");
         assert_eq!(divider.fg, app.config.theme.border_active);
         assert!(divider.modifier.contains(Modifier::BOLD));
-        let header = &terminal.backend().buffer()[(1, 0)];
-        assert_eq!(header.bg, app.chrome.status_active_bg);
-        assert_eq!(header.fg, app.config.theme.border_active);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -36228,8 +36208,8 @@ mod tests {
         assert_eq!(buffer[(12, 2)].symbol(), "│");
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.notification_warning));
         assert!(row_contains(buffer, 1, "•"), "tab bar should contain unread dot");
-        assert_eq!(buffer[(0, 2)].symbol(), "▎", "sidebar should retain the active rail");
-        assert_eq!(buffer[(1, 2)].symbol(), "•", "sidebar should contain unread dot");
+        assert_eq!(buffer[(0, 1)].symbol(), "▎", "sidebar should retain the active rail");
+        assert_eq!(buffer[(1, 1)].symbol(), "•", "sidebar should contain unread dot");
 
         app.replace_tree(notify_tree(surface.id, false));
         let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
@@ -36241,7 +36221,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.border_active));
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
-        assert_ne!(buffer[(1, 2)].symbol(), "•", "sidebar dot should clear");
+        assert_ne!(buffer[(1, 1)].symbol(), "•", "sidebar dot should clear");
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -36507,7 +36487,7 @@ mod tests {
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
         let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).contains("workspaces"));
+        assert!(buffer_text(terminal.backend().buffer()).contains("+ new workspace"));
 
         app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_view, SidebarView::Files);
@@ -37921,14 +37901,14 @@ mod tests {
         );
 
         app.machine_ui.as_mut().unwrap().request = None;
-        let header = app
+        let pad = app
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                matches!(hit, super::Hit::RailHeader(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailPad(RailKind::Workspace)).then_some(*rect)
             })
             .unwrap();
-        app.handle_left_down(header.x, header.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_down(pad.x, pad.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
@@ -38028,27 +38008,37 @@ mod tests {
         ui
     }
 
+    /// Draw the app and open the context menu on the "+ new vm" row - the
+    /// home of the provider scope and action entries now that their rail
+    /// rows are gone.
+    fn open_new_vm_context_menu(app: &mut App) {
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(app, frame)).unwrap();
+        let rect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::NewVm).then_some(*rect))
+            .expect("new vm row");
+        app.open_context_menu(rect.x, rect.y);
+    }
+
     #[test]
-    fn provider_scope_row_switches_team_with_keyboard_menu() {
+    fn provider_scope_switches_from_the_new_vm_context_menu() {
         let mux = Mux::new("provider-scope-keyboard-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.focus = FocusTarget::MachineRail;
-        app.sync_layout((100, 16));
+        open_new_vm_context_menu(&mut app);
 
-        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        let menu = app.menu.as_ref().expect("new vm context menu");
         assert_eq!(
-            app.machine_ui.as_ref().map(|ui| ui.rail_selection),
-            Some(MachineRailSelection::Scope)
+            menu.levels[0].items.first(),
+            Some(&MenuItem::LabeledAction {
+                label: "  Personal (personal)".into(),
+                action: MenuAction::SelectProviderScope(0),
+            })
         );
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
-            app.menu.as_ref().and_then(ContextMenu::selected_action),
-            Some(MenuAction::SelectProviderScope(1))
-        );
-
-        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::SelectProviderScope("personal".into()))
@@ -38057,35 +38047,24 @@ mod tests {
     }
 
     #[test]
-    fn provider_rows_and_action_prompt_are_mouse_accessible() {
+    fn provider_actions_and_prompt_are_reachable_from_the_new_vm_menu() {
         let mux = Mux::new("provider-actions-mouse-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.sync_layout((100, 16));
-        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
-        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        open_new_vm_context_menu(&mut app);
 
-        let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("team · Acme"), "{text}");
-        assert!(text.contains("actions"), "{text}");
-        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::ProviderScope)));
-        let actions = app
-            .hits
+        let menu = app.menu.as_ref().expect("new vm context menu");
+        let invite = MenuItem::LabeledAction {
+            label: "Invite member".into(),
+            action: MenuAction::InvokeProviderAction(0),
+        };
+        let index = menu.levels[0]
+            .items
             .iter()
-            .find_map(|(rect, hit)| matches!(hit, super::Hit::ProviderActions).then_some(*rect))
-            .expect("provider actions hit");
-
-        app.handle_left_down(actions.x, actions.y, KeyModifiers::NONE).unwrap();
-        let menu = app.menu.as_ref().expect("action menu opened by mouse");
-        assert_eq!(
-            menu.levels[0].items[0],
-            MenuItem::LabeledAction {
-                label: "Invite member".into(),
-                action: MenuAction::InvokeProviderAction(0),
-            }
-        );
+            .position(|item| *item == invite)
+            .expect("provider action in the new vm menu");
         let item_x = menu.levels[0].rect.x + 2;
-        let item_y = menu.levels[0].rect.y + 1;
+        let item_y = menu.levels[0].rect.y + 1 + index as u16;
         app.handle_left_down(item_x, item_y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Member email"));
 
@@ -38243,29 +38222,11 @@ mod tests {
     }
 
     #[test]
-    fn personal_scope_row_does_not_repeat_the_same_label() {
-        let mux = Mux::new("provider-personal-scope-style-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut ui = provider_controls_ui();
-        let mut provider = ui.provider.clone().unwrap();
-        provider.selected_scope_id = "personal".into();
-        ui.set_provider_presentation(provider);
-        app.machine_ui = Some(ui);
-        app.sync_layout((100, 16));
-        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
-        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-
-        let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains(" Personal ▾"), "{text}");
-        assert!(!text.contains("personal · Personal"), "{text}");
-    }
-
-    #[test]
     fn provider_snapshot_update_invalidates_stale_menu_and_prompt() {
         let mux = Mux::new("provider-overlay-invalidation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        open_new_vm_context_menu(&mut app);
         assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
 
         let mut update = provider_controls_ui();
@@ -38291,7 +38252,7 @@ mod tests {
         let mux = Mux::new("provider-action-menu-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        open_new_vm_context_menu(&mut app);
 
         let action = MenuAction::InvokeProviderAction(0);
         assert!(
@@ -38301,6 +38262,15 @@ mod tests {
             ),
             "provider actions must capture the stable action behind their displayed index"
         );
+        // The combined menu leads with scope entries; move the selection onto
+        // the displayed action before the provider array changes.
+        for _ in 0..16 {
+            if app.menu.as_ref().and_then(ContextMenu::selected_action) == Some(action) {
+                break;
+            }
+            app.handle_menu_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        }
+        assert_eq!(app.menu.as_ref().and_then(ContextMenu::selected_action), Some(action));
 
         app.machine_ui.as_mut().unwrap().provider.as_mut().unwrap().actions.swap(0, 1);
         app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
@@ -38316,7 +38286,7 @@ mod tests {
         let mux = Mux::new("provider-scope-menu-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_scope_menu(1, 2);
+        open_new_vm_context_menu(&mut app);
 
         let action = MenuAction::SelectProviderScope(1);
         assert!(
@@ -38416,12 +38386,9 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("machines"), "{text}");
         assert!(text.contains("no machines"), "{text}");
-        assert!(text.contains("new machine"), "{text}");
-        assert!(!text.contains("new VM"), "{text}");
-        assert!(text.contains("connect machine"), "{text}");
-        assert!(text.contains("workspaces"), "{text}");
+        assert!(text.contains("+ new vm"), "{text}");
+        assert!(text.contains("+ ssh host"), "{text}");
         assert!(
             !app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::CreateWorkspace { .. }) })
         );
@@ -38778,16 +38745,11 @@ mod tests {
         app.sync_layout((100, 9));
 
         app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
+        assert!(matches!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Scope)
-        );
+            Some(crate::machine::MachineRailTarget::Machine(_))
+        ));
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
-            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Actions)
-        );
-        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
             Some(crate::machine::MachineRailTarget::NewVm)
@@ -38940,7 +38902,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_headers_are_the_only_pointer_entrypoint_for_rail_focus() {
+    fn sidebar_top_pads_are_the_only_pointer_entrypoint_for_rail_focus() {
         let (mux, surface) = test_mux("sidebar-pointer-focus-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         let mut machine_ui = provider_machine_ui();
@@ -39591,10 +39553,9 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let rendered = buffer_text(terminal.backend().buffer());
-        assert!(rendered.contains("workspaces › agents"), "{rendered}");
         assert!(rendered.contains("working · agent-session"), "{rendered}");
         assert!(
-            rendered.contains("new workspace"),
+            rendered.contains("+ new workspace"),
             "a configured workspace representation must preserve its native creation action: {rendered}"
         );
         assert!(app.hits.iter().any(|(_, hit)| matches!(
