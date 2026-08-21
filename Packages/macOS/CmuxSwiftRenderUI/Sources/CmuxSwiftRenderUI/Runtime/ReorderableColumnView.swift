@@ -112,13 +112,11 @@ struct ReorderableColumnView: View {
                     including: rowIsGrabbable(childId) ? .all : .subviews
                 )
 
-                // Pure height accordion: rows stay fully opaque and are
-                // revealed/hidden ONLY by their slot's animating height (the
-                // fixedSize + clipped pair in ReorderableRowView masks them
-                // at constant row height). identity avoids the default fade;
-                // the end-of-animation removal happens at slot height zero,
-                // so nothing visibly pops.
-                .transition(.identity)
+                // Accordion: the slot's animating height masks the row at
+                // constant row height (fixedSize + clipped in
+                // ReorderableRowView, so no squish), and the row fades
+                // through the fold as it enters/leaves.
+                .transition(.opacity)
             }
         }
         // Animate DATA-driven structural changes (collapse/expand, external
