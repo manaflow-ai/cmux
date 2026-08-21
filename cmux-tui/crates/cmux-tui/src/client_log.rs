@@ -45,17 +45,32 @@ struct Record {
 /// when it next drains.
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
-static QUEUE: OnceLock<Option<SyncSender<Record>>> = OnceLock::new();
+enum Message {
+    Record(Record),
+    /// Ask the writer to confirm everything queued before this marker is on
+    /// disk. The writer acks after draining; senders wait with a deadline.
+    Flush(SyncSender<()>),
+}
 
-fn queue() -> Option<&'static SyncSender<Record>> {
+static QUEUE: OnceLock<Option<SyncSender<Message>>> = OnceLock::new();
+
+fn queue() -> Option<&'static SyncSender<Message>> {
     QUEUE
         .get_or_init(|| {
             let mut sink = open_sink()?;
-            let (sender, receiver) = sync_channel::<Record>(QUEUE_CAPACITY);
+            let (sender, receiver) = sync_channel::<Message>(QUEUE_CAPACITY);
             std::thread::Builder::new()
                 .name("client-log".into())
                 .spawn(move || {
-                    while let Ok(record) = receiver.recv() {
+                    while let Ok(message) = receiver.recv() {
+                        let record = match message {
+                            Message::Record(record) => record,
+                            Message::Flush(ack) => {
+                                let _ = sink.file.flush();
+                                let _ = ack.try_send(());
+                                continue;
+                            }
+                        };
                         let dropped = DROPPED.swap(0, Ordering::AcqRel);
                         if dropped > 0 {
                             write_record(
@@ -72,9 +87,50 @@ fn queue() -> Option<&'static SyncSender<Record>> {
                     }
                 })
                 .ok()?;
+            // `std::process::exit` (usage errors, startup failures) skips
+            // destructors but runs atexit handlers, so queued diagnostics
+            // still reach disk on the paths this log exists for.
+            #[cfg(unix)]
+            unsafe {
+                libc::atexit(flush_at_exit);
+            }
             Some(sender)
         })
         .as_ref()
+}
+
+/// Drain the queue to disk, waiting at most `deadline`. Safe to call from
+/// any thread, including the exiting one; never blocks unbounded.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn flush_with_deadline(deadline: std::time::Duration) {
+    let Some(sender) = QUEUE.get().and_then(|queue| queue.as_ref()) else {
+        return;
+    };
+    let started = std::time::Instant::now();
+    let (ack, done) = sync_channel::<()>(1);
+    // A full queue means the writer is behind; give it the deadline to make
+    // space rather than dropping the flush marker immediately.
+    let mut marker = Message::Flush(ack);
+    loop {
+        match sender.try_send(marker) {
+            Ok(()) => break,
+            Err(std::sync::mpsc::TrySendError::Full(returned)) => {
+                if started.elapsed() >= deadline {
+                    return;
+                }
+                marker = returned;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
+        }
+    }
+    let remaining = deadline.saturating_sub(started.elapsed());
+    let _ = done.recv_timeout(remaining);
+}
+
+#[cfg(unix)]
+extern "C" fn flush_at_exit() {
+    flush_with_deadline(std::time::Duration::from_millis(500));
 }
 
 struct Sink {
@@ -193,11 +249,23 @@ fn write_record(sink: &mut Sink, record: &Record) {
         let size = sink.file.metadata().map(|meta| meta.len()).unwrap_or(0);
         if size >= MAX_ACTIVE_BYTES {
             let _ = sink.file.flush();
-            let _ = fs::rename(&sink.path, rollover_path(&sink.path));
-            if let Ok(file) = append_options().open(&sink.path) {
-                let old = std::mem::replace(&mut sink.file, file);
-                unlock(&old);
-                return;
+            let rolled = rollover_path(&sink.path);
+            let mut rotated = fs::rename(&sink.path, &rolled).is_ok();
+            if !rotated {
+                // Windows refuses to replace an existing destination.
+                let _ = fs::remove_file(&rolled);
+                rotated = fs::rename(&sink.path, &rolled).is_ok();
+            }
+            if rotated {
+                if let Ok(file) = append_options().open(&sink.path) {
+                    let old = std::mem::replace(&mut sink.file, file);
+                    unlock(&old);
+                    return;
+                }
+            } else {
+                // Keep the size bound even where rename keeps failing:
+                // drop the old content in place.
+                let _ = sink.file.set_len(0);
             }
         }
     }
@@ -359,7 +427,7 @@ pub(crate) fn log(level: &'static str, area: &str, message: &str) {
         Record { stamp: timestamp(), level, area: area.to_string(), message: message.to_string() };
     // Never block a caller (status rendering runs on the UI thread): a full
     // queue drops the record and the writer reports the count.
-    if sender.try_send(record).is_err() {
+    if sender.try_send(Message::Record(record)).is_err() {
         DROPPED.fetch_add(1, Ordering::AcqRel);
     }
 }
