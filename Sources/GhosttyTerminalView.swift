@@ -3703,15 +3703,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar
+        let hasPending = _pendingScrollbar != nil
         _pendingScrollbar = nil
         _scrollbarLock.unlock()
 
-        guard let pending else { return }
+        guard hasPending else { return }
         // Callback payloads are coalesced and can predate main-thread input.
         // Treat them as invalidation signals when the runtime is available so
         // a delayed packet can never move the viewport to obsolete geometry.
-        publishScrollbarUpdate(authoritativeScrollbarSnapshot() ?? pending)
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // No runtime means the callback has no trustworthy row-space
+            // identity. Drop it rather than moving AppKit to stale geometry.
+            return
+        }
+        publishScrollbarUpdate(authoritativeScrollbar)
     }
 
     private func authoritativeScrollbarSnapshot() -> GhosttyScrollbar? {
@@ -3740,6 +3745,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             name: .ghosttyDidUpdateScrollbar,
             object: self,
             userInfo: userInfo
+        )
+    }
+
+    private func postWheelScroll(
+        requiresAuthoritativeResponse: Bool,
+        authoritativeResponseUnavailable: Bool = false
+    ) {
+        var userInfo: [AnyHashable: Any] = [:]
+        if requiresAuthoritativeResponse {
+            userInfo[GhosttyNotificationKey.requiresAuthoritativeWheelResponse] = true
+        }
+        if authoritativeResponseUnavailable {
+            userInfo[GhosttyNotificationKey.authoritativeWheelResponseUnavailable] = true
+        }
+        NotificationCenter.default.post(
+            name: .ghosttyDidReceiveWheelScroll,
+            object: self,
+            userInfo: userInfo.isEmpty ? nil : userInfo
         )
     }
 
@@ -7697,11 +7720,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface else {
             // Detached views used by previews and tests have no runtime
             // snapshot. Preserve the bounded first-packet fallback for them.
-            NotificationCenter.default.post(
-                name: .ghosttyDidReceiveWheelScroll,
-                object: self,
-                userInfo: [GhosttyNotificationKey.requiresAuthoritativeWheelResponse: true]
-            )
+            postWheelScroll(requiresAuthoritativeResponse: true)
             if let authoritativeScrollbar = authoritativeScrollbarSnapshot() {
                 // The synchronous snapshot supersedes any callback payload
                 // that was queued before this wheel event.
@@ -7712,19 +7731,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 return
             }
-            NotificationCenter.default.post(
-                name: .ghosttyDidReceiveWheelScroll,
-                object: self,
-                userInfo: [GhosttyNotificationKey.authoritativeWheelResponseUnavailable: true]
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
             )
             _ = flushPendingScrollbarIfAvailable()
             return
         }
-        NotificationCenter.default.post(
-            name: .ghosttyDidReceiveWheelScroll,
-            object: self,
-            userInfo: [GhosttyNotificationKey.requiresAuthoritativeWheelResponse: true]
-        )
+        postWheelScroll(requiresAuthoritativeResponse: true)
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
@@ -7771,12 +7785,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 
         guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
-            // Surface teardown can race input delivery. Downgrade the pending
-            // request so a later callback can still settle viewport intent.
-            NotificationCenter.default.post(
-                name: .ghosttyDidReceiveWheelScroll,
-                object: self,
-                userInfo: [GhosttyNotificationKey.authoritativeWheelResponseUnavailable: true]
+            // Surface teardown can race input delivery. Cancel the pending
+            // request and discard queued geometry; publishing stale geometry
+            // here would move the viewport to an obsolete row space.
+            discardPendingScrollbar()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
             )
             return
         }
@@ -7785,6 +7800,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             isAuthoritativeWheelResponse: true
         )
     }
+
     deinit {
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
@@ -8983,7 +8999,8 @@ final class GhosttySurfaceScrollView: NSView {
                 guard let self else { return }
                 if notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
                     as? Bool == true {
-                    self.allowFirstScrollbarResponse()
+                    self.scrollbackViewportIntent = self.scrollbackViewportIntent
+                        .cancellingExplicitScrollbarSync()
                     self.cancelPendingNotificationScrollRestoreForUserInput()
                     return
                 }
@@ -11843,11 +11860,6 @@ final class GhosttySurfaceScrollView: NSView {
             .beginningExplicitScrollbarSync(
                 requiresAuthoritativeResponse: requiresAuthoritativeResponse
             )
-    }
-
-    private func allowFirstScrollbarResponse() {
-        scrollbackViewportIntent = scrollbackViewportIntent
-            .allowingFirstScrollbarResponse()
     }
 
     /// Applies a direct viewport restore as one intent transition so a later

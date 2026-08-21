@@ -4123,7 +4123,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     private final class AuthoritativeScrollbarSurfaceView: GhosttyNSView {
         var authoritativeScrollbar: GhosttyScrollbar?
         var interveningScrollbar: GhosttyScrollbar?
-        var afterPublishingInterveningScrollbar: (() -> Void)?
 
         override func readAuthoritativeScrollbar(
             _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
@@ -4136,7 +4135,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                     object: self,
                     userInfo: [GhosttyNotificationKey.scrollbar: interveningScrollbar]
                 )
-                afterPublishingInterveningScrollbar?()
             }
             result.pointee = ghostty_surface_scrollbar_s(
                 total: authoritativeScrollbar.total,
@@ -4644,12 +4642,26 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         var interveningOriginY: CGFloat?
         var interveningIntent: TerminalScrollbackViewportIntent?
         surfaceView.interveningScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
-        surfaceView.afterPublishingInterveningScrollbar = {
-            interveningOriginY = scrollView.contentView.bounds.origin.y
-            interveningIntent = hostedView.scrollbackViewportIntent
+        let passiveHandled = expectation(description: "passive scrollbar packet handled")
+        let authoritativeHandled = expectation(description: "authoritative scrollbar packet handled")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            queue: .main
+        ) { notification in
+            let isAuthoritative = notification.userInfo?[GhosttyNotificationKey.isAuthoritativeWheelResponse]
+                as? Bool == true
+            if isAuthoritative {
+                authoritativeHandled.fulfill()
+            } else if (notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar)?.offset == 40 {
+                interveningOriginY = scrollView.contentView.bounds.origin.y
+                interveningIntent = hostedView.scrollbackViewportIntent
+                passiveHandled.fulfill()
+            }
         }
-        defer { surfaceView.afterPublishingInterveningScrollbar = nil }
+        defer { NotificationCenter.default.removeObserver(observer) }
         scrollView.scrollWheel(with: scrollEvent)
+        wait(for: [passiveHandled, authoritativeHandled], timeout: 1)
 
         XCTAssertEqual(
             interveningIntent,

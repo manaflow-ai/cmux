@@ -80,21 +80,6 @@ import CmuxTerminalCore
         #expect(responseDecision.consumedExplicitSync)
     }
 
-    @Test func unavailableAuthoritativeResponseFallsBackToFirstPacket() {
-        let fallback = TerminalScrollbackViewportIntent.reviewingScrollback
-            .beginningExplicitScrollbarSync(requiresAuthoritativeResponse: true)
-            .allowingFirstScrollbarResponse()
-        let decision = fallback.applyingScrollbar(
-            scrollbar(total: 100, offset: 90, visible: 10),
-            targetDistanceFromBottom: 0,
-            bottomThreshold: 5
-        )
-
-        #expect(decision.intent == .followingOutput)
-        #expect(decision.shouldSynchronizeViewport)
-        #expect(decision.consumedExplicitSync)
-    }
-
     @Test func liveWheelUpgradesPendingLegacySyncToAuthoritativeResponse() {
         let pending = TerminalScrollbackViewportIntent.followingOutput
             .beginningExplicitScrollbarSync()
@@ -108,6 +93,13 @@ import CmuxTerminalCore
         #expect(passiveDecision.intent == pending)
         #expect(!passiveDecision.shouldSynchronizeViewport)
         #expect(!passiveDecision.consumedExplicitSync)
+    }
+
+    @Test func unavailableAuthoritativeResponseCancelsPendingSync() {
+        let pending = TerminalScrollbackViewportIntent.reviewingScrollback
+            .beginningExplicitScrollbarSync(requiresAuthoritativeResponse: true)
+
+        #expect(pending.cancellingExplicitScrollbarSync() == .reviewingScrollback)
     }
 
     @Test func scrollbarBottomCheckUsesClampedTopRow() {

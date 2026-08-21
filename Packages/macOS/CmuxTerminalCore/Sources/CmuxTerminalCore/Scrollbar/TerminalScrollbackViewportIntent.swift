@@ -93,16 +93,15 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
         )
     }
 
-    /// Downgrades an unavailable runtime snapshot to the legacy first-packet
-    /// behavior so a transient surface teardown cannot leave intent pending.
-    public func allowingFirstScrollbarResponse() -> Self {
-        guard case .awaitingExplicitScrollbarSync(let previousWasReviewing, true) = self else {
+    /// Cancels a wheel request when the runtime cannot provide its snapshot.
+    ///
+    /// The prior follow/review intent is restored so teardown cannot leave the
+    /// viewport permanently blocked waiting for a packet that will never come.
+    public func cancellingExplicitScrollbarSync() -> Self {
+        guard case .awaitingExplicitScrollbarSync(let previousWasReviewing, _) = self else {
             return self
         }
-        return .awaitingExplicitScrollbarSync(
-            previousWasReviewing: previousWasReviewing,
-            requiresAuthoritativeResponse: false
-        )
+        return previousWasReviewing ? .reviewingScrollback : .followingOutput
     }
 
     /// Updates intent from an actual user-driven AppKit scroll gesture.
