@@ -128,10 +128,11 @@ extension TabItemView {
         if !context.remoteTargetWorkspaceIds.isEmpty {
             Divider()
 
+            // Reconnect stays enabled while connecting/reconnecting: a wedged coordinator
+            // is exactly when the user reaches for it. Disconnect keeps its gate.
             Button(reconnectLabel) {
                 actions.reconnectTargets(context.remoteTargetWorkspaceIds)
             }
-            .disabled(context.allRemoteTargetsConnecting)
 
             Button(disconnectLabel) {
                 actions.disconnectTargets(context.remoteTargetWorkspaceIds)

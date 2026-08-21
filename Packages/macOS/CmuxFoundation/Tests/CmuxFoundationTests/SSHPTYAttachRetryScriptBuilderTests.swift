@@ -226,10 +226,21 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             Thread.sleep(forTimeInterval: 0.01)
         }
         #expect(FileManager.default.fileExists(atPath: markerURL.path))
+        // The retry note names whichever budget governs the attempt: a reauthenticating
+        // wrapper that has never authenticated is bounded by the authentication budget,
+        // and its bridge never closed, so claiming otherwise would be misleading.
+        // Asserting the whole note pins the governing budget: the authentication branch
+        // must count auth attempts against 20, not the attach counter against the
+        // unbounded attach limit. `cmux_ssh_attach_foreground_auth` returns 254 and
+        // `cmux_test_attach` returns 255, and no CMUX_SSH_RECONNECT_LIMIT is set here,
+        // so both attempt numbers and both limits are deterministic.
+        let expectedBackoffNote = reauthenticates
+            ? "ssh authentication failed with status 254; retrying (attempt 1/20)."
+            : "remote PTY bridge closed; reattaching (attempt 1/∞)."
         #expect(
             waitForFile(
                 at: transcriptURL,
-                containing: "remote PTY bridge closed; reattaching",
+                containing: expectedBackoffNote,
                 while: process,
                 timeout: 3
             )

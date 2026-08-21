@@ -87,8 +87,31 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  \(backoffBuilder.terminalInputModeResetLine)",
-            "  if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' \"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
         ])
+        let reattachingNote = "if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' " +
+            "\"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" " +
+            "\"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi"
+        if reauthenticates {
+            // Before the first successful authentication this wrapper is bounded by the
+            // authentication budget, not by `cmux_ssh_attach_reconnect_limit` (often
+            // '∞'), so the note must report whichever budget actually governs it.
+            let authenticationRetryFormat = String(
+                localized: "cli.ssh.authRetry.status",
+                defaultValue: "[cmux] ssh authentication failed with status %s; retrying (attempt %s/%s)."
+            ).remoteCommandShellQuoted
+            let authenticationRetryNote = "if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' " +
+                "\"$(printf \(authenticationRetryFormat) \"$cmux_ssh_attach_status\" " +
+                "\"$cmux_ssh_attach_auth_retry\" \"$cmux_ssh_attach_auth_retry_limit\")\" >&2 || true; fi"
+            lines.append(contentsOf: [
+                "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ] && [ \"$cmux_ssh_attach_auth_succeeded\" -eq 0 ]; then",
+                "    \(authenticationRetryNote)",
+                "  else",
+                "    \(reattachingNote)",
+                "  fi",
+            ])
+        } else {
+            lines.append("  \(reattachingNote)")
+        }
         lines.append(contentsOf: backoffBuilder.waitLines)
         lines.append(contentsOf: [
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",

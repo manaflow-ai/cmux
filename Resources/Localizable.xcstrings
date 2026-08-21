@@ -53733,6 +53733,23 @@
         }
       }
     },
+    "cli.ssh.authRetry.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ssh authentication failed with status %s; retrying (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ssh 認証がステータス %s で失敗しました。再試行しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.status": {
       "extractionState": "manual",
       "localizations": {
@@ -55246,6 +55263,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh：--transport 後必須指定 'ssh' 或 'mosh'"
+          }
+        }
+      }
+    },
+    "cli.ssh.persistentGiveUp.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] reconnect this pane from its right-click menu (Reconnect Pane) or from the workspace in the sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] このペインを右クリックメニュー（ペインを再接続）またはサイドバーのワークスペースから再接続してください。"
+          }
+        }
+      }
+    },
+    "cli.ssh.persistentGiveUp.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ssh exited with status %s; the remote session is still running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ssh がステータス %s で終了しました。リモートセッションはまだ実行中です。"
           }
         }
       }

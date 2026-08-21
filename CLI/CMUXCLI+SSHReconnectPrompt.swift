@@ -10,6 +10,29 @@ extension CMUXCLI {
         return "\\n\\033[33m\(status)\\033[0m\\n\\033[2m\(stopHint)\\033[0m\\n"
     }
 
+    /// The note a persistent wrapper prints when it stops retrying.
+    ///
+    /// The remote PTY outlives this wrapper, so the pane is reattachable rather
+    /// than dead; the hint names the affordances that actually work for it.
+    func sshPersistentAttachGiveUpNoteFormat() -> String {
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let status = String(localized: "cli.ssh.persistentGiveUp.status", defaultValue: "[cmux] ssh exited with status %s; the remote session is still running.", bundle: bundle)
+        let hint = String(localized: "cli.ssh.persistentGiveUp.hint", defaultValue: "[cmux] reconnect this pane from its right-click menu (Reconnect Pane) or from the workspace in the sidebar.", bundle: bundle)
+        return "\\n\\033[31m\(status)\\033[0m\\n\\033[2m\(hint)\\033[0m\\n"
+    }
+
+    /// The retry note for the foreground-authentication phase.
+    ///
+    /// Before the first successful authentication the wrapper is bounded by
+    /// `SSHForegroundAuthenticationRetryPolicy.maximumConsecutiveTransientFailures`,
+    /// not by the reconnect budget, so it must report that budget instead.
+    func sshAuthenticationRetryNoteFormat() -> String {
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let status = String(localized: "cli.ssh.authRetry.status", defaultValue: "[cmux] ssh authentication failed with status %s; retrying (attempt %s/%s).", bundle: bundle)
+        let stopHint = String(localized: "cli.ssh.autoReconnect.stopHint", defaultValue: "[cmux] close this pane or press Ctrl-C to stop reconnecting.", bundle: bundle)
+        return "\\n\\033[33m\(status)\\033[0m\\n\\033[2m\(stopHint)\\033[0m\\n"
+    }
+
     func sshManualReconnectExitPromptFormat() -> String {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let status = String(localized: "cli.ssh.manualReconnectPrompt.status", defaultValue: "[cmux] ssh exited with status %s.", bundle: bundle)

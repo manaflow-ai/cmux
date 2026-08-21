@@ -558,7 +558,9 @@ struct SidebarWorkspaceRowMenuBuilder {
         let reconnectLabel = label(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"))
-        menu.addItem(item(reconnectLabel, enabled: !commands.allRemoteContextMenuTargetsConnecting) {
+        // Reconnect stays enabled while connecting/reconnecting: a wedged coordinator is
+        // exactly when the user reaches for it. Disconnect keeps its gate.
+        menu.addItem(item(reconnectLabel) {
             for workspace in remoteWorkspaces() {
                 workspace.reconnectRemoteConnection()
             }

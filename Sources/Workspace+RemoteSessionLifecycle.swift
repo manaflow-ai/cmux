@@ -157,7 +157,11 @@ extension Workspace {
         }
         if configuration.preserveAfterTerminalExit {
             if remoteControllerIsReady {
-                let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
+                let reattached = reattachPersistentRemotePTYPanels(
+                    requestedSurfaceId: surfaceId,
+                    restartEndedSessions: true,
+                    includesLiveFailingAttaches: surfaceId == nil
+                )
                 didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
             }
         } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
@@ -186,7 +190,13 @@ extension Workspace {
             if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
         }
         if reconnectingSurfaceId != nil, remoteControllerIsReady { return didRespawnTerminal }
-        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
+        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else {
+            // A wedged coordinator is exactly when the user presses Reconnect: re-arm the
+            // policy instead of doing nothing. Healthy connections are left alone by
+            // resetReconnectPolicyLocked's shouldReconnect check.
+            forceRemoteSessionReconnectRetry(reason: "manual reconnect")
+            return didRespawnTerminal
+        }
         configureRemoteConnection(configuration, autoConnect: true)
         return didRespawnTerminal
     }
