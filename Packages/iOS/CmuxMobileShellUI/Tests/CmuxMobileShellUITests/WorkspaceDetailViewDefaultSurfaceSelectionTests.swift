@@ -1,0 +1,134 @@
+#if canImport(UIKit)
+import CMUXMobileCore
+import CmuxMobileBrowser
+import CmuxMobileBrowserStream
+import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileToast
+import Foundation
+import Observation
+import SwiftUI
+import Testing
+@preconcurrency import UIKit
+@testable import CmuxMobileShellUI
+
+@MainActor
+@Suite struct WorkspaceDetailViewDefaultSurfaceSelectionTests {
+    @Test func simulatorOnlyWorkspaceAutoSelectsItsFirstPanelWhenPanelsArrive() async {
+        let workspaceID = "workspace-1"
+        let initialWorkspace = MobileWorkspacePreview(
+            id: .init(rawValue: workspaceID),
+            name: "Workspace",
+            terminals: []
+        )
+        let updatedWorkspace = MobileWorkspacePreview(
+            id: .init(rawValue: workspaceID),
+            name: "Workspace",
+            terminals: [],
+            simulators: [Self.descriptor()]
+        )
+        let simulatorStore = MobileSimulatorStreamStore()
+        let shell = MobileShellComposite(
+            workspaces: [initialWorkspace],
+            simulatorStreamStore: simulatorStore
+        )
+        let browserStore = BrowserSurfaceStore()
+        let browserStreamStore = BrowserStreamStore()
+        let displaySettings = MobileDisplaySettings(
+            defaults: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        )
+        let toasts = ToastCenter()
+        let model = WorkspaceDetailHarnessModel(workspace: initialWorkspace)
+
+        let controller = UIHostingController(
+            rootView: WorkspaceDetailHarness(
+                model: model,
+                store: shell,
+                browserStore: browserStore,
+                browserStreamStore: browserStreamStore,
+                simulatorStore: simulatorStore,
+                displaySettings: displaySettings,
+                toasts: toasts
+            )
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+
+        #expect(simulatorStore.activeState(in: workspaceID) == nil)
+
+        model.workspace = updatedWorkspace
+        controller.view.layoutIfNeeded()
+        await Task.yield()
+        controller.view.layoutIfNeeded()
+
+        #expect(simulatorStore.activeState(in: workspaceID)?.id == Self.descriptor().panelID)
+        window.isHidden = true
+    }
+
+    private static func descriptor() -> MobileSimulatorPanelDescriptor {
+        MobileSimulatorPanelDescriptor(
+            panelID: "sim-1",
+            workspaceID: "workspace-1",
+            title: "Simulator",
+            selectedDeviceName: "iPhone 17",
+            selectedDeviceState: "Booted",
+            status: "streaming",
+            isReady: true,
+            supportsTouch: true,
+            supportsKeyboard: true,
+            supportsHardwareButtons: true,
+            supportsRotation: true,
+            ownerConnectionID: nil,
+            isOwnedByCurrentConnection: nil
+        )
+    }
+}
+
+private struct WorkspaceDetailHarness: View {
+    @Bindable var model: WorkspaceDetailHarnessModel
+    let store: MobileShellComposite
+    let browserStore: BrowserSurfaceStore
+    let browserStreamStore: BrowserStreamStore
+    let simulatorStore: MobileSimulatorStreamStore
+    let displaySettings: MobileDisplaySettings
+    let toasts: ToastCenter
+
+    var body: some View {
+        WorkspaceDetailView(
+            host: "Mac",
+            connectionStatus: .connected,
+            workspace: model.workspace,
+            store: store,
+            createWorkspace: {},
+            canCreateWorkspace: false,
+            createTerminal: {},
+            renameWorkspace: nil,
+            customizeWorkspace: nil,
+            setWorkspaceUnread: nil,
+            closeWorkspace: nil,
+            reportTerminalViewport: { _, _, _ in },
+            sendTerminalInput: { _ in },
+            safeAreaContext: .fullWidth,
+            backButtonConfiguration: nil,
+            signOut: nil
+        )
+        .environment(browserStore)
+        .environment(browserStreamStore)
+        .environment(simulatorStore)
+        .environment(displaySettings)
+        .environment(toasts)
+    }
+}
+
+@MainActor
+@Observable
+private final class WorkspaceDetailHarnessModel {
+    var workspace: MobileWorkspacePreview
+
+    init(workspace: MobileWorkspacePreview) {
+        self.workspace = workspace
+    }
+}
+#endif
