@@ -82,6 +82,18 @@ struct CmuxCommand: ParsableCommand {
             RefreshSurfacesCommand.self,
             DebugTerminalsCommand.self,
             SidebarStateCommand.self,
+            BrowserCommand.self,
+            OpenBrowserCommand.self,
+            NavigateCommand.self,
+            BrowserBackLegacyCommand.self,
+            BrowserForwardLegacyCommand.self,
+            BrowserReloadLegacyCommand.self,
+            BrowserStatusLegacyCommand.self,
+            GetURLCommand.self,
+            FocusWebviewLegacyCommand.self,
+            WebviewFocusedLegacyCommand.self,
+            DisableBrowserCommand.self,
+            EnableBrowserCommand.self,
         ]
     )
 
