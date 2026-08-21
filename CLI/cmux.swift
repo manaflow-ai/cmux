@@ -40690,6 +40690,12 @@ struct CMUXTermMain {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
+
+        if shouldUseFacade() {
+            CmuxCommand.main()
+            return
+        }
+
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
@@ -40703,5 +40709,37 @@ struct CMUXTermMain {
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
+    }
+
+    /// The facade owns an invocation only when the first non-global argument names a
+    /// declared command. Bare paths, undeclared commands, and the legacy escape hatch
+    /// all stay on the hand-rolled parser.
+    private static func shouldUseFacade() -> Bool {
+        if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
+            return false
+        }
+        guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
+            return false
+        }
+        return CmuxCommand.declaredCommandNames.contains(command)
+    }
+
+    private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {
+        let optionsWithValues: Set<String> = ["--socket", "--password", "--window", "--id-format"]
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            index = arguments.index(after: index)
+            if optionsWithValues.contains(argument) {
+                guard index < arguments.endIndex else { return nil }
+                index = arguments.index(after: index)
+                continue
+            }
+            if argument == "--json" {
+                continue
+            }
+            return argument
+        }
+        return nil
     }
 }
