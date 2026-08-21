@@ -1153,6 +1153,16 @@ impl ProviderMachineRuntime {
                         // while it pushes these, so a snapshot request would
                         // stall exactly the message it is meant to show.
                         let machine_id = progress.machine_id.as_str().to_string();
+                        // Provider-controlled text: cap it at the trust
+                        // boundary (char-safe) before it is stored or drawn.
+                        let mut message = progress.message.clone();
+                        if message.len() > 512 {
+                            let mut end = 512;
+                            while !message.is_char_boundary(end) {
+                                end -= 1;
+                            }
+                            message.truncate(end);
+                        }
                         // Hard bound against a provider spraying distinct
                         // ids while no snapshot prunes the map. Clearing
                         // drops only coalescing state: an update already
@@ -1166,7 +1176,7 @@ impl ProviderMachineRuntime {
                             let mut slot =
                                 cell.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                             let pending = slot.is_some();
-                            *slot = Some(progress.message.clone());
+                            *slot = Some(message);
                             pending
                         };
                         if already_in_flight {

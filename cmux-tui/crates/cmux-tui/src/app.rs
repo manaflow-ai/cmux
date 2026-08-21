@@ -9471,6 +9471,12 @@ impl App {
         else {
             return RenderAction::None;
         };
+        // Progress is only meaningful while an open for this machine is
+        // being shown. A late event queued before the open settled (failed,
+        // or presented) must not repopulate the stage the settle cleared.
+        if ui.connection_phase(key) != MachineConnectionPhase::Connecting {
+            return RenderAction::None;
+        }
         ui.set_connection_progress(key, message);
         if self.machine_selection_intent == Some(key) {
             RenderAction::Draw
