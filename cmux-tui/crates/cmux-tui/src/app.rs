@@ -11176,6 +11176,10 @@ impl App {
         {
             machine.session_available = false;
             machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+            // The previous open's narration is stale now; a later wake
+            // reuses the same selection intent, so select_machine_intent
+            // will not clear it.
+            machine.clear_connection_progress(active);
             return true;
         }
         if machine.request.is_none() {
