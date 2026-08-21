@@ -25,6 +25,27 @@ struct FileBrowserSurfaceTests {
     }
 
     @Test
+    func gitGraphIsNotAcceptedAsAnUnrenderedSidebarMode() {
+        #expect(RightSidebarMode.from(cliArgument: "git-graph") == nil)
+        #expect(RightSidebarMode.from(cliArgument: "gitgraph") == nil)
+        #expect(RightSidebarMode.from(cliArgument: "graph") == nil)
+    }
+
+    @Test
+    func gitGraphRemoteStateTransitionsBackToLocalForTheSameDirectory() {
+        let model = GitGraphPanelModel()
+
+        model.setDirectory("/tmp/repository", isRemote: true)
+        #expect(model.state == .remoteUnsupported)
+
+        model.reload()
+        #expect(model.state == .remoteUnsupported)
+
+        model.setDirectory("/tmp/repository", isRemote: false)
+        #expect(model.state != .remoteUnsupported)
+    }
+
+    @Test
     func snapshotRoundTripsFileBrowserSourceAndToleratesLegacyPayload() throws {
         let sourcePanelID = UUID()
         let original = SessionRightSidebarToolPanelSnapshot(

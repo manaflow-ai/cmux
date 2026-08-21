@@ -45,7 +45,7 @@ import Testing
         let root = "/tmp/repo"
         let logArguments = [
             "log", "--all", "--date-order", "--decorate=full", "--no-color", "--no-show-signature",
-            "--max-count=500", "--format=%H%x00%P%x00%D%x00%an%x00%aI%x00%s%x00",
+            "--max-count=501", "--format=%H%x00%P%x00%D%x00%an%x00%aI%x00%s%x00",
         ]
         let runner = FakeWorkspaceChangesGitRunner(results: [
             ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root)\n"),
@@ -62,5 +62,35 @@ import Testing
         #expect(snapshot.headOID == "abc")
         #expect(snapshot.isDirty)
         #expect(snapshot.rows.count == 1)
+    }
+
+    @Test(arguments: [
+        (GitGraphService.maximumCommitCount, false),
+        (GitGraphService.maximumCommitCount + 1, true),
+    ])
+    func serviceUsesASentinelCommitToDetectTruncation(
+        returnedCommitCount: Int,
+        expectedTruncation: Bool
+    ) async throws {
+        let root = "/tmp/repo"
+        let logArguments = [
+            "log", "--all", "--date-order", "--decorate=full", "--no-color", "--no-show-signature",
+            "--max-count=501", "--format=%H%x00%P%x00%D%x00%an%x00%aI%x00%s%x00",
+        ]
+        let records = (0..<returnedCommitCount).map { index in
+            "commit-\(index)\0\0\0Ada\02026-08-21T10:30:00+05:30\0Commit \(index)\0"
+        }.joined()
+        let runner = FakeWorkspaceChangesGitRunner(results: [
+            ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root)\n"),
+            ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
+            ["rev-parse", "--verify", "HEAD^{commit}"]: FakeWorkspaceChangesGitRunner.result("commit-0\n"),
+            ["status", "--porcelain=v1", "-z", "--ignore-submodules=dirty", "--no-renames"]: FakeWorkspaceChangesGitRunner.result(""),
+            logArguments: FakeWorkspaceChangesGitRunner.result(records),
+        ])
+
+        let snapshot = try await GitGraphService(runner: runner).snapshot(forDirectory: root)
+
+        #expect(snapshot.rows.count == min(returnedCommitCount, GitGraphService.maximumCommitCount))
+        #expect(snapshot.isTruncated == expectedTruncation)
     }
 }
