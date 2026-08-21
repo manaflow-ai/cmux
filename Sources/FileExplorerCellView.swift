@@ -1,9 +1,8 @@
 import AppKit
-import CmuxAppKitSupportUI
 import UniformTypeIdentifiers
 
 final class FileExplorerCellView: NSTableCellView {
-    private let iconView = CmuxResolvedIconImageView()
+    private let iconView = FileExplorerIconView()
     private let nameLabel = NSTextField(labelWithString: "")
     private let gitStatusLabel = NSTextField(labelWithString: "")
     private let loadingIndicator = NSProgressIndicator()
@@ -90,34 +89,33 @@ final class FileExplorerCellView: NSTableCellView {
         if style == .finder {
             // Native Finder icon pixels miss 3:1 in light mode; use their masks with the dynamic palette tint.
             if node.isDirectory {
-                iconView.apply(CmuxResolvedIconRequest(
-                    source: .image(NSWorkspace.shared.icon(for: .folder)),
-                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                iconView.configure(
+                    image: NSWorkspace.shared.icon(for: .folder),
+                    size: style.iconSize,
                     tintColor: style.folderIconTint
-                ))
+                )
             } else {
                 let pathExtension = (node.name as NSString).pathExtension
-                iconView.apply(CmuxResolvedIconRequest(
-                    source: .image(NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)),
-                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                iconView.configure(
+                    image: NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data),
+                    size: style.iconSize,
                     tintColor: style.fileIconTint
-                ))
+                )
             }
         } else {
             if node.isDirectory {
-                iconView.apply(CmuxResolvedIconRequest(
-                    source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
-                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                iconView.configure(
+                    systemSymbol: "folder.fill",
+                    size: style.iconSize,
                     tintColor: style.folderIconTint,
                     symbolWeight: style.iconWeight
-                ))
+                )
             } else {
-                iconView.apply(CmuxResolvedIconRequest(
-                    source: .systemSymbol(name: "doc", accessibilityDescription: nil),
-                    size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.fileIconTint,
+                iconView.configure(
+                    descriptor: FileExplorerIconDescriptor(fileName: node.name),
+                    size: style.iconSize,
                     symbolWeight: style.iconWeight
-                ))
+                )
             }
         }
 

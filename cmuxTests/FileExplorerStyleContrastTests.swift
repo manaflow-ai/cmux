@@ -132,6 +132,30 @@ import Testing
         #expect(indicator.isHidden)
     }
 
+    @Test(arguments: [
+        ("server.ts", FileExplorerIconDescriptor.Kind.badge("TS"), FileExplorerIconDescriptor.ColorRole.blue),
+        ("client.js", FileExplorerIconDescriptor.Kind.badge("JS"), FileExplorerIconDescriptor.ColorRole.yellow),
+        ("App.swift", FileExplorerIconDescriptor.Kind.symbol("swift"), FileExplorerIconDescriptor.ColorRole.orange),
+        ("package.json", FileExplorerIconDescriptor.Kind.symbol("curlybraces"), FileExplorerIconDescriptor.ColorRole.orange),
+        ("README.md", FileExplorerIconDescriptor.Kind.badge("MD"), FileExplorerIconDescriptor.ColorRole.green),
+        (".gitignore", FileExplorerIconDescriptor.Kind.symbol("arrow.triangle.branch"), FileExplorerIconDescriptor.ColorRole.orange),
+        (".env.local", FileExplorerIconDescriptor.Kind.symbol("key.fill"), FileExplorerIconDescriptor.ColorRole.yellow),
+        ("Dockerfile", FileExplorerIconDescriptor.Kind.symbol("shippingbox.fill"), FileExplorerIconDescriptor.ColorRole.blue),
+        ("bun.lock", FileExplorerIconDescriptor.Kind.symbol("lock.fill"), FileExplorerIconDescriptor.ColorRole.purple),
+        ("preview.png", FileExplorerIconDescriptor.Kind.symbol("photo.fill"), FileExplorerIconDescriptor.ColorRole.purple),
+        ("notes.txt", FileExplorerIconDescriptor.Kind.symbol("doc"), FileExplorerIconDescriptor.ColorRole.neutral),
+    ])
+    func fileNamesReceiveDistinctSemanticIcons(
+        fileName: String,
+        expectedKind: FileExplorerIconDescriptor.Kind,
+        expectedColor: FileExplorerIconDescriptor.ColorRole
+    ) {
+        let descriptor = FileExplorerIconDescriptor(fileName: fileName)
+
+        #expect(descriptor.kind == expectedKind)
+        #expect(descriptor.colorRole == expectedColor)
+    }
+
     private func forEachAppearance(
         _ body: (NSAppearance, NSColor) throws -> Void
     ) throws {
