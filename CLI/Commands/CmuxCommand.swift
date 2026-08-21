@@ -46,6 +46,19 @@ struct CmuxCommand: ParsableCommand {
             PreviousWindowCommand.self,
             LastWindowCommand.self,
             RenameWindowCommand.self,
+            ListWorkspacesCommand.self,
+            NewWorkspaceCommand.self,
+            CloseWorkspaceCommand.self,
+            SelectWorkspaceCommand.self,
+            CurrentWorkspaceCommand.self,
+            RenameWorkspaceCommand.self,
+            ReorderWorkspaceCommand.self,
+            ReorderWorkspacesCommand.self,
+            MoveWorkspaceToWindowCommand.self,
+            WorkspaceCommand.self,
+            WorkspaceActionCommand.self,
+            WorkspaceGroupCommand.self,
+            MoveTabToNewWorkspaceCommand.self,
         ]
     )
 
