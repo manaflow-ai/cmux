@@ -96,8 +96,9 @@ struct GitGraphPanelView: View {
                     .font(.system(size: 12, weight: .semibold))
             }
             Spacer(minLength: 8)
-            if case .loaded(let snapshot) = model.state, snapshot.isTruncated {
-                Text(String(localized: "gitGraph.limit", defaultValue: "Latest 500"))
+            if case .loaded(let snapshot) = model.state,
+               let truncationLabel = truncationLabel(for: snapshot.truncation) {
+                Text(truncationLabel)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -112,6 +113,17 @@ struct GitGraphPanelView: View {
         .padding(.horizontal, 12)
         .frame(height: 38)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    private func truncationLabel(for truncation: GitGraphTruncation) -> String? {
+        switch truncation {
+        case .none:
+            nil
+        case .commitLimit:
+            String(localized: "gitGraph.limit", defaultValue: "Latest 500")
+        case .outputLimit:
+            String(localized: "gitGraph.outputLimit", defaultValue: "Partial history")
+        }
     }
 
     @ViewBuilder
@@ -267,6 +279,7 @@ private struct GitGraphCommitRow: View {
     let isHead: Bool
 
     var body: some View {
+        let abbreviatedOID = String(row.commit.oid.prefix(8))
         HStack(spacing: 0) {
             GitGraphLaneCanvas(row: row, isHead: isHead)
                 .frame(width: graphWidth, height: 36)
@@ -285,7 +298,7 @@ private struct GitGraphCommitRow: View {
             Text(row.commit.author)
                 .frame(width: 150, alignment: .leading)
                 .lineLimit(1)
-            Text(String(row.commit.oid.prefix(8)))
+            Text(abbreviatedOID)
                 .font(.system(size: 11, design: .monospaced))
                 .frame(width: 80, alignment: .leading)
         }
@@ -298,14 +311,8 @@ private struct GitGraphCommitRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             String(
-                format: String(
-                    localized: "gitGraph.commit.accessibilityLabel",
-                    defaultValue: "%1$@, %2$@, %3$@"
-                ),
-                locale: .current,
-                row.commit.subject,
-                row.commit.author,
-                String(row.commit.oid.prefix(8))
+                localized: "gitGraph.commit.accessibilityLabel",
+                defaultValue: "\(row.commit.subject), \(row.commit.author), \(abbreviatedOID)"
             )
         )
     }

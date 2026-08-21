@@ -46,6 +46,14 @@ struct FileBrowserSurfaceTests {
     }
 
     @Test
+    func repositoryToolDirectoryFailsClosedWithoutDirectoryProvenance() {
+        let workspace = Workspace()
+        workspace.currentDirectory = "   "
+
+        #expect(workspace.repositoryToolDirectory(sourcePanelID: nil, rootDirectory: nil) == nil)
+    }
+
+    @Test
     func snapshotRoundTripsFileBrowserSourceAndToleratesLegacyPayload() throws {
         let sourcePanelID = UUID()
         let original = SessionRightSidebarToolPanelSnapshot(

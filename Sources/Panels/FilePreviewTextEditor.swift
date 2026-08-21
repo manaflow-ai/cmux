@@ -308,6 +308,14 @@ final class SavingTextView: NSTextView {
         applyFilePreviewSyntaxHighlight(language: language, baseColor: baseColor)
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        guard let language = filePreviewSyntaxLanguage,
+              let baseColor = filePreviewSyntaxBaseColor,
+              filePreviewSyntaxAppearanceName != effectiveAppearance.name else { return }
+        applyFilePreviewSyntaxHighlight(language: language, baseColor: baseColor)
+    }
+
     func applyIncrementalFilePreviewSyntaxHighlight(editedRange: NSRange) {
         guard let language = filePreviewSyntaxLanguage,
               let baseColor = filePreviewSyntaxBaseColor else { return }
@@ -327,13 +335,11 @@ final class SavingTextView: NSTextView {
             highlighter.apply(to: self)
             return
         }
-        highlighter.apply(
-            to: self,
-            range: FilePreviewSyntaxHighlighter.affectedRange(
-                for: editedRange,
-                in: string
-            )
-        )
+        if let range = highlighter.incrementalRange(for: editedRange, in: string) {
+            highlighter.apply(to: self, range: range)
+        } else {
+            highlighter.apply(to: self)
+        }
     }
 
     convenience init() {

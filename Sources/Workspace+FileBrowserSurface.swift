@@ -86,6 +86,6 @@ extension Workspace {
         if let workspaceDirectory {
             return workspaceDirectory
         }
-        return usesRemoteDirectoryProvenance ? nil : FileManager.default.homeDirectoryForCurrentUser.path
+        return nil
     }
 }

@@ -7,7 +7,9 @@ public struct GitGraphSnapshot: Sendable, Equatable {
     public let headOID: String?
     public let isDirty: Bool
     public let rows: [GitGraphRow]
-    public let isTruncated: Bool
+    public let truncation: GitGraphTruncation
+
+    public var isTruncated: Bool { truncation != .none }
 
     public init(
         repositoryRoot: String,
@@ -15,15 +17,22 @@ public struct GitGraphSnapshot: Sendable, Equatable {
         headOID: String?,
         isDirty: Bool,
         rows: [GitGraphRow],
-        isTruncated: Bool
+        truncation: GitGraphTruncation
     ) {
         self.repositoryRoot = repositoryRoot
         self.branch = branch
         self.headOID = headOID
         self.isDirty = isDirty
         self.rows = rows
-        self.isTruncated = isTruncated
+        self.truncation = truncation
     }
+}
+
+/// The bound that prevented a Git graph snapshot from containing more history.
+public enum GitGraphTruncation: Sendable, Equatable {
+    case none
+    case commitLimit
+    case outputLimit
 }
 
 /// One commit and the graph lanes entering and leaving its row.

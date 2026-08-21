@@ -86,13 +86,21 @@ public struct GitGraphService: Sendable {
         }
         let parsedCommits = GitGraphSnapshotParser().commits(from: logResult.output)
         let commits = Array(parsedCommits.prefix(maximumCommitCount))
+        let truncation: GitGraphTruncation
+        if logResult.standardOutputWasTruncated {
+            truncation = .outputLimit
+        } else if parsedCommits.count > maximumCommitCount {
+            truncation = .commitLimit
+        } else {
+            truncation = .none
+        }
         return GitGraphSnapshot(
             repositoryRoot: root,
             branch: branch?.nilIfEmpty,
             headOID: headOID?.nilIfEmpty,
             isDirty: isDirty,
             rows: GitGraphLayout().rows(for: commits),
-            isTruncated: logResult.standardOutputWasTruncated || parsedCommits.count > maximumCommitCount
+            truncation: truncation
         )
     }
 }

@@ -65,12 +65,12 @@ import Testing
     }
 
     @Test(arguments: [
-        (GitGraphService.maximumCommitCount, false),
-        (GitGraphService.maximumCommitCount + 1, true),
+        (GitGraphService.maximumCommitCount, GitGraphTruncation.none),
+        (GitGraphService.maximumCommitCount + 1, GitGraphTruncation.commitLimit),
     ])
     func serviceUsesASentinelCommitToDetectTruncation(
         returnedCommitCount: Int,
-        expectedTruncation: Bool
+        expectedTruncation: GitGraphTruncation
     ) async throws {
         let root = "/tmp/repo"
         let logArguments = [
@@ -91,6 +91,29 @@ import Testing
         let snapshot = try await GitGraphService(runner: runner).snapshot(forDirectory: root)
 
         #expect(snapshot.rows.count == min(returnedCommitCount, GitGraphService.maximumCommitCount))
-        #expect(snapshot.isTruncated == expectedTruncation)
+        #expect(snapshot.truncation == expectedTruncation)
+    }
+
+    @Test func serviceDistinguishesOutputLimitFromCommitLimit() async throws {
+        let root = "/tmp/repo"
+        let logArguments = [
+            "log", "--all", "--date-order", "--decorate=full", "--no-color", "--no-show-signature",
+            "--max-count=501", "--format=%H%x00%P%x00%D%x00%an%x00%aI%x00%s%x00",
+        ]
+        let runner = FakeWorkspaceChangesGitRunner(results: [
+            ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root)\n"),
+            ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
+            ["rev-parse", "--verify", "HEAD^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["status", "--porcelain=v1", "-z", "--ignore-submodules=dirty", "--no-renames"]: FakeWorkspaceChangesGitRunner.result(),
+            logArguments: FakeWorkspaceChangesGitRunner.result(
+                "abc\0\0\0Ada\02026-08-21T10:30:00+05:30\0Initial\0",
+                standardOutputWasTruncated: true
+            ),
+        ])
+
+        let snapshot = try await GitGraphService(runner: runner).snapshot(forDirectory: root)
+
+        #expect(snapshot.rows.count == 1)
+        #expect(snapshot.truncation == .outputLimit)
     }
 }

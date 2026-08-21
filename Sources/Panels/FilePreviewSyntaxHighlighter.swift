@@ -106,6 +106,110 @@ struct FilePreviewSyntaxHighlighter {
         return source.lineRange(for: NSRange(location: paddedStart, length: paddedLength))
     }
 
+    /// Returns nil when the bounded segment starts inside syntax that must be parsed
+    /// from an earlier opener. Callers should use a full-document pass in that case.
+    func incrementalRange(for editedRange: NSRange, in text: String) -> NSRange? {
+        let range = Self.affectedRange(for: editedRange, in: text)
+        guard range.location > 0 else { return range }
+        let prefix = (text as NSString).substring(to: range.location)
+        return hasOpenMultilineSyntax(in: prefix) ? nil : range
+    }
+
+    private func hasOpenMultilineSyntax(in prefix: String) -> Bool {
+        enum State {
+            case code
+            case lineComment
+            case blockComment
+            case string(UInt8)
+        }
+
+        let bytes = Array(prefix.utf8)
+        let lineCommentMarker: [UInt8]? = switch language {
+        case .python, .ruby, .shell, .yaml, .toml, .configuration:
+            Array("#".utf8)
+        case .sql:
+            Array("--".utf8)
+        case .plainText, .markdown, .json, .html, .css:
+            nil
+        default:
+            Array("//".utf8)
+        }
+        let blockCommentDelimiters: (opening: [UInt8], closing: [UInt8])? = switch language {
+        case .html:
+            (Array("<!--".utf8), Array("-->".utf8))
+        case .sql, .swift, .javascript, .typescript, .rust, .go, .cFamily,
+             .java, .kotlin, .php, .css:
+            (Array("/*".utf8), Array("*/".utf8))
+        default:
+            nil
+        }
+        let stringDelimiters: Set<UInt8> = switch language {
+        case .plainText:
+            []
+        case .markdown:
+            [0x60]
+        default:
+            [0x22, 0x27, 0x60]
+        }
+
+        func matches(_ marker: [UInt8], at index: Int) -> Bool {
+            guard !marker.isEmpty, index + marker.count <= bytes.count else { return false }
+            return bytes[index..<(index + marker.count)].elementsEqual(marker)
+        }
+
+        var state = State.code
+        var index = 0
+        var escaped = false
+        while index < bytes.count {
+            let byte = bytes[index]
+            switch state {
+            case .code:
+                if let delimiters = blockCommentDelimiters,
+                   matches(delimiters.opening, at: index) {
+                    state = .blockComment
+                    index += delimiters.opening.count
+                    continue
+                }
+                if let lineCommentMarker, matches(lineCommentMarker, at: index) {
+                    state = .lineComment
+                    index += lineCommentMarker.count
+                    continue
+                }
+                if stringDelimiters.contains(byte) {
+                    state = .string(byte)
+                    escaped = false
+                }
+            case .lineComment:
+                if byte == 0x0A {
+                    state = .code
+                }
+            case .blockComment:
+                if let delimiters = blockCommentDelimiters,
+                   matches(delimiters.closing, at: index) {
+                    state = .code
+                    index += delimiters.closing.count
+                    continue
+                }
+            case .string(let delimiter):
+                if escaped {
+                    escaped = false
+                } else if byte == 0x5C {
+                    escaped = true
+                } else if byte == delimiter {
+                    state = .code
+                }
+            }
+            index += 1
+        }
+
+        return switch state {
+        case .blockComment, .string:
+            true
+        case .code, .lineComment:
+            false
+        }
+    }
+
     private var commentPattern: String {
         switch language {
         case .python, .ruby, .shell, .yaml, .toml, .configuration:

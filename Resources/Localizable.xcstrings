@@ -148436,6 +148436,31 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "最新 500 筆" } }
       }
     },
+    "gitGraph.outputLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "سجل جزئي" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Djelimična historija" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Delvis historik" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Teilweiser Verlauf" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Partial history" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Historial parcial" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Historique partiel" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Cronologia parziale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "履歴の一部" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រវត្តិមួយផ្នែក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "일부 기록" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Delvis historikk" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Częściowa historia" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Histórico parcial" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Частичная история" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ประวัติบางส่วน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kısmi geçmiş" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Часткова історія" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "部分历史记录" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "部分歷史記錄" } }
+      }
+    },
     "gitGraph.loading": {
       "extractionState": "manual",
       "localizations": {
