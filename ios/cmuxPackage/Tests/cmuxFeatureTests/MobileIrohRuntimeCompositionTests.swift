@@ -520,6 +520,13 @@ struct MobileIrohRuntimeCompositionTests {
         )
         #expect(development.map(\.instanceTag) == ["lane-a", "lane-b"])
 
+        let boundedDevelopment = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            compatibleWith: .development,
+            limit: 1
+        )
+        #expect(boundedDevelopment.map(\.instanceTag) == ["lane-a"])
+
         let official = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
             compatibleWith: .official
