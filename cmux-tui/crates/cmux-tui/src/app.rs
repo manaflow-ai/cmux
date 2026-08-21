@@ -9472,8 +9472,20 @@ impl App {
         // Progress is only meaningful while an open for this machine is
         // being shown. A late event queued before the open settled (failed,
         // or presented) must not repopulate the stage the settle cleared.
-        if ui.connection_phase(key) != MachineConnectionPhase::Connecting {
-            return RenderAction::None;
+        match ui.connection_phase(key) {
+            MachineConnectionPhase::Connecting => {}
+            MachineConnectionPhase::Ready
+                if self.machine_selection_intent == Some(key)
+                    && self.machine_presented != Some(key) =>
+            {
+                // The aim believed this target was warm, but the provider is
+                // narrating an open: the pooled session was dead and a real
+                // (re)connect or wake is running. Flip to Connecting so the
+                // interstitial appears instead of silently showing the old
+                // machine for the whole reconnect.
+                ui.set_connection_phase(key, MachineConnectionPhase::Connecting);
+            }
+            _ => return RenderAction::None,
         }
         ui.set_connection_progress(key, message);
         if self.machine_selection_intent == Some(key) {
@@ -36916,6 +36928,49 @@ mod tests {
         let ui = app.machine_ui.as_ref().unwrap();
         assert!(ui.request.is_none(), "the key must not queue any machine request");
         assert!(app.status_message.is_none(), "the key is consumed silently mid-switch");
+    }
+
+    #[test]
+    fn progress_for_a_stale_ready_target_reveals_the_reconnect() {
+        let mux = Mux::new("machine-stale-ready-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        // The aim trusted a warm connection, but the pooled session was dead:
+        // the provider starts narrating a real open.
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+        assert!(app.machine_transition().is_none(), "warm shortcut hides the interstitial");
+
+        let action = app.apply_connection_progress(
+            "vm-10".into(),
+            Arc::new(Mutex::new(Some("waiting for sshd".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().expect("reconnect must surface");
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+        assert_eq!(view.progress, Some("waiting for sshd"));
     }
 
     #[test]
