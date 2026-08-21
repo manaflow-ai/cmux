@@ -40,13 +40,35 @@ function selectWorkspace(id) {
 const closedOverride = new Set();
 const [closeTick, setCloseTick] = signal(0);
 
+// Optimistic tabs order: a bulk drop rearranges rows locally the same frame
+// (reorder_many echoes ~1s later); clears itself once the data agrees.
+let orderOverride = null;
+const [orderTick, setOrderTick] = signal(0);
+
+function setOrderOverride(ids) {
+  orderOverride = ids;
+  setOrderTick(orderTick() + 1);
+}
+
 function visibleWorkspaces() {
   closeTick();
-  const ws = data.workspaces() ?? [];
+  orderTick();
+  let ws = data.workspaces() ?? [];
   for (const id of Array.from(closedOverride)) {
     if (!ws.some((w) => w.id === id)) closedOverride.delete(id); // caught up
   }
-  return ws.filter((w) => !closedOverride.has(w.id));
+  ws = ws.filter((w) => !closedOverride.has(w.id));
+  if (orderOverride) {
+    const actual = ws.map((w) => w.id).join(",");
+    const wanted = orderOverride.filter((id) => ws.some((w) => w.id === id)).join(",");
+    if (actual === wanted) {
+      orderOverride = null; // caught up
+    } else {
+      const rank = new Map(orderOverride.map((id, i) => [id, i]));
+      ws = [...ws].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+    }
+  }
+  return ws;
 }
 
 function closeWorkspace(id) {
@@ -303,6 +325,7 @@ function handleMove(id, index, extra) {
     let insertAt = nextWorkspace ? rest.indexOf(nextWorkspace.id) : rest.length;
     if (insertAt < 0) insertAt = rest.length;
     const full = [...rest.slice(0, insertAt), ...movingIds, ...rest.slice(insertAt)];
+    setOrderOverride(full); // gather instantly; reorder_many echoes behind it
     cmux("workspace.reorder_many", { workspace_ids: JSON.stringify(full) });
     clearMultiSelect();
     return;
