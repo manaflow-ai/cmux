@@ -379,7 +379,6 @@ fn split_ratio(snapshot: &Value) -> f64 {
     ratio
 }
 
-
 /// JSONL journal read through the CLI, parsed leniently: every JSON object
 /// anywhere in the stream that carries both `kind` and `sequence` is treated
 /// as one journal record.
@@ -531,7 +530,7 @@ fn restored_placeholder_replays_checkpoint_content() {
     assert_eq!(outcomes.len(), 1, "{outcomes:?}");
     let payload = &outcomes[0]["payload"];
     assert_eq!(payload["outcome"], "applied", "{payload}");
-    assert_eq!(payload["terminal_id"], Value::String(terminal_id.clone()), "{payload}");
+    assert_eq!(payload["terminal_id"], Value::String(terminal_id), "{payload}");
     assert_eq!(payload["checkpoint_id"], Value::String(checkpoint_id), "{payload}");
     assert!(
         payload["content"] == "checkpoint" || payload["content"] == "checkpoint+tail",
@@ -573,11 +572,8 @@ fn restored_placeholder_replays_the_output_tail_beyond_the_checkpoint() {
         "--idempotency-key",
         "restore-tail-checkpoint",
     ]);
-    let source_sequence = checkpoint["value"]["source_sequence"]
-        .as_str()
-        .unwrap()
-        .parse::<u64>()
-        .unwrap();
+    let source_sequence =
+        checkpoint["value"]["source_sequence"].as_str().unwrap().parse::<u64>().unwrap();
 
     harness.cli(&["terminal", &terminal_id, "write", "--text", "JRA_TAIL_9402\n"]);
     harness.cli(&[
