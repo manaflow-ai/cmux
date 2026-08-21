@@ -1871,6 +1871,27 @@
         }
       }
     },
+    "mobile.composer.attachment.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.composer.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル添付" } }
+      }
+    },
+    "mobile.composer.attachment.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 items." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付できるのは最大10個までです。" } }
+      }
+    },
     "mobile.composer.attachment.remove": {
       "extractionState": "manual",
       "localizations": {
@@ -1886,6 +1907,27 @@
             "value": "添付を削除"
           }
         }
+      }
+    },
+    "mobile.composer.attachment.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a file smaller than 32 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "32 MB未満のファイルを選択してください。" } }
+      }
+    },
+    "mobile.composer.attachment.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That item couldn’t be read." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その項目を読み込めませんでした。" } }
+      }
+    },
+    "mobile.composer.attachment.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac doesn’t support file attachments yet. Update cmux on the Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacはファイル添付にまだ対応していません。Macのcmuxをアップデートしてください。" } }
       }
     },
     "mobile.composer.close": {
@@ -10817,6 +10859,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Task attachments can use up to 64 MB in total." } },
         "ja": { "stringUnit": { "state": "translated", "value": "タスクの添付ファイルは合計64 MBまでです。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペースト" } }
       }
     },
     "mobile.taskComposer.attachments.photoLibrary": {
