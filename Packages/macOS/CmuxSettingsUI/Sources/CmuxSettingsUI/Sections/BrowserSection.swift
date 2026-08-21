@@ -9,7 +9,7 @@ import SwiftUI
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
 /// Memory Saver Delay, Open Terminal Links / Intercept open,
 /// conditional Hosts / External Patterns text editors, HTTP Hosts
-/// Allowed in Embedded Browser editor, Import Browser Data
+/// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
 @MainActor
 public struct BrowserSection: View {
@@ -32,6 +32,7 @@ public struct BrowserSection: View {
     @State private var hosts: DefaultsValueModel<String>
     @State private var external: DefaultsValueModel<String>
     @State private var httpAllowlist: DefaultsValueModel<String>
+    @State private var urlAllowlist: DefaultsValueModel<String>
     @State private var importHint: DefaultsValueModel<Bool>
     @State private var reactGrab: DefaultsValueModel<String>
 
@@ -39,6 +40,9 @@ public struct BrowserSection: View {
     @State private var httpAllowlistDraft: String = ""
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
+    @State private var urlAllowlistDraft: String = ""
+    @State private var urlAllowlistSyncedValue: String = ""
+    @State private var urlAllowlistLoaded: Bool = false
 
     /// Whether management locks the embedded-browser disable (policy key
     /// enforced, or the user key itself forced). Refreshed from
@@ -48,6 +52,10 @@ public struct BrowserSection: View {
     @State private var browserManagedByPolicy = ManagedDevicePolicy()
         .isBrowserDisableLocked(
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
+        )
+    @State private var browserURLAllowlistManagedByPolicy = ManagedDevicePolicy()
+        .isBrowserURLAllowlistLocked(
+            userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
         )
 
     public init(
@@ -74,6 +82,7 @@ public struct BrowserSection: View {
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
         _httpAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser))
+        _urlAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlAllowlist))
         _importHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs))
         _reactGrab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion))
     }
@@ -97,11 +106,14 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
                     browserDisabledUserDefaultsKey: catalog.browser.disabled.userDefaultsKey
+                )
+                browserURLAllowlistManagedByPolicy = ManagedDevicePolicy().isBrowserURLAllowlistLocked(
+                    userDefaultsKey: catalog.browser.urlAllowlist.userDefaultsKey
                 )
             }
         }
@@ -331,6 +343,11 @@ public struct BrowserSection: View {
 
             SettingsCardDivider()
 
+            urlAllowlistRow(model: urlAllowlist)
+                .settingsSearchAnchors(["setting:browser:url-allowlist"])
+
+            SettingsCardDivider()
+
             // Import Browser Data subsection — tagged with the
             // browserImport anchor id so sidebar deeplinks for that
             // navigation target scroll the user to this inline block.
@@ -480,6 +497,92 @@ public struct BrowserSection: View {
             }
             httpAllowlistSyncedValue = newValue
         }
+    }
+
+    @ViewBuilder
+    private func urlAllowlistRow(model: DefaultsValueModel<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(String(localized: "settings.browser.urlAllowlist", defaultValue: "Embedded Browser URL Allowlist"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                if browserURLAllowlistManagedByPolicy {
+                    Text(String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization"))
+                        .cmuxFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts every embedded-browser navigation to matching hosts or URL patterns. Leave empty to allow all web origins. Internal cmux documents remain available."))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $urlAllowlistDraft)
+                .cmuxFont(size: 12, weight: .regular, design: .monospaced)
+                .frame(minHeight: 86)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .disabled(browserURLAllowlistManagedByPolicy)
+                .accessibilityIdentifier("SettingsBrowserURLAllowlistField")
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    urlAllowlistHint
+                    Spacer(minLength: 0)
+                    urlAllowlistSaveButton(model: model)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    urlAllowlistHint
+                    HStack {
+                        Spacer(minLength: 0)
+                        urlAllowlistSaveButton(model: model)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .task {
+            if !urlAllowlistLoaded {
+                urlAllowlistDraft = model.current
+                urlAllowlistSyncedValue = model.current
+                urlAllowlistLoaded = true
+            }
+        }
+        .onChange(of: model.current) { _, newValue in
+            if !urlAllowlistLoaded {
+                urlAllowlistDraft = newValue
+                urlAllowlistSyncedValue = newValue
+                urlAllowlistLoaded = true
+                return
+            }
+            if urlAllowlistDraft == urlAllowlistSyncedValue {
+                urlAllowlistDraft = newValue
+            }
+            urlAllowlistSyncedValue = newValue
+        }
+    }
+
+    private var urlAllowlistHint: some View {
+        Text(String(localized: "settings.browser.urlAllowlist.hint", defaultValue: "One rule per line: example.com, *.example.com, https://git.example.com, or http://localhost:3000."))
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func urlAllowlistSaveButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.urlAllowlist.save", defaultValue: "Save")) {
+            guard !browserURLAllowlistManagedByPolicy else { return }
+            model.set(urlAllowlistDraft)
+            urlAllowlistSyncedValue = urlAllowlistDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(browserURLAllowlistManagedByPolicy || urlAllowlistDraft == model.current)
+        .accessibilityIdentifier("SettingsBrowserURLAllowlistSaveButton")
     }
 
     @ViewBuilder
