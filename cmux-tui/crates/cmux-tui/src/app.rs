@@ -9453,7 +9453,7 @@ impl App {
     fn apply_connection_progress(
         &mut self,
         machine_id: String,
-        latest: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        latest: Arc<Mutex<Option<String>>>,
     ) -> RenderAction {
         // Latest-value cell: the pump overwrites it while this update sat in
         // the queue, so this read is the newest stage; an emptied cell means
@@ -36744,7 +36744,7 @@ mod tests {
         // is still in flight.
         let action = app.apply_connection_progress(
             "vm-7".into(),
-            std::sync::Arc::new(std::sync::Mutex::new(Some("resuming the machine".into()))),
+            Arc::new(Mutex::new(Some("resuming the machine".into()))),
         );
         assert_eq!(action, RenderAction::Draw);
         let view = app.machine_transition().unwrap();

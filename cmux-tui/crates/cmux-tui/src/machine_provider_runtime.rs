@@ -1074,10 +1074,8 @@ impl ProviderMachineRuntime {
             .spawn(move || {
                 // Latest-value cells for connection progress, one per machine
                 // (see MachineUpdate::ConnectionProgress).
-                let mut progress_cells: std::collections::HashMap<
-                    String,
-                    Arc<std::sync::Mutex<Option<String>>>,
-                > = std::collections::HashMap::new();
+                let mut progress_cells: HashMap<String, Arc<Mutex<Option<String>>>> =
+                    HashMap::new();
                 while !refresh_stop.load(Ordering::Acquire) {
                     if worker_refresh_overflowed.load(Ordering::Acquire) {
                         let mut ui = machine_ui_state(
