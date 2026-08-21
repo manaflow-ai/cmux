@@ -601,12 +601,15 @@ impl MachineConnectionHub {
 
     pub(crate) fn insert_ready(&self, key: MachineKey, connection: MachineConnection) {
         let stamp = self.next_use_stamp();
-        let presented = self.presented();
         let evicted = {
             let Ok(mut slots) = self.inner.slots.lock() else { return };
             let Some(slot) = slots.get_mut(&key) else { return };
             slot.state = MachineConnectionState::Ready(connection);
             slot.last_used = stamp;
+            // Read under the slots lock so a concurrent note_presented cannot
+            // slip in between (note_presented never holds `presented` while
+            // taking `slots`, so this ordering cannot deadlock).
+            let presented = self.presented();
             Self::evict_beyond_warm_limit(&mut slots, self.inner.warm_limit, key, presented)
         };
         for connection in evicted {
@@ -675,7 +678,6 @@ impl MachineConnectionHub {
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
                     let result = connector();
-                    let presented = self.presented();
                     let mut slots = self.inner.slots.lock().map_err(|_| {
                         anyhow::anyhow!(
                             crate::localization::catalog().sidebar.machine_catalog_updates_failed
@@ -696,6 +698,8 @@ impl MachineConnectionHub {
                             let session = connection.session.clone();
                             slot.state = MachineConnectionState::Ready(connection);
                             slot.last_used = self.next_use_stamp();
+                            // Read under the slots lock (see insert_ready).
+                            let presented = self.presented();
                             let evicted = Self::evict_beyond_warm_limit(
                                 &mut slots,
                                 self.inner.warm_limit,
