@@ -113,7 +113,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
-        return GhosttySurfaceHostView(surfaceView: view)
+        // The composition root's tracker spans host lifetimes, so a host built
+        // for a reattached surface recovers keyboard transitions it missed.
+        // Previews and isolated harnesses have no injected tracker; a
+        // coordinator-owned instance still records for this mount's lifetime.
+        return GhosttySurfaceHostView(
+            surfaceView: view,
+            keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
+                ?? context.coordinator.fallbackKeyboardFrameTracker
+        )
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
@@ -281,6 +289,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
         private var composerMountGeneration = 0
+        /// Keyboard frame record for mounts with no injected app-level tracker
+        /// (previews, isolated harnesses). Lazy so production mounts, which
+        /// receive the composition root's tracker, never build one.
+        lazy var fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
 
         init(
             workspaceID: String,

@@ -48,7 +48,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     public init(
         surfaceView: GhosttySurfaceView,
-        keyboardFrameTracker: MobileKeyboardFrameTracker = .shared
+        keyboardFrameTracker: MobileKeyboardFrameTracker
     ) {
         self.surfaceView = surfaceView
         self.keyboardFrameTracker = keyboardFrameTracker

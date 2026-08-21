@@ -1,20 +1,21 @@
 #if canImport(UIKit)
+public import SwiftUI
 public import UIKit
 
-/// Process-wide record of the software keyboard's most recent end frame.
+/// App-lifetime record of the software keyboard's most recent end frame.
 ///
 /// UIKit posts keyboard frame notifications regardless of which views are
 /// installed in a window, but a view-attached `keyboardWillChangeFrame`
 /// handler misses every transition that happens while its view is detached
 /// (for example across a workspace switch). A host that reads this tracker on
 /// window attach can seat its dock at the real keyboard edge instead of the
-/// stale pre-detach state.
+/// stale pre-detach state. The composition root owns the app-wide instance
+/// and injects it through ``EnvironmentValues/mobileKeyboardFrameTracker`` so
+/// its record spans host view lifetimes.
 @MainActor
 public final class MobileKeyboardFrameTracker {
-    public static let shared = MobileKeyboardFrameTracker()
-
     /// The keyboard's most recent end frame in screen coordinates, or `nil`
-    /// before the first keyboard notification of the process.
+    /// before the first keyboard notification observed by this instance.
     public private(set) var lastEndFrame: CGRect?
 
     private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
@@ -73,5 +74,11 @@ public final class MobileKeyboardFrameTracker {
             viewFrameInWindow: viewFrameInWindow
         ).isVisible
     }
+}
+
+extension EnvironmentValues {
+    /// The composition-root-owned keyboard frame tracker, `nil` when the app
+    /// shell has not injected one (previews, isolated harnesses).
+    @Entry public var mobileKeyboardFrameTracker: MobileKeyboardFrameTracker? = nil
 }
 #endif

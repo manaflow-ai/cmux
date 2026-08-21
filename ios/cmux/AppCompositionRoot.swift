@@ -32,6 +32,12 @@ final class AppCompositionRoot {
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    /// App-lifetime keyboard frame record, injected into the view tree via
+    /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
+    /// mid-conversation recover keyboard transitions they were not installed
+    /// for. Constructed here (not lazily in a view) so its record spans every
+    /// host view lifetime.
+    let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
@@ -86,11 +92,6 @@ final class AppCompositionRoot {
         // this a run that never logs would create no file or crash capture.
         MobileDebugLog.shared.append("app launch · composition root initialized")
         #endif
-
-        // Arm the process-wide keyboard frame tracker before any screen can
-        // raise the keyboard: `.shared` is lazy, and a terminal host created
-        // later recovers missed keyboard transitions from this record.
-        _ = MobileKeyboardFrameTracker.shared
 
         self.runtime = runtime
         self.auth = auth
