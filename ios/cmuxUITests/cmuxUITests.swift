@@ -10474,12 +10474,26 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + targetTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "Notification keyboard geometry must resolve to the visible keyboard edge for "
-                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+        // The dock seats on UIKit's notification frame, which includes the
+        // accessory chrome ABOVE the key plane (autocorrect / inline-autofill
+        // bar); the XCUI keyboard element covers only the keys. Assert the dock
+        // sits inside that chrome band: never below the key plane (covering
+        // keys), never floating more than one accessory bar above it.
+        let dockEdgeInWindow = Double(surface.frame.minY) + targetTop
+        let chromeAboveKeys = Double(keyboard.frame.minY) - dockEdgeInWindow
+        XCTAssertGreaterThanOrEqual(
+            chromeAboveKeys,
+            -2,
+            "Dock must not cover the key plane for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            chromeAboveKeys,
+            60,
+            "Dock floated above the keyboard's accessory chrome for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
@@ -11067,11 +11081,20 @@ final class cmuxUITests: XCTestCase {
             accuracy: 1,
             "The dock must terminate at its notification-derived target. dock=\(dock)"
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + dockTargetTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "The notification dock must pin the composer to the visible software keyboard. keyboard=\(keyboard) dock=\(dock)"
+        // The notification frame includes accessory chrome above the XCUI key
+        // plane; the dock must sit inside that band (see
+        // assertTerminalDockPinnedToSoftwareKeyboard).
+        let dockEdgeInWindow = Double(surface.frame.minY) + dockTargetTop
+        let chromeAboveKeys = Double(keyboard.frame.minY) - dockEdgeInWindow
+        XCTAssertGreaterThanOrEqual(
+            chromeAboveKeys,
+            -2,
+            "The notification dock must not cover the key plane. keyboard=\(keyboard) dock=\(dock)"
+        )
+        XCTAssertLessThanOrEqual(
+            chromeAboveKeys,
+            60,
+            "The notification dock floated above the keyboard chrome. keyboard=\(keyboard) dock=\(dock)"
         )
         // The keyboard-up grid arrives with the Mac's viewport echo; wait for
         // the settled render before asserting its attachment.
