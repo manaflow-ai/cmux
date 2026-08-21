@@ -19,6 +19,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
+    private var fileWorkspaceModelStorage: FileWorkspaceModel?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var gitGraphModelStorage: GitGraphPanelModel?
     private var workspaceObservationCancellable: AnyCancellable?
@@ -56,6 +57,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         let state = FileExplorerState()
         fileExplorerStateStorage = state
         return state
+    }
+
+    var fileWorkspaceModel: FileWorkspaceModel {
+        if let model = fileWorkspaceModelStorage { return model }
+        let model = FileWorkspaceModel()
+        fileWorkspaceModelStorage = model
+        return model
     }
 
     var sessionIndexStore: SessionIndexStore {
@@ -112,6 +120,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func openFilePreview(_ filePath: String) {
+        if mode == .files {
+            openFileInWorkspace(filePath)
+            return
+        }
+
         guard let workspace,
               let paneId = workspace.paneId(forPanelId: id)
                 ?? workspace.bonsplitController.focusedPaneId
@@ -144,6 +157,29 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         )
     }
 
+    private func openFileInWorkspace(_ filePath: String) {
+        guard let workspace else { return }
+
+        if workspace.isRemoteWorkspace {
+            let store = fileExplorerStore
+            Task { [weak self, weak workspace, weak store] in
+                guard let self, let workspace, let store else { return }
+                do {
+                    let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
+                    self.fileWorkspaceModel.openFile(
+                        workspaceID: workspace.id,
+                        filePath: localURL.path
+                    )
+                } catch {
+                    NSSound.beep()
+                }
+            }
+            return
+        }
+
+        fileWorkspaceModel.openFile(workspaceID: workspace.id, filePath: filePath)
+    }
+
     var isFocusedInWorkspace: Bool {
         workspace?.focusedPanelId == id
     }
@@ -153,6 +189,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
+        fileWorkspaceModelStorage?.close()
         workspaceObservationCancellable = nil
     }
 
@@ -183,7 +220,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         _ = window
         switch mode {
         case .files, .find:
-            guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
+            let explorerOwnsFocus = fileExplorerContainerView?.ownsKeyboardFocus(responder) == true
+            let editorOwnsFocus = mode == .files
+                && fileWorkspaceModelStorage?.ownsFocus(responder, in: window) == true
+            guard explorerOwnsFocus || editorOwnsFocus else { return nil }
             return .panel
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
@@ -297,6 +337,8 @@ struct RightSidebarToolPanelView: View {
     @EnvironmentObject private var tabManager: TabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let portalPriority: Int
+    let appearance: PanelAppearance
     let resolvedChromeBackgroundColor: NSColor
     let onRequestPanelFocus: () -> Void
 
@@ -320,14 +362,17 @@ struct RightSidebarToolPanelView: View {
     private var content: some View {
         switch panel.mode {
         case .files:
-            FileExplorerPanelView(
-                store: panel.fileExplorerStore,
-                state: panel.fileExplorerState,
-                onOpenFilePreview: panel.openFilePreview,
-                presentation: .files,
-                placement: .pane,
-                onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
+            FileWorkspacePanelView(
+                model: panel.fileWorkspaceModel,
+                explorerStore: panel.fileExplorerStore,
+                explorerState: panel.fileExplorerState,
+                isFocused: isFocused,
+                isVisibleInUI: isVisibleInUI,
+                portalPriority: portalPriority,
+                appearance: appearance,
+                onOpenFile: panel.openFilePreview,
+                onRequestPanelFocus: requestPanelFocusIfNeeded,
+                onExplorerContainerChange: panel.attachFileExplorerContainer
             )
         case .gitGraph:
             GitGraphPanelView(

@@ -118771,6 +118771,40 @@
         }
       }
     },
+    "fileWorkspace.empty.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a file from the explorer to open it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エクスプローラーからファイルを選択すると、ここに開きます。"
+          }
+        }
+      }
+    },
+    "fileWorkspace.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを選択"
+          }
+        }
+      }
+    },
     "filePreview.share": {
       "extractionState": "manual",
       "localizations": {

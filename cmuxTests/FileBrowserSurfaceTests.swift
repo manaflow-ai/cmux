@@ -83,6 +83,41 @@ struct FileBrowserSurfaceTests {
     }
 
     @Test
+    func openingFilesKeepsExplorerSurfaceAndPreservesEditorState() throws {
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-workspace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let firstFile = fixtureDirectory.appendingPathComponent("first.swift")
+        let secondFile = fixtureDirectory.appendingPathComponent("second.json")
+        try "let value = 1\n".write(to: firstFile, atomically: true, encoding: .utf8)
+        try "{}\n".write(to: secondFile, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        let terminalID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: terminalID))
+        let browser = try #require(
+            workspace.openOrFocusFileBrowserSurface(inPane: paneID, focus: false)
+        )
+        let panelCountBeforeSelection = workspace.panels.count
+
+        browser.openFilePreview(firstFile.path)
+        let firstPreview = try #require(browser.fileWorkspaceModel.previewPanel)
+        firstPreview.updateTextContent("let value = 2\n")
+
+        browser.openFilePreview(secondFile.path)
+        #expect(browser.fileWorkspaceModel.previewPanel?.filePath == secondFile.path)
+        #expect(workspace.panels.count == panelCountBeforeSelection)
+
+        browser.openFilePreview(firstFile.path)
+        #expect(browser.fileWorkspaceModel.previewPanel === firstPreview)
+        #expect(browser.fileWorkspaceModel.previewPanel?.textContent == "let value = 2\n")
+        #expect(browser.fileWorkspaceModel.previewPanel?.isDirty == true)
+        #expect(workspace.panels.count == panelCountBeforeSelection)
+    }
+
+    @Test
     func gitGraphIsScopedToPaneAndReusesWithinPane() throws {
         let workspace = Workspace()
         let firstTerminalID = try #require(workspace.focusedPanelId)
