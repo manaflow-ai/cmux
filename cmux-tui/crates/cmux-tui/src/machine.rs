@@ -616,10 +616,14 @@ pub enum MachineUpdate {
     DurableNotice(DurableProviderNotice),
     /// Provider-pushed connect-time step for one machine, forwarded without a
     /// snapshot reload so it renders while the provider's serialized control
-    /// loop is still busy opening that machine.
+    /// loop is still busy opening that machine. The message rides a shared
+    /// latest-value cell: a chatty provider overwrites the pending message
+    /// instead of queueing another update, so at most one progress update per
+    /// machine is ever in flight and the consumer always reads the newest
+    /// stage.
     ConnectionProgress {
         machine_id: String,
-        message: String,
+        latest: Arc<std::sync::Mutex<Option<String>>>,
     },
 }
 

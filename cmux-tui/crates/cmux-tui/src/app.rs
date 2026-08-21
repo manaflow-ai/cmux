@@ -9450,7 +9450,19 @@ impl App {
 
     /// Latest provider progress for a machine that is opening. Presentation
     /// only: dropped when the switch settles, fails, or is re-aimed.
-    fn apply_connection_progress(&mut self, machine_id: String, message: String) -> RenderAction {
+    fn apply_connection_progress(
+        &mut self,
+        machine_id: String,
+        latest: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    ) -> RenderAction {
+        // Latest-value cell: the pump overwrites it while this update sat in
+        // the queue, so this read is the newest stage; an emptied cell means
+        // a newer update for this machine already consumed it.
+        let Some(message) =
+            latest.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()
+        else {
+            return RenderAction::None;
+        };
         let Some(ui) = self.machine_ui.as_mut() else { return RenderAction::None };
         let Some(key) = ui
             .snapshot
@@ -14239,8 +14251,8 @@ impl App {
                 Ok(match *update {
                     MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
                     MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
-                    MachineUpdate::ConnectionProgress { machine_id, message } => {
-                        self.apply_connection_progress(machine_id, message)
+                    MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                        self.apply_connection_progress(machine_id, latest)
                     }
                 })
             }
@@ -36732,7 +36744,10 @@ mod tests {
 
         // A provider connection_progress event renders live while the switch
         // is still in flight.
-        let action = app.apply_connection_progress("vm-7".into(), "resuming the machine".into());
+        let action = app.apply_connection_progress(
+            "vm-7".into(),
+            std::sync::Arc::new(std::sync::Mutex::new(Some("resuming the machine".into()))),
+        );
         assert_eq!(action, RenderAction::Draw);
         let view = app.machine_transition().unwrap();
         assert_eq!(view.progress, Some("resuming the machine"));

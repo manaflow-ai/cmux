@@ -386,8 +386,8 @@ impl ProviderMachineController {
                                 MachineUpdate::DurableNotice(notice) => {
                                     MachineUpdate::DurableNotice(notice)
                                 }
-                                MachineUpdate::ConnectionProgress { machine_id, message } => {
-                                    MachineUpdate::ConnectionProgress { machine_id, message }
+                                MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                                    MachineUpdate::ConnectionProgress { machine_id, latest }
                                 }
                             };
                             if sender.send(update).is_err() {
@@ -1066,6 +1066,12 @@ impl ProviderMachineRuntime {
         let refresh_worker = std::thread::Builder::new()
             .name("machine-provider-refresh".into())
             .spawn(move || {
+                // Latest-value cells for connection progress, one per machine
+                // (see MachineUpdate::ConnectionProgress).
+                let mut progress_cells: std::collections::HashMap<
+                    String,
+                    Arc<std::sync::Mutex<Option<String>>>,
+                > = std::collections::HashMap::new();
                 while !refresh_stop.load(Ordering::Acquire) {
                     if worker_refresh_overflowed.load(Ordering::Acquire) {
                         let mut ui = machine_ui_state(
@@ -1142,10 +1148,26 @@ impl ProviderMachineRuntime {
                         // serialized control loop is busy inside open_machine
                         // while it pushes these, so a snapshot request would
                         // stall exactly the message it is meant to show.
+                        let machine_id = progress.machine_id.as_str().to_string();
+                        let cell = progress_cells
+                            .entry(machine_id.clone())
+                            .or_default();
+                        let already_in_flight = {
+                            let mut slot =
+                                cell.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                            let pending = slot.is_some();
+                            *slot = Some(progress.message.clone());
+                            pending
+                        };
+                        if already_in_flight {
+                            // An unconsumed update for this machine is queued;
+                            // it will deliver this newer message when read.
+                            continue;
+                        }
                         if refresh_output
                             .send(MachineUpdate::ConnectionProgress {
-                                machine_id: progress.machine_id.as_str().to_string(),
-                                message: progress.message.clone(),
+                                machine_id,
+                                latest: Arc::clone(cell),
                             })
                             .is_err()
                         {
@@ -2547,8 +2569,8 @@ mod tests {
             MachineUpdate::DurableNotice(notice) => {
                 panic!("expected UI update, received durable notice {notice:?}")
             }
-            MachineUpdate::ConnectionProgress { machine_id, message } => {
-                panic!("expected UI update, received progress {machine_id:?}: {message:?}")
+            MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                panic!("expected UI update, received progress {machine_id:?}: {latest:?}")
             }
         }
     }
@@ -5722,8 +5744,8 @@ mod tests {
                     );
                     saw_refresh = true;
                 }
-                MachineUpdate::ConnectionProgress { machine_id, message } => {
-                    panic!("unexpected progress {machine_id:?}: {message:?}")
+                MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                    panic!("unexpected progress {machine_id:?}: {latest:?}")
                 }
             }
         }
