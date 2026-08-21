@@ -2532,6 +2532,12 @@ impl RemoteSession {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
+    /// Fire-and-forget command: enqueued in order with interactive traffic,
+    /// never awaited. Used for best-effort reporting such as client focus.
+    pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
+        self.request_no_wait(cmd)
+    }
+
     fn request_with_deadline(
         &self,
         mut cmd: Value,

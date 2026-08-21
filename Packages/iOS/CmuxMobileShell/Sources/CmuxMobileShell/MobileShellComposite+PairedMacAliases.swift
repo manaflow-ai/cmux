@@ -1,4 +1,5 @@
 public import CmuxMobilePairedMac
+internal import CMUXMobileCore
 internal import CmuxMobileShellModel
 internal import Foundation
 
@@ -45,12 +46,18 @@ extension MobileShellComposite {
         if let aliases = pairedMacAliasIDsByRepresentativeID[pairingID] {
             return aliases
         }
-        if let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
-            $0.contains(macDeviceID)
-        }) {
+        if let aliases = pairedMacAliasIDsByRepresentativeID.first(where: {
+            let identity = MobilePairedMac.pairingIdentity(from: $0.key)
+            return macInstanceTagAuthority.sameStoredAuthority(
+                identity.instanceTag,
+                instanceTag
+            ) && $0.value.contains(where: {
+                cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
+            })
+        })?.value {
             return aliases
         }
-        return [macDeviceID]
+        return [cmxCanonicalDeviceID(macDeviceID)]
     }
 
     /// Presence across every stored id represented by a visible paired-Mac row.
@@ -63,7 +70,7 @@ extension MobileShellComposite {
             if let instanceTag {
                 presenceMap.instanceSummary(deviceId: $0, tag: instanceTag)
             } else {
-                presenceMap.deviceSummary(deviceId: $0)
+                presenceMap.soleInstanceSummary(deviceId: $0)
             }
         }
         guard !summaries.isEmpty else { return nil }
@@ -78,27 +85,35 @@ extension MobileShellComposite {
         )
     }
 
-    /// Workspace count for one pairing row. Tagged rows count only toward
-    /// their own build; rows with no tag (legacy hosts) count toward every
-    /// sibling because their build is unknowable.
+    /// Workspace count for one exact pairing row. A legacy untagged workspace
+    /// belongs only to the legacy untagged pairing, because there is no build
+    /// authority that permits attributing it to Stable or Nightly.
     public func workspaceCount(for macDeviceID: String, instanceTag: String? = nil) -> Int {
         let aliases = Set(pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag))
         return workspaces.filter { workspace in
             guard let rowDeviceID = workspace.macDeviceID else { return false }
             guard aliases.contains(rowDeviceID) else { return false }
-            guard let rowTag = workspace.macInstanceTag, let instanceTag else { return true }
-            return macInstanceTagAuthority.sameStoredAuthority(rowTag, instanceTag)
+            return macInstanceTagAuthority.sameStoredAuthority(
+                workspace.macInstanceTag,
+                instanceTag
+            )
         }.count
     }
 
     /// User customization for every stored id represented by visible paired-Mac rows.
     ///
-    /// Workspaces carry no instance tag, so when sibling builds of one Mac are
-    /// both customized the active pairing's customization represents the
-    /// device; without that preference the result depended on iteration order.
+    /// Workspaces are stamped with their owning instance tag, so customizations
+    /// stay on the exact Stable/Nightly pairing instead of leaking across a
+    /// shared physical device id.
     func pairedMacCustomizationsByAliasID() -> [String: MobilePairedMac] {
         Self.customizationsByAliasID(for: displayPairedMacs) { mac in
             pairedMacAliasIDs(for: mac.macDeviceID, instanceTag: mac.instanceTag)
+                .map { aliasID in
+                    MobilePairedMac.pairingID(
+                        macDeviceID: aliasID,
+                        instanceTag: mac.instanceTag
+                    )
+                }
         }
     }
 

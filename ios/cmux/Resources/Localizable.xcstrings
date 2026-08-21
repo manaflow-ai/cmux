@@ -2007,6 +2007,108 @@
         }
       }
     },
+    "mobile.computers.build.dev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.devTaggedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV · %@"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.nightly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ナイトリー"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.rc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RC"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.stable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版"
+          }
+        }
+      }
+    },
+    "mobile.computers.build.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージング"
+          }
+        }
+      }
+    },
     "mobile.computers.buildLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -18560,6 +18662,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このプライベートネットワークを削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.iroh.private.custom.macUpdateRequiredFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Update cmux)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (cmux を更新)"
           }
         }
       }

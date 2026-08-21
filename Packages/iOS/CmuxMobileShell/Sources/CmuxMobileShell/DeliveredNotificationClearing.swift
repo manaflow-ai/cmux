@@ -1,5 +1,3 @@
-public import Foundation
-
 /// The system-notification surface for cross-device dismiss-sync: clearing
 /// already-delivered banners, enumerating them for the reconcile sweep, and
 /// setting the app-icon badge.
@@ -23,16 +21,38 @@ public protocol DeliveredNotificationClearing: Sendable {
     /// ids, if present. Awaitable so a background push wake can finish the
     /// removal BEFORE reporting completion to iOS — returning early lets the
     /// system suspend the process with the work undone.
-    /// - Parameter ids: The stable Mac-side notification ids to clear.
-    func removeDelivered(ids: [String]) async
+    /// - Parameters:
+    ///   - ids: The stable Mac-side notification ids to clear.
+    ///   - macDeviceID: The physical Mac identity that emitted them.
+    ///   - instanceTag: The exact app-instance tag that emitted them.
+    func removeDelivered(
+        ids: [String],
+        macDeviceID: String?,
+        instanceTag: String?
+    ) async
 
     /// The Mac notification ids of all currently delivered notifications, for
     /// the foreground reconcile sweep.
-    func deliveredIdentifiers() async -> [String]
+    func deliveredIdentifiers(
+        macDeviceID: String?,
+        instanceTag: String?
+    ) async -> [String]
 
     /// SET the app-icon badge to the authoritative unread total computed by the
     /// Mac. Always an absolute value — never local +/-1 arithmetic — so any
     /// drift self-heals on the next event/push/reconcile.
     /// - Parameter count: The unread total; clamped to zero by conformers.
     func setBadgeCount(_ count: Int)
+}
+
+extension DeliveredNotificationClearing {
+    /// Compatibility read for callers with no owner identity.
+    public func deliveredIdentifiers() async -> [String] {
+        await deliveredIdentifiers(macDeviceID: nil, instanceTag: nil)
+    }
+
+    /// Compatibility removal for callers with no owner identity.
+    public func removeDelivered(ids: [String]) async {
+        await removeDelivered(ids: ids, macDeviceID: nil, instanceTag: nil)
+    }
 }
