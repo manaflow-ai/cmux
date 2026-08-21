@@ -2557,24 +2557,19 @@ fn initial_provider_connection_notice(
     format!("{}: {error}", messages.initial_machine_connection_failed)
 }
 
-fn publish_session_default_colors(
-    session: &Session,
-    colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<cmux_tui_core::SurfaceId>,
-) -> anyhow::Result<()> {
-    // A scoped attach receives the target terminal's resolved colors through
-    // vt-state. Publishing this client's host colors would recolor sibling
-    // surfaces and change the session defaults for future terminals.
-    if surface_only.is_some() {
-        return Ok(());
+fn frontend_default_colors(
+    mut configured: cmux_tui_core::DefaultColors,
+    host: cmux_tui_core::DefaultColors,
+) -> cmux_tui_core::DefaultColors {
+    // Host OSC 10/11 replies describe this frontend. They may select
+    // compatible local chrome, but never become shared session defaults.
+    if host.fg.is_some() {
+        configured.fg = host.fg;
     }
-    match session {
-        Session::Local(mux) => {
-            mux.seed_default_colors_if_no_durable_override(colors);
-            Ok(())
-        }
-        Session::Remote(remote) => remote.set_default_colors(colors),
+    if host.bg.is_some() {
+        configured.bg = host.bg;
     }
+    configured
 }
 
 fn run_tui_once(
@@ -2587,20 +2582,9 @@ fn run_tui_once(
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
-    let mut colors = config.terminal_defaults;
-    let host_colors = host_colors::probe_default_colors();
-    if host_colors.fg.is_some() {
-        colors.fg = host_colors.fg;
-    }
-    if host_colors.bg.is_some() {
-        colors.bg = host_colors.bg;
-    }
-    let color_result = publish_session_default_colors(&session, colors, surface_only);
-    let raw_result = crossterm::terminal::disable_raw_mode();
-    if let Err(err) = color_result {
-        crate::client_log::stderr_log!("startup", "cmux-tui: failed to set default colors: {err}");
-    }
-    raw_result?;
+    let colors =
+        frontend_default_colors(config.terminal_defaults, host_colors::probe_default_colors());
+    crossterm::terminal::disable_raw_mode()?;
     app::run_with_machine_updates(
         session,
         session_label,
@@ -3138,7 +3122,7 @@ mod tests {
             panic!("light client did not attach");
         };
 
-        publish_session_default_colors(&light_client, light, None).unwrap();
+        let light_projection = frontend_default_colors(dark, light);
         assert_eq!(
             mux.default_colors(),
             dark,
@@ -3151,16 +3135,13 @@ mod tests {
             "the already-attached dark client must stay dark"
         );
         assert_eq!(
-            config::ChromeTheme::for_defaults(config::ChromeMode::Auto, light),
+            config::ChromeTheme::for_defaults(config::ChromeMode::Auto, light_projection),
             config::ChromeTheme::light(),
             "the light client may still project compatible local chrome"
         );
 
         let application_background = cmux_tui_core::Rgb { r: 0x17, g: 0x1b, b: 0x2e };
-        authoritative
-            .try_with_terminal(|terminal| terminal.vt_write(b"\x1b]11;#171b2e\x1b\\"))
-            .unwrap();
-        mux.emit(cmux_tui_core::MuxEvent::SurfaceOutput(authoritative.id));
+        authoritative.write_bytes(b"\x1b]11;#171b2e\x1b\\\n").unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let mut existing_render = ghostty_vt::RenderState::new().unwrap();
