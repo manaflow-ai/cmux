@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import os
 import shutil
 import socket
@@ -19,6 +20,22 @@ from node_runtime import ensure_node_on_path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+
+
+def read_hook_pin() -> str:
+    """The pin cmux marks its own hook commands with, read from the wrapper.
+
+    Kept out of the tests as a literal so the two cannot drift: a wrapper that
+    stops pinning, or pins with a different token, fails these tests instead of
+    silently disabling hook ownership.
+    """
+    match = re.search(r"^cmux_claude_hook_pin='([^']+)'", SOURCE_WRAPPER.read_text(encoding="utf-8"), re.M)
+    if match is None:
+        raise AssertionError("cmux_claude_hook_pin is not defined in the wrapper")
+    return match.group(1)
+
+
+CMUX_HOOK_PIN = f"{read_hook_pin()} "
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -540,7 +557,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
-            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}',
+            hook_command == f'{CMUX_HOOK_PIN}"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}',
             f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
             failures,
         )
@@ -551,7 +568,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         cron_guard_hooks = cron_guard_groups[0].get("hooks", [])
         expect(
             any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard'
+                h.get("command") == f'{CMUX_HOOK_PIN}"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude cron-create-guard'
                 and h.get("async") is not True
                 for h in cron_guard_hooks
             ),
@@ -573,7 +590,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         push_hooks = push_notification_groups[0].get("hooks", [])
         expect(
             any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification'
+                h.get("command") == f'{CMUX_HOOK_PIN}"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude push-notification'
                 and h.get("async") is True
                 for h in push_hooks
             ),
@@ -595,14 +612,17 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
+        any(
+            h.get("command") == f'{CMUX_HOOK_PIN}"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks feed --source claude'
+            for h in permission_request_hooks
+        ),
         f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
         failures,
     )
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
     expect(
         any(
-            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+            h.get("command") == f'{CMUX_HOOK_PIN}"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks feed --source claude'
             and h.get("async") is True
             for h in subagent_stop_hooks
         ),
