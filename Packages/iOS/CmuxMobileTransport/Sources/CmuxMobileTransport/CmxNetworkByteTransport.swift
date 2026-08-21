@@ -331,9 +331,11 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             guard !isTerminal else {
                 return
             }
-            MobileDebugLog.shared.append(
-                "tailscale.connection.ready path=\(Self.pathSummary(connection.currentPath)) revision=\(tailscalePathRevision)"
-            )
+            if tailscaleBinding != nil {
+                MobileDebugLog.shared.append(
+                    "tailscale.connection.ready path=\(Self.pathSummary(connection.currentPath)) revision=\(tailscalePathRevision)"
+                )
+            }
             do {
                 try await validateTailscaleAuthorizationForCurrentPath()
             } catch {

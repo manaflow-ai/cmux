@@ -4429,7 +4429,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         } catch {
             MobileDebugLog.shared.append(
-                "pairing.qr_decode.failed error=\(String(describing: error))"
+                // Type-only: a decode error can embed the scanned payload.
+                "pairing.qr_decode.failed error_type=\(type(of: error))"
             )
             if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
                 // A scanned/pasted code that only points back at the Mac
@@ -4544,7 +4545,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // specific error; record without overwriting that message.
             recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
             MobileDebugLog.shared.append(
-                "pairing.attempt.failed_without_throw category=\(noThrowFailure)"
+                "pairing.attempt.failed_without_throw category=\(noThrowFailure.map(String.init(describing:)) ?? "nil")"
             )
             return .failed
         } catch is CancellationError {

@@ -6,12 +6,23 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
 
 @Suite struct CmxTailscaleRouteProofTests {
     @Test func classifiesOnlyLiveTunnelStateChangesAsTransientReadinessFailures() {
-        #expect(CmxTailscaleRouteProofError.pathUnavailable.isTransientReadinessFailure)
-        #expect(CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable.isTransientReadinessFailure)
-        #expect(CmxTailscaleRouteProofError.ambiguousTailscaleInterfaces.isTransientReadinessFailure)
-        #expect(CmxTailscaleRouteProofError.routeGenerationChanged.isTransientReadinessFailure)
-        #expect(!CmxTailscaleRouteProofError.authorizationEvidenceMismatch.isTransientReadinessFailure)
-        #expect(!CmxTailscaleRouteProofError.peerOutsideTailscaleRange.isTransientReadinessFailure)
+        let transient: [CmxTailscaleRouteProofError] = [
+            .pathUnavailable, .tailscaleInterfaceUnavailable,
+            .ambiguousTailscaleInterfaces, .routeGenerationChanged,
+            .interfaceChanged, .connectionPathUnavailable,
+        ]
+        let terminal: [CmxTailscaleRouteProofError] = [
+            .unsupportedRouteKind, .unsupportedAuthorizationMode,
+            .authorizationEvidenceMismatch, .unsupportedEndpoint,
+            .nonNumericPeer, .peerOutsideTailscaleRange, .peerIsLocalDevice,
+            .localEndpointMismatch, .remoteEndpointMismatch, .remotePortMismatch,
+        ]
+        for error in transient {
+            #expect(error.isTransientReadinessFailure, "\(error) must retry within the readiness deadline")
+        }
+        for error in terminal {
+            #expect(!error.isTransientReadinessFailure, "\(error) must fail the attempt immediately")
+        }
     }
 
     @Test func rejectsGenericBearerAndMismatchedLegacyEvidence() throws {

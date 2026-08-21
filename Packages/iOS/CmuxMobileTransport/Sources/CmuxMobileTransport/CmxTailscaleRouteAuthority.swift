@@ -3,6 +3,7 @@ import CmuxMobileDiagnostics
 import Darwin
 import Foundation
 @preconcurrency import Network
+import os
 
 struct CmxPreparedTailscaleRoute: Sendable {
     let proof: CmxTailscaleRouteProof
@@ -11,46 +12,51 @@ struct CmxPreparedTailscaleRoute: Sendable {
 
 protocol CmxTailscaleRouteAuthorizing: Sendable {
     func prepare(request: CmxByteTransportRequest) async throws -> CmxPreparedTailscaleRoute
-    func waitForNextPathUpdate() async
     func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) async throws
 }
 
-extension CmxTailscaleRouteAuthorizing {
-    func waitForNextPathUpdate() async {}
-}
+/// Platform wiring for ``CmxTailscaleRouteReadiness``: converts every
+/// `NWPathMonitor` callback into a sequence-stamped observation and forwards
+/// it to the readiness actor, which owns all waiting, retry, and deadline
+/// state. `currentPath` is never treated as authoritative on its own; the
+/// monitor's startup snapshot only reaches the readiness actor as an
+/// observation like any other, so preparation gates on real callbacks.
+final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, Sendable {
+    /// How long preparation waits for the tunnel to become provable. Chosen to
+    /// cover Tailscale's tunnel bring-up after a QR scan while staying under
+    /// the RPC layer's whole-request deadline, so an unusable tunnel surfaces
+    /// as the actionable Tailscale failure rather than a generic timeout.
+    static let defaultReadinessDeadline: Duration = .seconds(10)
 
-actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
-    private struct PathState: Sendable {
-        var generation: UInt64 = 0
-        var path: NWPath?
-    }
-
-    private struct ObservedPath: Sendable {
-        let generation: UInt64
-        let path: NWPath
-    }
-
-    private var pathState = PathState()
-    private var hasReceivedInitialPathUpdate = false
-    private var initialPathWaiters: [CheckedContinuation<Void, Never>] = []
-    private let pathUpdateContinuation: AsyncStream<Void>.Continuation
-    private let pathUpdateStream: AsyncStream<Void>
     private let monitor: NWPathMonitor
+    private let readiness: CmxTailscaleRouteReadiness<NWInterface>
+    private let observationSequence: OSAllocatedUnfairLock<UInt64>
 
-    init() {
-        let monitor = NWPathMonitor()
-        self.monitor = monitor
-        let pathUpdates = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
+    init(
+        clock: any Clock<Duration> = ContinuousClock(),
+        readinessDeadline: Duration = CmxSystemTailscaleRouteAuthority.defaultReadinessDeadline
+    ) {
+        let readiness = CmxTailscaleRouteReadiness<NWInterface>(
+            clock: clock,
+            readinessDeadline: readinessDeadline
         )
-        self.pathUpdateContinuation = pathUpdates.continuation
-        self.pathUpdateStream = pathUpdates.stream
-        monitor.pathUpdateHandler = { [weak self] path in
-            guard let self else { return }
-            Task { await self.observe(path) }
+        let sequence = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+        let monitor = NWPathMonitor()
+        self.readiness = readiness
+        self.observationSequence = sequence
+        self.monitor = monitor
+        // The handler captures only the readiness actor and the sequence lock
+        // (not self), so the authority can deinit and cancel the monitor.
+        monitor.pathUpdateHandler = { path in
+            let observation = Self.observation(
+                sequence: Self.nextSequence(sequence),
+                path: path
+            )
+            Task { await readiness.ingest(observation) }
         }
-        // Network.framework requires a callback queue. The callback immediately
-        // enters this actor, which is the sole owner of mutable path state.
+        // Network.framework requires a callback queue; the serial queue orders
+        // sequence stamping with capture, and the readiness actor drops any
+        // observation that arrives out of order after the hop.
         monitor.start(
             queue: DispatchQueue(
                 label: "dev.cmux.mobile.tailscale-route-authority"
@@ -66,155 +72,51 @@ actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
         MobileDebugLog.shared.append(
             "tailscale.prepare.begin route=\(request.route.kind.rawValue)"
         )
-        // `currentPath` is not authoritative until NWPathMonitor has delivered
-        // its first callback. Pairing can begin immediately after the scanner
-        // returns, so gate the first proof on that callback instead of treating
-        // the monitor's startup snapshot as a real Tailscale outage.
-        await waitForInitialPathUpdate()
-        while true {
-            let observed = observedPath()
-            let snapshot = Self.authoritySnapshot(
-                generation: observed.generation,
-                path: observed.path
-            )
-            MobileDebugLog.shared.append(Self.logLine("tailscale.prepare.snapshot", snapshot: snapshot))
-            let proof: CmxTailscaleRouteProof
-            do {
-                proof = try CmxTailscaleRouteProofValidator().prepare(
-                    request: request,
-                    snapshot: snapshot
-                )
-            } catch let error as CmxTailscaleRouteProofError
-                where error.isTransientReadinessFailure
-            {
-                MobileDebugLog.shared.append(
-                    "tailscale.prepare.proof_failed error=\(String(describing: error)); waiting_for_path_update=true"
-                )
-                await waitForNextPathUpdate()
-                continue
-            } catch {
-                MobileDebugLog.shared.append(
-                    "tailscale.prepare.proof_failed error=\(String(describing: error))"
-                )
-                throw error
-            }
-            guard let interface = observed.path.availableInterfaces.first(where: {
-                $0.name == proof.interface.name && $0.index == proof.interface.index
-            }) else {
-                MobileDebugLog.shared.append(
-                    "tailscale.prepare.interface_failed proof_interface=\(proof.interface.name):\(proof.interface.index) snapshot_interfaces=\(Self.interfaceNames(observed.path)); waiting_for_path_update=true"
-                )
-                await waitForNextPathUpdate()
-                continue
-            }
-            MobileDebugLog.shared.append(
-                "tailscale.prepare.success interface=\(proof.interface.name):\(proof.interface.index) generation=\(proof.generation)"
-            )
-            return CmxPreparedTailscaleRoute(proof: proof, requiredInterface: interface)
-        }
-    }
-
-    func waitForNextPathUpdate() async {
-        var iterator = pathUpdateStream.makeAsyncIterator()
-        _ = await iterator.next()
-    }
-
-    func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) throws {
-        let observed = observedPath()
-        let authoritySnapshot = Self.authoritySnapshot(
-            generation: observed.generation,
-            path: observed.path
+        let ready = try await readiness.prepare(request: request)
+        return CmxPreparedTailscaleRoute(
+            proof: ready.proof,
+            requiredInterface: ready.interface
         )
-        let connectionSnapshot = Self.connectionPathSnapshot(connectionPath)
-        try CmxTailscaleRouteProofValidator().validate(
+    }
+
+    func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) async throws {
+        // `currentPath` can advance before the queued callback task lands on
+        // the readiness actor. Ingest a fresh capture first so the write
+        // boundary can never validate against a stale observation.
+        await readiness.ingest(
+            Self.observation(
+                sequence: Self.nextSequence(observationSequence),
+                path: monitor.currentPath
+            )
+        )
+        try await readiness.validate(
             proof: proof,
-            authoritySnapshot: authoritySnapshot,
-            connectionPath: connectionSnapshot
+            connectionPath: Self.connectionPathSnapshot(connectionPath)
         )
     }
 
-    private func observedPath() -> ObservedPath {
-        let currentPath = monitor.currentPath
-        // `currentPath` can advance before the callback reaches this actor.
-        // Record that transition synchronously so a write cannot reuse the old
-        // authority generation during that callback window.
-        if pathState.path == nil || pathState.path != currentPath {
-            pathState.generation = Self.nextGeneration(after: pathState.generation)
-            pathState.path = currentPath
-        }
-        return ObservedPath(generation: pathState.generation, path: currentPath)
-    }
-
-    private func observe(_ path: NWPath) {
-        let pathChanged = pathState.path != path
-        if pathChanged {
-            pathState.generation = Self.nextGeneration(after: pathState.generation)
-            pathState.path = path
-            let snapshot = Self.authoritySnapshot(
-                generation: pathState.generation,
-                path: path
-            )
-            MobileDebugLog.shared.append(Self.logLine("tailscale.path_update", snapshot: snapshot))
-        }
-        let wasInitialPathUpdate = !hasReceivedInitialPathUpdate
-        guard wasInitialPathUpdate else {
-            // `observedPath()` may have read the monitor's newer snapshot
-            // before this callback reached the actor, so wake on every
-            // post-initial callback rather than relying on path equality.
-            pathUpdateContinuation.yield(())
-            return
-        }
-        hasReceivedInitialPathUpdate = true
-        let waiters = initialPathWaiters
-        initialPathWaiters.removeAll(keepingCapacity: false)
-        waiters.forEach { $0.resume() }
-    }
-
-    private func waitForInitialPathUpdate() async {
-        guard !hasReceivedInitialPathUpdate else { return }
-        await withCheckedContinuation { continuation in
-            if hasReceivedInitialPathUpdate {
-                continuation.resume()
-            } else {
-                initialPathWaiters.append(continuation)
-            }
+    private static func nextSequence(
+        _ lock: OSAllocatedUnfairLock<UInt64>
+    ) -> UInt64 {
+        lock.withLock { sequence in
+            sequence += 1
+            return sequence
         }
     }
 
-    private static func logLine(
-        _ prefix: String,
-        snapshot: CmxTailscaleAuthoritySnapshot
-    ) -> String {
-        let interfaces = snapshot.systemInterfaces.map { interface in
-            "\(interface.identity.name):\(interface.identity.index),up=\(interface.isUp),running=\(interface.isRunning),tailnet_addrs=\(interface.tailnetAddresses.count)"
-        }.sorted().joined(separator: ";")
-        return "\(prefix) generation=\(snapshot.generation) path_satisfied=\(snapshot.pathSatisfied) available_interfaces=\(interfaceNames(snapshot.availableInterfaces)) system_interfaces=\(interfaces)"
-    }
-
-    private static func interfaceNames(_ interfaces: Set<CmxNetworkInterfaceIdentity>) -> String {
-        interfaces.map { "\($0.name):\($0.index)" }.sorted().joined(separator: ",")
-    }
-
-    private static func interfaceNames(_ path: NWPath) -> String {
-        interfaceNames(Set(path.availableInterfaces.map {
-            CmxNetworkInterfaceIdentity(name: $0.name, index: $0.index)
-        }))
-    }
-
-    private static func nextGeneration(after generation: UInt64) -> UInt64 {
-        generation == .max ? 1 : generation + 1
-    }
-
-    private static func authoritySnapshot(
-        generation: UInt64,
+    private static func observation(
+        sequence: UInt64,
         path: NWPath
-    ) -> CmxTailscaleAuthoritySnapshot {
-        CmxTailscaleAuthoritySnapshot(
-            generation: generation,
+    ) -> CmxTailscalePathObservation<NWInterface> {
+        CmxTailscalePathObservation(
+            sequence: sequence,
             pathSatisfied: path.status == .satisfied,
-            availableInterfaces: Set(path.availableInterfaces.map {
-                CmxNetworkInterfaceIdentity(name: $0.name, index: $0.index)
-            }),
+            interfaces: Dictionary(
+                path.availableInterfaces.map {
+                    (CmxNetworkInterfaceIdentity(name: $0.name, index: $0.index), $0)
+                },
+                uniquingKeysWith: { first, _ in first }
+            ),
             systemInterfaces: CmxSystemInterfaceSnapshotReader().read()
         )
     }

@@ -122,7 +122,7 @@ struct CmxNetworkInterfaceIdentity: Hashable, Sendable {
     let index: Int
 }
 
-struct CmxTailscaleInterfaceSnapshot: Equatable, Sendable {
+struct CmxTailscaleInterfaceSnapshot: Hashable, Sendable {
     let identity: CmxNetworkInterfaceIdentity
     let isUp: Bool
     let isRunning: Bool
