@@ -12,6 +12,15 @@ public import UIKit
 /// stale pre-detach state. The composition root owns the app-wide instance
 /// and injects it through ``EnvironmentValues/mobileKeyboardFrameTracker`` so
 /// its record spans host view lifetimes.
+///
+/// The recorded frame is screen-space, exactly as UIKit broadcasts it to
+/// every scene in the process. Consumers convert it through their OWN window
+/// and intersect it with their own bounds (``MobileKeyboardReservation``), so
+/// a multi-scene iPad read yields the overlap the keyboard actually has over
+/// that scene's window; a scene the keyboard does not cover resolves to zero
+/// reservation. A per-scene visibility difference observed while a host was
+/// detached self-corrects on the next keyboard notification in that scene,
+/// the same convergence UIKit's own process-wide broadcast relies on.
 @MainActor
 public final class MobileKeyboardFrameTracker {
     /// The keyboard's most recent end frame in screen coordinates, or `nil`
