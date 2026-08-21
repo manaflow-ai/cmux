@@ -154,12 +154,22 @@ fn drain_stderr_pipe(deadline: std::time::Duration) {
     }
     let seen = PIPE_MARKERS_SEEN.load(Ordering::Acquire);
     let marker = format!("{PIPE_FLUSH_MARKER}\n");
-    // SAFETY: fd 2 is the pipe write end while STDERR_REDIRECTED holds.
+    let started = std::time::Instant::now();
+    // A full pipe with a dead pump would make a plain write block forever;
+    // the whole barrier, including this write, stays inside the deadline.
+    let mut poll_fd = libc::pollfd { fd: 2, events: libc::POLLOUT, revents: 0 };
+    // SAFETY: poll on fd 2 with a bounded timeout.
+    let writable = unsafe { libc::poll(&mut poll_fd, 1, deadline.as_millis() as i32) } > 0
+        && poll_fd.revents & libc::POLLOUT != 0;
+    if !writable {
+        return;
+    }
+    // SAFETY: fd 2 is the pipe write end while STDERR_REDIRECTED holds; the
+    // marker is far below PIPE_BUF, so a writable pipe takes it whole.
     let wrote = unsafe { libc::write(2, marker.as_ptr().cast(), marker.len()) };
     if wrote != marker.len() as isize {
         return;
     }
-    let started = std::time::Instant::now();
     while PIPE_MARKERS_SEEN.load(Ordering::Acquire) == seen {
         if started.elapsed() >= deadline {
             return;
@@ -317,9 +327,19 @@ pub(crate) fn redirect_stderr_into_log() {
             return;
         }
         let (read_fd, write_fd) = (fds[0], fds[1]);
+        // Keep the private ends out of child processes (macOS has no pipe2,
+        // so mark them after creation; no fork happens in between). A child
+        // inheriting the read end could read - and steal - stderr records,
+        // which can carry credentials. The dup2 onto fd 2 below creates the
+        // inheritable copy children are meant to write to.
+        // SAFETY: fcntl F_SETFD on freshly created, owned descriptors.
+        unsafe {
+            libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        }
         if SAVED_STDERR.load(Ordering::Acquire) < 0 {
-            // SAFETY: dup of a live fd; the duplicate is retained for restore.
-            let saved = unsafe { libc::dup(2) };
+            // SAFETY: F_DUPFD_CLOEXEC of a live fd; retained for restore.
+            let saved = unsafe { libc::fcntl(2, libc::F_DUPFD_CLOEXEC, 3) };
             SAVED_STDERR.store(saved, Ordering::Release);
         }
         // SAFETY: dup2 onto fd 2 replaces stderr atomically; close the now
@@ -365,8 +385,13 @@ pub(crate) fn redirect_stderr_into_log() {
                                 let text = text.trim_end();
                                 if text == PIPE_FLUSH_MARKER {
                                     PIPE_MARKERS_SEEN.fetch_add(1, Ordering::AcqRel);
-                                } else if !text.is_empty() {
-                                    log("WARN", "stderr", text);
+                                } else if !text.is_empty() && !log_tracked("WARN", "stderr", text)
+                                {
+                                    // Queue full: sleeping applies pipe
+                                    // backpressure to a runaway writer
+                                    // instead of burning a core converting
+                                    // records that will be dropped anyway.
+                                    std::thread::sleep(std::time::Duration::from_millis(5));
                                 }
                                 start = end + 1;
                             }
@@ -465,7 +490,13 @@ fn sanitize(message: &str) -> String {
 /// Append one record. `area` names the subsystem ("status", "machine",
 /// "startup", "provider", ...). Best-effort: errors are swallowed.
 pub(crate) fn log(level: &'static str, area: &str, message: &str) {
-    let Some(sender) = queue() else { return };
+    let _ = log_tracked(level, area, message);
+}
+
+/// Like `log`, and reports whether the record was queued (false = dropped
+/// because the queue is full). The stderr pump uses this for backpressure.
+fn log_tracked(level: &'static str, area: &str, message: &str) -> bool {
+    let Some(sender) = queue() else { return false };
     let message = if message.len() > MAX_MESSAGE_BYTES {
         let mut end = MAX_MESSAGE_BYTES;
         while !message.is_char_boundary(end) {
@@ -480,7 +511,9 @@ pub(crate) fn log(level: &'static str, area: &str, message: &str) {
     // queue drops the record and the writer reports the count.
     if sender.try_send(Message::Record(record)).is_err() {
         DROPPED.fetch_add(1, Ordering::AcqRel);
+        return false;
     }
+    true
 }
 
 pub(crate) fn warn(area: &str, message: &str) {
