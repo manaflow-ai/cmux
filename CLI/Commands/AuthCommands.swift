@@ -28,12 +28,12 @@ struct AuthStatusCommand: LegacyAuthCommand {
 
 struct AuthLoginCommand: LegacyAuthCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "login", helpNames: [], aliases: ["login"])
+    static let configuration = CommandConfiguration(commandName: "login", helpNames: [])
 }
 
 struct AuthLogoutCommand: LegacyAuthCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "logout", helpNames: [], aliases: ["logout"])
+    static let configuration = CommandConfiguration(commandName: "logout", helpNames: [])
 }
 
 struct AIAccountsCommand: LegacyAuthCommand {
