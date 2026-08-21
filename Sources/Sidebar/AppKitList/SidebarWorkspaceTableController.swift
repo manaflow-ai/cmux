@@ -33,6 +33,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// (issue #9690).
     var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
+    private var iconHoverCardDwellTask: Task<Void, Never>?
+    private var iconHoverCardPopover: NSPopover?
+    /// Cell classes differ per display mode, so a mode flip must replace
+    /// every mounted cell (atomic reload) instead of reconfiguring in place.
+    private var lastAppliedColumnDisplayMode: SidebarColumnDisplayMode = .regular
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
@@ -64,6 +69,44 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 #endif
 
+#if DEBUG
+    /// Weak registry so the debug socket can introspect live table state
+    /// (display mode plumbing, scroll origin, mounted cell classes).
+    static let debugInstances = NSHashTable<SidebarWorkspaceTableController>.weakObjects()
+
+    func debugColumnState() -> [String: Any] {
+        var state: [String: Any] = [
+            "rows": rows.count,
+            "lastAppliedDisplayMode": lastAppliedColumnDisplayMode.rawValue,
+            "rowDisplayModes": rows.prefix(8).map { $0.columnDisplayMode.rawValue },
+            "lastMeasuredWidth": lastMeasuredWidth,
+        ]
+        if let containerView {
+            let table = containerView.tableView
+            state["tableWidth"] = table.bounds.width
+            state["clipWidth"] = containerView.clipView.bounds.width
+            state["clipOrigin"] = [
+                containerView.clipView.bounds.origin.x,
+                containerView.clipView.bounds.origin.y,
+            ]
+            state["contentInsetTop"] = containerView.scrollView.contentInsets.top
+            state["mountedCellClasses"] = (0..<min(rows.count, 8)).map { row in
+                table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                    .map { String(describing: type(of: $0)) } ?? "nil"
+            }
+            if rows.count > 0, let cell = table.view(atColumn: 0, row: 0, makeIfNecessary: false) {
+                state["row0Frame"] = [
+                    cell.frame.origin.x, cell.frame.origin.y,
+                    cell.frame.width, cell.frame.height,
+                ]
+                state["row0Height"] = table.rect(ofRow: 0).height
+            }
+        }
+        state["isPresentationActive"] = isPresentationActive
+        return state
+    }
+#endif
+
     deinit {
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
@@ -76,6 +119,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
+#if DEBUG
+        Self.debugInstances.add(self)
+#endif
 
         let table = container.tableView
         table.workspaceController = self
@@ -121,10 +167,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.contentInsets = NSEdgeInsets(
             top: SidebarWorkspaceScrollInsets.workspaceList.top
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+                + SidebarListMetrics.rowVerticalPadding,
             left: 0,
             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                + SidebarWorkspaceListMetrics.rowVerticalPadding,
+                + SidebarListMetrics.rowVerticalPadding,
             right: 0
         )
         scrollView.applySidebarOverlayScrollerConfiguration()
@@ -253,6 +299,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageViewportChange()
             return
         }
+        updateIconHoverCard(for: nil)
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
         previewBailoutTask?.cancel()
@@ -465,7 +512,28 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             )
         }
 #endif
-        if hasStructuralChanges {
+        let nextDisplayMode = nextRows.first?.columnDisplayMode ?? lastAppliedColumnDisplayMode
+        let displayModeChanged = nextDisplayMode != lastAppliedColumnDisplayMode
+        lastAppliedColumnDisplayMode = nextDisplayMode
+        if displayModeChanged {
+            // Regular and icon presentations use different cell classes; an
+            // in-place reconfigure would repaint the old class at the new
+            // height. Replace everything atomically, and reset the viewport
+            // AFTER the post-reload geometry pass (a pre-layout reset gets
+            // overwritten by the animated width churn that follows).
+            let postUpdateActions = detachLoadedCells()
+            containerView.tableView.reloadData()
+            resetViewportToTop()
+            mutationScheduler.stagePostUpdateActions(
+                postUpdateActions + [{ [weak self] in
+                    guard let self else { return }
+                    self.performWidthRemeasureNow()
+                    self.settleTableWidthToClip()
+                    self.noteAllRowHeights()
+                    self.resetViewportToTop()
+                }]
+            )
+        } else if hasStructuralChanges {
             if heightChanges.isEmpty, isSmallPureReorder {
                 // Stable-geometry reorder (drag-drop): move rows in place.
                 // reloadData tears down every visible cell and snaps the
@@ -528,9 +596,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let visible = table.rows(in: table.visibleRect)
             for row in visible.lowerBound..<(visible.lowerBound + visible.length)
             where rows.indices.contains(row) {
-                let served = pumpHeightOverrides[rows[row].id]
-                    ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
-                    ?? rows[row].estimatedHeight
+                let served = rows[row].columnDisplayMode == .icons
+                    ? SidebarWorkspaceIconTableCellView.rowHeight
+                    : pumpHeightOverrides[rows[row].id]
+                        ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
+                        ?? rows[row].estimatedHeight
                 let actual = table.rect(ofRow: row).height - spacing
                 if abs(served - actual) > 0.5 {
                     cmuxDebugLog(
@@ -579,6 +649,61 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageApply(deferredInteractiveResizeApply)
         }
         performWidthRemeasureNow()
+        settleTableWidthToClip()
+        noteAllRowHeights()
+        clampHorizontalScrollOrigin()
+    }
+
+    /// The document view can be left wider than its clip when a column-width
+    /// change lands while the view is hidden or mid-launch (the restore path
+    /// flips modes before the first layout pass); cells then center on the
+    /// stale width and render clipped at the divider. Pin the table frame to
+    /// the clip width at settle points.
+    private func settleTableWidthToClip() {
+        guard let containerView else { return }
+        let clipWidth = containerView.clipView.bounds.width
+        let table = containerView.tableView
+        guard clipWidth > 0, abs(table.bounds.width - clipWidth) > 0.5 else { return }
+        table.setFrameSize(NSSize(width: clipWidth, height: table.frame.height))
+        table.sizeLastColumnToFit()
+        table.needsLayout = true
+    }
+
+    /// Re-notifies EVERY row height. The changed-set optimizations compare
+    /// against the cache's previous value, which misses rows whose cache
+    /// entry is already correct while the table still holds a height queried
+    /// mid-animation (a mode-flip reload during a width spring). Cheap for a
+    /// sidebar-sized list; used only at settle points.
+    private func noteAllRowHeights() {
+        guard let containerView, !rows.isEmpty else { return }
+        noteHeightOfRowsWithoutAnimation(
+            containerView.tableView,
+            IndexSet(integersIn: 0..<rows.count)
+        )
+    }
+
+    /// The sidebar never scrolls horizontally by design, but an animated
+    /// column collapse can transiently leave the clip view scrolled while
+    /// the document width lags the clip width, which then renders every row
+    /// shifted and clipped at the divider. Pin x back to zero once geometry
+    /// settles.
+    private func clampHorizontalScrollOrigin() {
+        guard let containerView else { return }
+        let clip = containerView.scrollView.contentView
+        guard clip.bounds.origin.x != 0 else { return }
+        clip.setBoundsOrigin(NSPoint(x: 0, y: clip.bounds.origin.y))
+        containerView.scrollView.reflectScrolledClipView(clip)
+    }
+
+    /// Mode flips replace every cell and change every height; the previous
+    /// scroll offset is meaningless in the new geometry and can land beyond
+    /// the shrunken content. Reset to the inset-aware top.
+    private func resetViewportToTop() {
+        guard let containerView else { return }
+        let scrollView = containerView.scrollView
+        let clip = scrollView.contentView
+        clip.setBoundsOrigin(NSPoint(x: 0, y: -scrollView.contentInsets.top))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     /// Row clicks route through the table's action (NSTableView owns the
@@ -700,6 +825,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
+        if configuration.columnDisplayMode == .icons {
+            return SidebarWorkspaceIconTableCellView.rowHeight
+        }
         if let override = pumpHeightOverrides[configuration.id] {
             return override
         }
@@ -716,6 +844,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         row: Int
     ) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
+        if rows[row].columnDisplayMode == .icons,
+           rows[row].appKitGroupHeaderModel != nil || rows[row].appKitWorkspaceRowModel != nil {
+            let cell = tableView.makeView(
+                withIdentifier: SidebarWorkspaceIconTableCellView.reuseIdentifier,
+                owner: self
+            ) as? SidebarWorkspaceIconTableCellView ?? SidebarWorkspaceIconTableCellView()
+            createdCellViews.add(cell)
+            configure(iconCell: cell, at: row)
+            return cell
+        }
         if rows[row].appKitGroupHeaderModel != nil {
             let cell = tableView.makeView(
                 withIdentifier: SidebarGroupHeaderTableCellView.reuseIdentifier,
@@ -1282,6 +1420,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushViewportChange() {
         guard isPresentationActive else { return }
+        settleTableWidthToClip()
+        clampHorizontalScrollOrigin()
         let width = currentColumnWidth()
 #if DEBUG
         if width != lastMeasuredWidth {
@@ -1414,6 +1554,58 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let previous = hoveredRowId
         hoveredRowId = next
         reconfigureRows(withIds: [previous, next].compactMap { $0 })
+        updateIconHoverCard(for: next)
+    }
+
+    /// Icon-rail hover card: text detail the compact rows no longer show.
+    /// The dwell timer is a cancellable Task tied to hover changes and
+    /// presentation teardown.
+    private func updateIconHoverCard(for rowId: SidebarWorkspaceRenderItemID?) {
+        iconHoverCardDwellTask?.cancel()
+        iconHoverCardDwellTask = nil
+        if let presented = iconHoverCardPopover {
+            presented.close()
+            iconHoverCardPopover = nil
+        }
+        guard isPresentationActive,
+              let rowId,
+              let row = rows.firstIndex(where: { $0.id == rowId }),
+              rows[row].columnDisplayMode == .icons
+        else { return }
+        iconHoverCardDwellTask = Task { [weak self] in
+            try? await Task.sleep(for: SidebarHoverCardTrackingView.dwell)
+            guard !Task.isCancelled else { return }
+            self?.presentIconHoverCard(rowId: rowId)
+        }
+    }
+
+    private func presentIconHoverCard(rowId: SidebarWorkspaceRenderItemID) {
+        guard hoveredRowId == rowId,
+              contextMenuRowId == nil,
+              iconHoverCardPopover == nil,
+              let table = containerView?.tableView,
+              let row = rows.firstIndex(where: { $0.id == rowId }),
+              rows[row].columnDisplayMode == .icons,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+        else { return }
+        let configuration = rows[row]
+        let card: AnyView
+        if let model = configuration.appKitWorkspaceRowModel {
+            card = AnyView(SidebarWorkspaceHoverCardView(model: model))
+        } else if let groupModel = configuration.appKitGroupHeaderModel {
+            card = AnyView(SidebarGroupHoverCardView(model: groupModel))
+        } else {
+            return
+        }
+        let controller = NSHostingController(rootView: card)
+        controller.view.layoutSubtreeIfNeeded()
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.contentSize = controller.view.fittingSize
+        popover.show(relativeTo: cell.bounds, of: cell, preferredEdge: .maxX)
+        iconHoverCardPopover = popover
     }
 
     private func contextMenuDidOpen(rowId: SidebarWorkspaceRenderItemID) {
@@ -1470,16 +1662,62 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func reconfigureVisibleRows(_ indexes: IndexSet) {
         guard let table = containerView?.tableView else { return }
         for row in indexes where rows.indices.contains(row) {
+            let wantsIconCell = rows[row].columnDisplayMode == .icons
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarWorkspaceIconTableCellView:
+                if wantsIconCell {
+                    configure(iconCell: cell, at: row)
+                } else {
+                    table.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                }
             case let cell as SidebarGroupHeaderTableCellView:
-                configure(headerCell: cell, at: row)
+                if wantsIconCell {
+                    table.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                } else {
+                    configure(headerCell: cell, at: row)
+                }
             case let cell as SidebarWorkspaceRowTableCellView:
-                configure(workspaceCell: cell, at: row)
+                if wantsIconCell {
+                    table.reloadData(
+                        forRowIndexes: IndexSet(integer: row),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                } else {
+                    configure(workspaceCell: cell, at: row)
+                }
             case let cell as SidebarWorkspaceTableCellView:
                 configure(cell: cell, at: row)
             default:
                 continue
             }
+        }
+    }
+
+    private func configure(iconCell cell: SidebarWorkspaceIconTableCellView, at row: Int) {
+        let configuration = rows[row]
+        let rowId = configuration.id
+        if let groupModel = configuration.appKitGroupHeaderModel {
+            cell.configure(
+                groupModel: groupModel,
+                actions: configuration.appKitGroupHeaderActions
+            )
+        } else if let model = configuration.appKitWorkspaceRowModel {
+            cell.configure(
+                workspaceModel: model,
+                actions: configuration.appKitWorkspaceRowActions,
+                contextMenuDidOpen: { [weak self] in
+                    self?.contextMenuDidOpen(rowId: rowId)
+                },
+                contextMenuDidClose: { [weak self] in
+                    self?.contextMenuDidClose(rowId: rowId)
+                }
+            )
         }
     }
 
@@ -1756,7 +1994,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         } else {
             y = container.bounds.height
                 - SidebarWorkspaceScrollInsets.workspaceList.top
-                - SidebarWorkspaceListMetrics.rowVerticalPadding
+                - SidebarListMetrics.rowVerticalPadding
         }
         let leadingIndent: CGFloat = {
             guard appKitDropIndicatorIncludesRowTargets,

@@ -71,6 +71,34 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testLeadingColumnWidthSanitizationUsesIndependentBounds() {
+        XCTAssertLessThan(
+            SessionPersistencePolicy.minimumSidebarLeadingColumnWidth,
+            SessionPersistencePolicy.defaultSidebarLeadingColumnWidth,
+            "The machines column shrinks below its default; the icon rail owns anything narrower"
+        )
+        XCTAssertLessThan(
+            SessionPersistencePolicy.sidebarColumnIconRailWidth,
+            SessionPersistencePolicy.minimumSidebarLeadingColumnWidth,
+            "The icon rail must be narrower than any regular width"
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(nil),
+            SessionPersistencePolicy.defaultSidebarLeadingColumnWidth,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(-1),
+            SessionPersistencePolicy.minimumSidebarLeadingColumnWidth,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(10_000),
+            SessionPersistencePolicy.maximumSidebarLeadingColumnWidth,
+            accuracy: 0.001
+        )
+    }
+
     func testRightSidebarClampAllowsWideExplorerOnLargeWindows() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(900, availableWidth: 1600),
@@ -341,7 +369,7 @@ struct AppWebThemeContrastTests {
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {
-            let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
+            let coloredSelected = sidebarListRowBackgroundStyle(
                 activeTabIndicatorStyle: .solidFill,
                 isActive: true,
                 isMultiSelected: false,
@@ -349,7 +377,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 colorScheme: colorScheme,
                 sidebarSelectionColorHex: nil
             )
-            let standardSelected = sidebarWorkspaceRowBackgroundStyle(
+            let standardSelected = sidebarListRowBackgroundStyle(
                 activeTabIndicatorStyle: .solidFill,
                 isActive: true,
                 isMultiSelected: false,
@@ -362,7 +390,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             XCTAssertEqual(coloredSelected.opacity, 1, accuracy: 0.001)
             assertColor(coloredSelected.color, equals: standardSelected.color)
 
-            let unselectedColored = sidebarWorkspaceRowBackgroundStyle(
+            let unselectedColored = sidebarListRowBackgroundStyle(
                 activeTabIndicatorStyle: .solidFill,
                 isActive: false,
                 isMultiSelected: false,
@@ -380,7 +408,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
 
     func testSelectedColoredWorkspaceUsesConfiguredSelectionBackground() {
         let selectionHex = "#123456"
-        let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
+        let coloredSelected = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: .solidFill,
             isActive: true,
             isMultiSelected: false,
@@ -388,7 +416,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             colorScheme: .light,
             sidebarSelectionColorHex: selectionHex
         )
-        let standardSelected = sidebarWorkspaceRowBackgroundStyle(
+        let standardSelected = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: .solidFill,
             isActive: true,
             isMultiSelected: false,
@@ -404,7 +432,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
 
     func testDefaultSelectedForegroundFallsBackForPaleSelectionBackground() throws {
         let background = try XCTUnwrap(NSColor(hex: "#F7F7F7"))
-        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+        let foreground = sidebarSelectedRowForegroundNSColor(
             on: background,
             opacity: 1.0
         )
@@ -418,7 +446,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
 
     func testSelectedForegroundPrefersWhiteForSaturatedSelectionBackground() throws {
         let background = try XCTUnwrap(NSColor(hex: "#0088FF"))
-        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+        let foreground = sidebarSelectedRowForegroundNSColor(
             on: background,
             opacity: 1.0
         )
@@ -432,7 +460,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
 
     func testSelectedForegroundKeepsWhiteForStandardInactiveSelectionBlue() throws {
         let background = try XCTUnwrap(NSColor(hex: "#6795F5"))
-        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+        let foreground = sidebarSelectedRowForegroundNSColor(
             on: background,
             opacity: 0.75
         )

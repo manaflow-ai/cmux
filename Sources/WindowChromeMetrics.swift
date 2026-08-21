@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CoreGraphics
+import SwiftUI
 
 enum WindowChromeMetrics {
     static let sharedChromeBarHeight: CGFloat = 28
@@ -56,11 +57,32 @@ enum RightSidebarChromeMetrics {
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
-enum SidebarWorkspaceListMetrics {
+/// The sidebar region's horizontal chrome bands: a tinted titlebar strip at
+/// the top (ending on the full-width titlebar hairline) and a tinted footer
+/// strip at the bottom (starting at its own hairline). The machines/
+/// workspaces divider spans exactly the space between them.
+enum SidebarChromeBandMetrics {
+    static var topBandHeight: CGFloat { WindowChromeMetrics.appTitlebarHeight }
+    static let bottomBandHeight: CGFloat = 44
+    /// Label-colored so it lightens dark themes and darkens light ones.
+    static var bandFill: Color {
+        Color.primary.opacity(0.08)
+    }
+}
+
+/// Shared layout language for every first-party sidebar list column.
+///
+/// Machine, workspace, and future extension-owned columns use these values so
+/// a column can change its data without inventing a new visual hierarchy.
+enum SidebarListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
+    static let rowContentSpacing: CGFloat = 4
+    static let rowCornerRadius: CGFloat = 6
+    static let titleFontSize: CGFloat = 12.5
+    static let subtitleFontSize: CGFloat = 10
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
     static let bottomScrimHeight: CGFloat = topScrimHeight
 
@@ -79,8 +101,8 @@ enum SidebarWorkspaceListMetrics {
 
 struct SidebarWorkspaceScrollInsets: Equatable {
     static let workspaceList = SidebarWorkspaceScrollInsets(
-        top: SidebarWorkspaceListMetrics.scrollTopInset,
-        bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
+        top: SidebarListMetrics.scrollTopInset,
+        bottom: SidebarListMetrics.bottomScrimHeight
     )
 
     let top: CGFloat

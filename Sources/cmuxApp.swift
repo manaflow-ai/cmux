@@ -557,6 +557,9 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
+                    Button("Sidebar Boundary…") {
+                        SidebarBoundaryDebugWindowController.shared.show()
+                    }
                     Button("Pro Badge Style…") {
                         ProBadgeDebugWindowController.shared.show()
                     }

@@ -269,7 +269,7 @@ enum SidebarRemoteErrorCopySupport {
     }
 }
 
-func sidebarSelectedWorkspaceBackgroundNSColor(
+func sidebarSelectedRowBackgroundNSColor(
     for colorScheme: ColorScheme,
     sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
 ) -> NSColor {
@@ -280,14 +280,14 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     return cmuxAccentNSColor(for: colorScheme)
 }
 
-func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-    sidebarSelectedWorkspaceForegroundNSColor(
-        on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
+func sidebarSelectedRowForegroundNSColor(opacity: CGFloat) -> NSColor {
+    sidebarSelectedRowForegroundNSColor(
+        on: sidebarSelectedRowBackgroundNSColor(for: .dark),
         opacity: opacity
     )
 }
 
-func sidebarSelectedWorkspaceForegroundNSColor(
+func sidebarSelectedRowForegroundNSColor(
     on backgroundColor: NSColor,
     opacity: CGFloat
 ) -> NSColor {
@@ -299,14 +299,41 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
 }
 
-struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
+/// Selection surface shared by every first-party sidebar row.
+struct SidebarListRowBackgroundStyle: Equatable, Hashable {
     let color: NSColor?
     let opacity: Double
 
     static let clear = Self(color: nil, opacity: 0)
 }
 
-func sidebarWorkspaceRowExplicitRailNSColor(
+/// Foreground colors shared by SwiftUI and AppKit sidebar rows.
+struct SidebarListRowPalette {
+    let isActive: Bool
+    let colorScheme: ColorScheme
+    let selectionColorHex: String?
+
+    var selectedBackground: NSColor {
+        sidebarSelectedRowBackgroundNSColor(
+            for: colorScheme,
+            sidebarSelectionColorHex: selectionColorHex
+        )
+    }
+
+    func selectedForeground(_ opacity: CGFloat) -> NSColor {
+        sidebarSelectedRowForegroundNSColor(on: selectedBackground, opacity: opacity)
+    }
+
+    var primary: NSColor {
+        isActive ? selectedForeground(1) : .labelColor
+    }
+
+    func secondary(_ opacity: CGFloat = 0.75) -> NSColor {
+        isActive ? selectedForeground(opacity) : .secondaryLabelColor
+    }
+}
+
+func sidebarListRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
     colorScheme: ColorScheme
@@ -322,15 +349,15 @@ func sidebarWorkspaceRowExplicitRailNSColor(
     )
 }
 
-func sidebarWorkspaceRowBackgroundStyle(
+func sidebarListRowBackgroundStyle(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     isActive: Bool,
     isMultiSelected: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme,
     sidebarSelectionColorHex: String?
-) -> SidebarWorkspaceRowBackgroundStyle {
-    let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+) -> SidebarListRowBackgroundStyle {
+    let selectedBackground = sidebarSelectedRowBackgroundNSColor(
         for: colorScheme,
         sidebarSelectionColorHex: sidebarSelectionColorHex
     )
@@ -346,32 +373,97 @@ func sidebarWorkspaceRowBackgroundStyle(
     switch activeTabIndicatorStyle {
     case .leftRail:
         if isActive {
-            return SidebarWorkspaceRowBackgroundStyle(
+            return SidebarListRowBackgroundStyle(
                 color: selectedBackground,
                 opacity: 1
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+            return SidebarListRowBackgroundStyle(color: accentBackground, opacity: 0.25)
         }
         return .clear
 
     case .solidFill:
         if isActive {
-            return SidebarWorkspaceRowBackgroundStyle(
+            return SidebarListRowBackgroundStyle(
                 color: selectedBackground,
                 opacity: 1
             )
         }
         if let customBackground {
-            return SidebarWorkspaceRowBackgroundStyle(
+            return SidebarListRowBackgroundStyle(
                 color: customBackground,
                 opacity: isMultiSelected ? 0.35 : 0.7
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+            return SidebarListRowBackgroundStyle(color: accentBackground, opacity: 0.25)
         }
         return .clear
+    }
+}
+
+/// Shared SwiftUI row surface. Callers supply data and actions; this owns the
+/// sidebar's padding, selection shape, border, and optional color rail.
+private struct SidebarListRowSurfaceModifier: ViewModifier {
+    let backgroundStyle: SidebarListRowBackgroundStyle
+    let borderColor: Color
+    let borderLineWidth: CGFloat
+    let leadingRailColor: Color?
+
+    private var backgroundColor: Color {
+        guard let color = backgroundStyle.color else { return .clear }
+        return Color(nsColor: color).opacity(backgroundStyle.opacity)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, SidebarListMetrics.rowContentHorizontalPadding)
+            .padding(.vertical, SidebarListMetrics.rowVerticalPadding)
+            .background {
+                RoundedRectangle(
+                    cornerRadius: SidebarListMetrics.rowCornerRadius,
+                    style: .continuous
+                )
+                .fill(backgroundColor)
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: SidebarListMetrics.rowCornerRadius,
+                        style: .continuous
+                    )
+                    .strokeBorder(borderColor, lineWidth: borderLineWidth)
+                }
+                .overlay(alignment: .leading) {
+                    if let leadingRailColor {
+                        Capsule(style: .continuous)
+                            .fill(leadingRailColor)
+                            .frame(width: 3)
+                            .padding(.leading, 4)
+                            .padding(.vertical, 5)
+                            .offset(x: -1)
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    func sidebarListRowSurface(
+        backgroundStyle: SidebarListRowBackgroundStyle,
+        borderColor: Color = .clear,
+        borderLineWidth: CGFloat = 0,
+        leadingRailColor: Color? = nil
+    ) -> some View {
+        modifier(SidebarListRowSurfaceModifier(
+            backgroundStyle: backgroundStyle,
+            borderColor: borderColor,
+            borderLineWidth: borderLineWidth,
+            leadingRailColor: leadingRailColor
+        ))
+    }
+
+    func sidebarListRowOuterChrome() -> some View {
+        padding(.horizontal, SidebarListMetrics.rowOuterHorizontalPadding)
+            .contentShape(Rectangle())
     }
 }

@@ -2511,6 +2511,20 @@ class TerminalController {
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
+        case "sidebar.creation_context.list":
+            return v2Result(id: id, self.v2SidebarCreationContextList(params: params))
+        case "sidebar.creation_context.select":
+            return v2Result(id: id, self.v2SidebarCreationContextSelect(params: params))
+        case "sidebar.creation_context.reorder":
+            return v2Result(id: id, self.v2SidebarCreationContextReorder(params: params))
+        case "sidebar.machine.add_ssh":
+            return v2Result(id: id, self.v2SidebarMachineAddSSH(params: params))
+        case "sidebar.machine.attach_cmux_tui":
+            return v2Result(id: id, self.v2SidebarMachineAttachCmuxTUI(params: params))
+        case "sidebar.workspace.move_to_context":
+            return v2Result(id: id, self.v2SidebarWorkspaceMoveToContext(params: params))
+        case "sidebar.column.set_mode":
+            return v2Result(id: id, self.v2SidebarColumnSetMode(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2530,6 +2544,10 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         #if DEBUG
+        case "debug.sidebar.column_state":
+            return v2Result(id: id, self.v2DebugSidebarColumnState(params: params))
+        case "debug.sidebar.boundary_style":
+            return v2Result(id: id, self.v2DebugSidebarBoundaryStyle(params: params))
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
@@ -2693,6 +2711,13 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
+            "sidebar.creation_context.list",
+            "sidebar.creation_context.select",
+            "sidebar.creation_context.reorder",
+            "sidebar.machine.add_ssh",
+            "sidebar.machine.attach_cmux_tui",
+            "sidebar.workspace.move_to_context",
+            "sidebar.column.set_mode",
             "system.top",
             "system.memory",
             "caffeine.status",
