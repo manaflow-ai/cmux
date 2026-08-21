@@ -2792,6 +2792,10 @@ impl RemoteSession {
         })
     }
 
+    pub fn is_shut_down(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);

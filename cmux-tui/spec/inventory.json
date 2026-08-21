@@ -1338,7 +1338,8 @@
       "events": [
         "snapshot_changed",
         "connection_closed",
-        "notice"
+        "notice",
+        "connection_progress"
       ]
     },
     "machine_agent_v1": {
