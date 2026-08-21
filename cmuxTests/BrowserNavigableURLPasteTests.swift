@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -49,6 +50,29 @@ import Testing
                 "https://example.com/path?x=1"
         )
         #expect(resolveBrowserNavigableURL("node.js tutorial") == nil)
+    }
+
+    @Test func allowlistedHostLikeLocalhostInputIsNotRejectedAsAPseudoScheme() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("localhost:3000"))
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: nil,
+            userPatterns: ["localhost"]
+        )
+
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: "localhost:3000",
+                resolvedURL: resolved,
+                policy: policy
+            ) == nil
+        )
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: "https://outside.example",
+                resolvedURL: try #require(URL(string: "https://outside.example")),
+                policy: policy
+            )?.absoluteString == "https://outside.example"
+        )
     }
 
     @Test func bareAbsolutePathNavigatesAsLocalFileURL() throws {
