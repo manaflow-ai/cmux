@@ -3627,6 +3627,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let keyboardCopyModeRenderedFrameDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
+    private var lastAnnouncedCaretAccessibilityToken: CaretAccessibilityToken?
+    private var caretAccessibilityRenderDemandRelease: (() -> Void)?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
@@ -3762,6 +3764,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 object: self
             )
         }
+        if caretAccessibilityRenderDemandRelease != nil {
+            // The cursor cell can only move across a rendered frame, so this is
+            // the caret tracker's pulse. The signal is bounded and the notifier
+            // drops posts when nothing moved, so this stays cheap.
+            selectionAccessibilitySignal.request()
+        }
+    }
+
+    /// Starts or stops the rendered-frame lease that drives caret tracking.
+    ///
+    /// The lease is taken lazily, the first time an accessibility client asks a
+    /// caret question, so terminals nobody is inspecting keep the renderer's
+    /// frame delivery switched off.
+    private func setCaretAccessibilityTrackingActive(_ active: Bool) {
+        if active {
+            guard caretAccessibilityRenderDemandRelease == nil else { return }
+            let retention = localRenderedFrameNotificationDemand.retain()
+            caretAccessibilityRenderDemandRelease = { retention.release() }
+            return
+        }
+
+        caretAccessibilityRenderDemandRelease?()
+        caretAccessibilityRenderDemandRelease = nil
     }
 
     var desiredFocus: Bool = false
@@ -3904,7 +3929,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
-        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(element: self, events: selectionAccessibilitySignal.events)
+        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(
+            element: self,
+            events: selectionAccessibilitySignal.events,
+            shouldNotify: { [weak self] in self?.consumeAccessibilityCaretChange() ?? false }
+        )
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
@@ -5213,7 +5242,128 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
-        selectedRange()
+        let inputRange = selectedRange()
+
+        // A live selection or an in-progress IME composition already carries a
+        // meaningful range, so leave those paths untouched. Otherwise publish
+        // the caret cell as a grid offset: without this the range is pinned at
+        // zero and macOS Zoom has nothing to follow while the user types.
+        guard inputRange.length == 0,
+              markedText.length == 0,
+              let snapshot = caretAccessibilitySnapshot(),
+              snapshot.cursorInViewport else { return inputRange }
+
+        return NSRange(
+            location: snapshot.grid.index(row: snapshot.cursorRow, column: snapshot.cursorColumn),
+            length: 0
+        )
+    }
+
+    override func accessibilityNumberOfCharacters() -> Int {
+        caretAccessibilitySnapshot()?.grid.characterCount ?? 0
+    }
+
+    override func accessibilityInsertionPointLineNumber() -> Int {
+        guard let snapshot = caretAccessibilitySnapshot(), snapshot.cursorInViewport else { return 0 }
+        return snapshot.cursorRow
+    }
+
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        caretAccessibilitySnapshot()?.grid.range(forLine: line) ?? NSRange(location: 0, length: 0)
+    }
+
+    /// Screen bounds for a grid offset range. This backs `AXBoundsForRange`,
+    /// which is the query Zoom issues to centre itself on the insertion point.
+    /// Falling back to the surface frame keeps the previous pane-level
+    /// behaviour rather than reporting a bogus origin.
+    override func accessibilityFrame(for range: NSRange) -> NSRect {
+        guard let snapshot = caretAccessibilitySnapshot() else { return accessibilityFrame() }
+        var span = snapshot.grid.span(for: range)
+
+        // A caret query lands on the cursor cell, so honour the cursor's real
+        // width there: a double-width glyph occupies two cells and reporting one
+        // would leave Zoom centred half a character off.
+        let caretIndex = snapshot.grid.index(row: snapshot.cursorRow, column: snapshot.cursorColumn)
+        if range.length == 0, range.location == caretIndex {
+            span.widthCells = min(snapshot.cursorWidthCells, snapshot.grid.columns - span.column)
+        }
+
+        let viewRect = snapshot.metrics.appKitRect(
+            row: span.row,
+            column: span.column,
+            widthCells: span.widthCells
+        )
+        guard let window else { return accessibilityFrame() }
+        return window.convertToScreen(convert(viewRect, to: nil))
+    }
+
+    /// Live grid geometry plus cursor cell, read straight from the surface.
+    private struct CaretAccessibilitySnapshot {
+        let grid: TerminalCaretGrid
+        let cursorRow: Int
+        let cursorColumn: Int
+        let cursorWidthCells: Int
+        let cursorInViewport: Bool
+        let metrics: KeyboardCopyModeGridMetrics
+    }
+
+    private func caretAccessibilitySnapshot() -> CaretAccessibilitySnapshot? {
+        // Any caret query means something is tracking us, which is the cue to
+        // start the rendered-frame pulse that keeps the caret up to date.
+        setCaretAccessibilityTrackingActive(true)
+        guard let surface else { return nil }
+
+        var native = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &native),
+              native.cell_width.isFinite,
+              native.cell_width > 0,
+              native.cell_height.isFinite,
+              native.cell_height > 0,
+              native.padding_left.isFinite,
+              native.padding_top.isFinite,
+              let grid = TerminalCaretGrid(rows: Int(native.rows), columns: Int(native.columns))
+        else { return nil }
+
+        return CaretAccessibilitySnapshot(
+            grid: grid,
+            cursorRow: Int(native.cursor_row),
+            cursorColumn: Int(native.cursor_column),
+            cursorWidthCells: max(Int(native.cursor_width_cells), 1),
+            cursorInViewport: native.cursor_in_viewport,
+            metrics: KeyboardCopyModeGridMetrics(
+                cellWidth: CGFloat(native.cell_width),
+                cellHeight: CGFloat(native.cell_height),
+                xInset: CGFloat(native.padding_left),
+                yInset: CGFloat(native.padding_top),
+                viewHeight: bounds.height
+            )
+        )
+    }
+
+    /// Identity of everything an AX client would re-read after a
+    /// `selectedTextChanged` post.
+    private struct CaretAccessibilityToken: Equatable {
+        let row: Int
+        let column: Int
+        let inViewport: Bool
+        let selection: NSRange
+    }
+
+    /// True when the caret cell or the selection moved since the last post.
+    ///
+    /// Ghostty requests a render for cursor blinks as well as real movement, so
+    /// posting on every request would spam AX clients and make Zoom jitter.
+    private func consumeAccessibilityCaretChange() -> Bool {
+        let snapshot = caretAccessibilitySnapshot()
+        let token = CaretAccessibilityToken(
+            row: snapshot?.cursorRow ?? -1,
+            column: snapshot?.cursorColumn ?? -1,
+            inViewport: snapshot?.cursorInViewport ?? false,
+            selection: selectedRange()
+        )
+        guard token != lastAnnouncedCaretAccessibilityToken else { return false }
+        lastAnnouncedCaretAccessibilityToken = token
+        return true
     }
 
     override func accessibilitySelectedText() -> String? {
@@ -5636,6 +5786,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func keyDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         terminalSurface?.didReceiveExplicitInput()
+        // Belt and braces for caret tracking: the render pulse is the primary
+        // trigger, but keystrokes are the case that matters most and the
+        // notifier's debounce outlasts the round trip through the pty.
+        selectionAccessibilitySignal.request()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -7712,6 +7866,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         keyboardCopyModeRenderedFrameDemandRelease?()
+        caretAccessibilityRenderDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()

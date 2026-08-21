@@ -44,9 +44,19 @@ final class TerminalSelectionAccessibilityNotifier {
     private var debounceTimer: Timer?
     private var eventsTask: Task<Void, Never>?
     private weak var element: NSView?
+    private let shouldNotify: @MainActor () -> Bool
 
-    init(element: NSView, events: AsyncStream<Void>) {
+    /// - Parameter shouldNotify: Consulted on the main actor once per debounce
+    ///   window, immediately before posting. Requests arrive on every rendered
+    ///   frame, including cursor blinks that move nothing, so the host uses this
+    ///   to drop posts when neither the caret nor the selection changed.
+    init(
+        element: NSView,
+        events: AsyncStream<Void>,
+        shouldNotify: @MainActor @escaping () -> Bool = { true }
+    ) {
         self.element = element
+        self.shouldNotify = shouldNotify
         eventsTask = Task { @MainActor [weak self] in
             for await _ in events {
                 guard let self else { return }
@@ -63,6 +73,7 @@ final class TerminalSelectionAccessibilityNotifier {
                 guard let self, self.debounceTimer === timer else { return }
                 self.debounceTimer = nil
                 guard let element = self.element else { return }
+                guard self.shouldNotify() else { return }
                 NSAccessibility.post(element: element, notification: .selectedTextChanged)
             }
         }
