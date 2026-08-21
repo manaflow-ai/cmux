@@ -204,7 +204,7 @@ fn open_sink() -> Option<Sink> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).ok()?;
     }
-    let lock = append_options().open(&lock_path(&path)).ok()?;
+    let lock = append_options().open(lock_path(&path)).ok()?;
     // An active file created by an older build may be group/world readable;
     // tighten it once (it captures stderr, which can carry credentials).
     #[cfg(unix)]
