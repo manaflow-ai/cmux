@@ -238,6 +238,209 @@ struct BrowserScrollCommand: LegacyBrowserCommand {
     static let configuration = CommandConfiguration(commandName: "scroll", helpNames: [])
 }
 
+// The commands below deliberately retain the legacy runner for execution, but
+// declare their accepted syntax here so ArgumentParser can expose accurate help
+// and completion metadata. `arguments` forwards any positional tail that the
+// legacy command still interprets (for example profile names and CSS values).
+struct BrowserReactGrabCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("return-to"), completion: .custom(CompletionCandidates.surfaces)) var returnTo: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "react-grab", helpNames: [], aliases: ["reactgrab"])
+}
+
+struct BrowserDevtoolsCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "devtools", helpNames: [], aliases: ["dev-tools"])
+}
+
+struct BrowserFocusModeCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "focus-mode", helpNames: [])
+}
+
+struct BrowserZoomCommand: LegacyBrowserCommand {
+    @Argument var factor: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "zoom", helpNames: [])
+}
+
+struct BrowserHistoryCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @Flag(name: .customLong("force")) var force = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "history", helpNames: [])
+}
+
+struct BrowserGetCommand: LegacyBrowserCommand {
+    @Argument var property: String?
+    @Argument var selector: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("attr")) var attribute: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "get", helpNames: [])
+}
+
+struct BrowserIsCommand: LegacyBrowserCommand {
+    @Argument var property: String?
+    @Argument var selector: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "is", helpNames: [])
+}
+
+struct BrowserFindCommand: LegacyBrowserCommand {
+    @Argument var locator: String?
+    @Argument var value: String?
+    @Argument var selector: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "find", helpNames: [])
+}
+
+struct BrowserFrameCommand: LegacyBrowserCommand {
+    @Argument var selector: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "frame", helpNames: [])
+}
+
+struct BrowserDialogCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @Argument var text: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "dialog", helpNames: [])
+}
+
+struct BrowserDownloadCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("path"), completion: .file()) var path: String?
+    @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: Int?
+    @Option(name: .customLong("timeout")) var timeout: Double?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "download", helpNames: [])
+}
+
+struct BrowserProfilesCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "profiles", helpNames: [], aliases: ["profile"])
+}
+
+struct BrowserImportCommand: LegacyBrowserCommand {
+    @Option(name: [.customLong("from"), .customLong("browser"), .customLong("source")]) var source: String?
+    @Option(name: [.customLong("profile"), .customLong("source-profile")]) var sourceProfile: [String] = []
+    @Option(name: [.customLong("to"), .customLong("to-profile"), .customLong("destination-profile")]) var destinationProfile: String?
+    @Option(name: [.customLong("domain"), .customLong("domains")]) var domain: [String] = []
+    @Flag(name: [.customLong("interactive")]) var interactive = false
+    @Flag(name: [.customLong("non-interactive"), .customLong("noninteractive"), .customLong("yes"), .customShort("y")]) var nonInteractive = false
+    @Flag(name: .customLong("all-profiles")) var allProfiles = false
+    @Flag(name: [.customLong("create-profile"), .customLong("create-destination-profile")]) var createProfile = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "import", helpNames: [])
+}
+
+struct BrowserCookiesCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @Argument var name: String?
+    @Argument var value: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("url")) var url: String?
+    @Option(name: .customLong("domain")) var domain: String?
+    @Option(name: .customLong("path"), completion: .file()) var path: String?
+    @Option(name: .customLong("expires")) var expires: Int?
+    @Flag(name: .customLong("secure")) var secure = false
+    @Flag(name: .customLong("all")) var all = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "cookies", helpNames: [])
+}
+
+struct BrowserStorageCommand: LegacyBrowserCommand {
+    @Argument var type: String?
+    @Argument var action: String?
+    @Argument var key: String?
+    @Argument var value: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "storage", helpNames: [])
+}
+
+struct BrowserTabCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @Argument var targetTab: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "tab", helpNames: [])
+}
+
+struct BrowserConsoleCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "console", helpNames: [])
+}
+
+struct BrowserErrorsCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "errors", helpNames: [])
+}
+
+struct BrowserHighlightCommand: LegacyBrowserCommand {
+    @Argument var selector: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("selector")) var selectorOption: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "highlight", helpNames: [])
+}
+
+struct BrowserStateCommand: LegacyBrowserCommand {
+    @Argument var action: String?
+    @Argument(completion: .file()) var path: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "state", helpNames: [])
+}
+
+struct BrowserAddInitScriptCommand: LegacyBrowserCommand {
+    @Argument var script: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("script")) var scriptOption: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "addinitscript", helpNames: [])
+}
+
+struct BrowserAddScriptCommand: LegacyBrowserCommand {
+    @Argument var script: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("script")) var scriptOption: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "addscript", helpNames: [])
+}
+
+struct BrowserAddStyleCommand: LegacyBrowserCommand {
+    @Argument var css: String?
+    @OptionGroup var target: BrowserTargetOptions
+    @Option(name: .customLong("css")) var cssOption: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "addstyle", helpNames: [])
+}
+
+struct BrowserIdentifyCommand: LegacyBrowserCommand {
+    @OptionGroup var target: BrowserTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "identify", helpNames: [])
+}
+
 private enum BrowserDisable: BrowserLeafName { static let commandName = "disable" }
 private enum BrowserEnable: BrowserLeafName { static let commandName = "enable" }
 private enum BrowserStatus: BrowserLeafName { static let commandName = "status" }
@@ -290,32 +493,9 @@ private typealias BrowserNewCommand = BrowserLeaf<BrowserNew>
 private typealias BrowserBackCommand = BrowserLeaf<BrowserBack>
 private typealias BrowserForwardCommand = BrowserLeaf<BrowserForward>
 private typealias BrowserReloadCommand = BrowserLeaf<BrowserReload>
-private typealias BrowserReactGrabCommand = BrowserLeaf<BrowserReactGrab>
-private typealias BrowserDevtoolsCommand = BrowserLeaf<BrowserDevtools>
-private typealias BrowserFocusModeCommand = BrowserLeaf<BrowserFocusMode>
-private typealias BrowserZoomCommand = BrowserLeaf<BrowserZoom>
-private typealias BrowserHistoryCommand = BrowserLeaf<BrowserHistory>
 private typealias BrowserURLCommand = BrowserLeaf<BrowserURL>
 private typealias BrowserFocusWebviewCommand = BrowserLeaf<BrowserFocusWebview>
 private typealias BrowserWebviewFocusedCommand = BrowserLeaf<BrowserWebviewFocused>
-private typealias BrowserGetCommand = BrowserLeaf<BrowserGet>
-private typealias BrowserIsCommand = BrowserLeaf<BrowserIs>
-private typealias BrowserFindCommand = BrowserLeaf<BrowserFind>
-private typealias BrowserFrameCommand = BrowserLeaf<BrowserFrame>
-private typealias BrowserDialogCommand = BrowserLeaf<BrowserDialog>
-private typealias BrowserDownloadCommand = BrowserLeaf<BrowserDownload>
-private typealias BrowserProfilesCommand = BrowserLeaf<BrowserProfiles>
-private typealias BrowserImportCommand = BrowserLeaf<BrowserImport>
-private typealias BrowserCookiesCommand = BrowserLeaf<BrowserCookies>
-private typealias BrowserStorageCommand = BrowserLeaf<BrowserStorage>
-private typealias BrowserTabCommand = BrowserLeaf<BrowserTab>
-private typealias BrowserConsoleCommand = BrowserLeaf<BrowserConsole>
-private typealias BrowserErrorsCommand = BrowserLeaf<BrowserErrors>
-private typealias BrowserHighlightCommand = BrowserLeaf<BrowserHighlight>
-private typealias BrowserStateCommand = BrowserLeaf<BrowserState>
-private typealias BrowserAddInitScriptCommand = BrowserLeaf<BrowserAddInitScript>
-private typealias BrowserAddScriptCommand = BrowserLeaf<BrowserAddScript>
-private typealias BrowserAddStyleCommand = BrowserLeaf<BrowserAddStyle>
 private typealias BrowserViewportCommand = BrowserLeaf<BrowserViewport>
 private typealias BrowserGeolocationCommand = BrowserLeaf<BrowserGeolocation>
 private typealias BrowserOfflineCommand = BrowserLeaf<BrowserOffline>
@@ -326,7 +506,6 @@ private typealias BrowserInputCommand = BrowserLeaf<BrowserInput>
 private typealias BrowserInputMouseCommand = BrowserLeaf<BrowserInputMouse>
 private typealias BrowserInputKeyboardCommand = BrowserLeaf<BrowserInputKeyboard>
 private typealias BrowserInputTouchCommand = BrowserLeaf<BrowserInputTouch>
-private typealias BrowserIdentifyCommand = BrowserLeaf<BrowserIdentify>
 
 enum OpenBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "open-browser"
