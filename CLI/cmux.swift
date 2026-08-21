@@ -41121,7 +41121,7 @@ export default CMUXSessionRestore;
     }
 }
 
-private enum CMUXCLIOutput {
+enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
         cliWriteStderr(message)
     }
