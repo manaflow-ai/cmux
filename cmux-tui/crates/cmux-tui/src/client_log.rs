@@ -176,35 +176,15 @@ fn open_sink() -> Option<Sink> {
 /// critical section. Several cmux-tui processes share one log; without
 /// cross-process exclusion two writers can rotate at the same time, losing
 /// records or leaving one process appending to an unlinked file forever.
-/// Runs only on the writer thread, never on UI paths.
-///
-/// Unix only (flock). Off Unix there is no cross-process exclusion: the
-/// no-op below makes logging single-process best-effort there - concurrent
-/// processes may interleave or lose records, though the size bound still
-/// holds because rotation falls back to truncating in place.
-#[cfg(unix)]
+/// `std::fs::File::lock` is advisory and cross-platform (flock on Unix,
+/// LockFileEx on Windows). Runs only on the writer thread, never UI paths.
 fn lock_exclusive(file: &File) -> bool {
-    use std::os::unix::io::AsRawFd;
-    // SAFETY: flock on an owned, open descriptor.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) == 0 }
+    file.lock().is_ok()
 }
 
-#[cfg(unix)]
 fn unlock(file: &File) {
-    use std::os::unix::io::AsRawFd;
-    // SAFETY: flock on an owned, open descriptor.
-    unsafe {
-        libc::flock(file.as_raw_fd(), libc::LOCK_UN);
-    }
+    let _ = file.unlock();
 }
-
-#[cfg(not(unix))]
-fn lock_exclusive(_file: &File) -> bool {
-    true
-}
-
-#[cfg(not(unix))]
-fn unlock(_file: &File) {}
 
 /// True when `file` is still the file at `path`. Another process rotating the
 /// log renames the path away; a writer holding the old handle must reopen or

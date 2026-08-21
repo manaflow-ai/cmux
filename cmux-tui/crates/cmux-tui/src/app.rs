@@ -8635,13 +8635,15 @@ fn run_with_machine_updates_inner(
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
         .transpose()?;
 
+    // Open the log before raw mode: a slow state directory or a blocking
+    // CMUX_TUI_LOG_FILE target then stalls in cooked mode, where the shell
+    // is still usable, never a raw-mode screen. One line per launch, so
+    // every stretch of the log names the build that produced it.
+    crate::client_log::info("startup", &crate::version_string());
     enable_raw_mode()?;
     // The TUI owns the terminal now: stray stderr writes (panics, libraries)
     // would corrupt the raw-mode screen, so route fd 2 into the client log.
     crate::client_log::redirect_stderr_into_log();
-    // One line per launch, so every stretch of the log names the build that
-    // produced it.
-    crate::client_log::info("startup", &crate::version_string());
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
@@ -15691,10 +15693,11 @@ impl App {
     }
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
+        // Per-frame render reset. `logged_status_message` deliberately
+        // survives it: a message that stays visible across redraws is one
+        // event, not one per frame. Dismissal (`hide_status_message`) clears
+        // it, so a message that reappears later logs again.
         self.rendered_status_message = None;
-        // A message that reappears after dismissal is a new event; log it
-        // again.
-        self.logged_status_message = None;
     }
 
     pub(crate) fn present_status_message(&mut self, rect: Rect, text: String) {
