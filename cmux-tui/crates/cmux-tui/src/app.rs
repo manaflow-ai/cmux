@@ -15724,6 +15724,10 @@ impl App {
     pub(crate) fn hide_status_message(&mut self) {
         self.rendered_status_message = None;
         self.logged_status_message = None;
+        // The notice marker only describes the currently shown message; a
+        // later status with the same text is a fresh event and must be
+        // classified on its own.
+        self.status_notice_text = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
             self.drag = None;

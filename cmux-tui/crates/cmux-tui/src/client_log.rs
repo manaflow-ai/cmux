@@ -324,7 +324,20 @@ pub(crate) fn redirect_stderr_into_log() {
                 let mut pending = Vec::new();
                 loop {
                     match reader.read(&mut buffer) {
-                        Ok(0) | Err(_) => break,
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                            continue;
+                        }
+                        Ok(0) | Err(_) => {
+                            // EOF (every write end closed) or a dead pipe. A
+                            // final unterminated fragment is still a
+                            // diagnostic; persist it instead of dropping it.
+                            let text = String::from_utf8_lossy(&pending);
+                            let text = text.trim_end();
+                            if !text.is_empty() {
+                                log("WARN", "stderr", text);
+                            }
+                            break;
+                        }
                         Ok(read) => {
                             pending.extend_from_slice(&buffer[..read]);
                             while let Some(newline) = pending.iter().position(|byte| *byte == b'\n')
