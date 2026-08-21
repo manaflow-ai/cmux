@@ -3112,6 +3112,7 @@
 		917D12A30EB4417BBE5E9E6A /* SurfaceOwnershipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */; };
 		C11323110000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323120000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift */; };
 		D3D6AC9CC41C0052D47883CD /* SurfacePaneFactory+ProjectionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79DE8A46550805CDAB18D09 /* SurfacePaneFactory+ProjectionLayout.swift */; };
+		E7A900000000000000000002 /* SurfaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A900000000000000000001 /* SurfaceCommands.swift */; };
 		2DA7E01B03004BDCEE13A289 /* SurfacePaneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE7223A65E72C46927A4F02 /* SurfacePaneFactory.swift */; };
 		560A57B0605EC30E23A20456 /* SurfacePaneFactoryFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C58FB3F39EB94D3072C0B51 /* SurfacePaneFactoryFocusTests.swift */; };
 		875200000000000000000014 /* SurfacePaneMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875200000000000000000004 /* SurfacePaneMovement.swift */; };
@@ -6963,6 +6964,7 @@
 		B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceOwnershipPolicy.swift; sourceTree = "<group>"; };
 		C11323120000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfacePaneFactory+CloudManualMirror.swift"; sourceTree = "<group>"; };
 		A79DE8A46550805CDAB18D09 /* SurfacePaneFactory+ProjectionLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfacePaneFactory+ProjectionLayout.swift"; sourceTree = "<group>"; };
+		E7A900000000000000000001 /* SurfaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCommands.swift; sourceTree = "<group>"; };
 		1FE7223A65E72C46927A4F02 /* SurfacePaneFactory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfacePaneFactory.swift; sourceTree = "<group>"; };
 		1C58FB3F39EB94D3072C0B51 /* SurfacePaneFactoryFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfacePaneFactoryFocusTests.swift; sourceTree = "<group>"; };
 		875200000000000000000004 /* SurfacePaneMovement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfacePaneMovement.swift; sourceTree = "<group>"; };
@@ -10715,6 +10717,7 @@
 				C1A900000000000000000018 /* AuthCommands.swift */,
 				E8A800000000000000000001 /* VMCommands.swift */,
 				E9A900000000000000000001 /* WindowCommands.swift */,
+				E7A900000000000000000001 /* SurfaceCommands.swift */,
 				D10A00000000000000000001 /* WorkspaceCommands.swift */,
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
@@ -15095,6 +15098,7 @@
 				E30780000000000000000017 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */,
 				9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */,
+				E7A900000000000000000002 /* SurfaceCommands.swift in Sources */,
 				D0F101000000000000000003 /* TerminalRawMode.swift in Sources */,
 				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
 				E8A800000000000000000002 /* VMCommands.swift in Sources */,
