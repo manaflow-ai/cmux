@@ -262,6 +262,7 @@
 		C1A900000000000000000008 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = C1A900000000000000000007 /* ArgumentParser */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */; };
+		C1A900000000000000000019 /* AuthCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000018 /* AuthCommands.swift */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
@@ -3332,6 +3333,7 @@
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AttributedString+SidebarRowLinks.swift"; sourceTree = "<group>"; };
+		C1A900000000000000000018 /* AuthCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthCommands.swift; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
@@ -8355,6 +8357,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1A900000000000000000015 /* CompletionCandidates.swift */,
 				C1A90000000000000000000E /* CompletionCommand.swift */,
 				C1A900000000000000000016 /* MetaCommands.swift */,
+				C1A900000000000000000018 /* AuthCommands.swift */,
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
 			);
@@ -11556,6 +11559,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
+				C1A900000000000000000019 /* AuthCommands.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
