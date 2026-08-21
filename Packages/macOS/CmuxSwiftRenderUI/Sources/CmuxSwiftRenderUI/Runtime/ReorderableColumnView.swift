@@ -78,7 +78,9 @@ struct ReorderableColumnView: View {
     }
 
     private static let gapSpring = Animation.spring(response: 0.25, dampingFraction: 0.78)
-    private static let accordionSpring = Animation.spring(response: 0.32, dampingFraction: 0.9)
+    /// Critically damped on purpose: any spring overshoot makes the per-row
+    /// masks visibly stutter at each row boundary during the fold.
+    private static let accordionSpring = Animation.spring(response: 0.26, dampingFraction: 1.0)
     private static let liftSpring = Animation.spring(response: 0.2, dampingFraction: 0.8)
     private static let settleSpring = Animation.spring(response: 0.32, dampingFraction: 0.76)
 
