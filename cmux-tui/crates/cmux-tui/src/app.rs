@@ -10882,6 +10882,16 @@ impl App {
         };
         update.snapshot.active =
             self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+        // A queued switch aimed at a machine that just became unusable (the
+        // wake that raced its own deletion) must not survive: it would both
+        // fail pointlessly and block the failover below.
+        let doomed_switch = matches!(
+            &update.request,
+            Some(MachineRequest::Switch(target)) if !machine_usable(&update, *target)
+        );
+        if doomed_switch {
+            update.request = None;
+        }
         // The presented machine was deleted (gone from the catalog, or left
         // behind as a Recoverable row): switch to the next available machine
         // instead of leaving a dead session on screen. "Next" is the usable
@@ -10974,6 +10984,8 @@ impl App {
         if let Some(previous) = self.machine_ui.as_ref() {
             if let Some(MachineRequest::Switch(machine)) = previous.request.as_ref()
                 && self.machine_selection_intent == Some(*machine)
+                && machine_usable(&update, *machine)
+                && update.request.is_none()
             {
                 update.request = Some(MachineRequest::Switch(*machine));
             }
@@ -37246,6 +37258,11 @@ mod tests {
             managed(2, ManagedMachineStatus::Recoverable),
             managed(3, ManagedMachineStatus::Recoverable),
         ]);
+        // The deletion races its own stream death: a wake switch back to the
+        // dying machine is already queued (this is exactly what live
+        // Freestyle dogfood produced). It must not survive the update or
+        // block the failover.
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(2)));
         app.apply_machine_ui_update(update);
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
