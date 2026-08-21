@@ -133,14 +133,18 @@ extension GhosttySurfaceView {
                 scrollbar.row_space_revision,
                 &applied
             ) {
+                let appliedRow = row
+                let appliedOffset = pixelOffset
+                let appliedRevision = applied.row_space_revision
+                let appliedTotal = applied.total
                 pixelState.withLock {
-                    $0.remainderPx = pixelOffset
+                    $0.remainderPx = appliedOffset
                     #if DEBUG
                     $0.lastApplied = (
-                        row: row,
-                        remainderPx: pixelOffset,
-                        revision: applied.row_space_revision,
-                        total: applied.total
+                        row: appliedRow,
+                        remainderPx: appliedOffset,
+                        revision: appliedRevision,
+                        total: appliedTotal
                     )
                     #endif
                 }
