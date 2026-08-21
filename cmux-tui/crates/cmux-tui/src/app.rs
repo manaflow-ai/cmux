@@ -8635,10 +8635,9 @@ fn run_with_machine_updates_inner(
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
         .transpose()?;
 
-    // Open the log before raw mode: a slow state directory or a blocking
-    // CMUX_TUI_LOG_FILE target then stalls in cooked mode, where the shell
-    // is still usable, never a raw-mode screen. One line per launch, so
-    // every stretch of the log names the build that produced it.
+    // One line per launch, so every stretch of the log names the build that
+    // produced it. Sink initialization is asynchronous (writer thread), so
+    // this never blocks startup however slow the log target is.
     crate::client_log::info("startup", &crate::version_string());
     enable_raw_mode()?;
     // The TUI owns the terminal now: stray stderr writes (panics, libraries)

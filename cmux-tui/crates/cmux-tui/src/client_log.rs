@@ -59,14 +59,36 @@ enum Message {
 
 static QUEUE: OnceLock<Option<SyncSender<Message>>> = OnceLock::new();
 
+/// Set when the writer thread failed to open the sink: the log is
+/// unreachable, so stderr must not be routed into the discarding pump.
+static SINK_BROKEN: AtomicBool = AtomicBool::new(false);
+
 fn queue() -> Option<&'static SyncSender<Message>> {
     QUEUE
         .get_or_init(|| {
-            let mut sink = open_sink()?;
+            // Path resolution is pure; all filesystem work happens on the
+            // writer thread, so a blocking log target (a FIFO override, a
+            // dead network mount) can never stall a caller - much less
+            // startup.
+            let path = platform::client_log_path()?;
             let (sender, receiver) = sync_channel::<Message>(QUEUE_CAPACITY);
             std::thread::Builder::new()
                 .name("client-log".into())
                 .spawn(move || {
+                    let Some(mut sink) = open_sink(path) else {
+                        // The log is unreachable. Give stderr back to the
+                        // terminal (idempotent; no-op unless redirected) so
+                        // diagnostics are not swallowed by the pump, and
+                        // drain the queue so senders and flushes never wedge.
+                        SINK_BROKEN.store(true, Ordering::Release);
+                        restore_stderr_from_log();
+                        while let Ok(message) = receiver.recv() {
+                            if let Message::Flush(ack) = message {
+                                let _ = ack.try_send(());
+                            }
+                        }
+                        return;
+                    };
                     while let Ok(message) = receiver.recv() {
                         let record = match message {
                             Message::Record(record) => record,
@@ -231,8 +253,7 @@ fn append_options() -> OpenOptions {
     options
 }
 
-fn open_sink() -> Option<Sink> {
-    let path = platform::client_log_path()?;
+fn open_sink(path: PathBuf) -> Option<Sink> {
     // A relative override like CMUX_TUI_LOG_FILE=client.log has parent ""
     // (current directory, which exists); create_dir_all("") errors and would
     // silently disable logging.
@@ -342,7 +363,7 @@ pub(crate) fn redirect_stderr_into_log() {
         if STDERR_REDIRECTED.load(Ordering::Acquire) {
             return;
         }
-        if queue().is_none() {
+        if queue().is_none() || SINK_BROKEN.load(Ordering::Acquire) {
             return;
         }
         // Save the original fd 2 BEFORE creating the pipe: with stderr
