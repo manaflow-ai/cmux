@@ -53,4 +53,14 @@ struct BackendEnvironmentSwitchConfirmation: Equatable {
         }
         return pendingSelection
     }
+
+    /// The recovery card's named route: stage a switch back to production
+    /// through the SAME select/confirm contract as the picker (pinned and
+    /// already-on-production requests still never stage or present).
+    mutating func requestSwitchBackToProduction(
+        active: AccountBackendEnvironment,
+        pinned: Bool
+    ) {
+        select(.production, active: active, pinned: pinned)
+    }
 }

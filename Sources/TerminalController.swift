@@ -1414,12 +1414,20 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var returnedToProduction = false
             Task { @MainActor [weak self] in
-                await self?.accountFlow?.signOut(timeout: 5)
+                // Non-interactive sign-out: skips the staging confirmation
+                // but chains the same return-to-production switch, so a
+                // socket sign-out can never strand the device on staging.
+                returnedToProduction = await self?.accountFlow?.signOut(timeout: 5) ?? false
                 semaphore.signal()
             }
             semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+            var result = v2AuthStatusPayload(timedOut: false)
+            if returnedToProduction {
+                result["returned_to_production"] = true
+            }
+            return v2Ok(id: request.id, result: result)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":

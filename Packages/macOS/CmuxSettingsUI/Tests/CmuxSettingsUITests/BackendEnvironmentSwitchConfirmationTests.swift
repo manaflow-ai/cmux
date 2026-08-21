@@ -63,4 +63,37 @@ struct BackendEnvironmentSwitchConfirmationTests {
         #expect(!confirmation.isPresentingDialog)
         #expect(confirmation.confirm() == nil)
     }
+
+    @Test func switchBackRequestStagesProductionAndStillRequiresConfirm() {
+        var confirmation = BackendEnvironmentSwitchConfirmation()
+
+        confirmation.requestSwitchBackToProduction(active: .staging, pinned: false)
+
+        // The recovery button routes through the SAME staged-confirm
+        // contract as the picker: production staged, dialog presented,
+        // apply only on confirm.
+        #expect(confirmation.pendingSelection == .production)
+        #expect(confirmation.isPresentingDialog)
+        #expect(confirmation.confirm() == .production)
+    }
+
+    @Test func pinnedSwitchBackRequestNeverStages() {
+        var confirmation = BackendEnvironmentSwitchConfirmation()
+
+        confirmation.requestSwitchBackToProduction(active: .staging, pinned: true)
+
+        #expect(confirmation.pendingSelection == nil)
+        #expect(!confirmation.isPresentingDialog)
+        #expect(confirmation.confirm() == nil)
+    }
+
+    @Test func switchBackRequestOnProductionSettlesWithoutPresenting() {
+        var confirmation = BackendEnvironmentSwitchConfirmation()
+
+        confirmation.requestSwitchBackToProduction(active: .production, pinned: false)
+
+        #expect(confirmation.pendingSelection == nil)
+        #expect(!confirmation.isPresentingDialog)
+        #expect(confirmation.confirm() == nil)
+    }
 }

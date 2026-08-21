@@ -41,13 +41,20 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// The live-switch engine. Attached once by `MacAuthComposition`'s
     /// startup initializer and kept stable across switches.
     private var backendEnvironmentSwitchController: MacBackendEnvironmentSwitchController?
+    /// Presents the "signing out on staging returns you to Production"
+    /// confirmation. Injected (production: an NSAlert presenter; tests: a
+    /// fake) so the interception at the ``signOut()`` choke point is
+    /// testable without AppKit. Only consulted while the active environment
+    /// is non-production; the socket variant ``signOut(timeout:)`` skips it.
+    @ObservationIgnored private let confirmStagingSignOut: @MainActor () async -> Bool
 
     init(
         coordinator: AuthCoordinator,
         browserSignIn: HostBrowserSignInFlow,
         activeBackendEnvironmentOverride: CMUXBackendEnvironmentOverride = .production,
         backendEnvironmentPinnedByLaunchEnvironment: Bool = false,
-        backendEnvironmentDefaults: UserDefaults = .standard
+        backendEnvironmentDefaults: UserDefaults = .standard,
+        confirmStagingSignOut: @escaping @MainActor () async -> Bool = { true }
     ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
@@ -57,6 +64,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         )
         self.backendEnvironmentPinnedByLaunchEnvironment = backendEnvironmentPinnedByLaunchEnvironment
         self.backendEnvironmentDefaults = backendEnvironmentDefaults
+        self.confirmStagingSignOut = confirmStagingSignOut
         isProUpgradeAvailable = featureFlags.isProUpgradeUIEnabled
         featureFlagsObserver = NotificationCenter.default.addObserver(
             forName: .cmuxFeatureFlagsDidChange,
@@ -179,18 +187,65 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         )
     }
 
+    /// The ONE interactive sign-out choke point (Settings card, sidebar
+    /// popover, command palette all land here). Sign-out is
+    /// per-environment: on production it is the plain chain; on a
+    /// non-production environment it first asks the injected confirmation
+    /// ("this returns you to Production"), then runs the REAL sign-out under
+    /// the current (staging) defaults — so the revocation hits staging — and
+    /// chains a switch back to production, which restores the parked
+    /// production session (production never gates, so the chain can't
+    /// prompt).
     func signOut() async {
+        guard activeBackendEnvironmentOverride != .production else {
+            await signOutDirect()
+            return
+        }
+        guard await confirmStagingSignOut() else { return }
+        await signOutDirect()
+        await returnToProductionAfterSignOut()
+    }
+
+    /// Socket variant of sign-out (`auth.sign_out`). Stays non-interactive:
+    /// it SKIPS the staging confirmation (a modal or a refusal would break
+    /// automation and strand staging) but chains the same
+    /// return-to-production switch, reported to the caller through the
+    /// returned flag. The underlying sign-out continues if the caller's
+    /// deadline expires, matching the browser flow contract.
+    /// - Returns: Whether the sign-out chained a switch back to production
+    ///   (the socket payload's `returned_to_production`).
+    @discardableResult
+    func signOut(timeout: TimeInterval) async -> Bool {
+        let chainsBackToProduction = activeBackendEnvironmentOverride != .production
+        await browserSignIn.signOut(timeout: timeout)
+        isProActive = false
+        canManageBilling = false
+        guard chainsBackToProduction else { return false }
+        return await returnToProductionAfterSignOut()
+    }
+
+    /// The plain sign-out chain with no environment interception: the
+    /// browser flow's full teardown plus the Pro-state reset. Used directly
+    /// by production sign-out, by the confirmed staging sign-out, and as the
+    /// switch transaction's `signOutEstablishedSession` step (which must
+    /// never re-enter the staging confirmation).
+    func signOutDirect() async {
         await browserSignIn.signOut()
         isProActive = false
         canManageBilling = false
     }
 
-    /// Socket variant of sign-out. The underlying sign-out continues if the
-    /// caller's deadline expires, matching the browser flow contract.
-    func signOut(timeout: TimeInterval) async {
-        await browserSignIn.signOut(timeout: timeout)
-        isProActive = false
-        canManageBilling = false
+    /// Chain the per-environment sign-out back to production through the
+    /// SAME switch transaction as the picker. Parking the just-signed-out
+    /// coordinator is a safe no-op, and the production restore never gates
+    /// or prompts.
+    /// - Returns: Whether the switch chain actually ran.
+    @discardableResult
+    private func returnToProductionAfterSignOut() async -> Bool {
+        guard !backendEnvironmentPinnedByLaunchEnvironment,
+              let backendEnvironmentSwitchController else { return false }
+        await backendEnvironmentSwitchController.switchEnvironment(to: .production)
+        return true
     }
 
     func refreshCurrentUser() async {
@@ -245,13 +300,13 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     // MARK: - Backend environment switcher
 
-    /// The picker shows for verified team members, always in DEBUG builds,
-    /// and whenever the persisted or active environment is already
-    /// non-production, so switching back to production is always possible.
-    var backendEnvironmentSwitcherVisible: Bool {
+    /// STRICT full-picker gate: a verified team member or a DEBUG build,
+    /// nothing else. Switch-back reachability for everyone else is handled
+    /// by the package's recovery visibility tier
+    /// (`AccountFlow.backendEnvironmentCardVisibility`), not by widening
+    /// this gate.
+    var backendEnvironmentPickerAllowed: Bool {
         if Self.isDebugBuild { return true }
-        if pendingBackendEnvironmentOverride != .production { return true }
-        if activeBackendEnvironmentOverride != .production { return true }
         return CMUXBackendEnvironmentSwitchGate.allows(coordinator.currentUser)
     }
 
@@ -266,9 +321,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var backendEnvironmentSwitchPhase: AccountBackendEnvironmentSwitchPhase {
         switch backendEnvironmentSwitchController?.phase {
         case .none, .idle: .idle
-        case .signingOut: .signingOut
+        case .parking: .parking
         case .retargeting: .retargeting
-        case .finished: .finished
+        case .establishing: .establishing
+        case .reverting: .reverting
+        case .finished(let outcome): .finished(Self.accountOutcome(from: outcome))
         }
     }
 
@@ -287,6 +344,62 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func resetBackendEnvironmentSwitchPhase() {
         backendEnvironmentSwitchController?.reset()
+    }
+
+    // MARK: - Backend environment switch steps
+
+    /// How long the switch's inline sign-in prompt waits before resolving
+    /// `nil`. Matches `HostBrowserSignInFlow`'s browser-attempt timeout (the
+    /// attempt's own deadline fires first and records `.timedOut`, so a
+    /// timeout classifies as a failure, not a cancel).
+    static let backendSwitchSignInPromptTimeout: TimeInterval = 10 * 60
+
+    /// The transaction's `parkSession` step: the browser flow's park (which
+    /// detaches the coordinator session, leaving its token slot untouched)
+    /// plus the same Pro-state reset sign-out performs.
+    func parkSession() async {
+        await browserSignIn.parkSession()
+        isProActive = false
+        canManageBilling = false
+    }
+
+    /// The transaction's `awaitRestoredUser` step: await the CURRENT
+    /// (post-rebind) coordinator's launch restore and report the user it
+    /// restored from the target's parked slot. `coordinator` is read at call
+    /// time, so after `rebind` this resolves the rebuilt graph.
+    func awaitRestoredUser() async -> CMUXAuthUser? {
+        await coordinator.awaitBootstrapped()
+        return coordinator.currentUser
+    }
+
+    /// The transaction's `promptSignIn` step: run the same hosted-browser
+    /// sign-in as every other entrypoint (against the CURRENT rebound
+    /// graph), bounded by ``backendSwitchSignInPromptTimeout``. Returns the
+    /// signed-in user, or `nil` on cancel / failure / timeout — classified
+    /// afterwards by ``backendSwitchSignInPromptFailure()``.
+    func promptSignInForBackendSwitch() async -> CMUXAuthUser? {
+        let signedIn = await browserSignIn.signIn(timeout: Self.backendSwitchSignInPromptTimeout)
+        guard signedIn else {
+            // The deadline resolves without cancelling the underlying
+            // attempt; end it so a stale popup can't complete into the
+            // environment the transaction is about to revert away from.
+            browserSignIn.cancelSignIn()
+            return nil
+        }
+        return coordinator.currentUser
+    }
+
+    /// The transaction's `cancelSignInPrompt` step (`requestRevert()`).
+    func cancelBackendSwitchSignInPrompt() {
+        browserSignIn.cancelSignIn()
+    }
+
+    /// Classify a `nil` ``promptSignInForBackendSwitch()``: no recorded
+    /// failure means the user backed out (cancel); anything else is a
+    /// failure. Drives the revert reason shown in the outcome note.
+    func backendSwitchSignInPromptFailure()
+        -> BackendEnvironmentSwitchTransaction.SignInPromptFailure {
+        browserSignIn.lastFailure == nil ? .cancelled : .failed
     }
 
     /// Attach the live-switch engine. Called once from `MacAuthComposition`'s
@@ -360,6 +473,17 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         switch value {
         case .production: .production
         case .staging: .staging
+        }
+    }
+
+    private static func accountOutcome(
+        from outcome: BackendEnvironmentSwitchTransaction.Outcome
+    ) -> AccountBackendEnvironmentSwitchOutcome {
+        switch outcome {
+        case .switched: .switched
+        case .reverted(.signInCancelled): .reverted(.signInCancelled)
+        case .reverted(.signInFailed): .reverted(.signInFailed)
+        case .reverted(.notEligible): .reverted(.notEligible)
         }
     }
 

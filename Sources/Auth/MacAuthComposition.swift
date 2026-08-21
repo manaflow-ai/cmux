@@ -66,7 +66,10 @@ struct MacAuthComposition {
             activeBackendEnvironmentOverride: graph.backendEnvironmentOverride,
             backendEnvironmentPinnedByLaunchEnvironment:
                 HostAccountFlow.launchEnvironmentPinsBackendEnvironment(environment),
-            backendEnvironmentDefaults: defaults
+            backendEnvironmentDefaults: defaults,
+            confirmStagingSignOut: {
+                StagingSignOutConfirmationPresenter().confirmStagingSignOut()
+            }
         )
         self.accountFlow = accountFlow
         accountFlow.attachBackendEnvironmentSwitchController(
@@ -123,13 +126,14 @@ struct MacAuthComposition {
                 activeEnvironment: { [weak accountFlow] in
                     accountFlow?.activeBackendEnvironmentOverride ?? .production
                 },
-                signOut: { [weak accountFlow] in
-                    // The complete existing teardown chain, under the OLD
-                    // defaults: HostBrowserSignInFlow.signOut() (cancels
-                    // in-flight sign-in attempts, clears the cmux web
-                    // session, revokes the iroh binding) plus the flow's
-                    // Pro-state reset.
-                    await accountFlow?.signOut()
+                parkSession: { [weak accountFlow] in
+                    // Park under the OLD defaults: HostBrowserSignInFlow
+                    // .parkSession() (cancels in-flight sign-in attempts,
+                    // clears the cmux web session, detaches the coordinator
+                    // session while its token slot survives — NO revocation,
+                    // NO iroh binding teardown) plus the flow's Pro-state
+                    // reset.
+                    await accountFlow?.parkSession()
                 },
                 quiesce: {
                     // Stop mobile RPC (listener + iroh + caller verification)
@@ -140,6 +144,11 @@ struct MacAuthComposition {
                 },
                 storeOverride: { override in
                     override.store(in: defaults)
+                    // EVERY committed override (including a revert's) arms the
+                    // one-shot suppression so the immediate rebuild — or the
+                    // next launch after a crash — restores the target's PARKED
+                    // slot instead of running the organic project-flip clear.
+                    CMUXBackendEnvironmentSwitchRebuildMarker.arm(in: defaults)
                 },
                 rebuild: { [weak accountFlow] _ in
                     guard let accountFlow, let appDelegate = AppDelegate.shared else { return }
@@ -150,6 +159,29 @@ struct MacAuthComposition {
                             defaults: defaults
                         )
                     )
+                },
+                awaitRestoredUser: { [weak accountFlow] in
+                    // Resolves the CURRENT (rebound) coordinator's launch
+                    // restore of the target's parked slot.
+                    await accountFlow?.awaitRestoredUser()
+                },
+                promptSignIn: { [weak accountFlow] in
+                    await accountFlow?.promptSignInForBackendSwitch()
+                },
+                cancelSignInPrompt: { [weak accountFlow] in
+                    accountFlow?.cancelBackendSwitchSignInPrompt()
+                },
+                signOutEstablishedSession: { [weak accountFlow] in
+                    // The REAL sign-out chain under the CURRENT (target)
+                    // defaults, through the internal direct path that
+                    // bypasses the staging sign-out confirmation.
+                    await accountFlow?.signOutDirect()
+                },
+                isEligible: { user in
+                    CMUXBackendEnvironmentSwitchGate.allows(user) || Self.isDebugBuild
+                },
+                signInPromptFailure: { [weak accountFlow] in
+                    accountFlow?.backendSwitchSignInPromptFailure() ?? .failed
                 }
             )
         )
@@ -182,11 +214,20 @@ struct MacAuthComposition {
             isDebugBuild: Self.isDebugBuild,
             override: backendEnvironmentOverride
         )
+        // Per-project token slots: keying the stores by the resolved Stack
+        // project lets a live backend-environment switch PARK the old
+        // environment's session (its slot survives untouched) and restore it
+        // on return. Each store adopts the pre-per-project single slot on
+        // first read.
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(
-                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier)
+                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
+                projectID: stackProjectID
             ),
-            fallback: FileStackTokenStore(directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier))
+            fallback: FileStackTokenStore(
+                directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier),
+                projectID: stackProjectID
+            )
         )
 
         let userCache = CMUXAuthIdentityStore(
@@ -238,6 +279,11 @@ struct MacAuthComposition {
         // existing `CMUXAuthAutoLoginCredentials` + `shouldStartAutoLogin` gate
         // then fires unchanged. Compiled out of release builds.
         let resolvedEnvironment = Self.environmentWithDogfoodAutoSignIn(environment)
+        // detectAuthProjectSwitch must RUN unconditionally (it updates the
+        // stored project id); the switch-rebuild marker only suppresses its
+        // verdict. A backend-environment switch parks the old session and
+        // must restore the target's parked slot, while an organic project
+        // flip (rebaked tagged build) keeps today's pinned clear semantics.
         let authProjectSwitched = Self.detectAuthProjectSwitch(
             resolvedProjectID: stackProjectID,
             buildDefaultProjectID: AuthEnvironment.resolvedStackProjectID(
@@ -246,6 +292,8 @@ struct MacAuthComposition {
             ),
             defaults: defaults
         )
+        let switchRebuildSuppressesClear =
+            CMUXBackendEnvironmentSwitchRebuildMarker.consume(from: defaults)
         let includesDevAuth = Self.includesDevAuth(
             resolvedAuthEnvironment: resolvedAuthEnvironment
         )
@@ -256,7 +304,7 @@ struct MacAuthComposition {
             mockDataEnabled: false,
             environment: resolvedEnvironment,
             includesDevAuth: includesDevAuth,
-            clearStaleAuthOnLaunch: authProjectSwitched,
+            clearStaleAuthOnLaunch: authProjectSwitched && !switchRebuildSuppressesClear,
             replaceStoredSessionWithAutoLogin: replacesStoredDevSession
         )
 
@@ -308,6 +356,13 @@ struct MacAuthComposition {
             beginSignOut: {
                 browserAppSession.beginAuthTransition()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
+            },
+            // Park (backend-environment switch) clears the browser session
+            // like sign-out but must NOT touch iroh: beginSignOutPreparation
+            // durably queues a binding revocation, which would kill the
+            // parked environment's pairing.
+            beginSessionPark: {
+                browserAppSession.beginAuthTransition()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()

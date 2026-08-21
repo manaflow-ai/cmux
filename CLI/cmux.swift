@@ -4229,10 +4229,16 @@ struct CMUXCLI {
                 }
                 // auth.sign_out awaits the token clear before replying.
                 let result = try client.sendV2(method: "auth.sign_out")
-                if (result["signed_in"] as? Bool) != true {
-                    print("Signed out.")
-                } else {
+                let returnedToProduction = (result["returned_to_production"] as? Bool) == true
+                if (result["signed_in"] as? Bool) == true && !returnedToProduction {
                     print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
+                } else if returnedToProduction {
+                    // Signing out on a non-production environment chains a
+                    // switch back to Production, which restores the saved
+                    // Production session (so signed_in may be true again).
+                    print("Signed out. Returned to the Production environment.")
+                } else {
+                    print("Signed out.")
                 }
 
             default:
@@ -16093,7 +16099,10 @@ struct CMUXCLI {
 
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
-            logout   Clear the current session.
+            logout   Clear the current session. On a non-production backend
+                     environment this also returns the app to Production and
+                     restores its saved Production session (reported as
+                     `returned_to_production` in the JSON result).
             """
         case "login":
             return """

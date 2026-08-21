@@ -14,22 +14,29 @@ import Observation
 /// tests can run it against pure fakes without AppKit. The production steps
 /// (built in ``MacAuthComposition``) are:
 ///
-/// - `signOut` runs the complete existing teardown chain under the OLD
-///   defaults (``HostAccountFlow/signOut()`` →
-///   `HostBrowserSignInFlow.signOut()`, which also cancels in-flight sign-in
-///   attempts).
+/// - `parkSession` detaches the session under the OLD defaults
+///   (``HostAccountFlow/parkSession()`` → `HostBrowserSignInFlow.parkSession()`,
+///   which also cancels in-flight sign-in attempts) while its token slot
+///   survives for the return switch. No revocation, no iroh teardown.
 /// - `quiesce` stops `MobileHostService` so mobile RPC caller verification
 ///   (which builds ephemeral `StackClientApp`s from per-use `AuthEnvironment`
 ///   reads) cannot run against flipped defaults while the old coordinator
 ///   still lives. Other per-use `AuthEnvironment` readers (`VMClient`,
-///   `RemotesClient`, billing fetches, …) are token-less after the sign-out
+///   `RemotesClient`, billing fetches, …) are token-less after the park
 ///   step and fail closed, so they need no quiesce of their own.
-/// - `storeOverride` persists the override (the commit point); per-use
-///   resolvers (and `PresenceHeartbeatClient`, which self-restarts on
-///   `UserDefaults.didChangeNotification`) flip here.
+/// - `storeOverride` persists the override (the commit point; per-use
+///   resolvers and `PresenceHeartbeatClient`, which self-restarts on
+///   `UserDefaults.didChangeNotification`, flip here) and arms the one-shot
+///   rebuild marker so the rebuild restores the target's parked slot.
 /// - `rebuild` constructs the fresh auth graph for the new environment and
 ///   hands it to `AppDelegate.adoptRebuiltAuth(_:)`, which restarts
 ///   `MobileHostService` and ends the quiesce window.
+/// - `awaitRestoredUser` / `promptSignIn` / `cancelSignInPrompt` /
+///   `signOutEstablishedSession` / `isEligible` / `signInPromptFailure`
+///   drive the establishing phase through ``HostAccountFlow``: restore the
+///   target's parked session, gate staging on an eligible account with an
+///   inline hosted-browser sign-in, and revert on cancel / failure /
+///   ineligibility.
 @MainActor
 @Observable
 final class MacBackendEnvironmentSwitchController {
@@ -59,7 +66,14 @@ final class MacBackendEnvironmentSwitchController {
         await transaction.run(to: target, steps: steps)
     }
 
-    /// Returns the phase to `.idle` after the UI has shown the switched note.
+    /// Request that an in-flight switch revert to the previous environment
+    /// (valid during the establishing sign-in wait; resolves the prompt as
+    /// cancelled).
+    func requestRevert() {
+        transaction.requestRevert()
+    }
+
+    /// Returns the phase to `.idle` after the UI has shown the outcome note.
     func reset() {
         transaction.reset()
     }

@@ -82,11 +82,13 @@ public protocol AccountFlow: AnyObject {
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
 
-    /// Whether the backend environment picker should render. The host gates
-    /// this to team members (verified team email), DEBUG builds, and any
-    /// device whose persisted or active environment is already
-    /// non-production, so switching back is always possible.
-    var backendEnvironmentSwitcherVisible: Bool { get }
+    /// Whether the current user may use the FULL backend environment picker:
+    /// gate-allowed (verified team email) or a DEBUG build — nothing else.
+    /// Visibility itself is derived through
+    /// ``AccountFlow/backendEnvironmentCardVisibility``, whose recovery tier
+    /// keeps a "Switch Back to Production" card reachable on a non-production
+    /// device even when this is `false`.
+    var backendEnvironmentPickerAllowed: Bool { get }
 
     /// The backend environment the running process actually resolved at
     /// launch. Drives the "Staging" badge on the account card.
@@ -104,12 +106,16 @@ public protocol AccountFlow: AnyObject {
 
     /// Where the host's live backend-environment switch currently is. The
     /// card replaces the picker with a progress row while this is a
-    /// transitional phase and shows the switched note at ``AccountBackendEnvironmentSwitchPhase/finished``.
+    /// transitional phase and shows the outcome note at
+    /// ``AccountBackendEnvironmentSwitchPhase/finished(_:)``.
     var backendEnvironmentSwitchPhase: AccountBackendEnvironmentSwitchPhase { get }
 
-    /// Runs the host's live backend-environment switch to `value`: full
-    /// sign-out under the old environment, then retargeting the auth stack,
-    /// without relaunching the app. A no-op on pinned builds and when
+    /// Runs the host's live backend-environment switch to `value`: the
+    /// current environment's session is PARKED on this device (kept for the
+    /// return switch), the auth stack retargets, and the target's parked
+    /// session restores — with an inline sign-in for a gated target, which
+    /// reverts to the previous environment on cancel / failure / an
+    /// ineligible account. No relaunch. A no-op on pinned builds and when
     /// `value` is already active. Returns when the switch has finished.
     func applyBackendEnvironment(_ value: AccountBackendEnvironment) async
 
