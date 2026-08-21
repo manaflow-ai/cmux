@@ -4239,6 +4239,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
+                clientNamespace: payload.macClientNamespace,
                 macAppVersion: payload.macAppVersion
             )
         }
@@ -4260,6 +4261,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deviceID: String?,
         displayName: String?,
         instanceTag: String?,
+        clientNamespace: String? = nil,
         macAppVersion: String? = nil
     ) async {
         guard remoteClient === client,
@@ -4303,6 +4305,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard authenticatedMacBuildIsCompatible(
             instanceTag: resolvedTag,
+            clientNamespace: clientNamespace,
             macAppVersion: macAppVersion,
             client: client
         ) else {
@@ -9318,6 +9321,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let reportedInstanceTag = hasAuthenticatedIdentity ? status.macInstanceTag : nil
                     guard authenticatedMacBuildIsCompatible(
                         instanceTag: reportedInstanceTag,
+                        clientNamespace: status.macClientNamespace,
                         macAppVersion: status.macAppVersion,
                         client: client
                     ) else {
@@ -11796,6 +11800,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
+                clientNamespace: payload.macClientNamespace,
                 macAppVersion: payload.macAppVersion
             )
             guard isCurrentRemoteConnection(

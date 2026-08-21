@@ -97,6 +97,23 @@ import Testing
             macAppVersion: "0.64.17",
             usesLocallyAuthorizedTailscaleRoute: true
         ))
+        #expect(!development.allowsAuthenticatedHost(
+            instanceTag: "sibling",
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(development.allowsAuthenticatedHost(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.debug.sibling",
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(!development.allowsAuthenticatedHost(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.staging.sibling",
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
     }
 
     @Test func scopedDevelopmentStorePreservesSiblingRows() async throws {

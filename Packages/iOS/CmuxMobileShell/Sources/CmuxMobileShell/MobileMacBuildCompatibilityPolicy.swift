@@ -83,10 +83,17 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     /// fail-closed, as do development builds and newer untagged Mac releases.
     public func allowsAuthenticatedHost(
         instanceTag: String?,
+        clientNamespace: String? = nil,
         macAppVersion: String?,
         usesLocallyAuthorizedTailscaleRoute: Bool
     ) -> Bool {
-        if allows(instanceTag: instanceTag) {
+        if case .development = self, clientNamespace == nil {
+            // Direct pairing has no broker binding to supply the Mac bundle
+            // namespace. Require host status to carry it so manual and QR
+            // routes enforce the same channel boundary as discovery.
+            return false
+        }
+        if allows(instanceTag: instanceTag, clientNamespace: clientNamespace) {
             return true
         }
         guard case .official = self,
