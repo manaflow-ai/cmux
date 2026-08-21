@@ -614,13 +614,31 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
-    # SessionEnd should have a short timeout (session is exiting)
+    # SessionEnd cold-starts the bundled cmux CLI during teardown, so it needs
+    # the same startup budget as the other synchronous lifecycle hooks.
     session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
+    session_end_cleanup_hooks = [
+        hook
+        for hook in session_end_hooks
+        if hook.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude session-end'
+    ]
     expect(
-        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
-        f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        len(session_end_cleanup_hooks) == 1,
+        f"SessionEnd should install exactly one cmux cleanup hook, got {session_end_hooks}",
         failures,
     )
+    if session_end_cleanup_hooks:
+        session_end_cleanup_hook = session_end_cleanup_hooks[0]
+        expect(
+            session_end_cleanup_hook.get("timeout", 0) >= 10,
+            f"SessionEnd cleanup hook should allow at least 10 seconds for cmux CLI startup, got {session_end_cleanup_hook}",
+            failures,
+        )
+        expect(
+            session_end_cleanup_hook.get("async") is not True,
+            f"SessionEnd cleanup hook should remain synchronous, got {session_end_cleanup_hook}",
+            failures,
+        )
 
 
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
