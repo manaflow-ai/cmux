@@ -27,15 +27,15 @@ enum CompletionCandidates {
     }
 
     static func panels(_ arguments: [String]) -> [String] {
-        fetch(method: "panel.list") { $0["ref"] as? String }
+        fetch(method: "surface.list") { $0["ref"] as? String }
     }
 
     static func tabs(_ arguments: [String]) -> [String] {
-        fetch(method: "tab.list") { $0["ref"] as? String }
+        fetch(method: "browser.tab.list") { $0["ref"] as? String }
     }
 
     static func themes(_ arguments: [String]) -> [String] {
-        fetch(method: "theme.list") { $0["name"] as? String }
+        CMUXCLI(args: CommandLine.arguments).availableThemeNames()
     }
 
     static func vms(_ arguments: [String]) -> [String] {
@@ -47,8 +47,50 @@ enum CompletionCandidates {
         method: String,
         mapping: ([String: Any]) -> String?
     ) -> [String] {
-        let _ = (timeout, method, mapping)
-        return []
+        do {
+            let deadline = Date.now.addingTimeInterval(timeout)
+            let processEnvironment = ProcessInfo.processInfo.environment
+            let environmentSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
+            let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
+            let requestedSocketPath = environmentSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+                bundleIdentifier: bundleIdentifier,
+                environment: processEnvironment
+            )
+            let source: CLISocketPathSource = environmentSocketPath == nil ? .implicitDefault : .environment
+            let resolution = CLISocketPathResolver(
+                environment: processEnvironment,
+                bundleIdentifier: bundleIdentifier
+            ).resolve(requestedPath: requestedSocketPath, source: source)
+            guard resolution.hasLiveSocket else { return [] }
+
+            let socketPath = resolution.selectedPath ?? requestedSocketPath
+            let client = SocketClient(path: socketPath)
+            defer { client.close() }
+
+            try client.connect(deadline: deadline)
+            guard let authenticationTimeout = remainingTimeout(until: deadline) else { return [] }
+            try CMUXCLI.authenticateSocketClientIfNeeded(
+                client,
+                explicitPassword: nil,
+                socketPath: socketPath,
+                responseTimeout: authenticationTimeout,
+                deadline: deadline
+            )
+            guard let responseTimeout = remainingTimeout(until: deadline) else { return [] }
+            let payload = try client.sendV2(method: method, responseTimeout: responseTimeout)
+            guard let listName = method.split(separator: ".").dropLast().last.map({ "\($0)s" }),
+                  let items = payload[listName] as? [[String: Any]] else {
+                return []
+            }
+            return items.compactMap(mapping)
+        } catch {
+            return []
+        }
+    }
+
+    private static func remainingTimeout(until deadline: Date) -> TimeInterval? {
+        let remaining = deadline.timeIntervalSinceNow
+        return remaining > 0 ? remaining : nil
     }
 }
 
