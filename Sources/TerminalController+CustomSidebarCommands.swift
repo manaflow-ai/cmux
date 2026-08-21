@@ -403,19 +403,32 @@ extension TerminalController {
     /// Debug-only: switches the sidebar boundary style (same store as the
     /// Debug menu picker) so variants can be screenshotted over the socket.
     nonisolated func v2DebugSidebarBoundaryStyle(params: [String: Any]) -> V2CallResult {
-        guard let raw = params["style"] as? String,
-              let style = SidebarBoundaryStyle(rawValue: raw)
-        else {
-            return .err(
-                code: "invalid_params",
-                message: "style must be one of: "
-                    + SidebarBoundaryStyle.allCases.map(\.rawValue).joined(separator: ", "),
-                data: nil
-            )
+        let requestedStyle: SidebarBoundaryStyle?
+        if let raw = params["style"] as? String {
+            guard let style = SidebarBoundaryStyle(rawValue: raw) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "style must be one of: "
+                        + SidebarBoundaryStyle.allCases.map(\.rawValue).joined(separator: ", "),
+                    data: nil
+                )
+            }
+            requestedStyle = style
+        } else {
+            requestedStyle = nil
         }
+        let openWindow = params["open_window"] as? Bool ?? false
         return v2MainSync {
-            SidebarBoundaryStyleStore.shared.style = style
-            return .ok(["style": style.rawValue])
+            if let requestedStyle {
+                SidebarBoundaryStyleStore.shared.style = requestedStyle
+            }
+            if openWindow {
+                SidebarBoundaryDebugWindowController.shared.show()
+            }
+            return .ok([
+                "style": SidebarBoundaryStyleStore.shared.style.rawValue,
+                "window_open": openWindow,
+            ])
         }
     }
 #endif
