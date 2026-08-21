@@ -2425,6 +2425,8 @@ impl Mux {
         mux.materialize_restored_browsers(&contents)?;
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
+        #[cfg(unix)]
+        mux.materialize_restored_exited_terminals();
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -2862,6 +2864,125 @@ impl Mux {
                 &options,
             )?;
         }
+        Ok(())
+    }
+
+    /// Materialize every restored exited terminal as an honest dead surface
+    /// whose renderable content comes from the newest checkpoint VT blob plus
+    /// the reducible journaled output tail (spec/session-journal.md,
+    /// "Restoration"). Runs at cold start after host reconciliation and
+    /// before the socket serves clients. It spawns nothing: the placeholder
+    /// renders the terminal's final observed content and stays exited until
+    /// an explicit close or a future respawn action. Each materialization
+    /// appends its own post-replay outcome record, and one terminal's
+    /// failure never aborts startup.
+    #[cfg(unix)]
+    fn materialize_restored_exited_terminals(self: &Arc<Self>) {
+        let snapshot = match self.workspace_registry.lock().unwrap().terminal_snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                eprintln!("cmux-tui: could not enumerate terminals for restoration: {error:#}");
+                return;
+            }
+        };
+        let options = self.surface_options.lock().unwrap().clone();
+        for terminal in snapshot.terminals {
+            if terminal.lifecycle != TerminalLifecycle::Exited {
+                continue;
+            }
+            if let Err(error) = self.materialize_restored_exited_terminal(&terminal, &options) {
+                eprintln!(
+                    "cmux-tui: could not restore exited terminal {} content: {error:#}",
+                    terminal.terminal_id
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn materialize_restored_exited_terminal(
+        self: &Arc<Self>,
+        terminal: &RegistryTerminal,
+        options: &SurfaceOptions,
+    ) -> anyhow::Result<()> {
+        let Some(binding) = self.restored_terminal_binding(&terminal.terminal_id)? else {
+            return Ok(());
+        };
+        let Some((slot, identity)) = binding.placements.first().cloned() else {
+            // Every view of this terminal was explicitly closed. The durable
+            // exit receipt stays queryable without a surface.
+            return Ok(());
+        };
+        {
+            let state = self.state.lock().unwrap();
+            if binding.placements.iter().any(|(slot, _)| state.surfaces.contains_key(slot)) {
+                return Ok(());
+            }
+        }
+        let durable_size = |field: &str, fallback: u16| {
+            terminal.launch_spec[field]
+                .as_u64()
+                .and_then(|value| u16::try_from(value).ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(fallback)
+        };
+        let fallback_grid = (durable_size("cols", 80), durable_size("rows", 24));
+        let content = {
+            let registry = self.workspace_registry.lock().unwrap();
+            crate::journal_restore::restored_terminal_content(
+                &registry,
+                binding.public_id.as_str(),
+                fallback_grid,
+            )?
+        };
+        let exit = terminal
+            .exit
+            .clone()
+            .and_then(|value| serde_json::from_value::<TerminalExit>(value).ok());
+        // The placeholder deliberately carries no cwd or title of its own:
+        // the public exited projection must stay byte-identical to the
+        // durable exit snapshot the journal already carries, so restore
+        // previews keep agreeing with the applied state.
+        let mut opts = options.clone();
+        opts.cols = fallback_grid.0;
+        opts.rows = fallback_grid.1;
+        opts.cwd = None;
+        let surface = Surface::restored_exited_terminal(
+            slot,
+            opts,
+            Arc::downgrade(self),
+            TerminalHostIdentity {
+                terminal_id: terminal.terminal_id.clone(),
+                incarnation: terminal.incarnation.clone().unwrap_or_default(),
+            },
+            identity,
+            content.as_ref(),
+            exit,
+        )?;
+        {
+            let mut state = self.state.lock().unwrap();
+            insert_restored_terminal_runtime_checked(&mut state, surface)?;
+        }
+        let payload = serde_json::json!({
+            "format": "cmux.terminal-restore.v1",
+            "outcome": "applied",
+            "terminal_id": binding.public_id.as_str(),
+            "content": content.as_ref().map(|content| content.source_label()).unwrap_or("none"),
+            "checkpoint_id": content.as_ref().and_then(|content| content.checkpoint_id.clone()),
+            "tail_output_bytes": content
+                .as_ref()
+                .map(|content| content.tail_output_bytes.to_string())
+                .unwrap_or_else(|| "0".to_string()),
+            "tail_resize_events": content
+                .as_ref()
+                .map(|content| content.tail_resize_events.to_string())
+                .unwrap_or_else(|| "0".to_string()),
+            "degraded": content.as_ref().and_then(|content| content.degraded.clone()),
+        });
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .append_terminal_restore_outcome(binding.public_id.as_str(), &payload)?;
         Ok(())
     }
 
@@ -18646,7 +18767,14 @@ mod tests {
         assert_eq!(terminal["lifecycle"], "exited");
         assert_eq!(terminal["exit"]["outcome"]["kind"], "unknown");
         assert_eq!(terminal["exit"]["outcome"]["reason"], "missing-host-record");
-        assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
+        // Restoration materializes an honest exited placeholder surface: it
+        // is dead (nothing was respawned) but serves the terminal's final
+        // renderable content to screen reads and attaches.
+        let placeholder = reopened
+            .resource_surface_for_terminal(&terminal_public_id)
+            .expect("restored exited terminal materializes a placeholder surface");
+        let placeholder = reopened.surface(placeholder).expect("placeholder surface is live state");
+        assert!(placeholder.is_dead(), "restored placeholder must not claim a running process");
         let exited =
             reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
         assert_eq!(exited["state"], "exited");
@@ -20994,7 +21122,7 @@ mod tests {
         let restored_agents = reopened.list_agents(None, None);
         assert_eq!(
             restored_agents.iter().map(|record| record.terminal_id.clone()).collect::<Vec<_>>(),
-            vec![terminal_id.clone()],
+            vec![terminal_id],
             "a restored exited terminal keeps its placement, so its agent record stays listed"
         );
         assert_eq!(

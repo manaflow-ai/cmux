@@ -3055,7 +3055,9 @@ fn daemon_restart_preserves_dead_host_topology_without_respawn() {
         );
         if resolved["lifecycle"] == "exited" {
             assert_eq!(resolved["terminal_incarnation"], incarnation);
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            // Restoration materializes an honest exited placeholder surface
+            // for the preserved placement; nothing was respawned.
+            assert!(resolved["surface"].is_u64(), "{resolved}");
             break;
         }
         assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
@@ -3156,7 +3158,9 @@ fn daemon_restart_preserves_every_dead_host_behind_one_pane() {
                 serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
             );
             if resolved["lifecycle"] == "exited" {
-                assert_eq!(resolved["surface"], serde_json::Value::Null);
+                // Each preserved placement materializes its own exited
+                // placeholder surface; nothing was respawned.
+                assert!(resolved["surface"].is_u64(), "{resolved}");
                 break;
             }
             assert!(

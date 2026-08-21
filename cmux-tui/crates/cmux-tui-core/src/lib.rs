@@ -16,6 +16,7 @@ mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
 mod journal_kernel;
+mod journal_restore;
 mod model;
 mod mux;
 mod pairing;

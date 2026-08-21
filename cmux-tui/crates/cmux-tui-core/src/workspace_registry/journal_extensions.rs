@@ -248,6 +248,30 @@ impl JournalContentBlob {
         verify_journal_content_blob(&blob)?;
         Ok(blob)
     }
+
+    /// Bounded decompression of already-verified content, re-checked against
+    /// the reference length and digest.
+    pub(crate) fn uncompressed(&self) -> anyhow::Result<Vec<u8>> {
+        let expected_bytes = usize::try_from(self.reference.uncompressed_bytes)?;
+        anyhow::ensure!(
+            expected_bytes <= MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES,
+            "checkpoint content exceeds the uncompressed size limit"
+        );
+        let decoder = flate2::read::GzDecoder::new(self.compressed.as_slice());
+        let mut uncompressed = Vec::new();
+        decoder
+            .take(u64::try_from(expected_bytes)?.saturating_add(1))
+            .read_to_end(&mut uncompressed)?;
+        anyhow::ensure!(
+            uncompressed.len() == expected_bytes,
+            "checkpoint content length does not match its reference"
+        );
+        anyhow::ensure!(
+            Sha256::digest(&uncompressed).as_slice() == self.digest.as_slice(),
+            "checkpoint content digest does not match its reference"
+        );
+        Ok(uncompressed)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2176,6 +2200,74 @@ impl WorkspaceRegistry {
             .map(|id| query_journal_checkpoint(&self.connection, id))
             .transpose()
             .map(Option::flatten)
+    }
+
+    /// Stored checkpoint content for one reference, verified against the
+    /// reference digest and size, returned uncompressed. `None` when the
+    /// blob row is absent.
+    pub(crate) fn journal_content_blob_bytes(
+        &self,
+        reference: &JournalContentRef,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let compressed = self
+            .connection
+            .query_row(
+                "SELECT content FROM journal_content_blobs WHERE content_id = ?1",
+                params![reference.content_id],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()?;
+        let Some(compressed) = compressed else { return Ok(None) };
+        let blob = JournalContentBlob::verified(reference.clone(), compressed)?;
+        blob.uncompressed().map(Some)
+    }
+
+    /// Append the post-replay outcome of materializing one restored exited
+    /// terminal placeholder (spec: post-replay actions carry their own
+    /// journal outcomes). Effect-class and never-replayed: restoration
+    /// derives no state from it, and the restore-preview reducer ignores
+    /// non-required records, so existing previews stay fully reducible.
+    pub(crate) fn append_terminal_restore_outcome(
+        &mut self,
+        terminal_public_id: &str,
+        payload: &Value,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        let tx = self.connection.transaction()?;
+        let session_id = transaction_session_id(&tx)?;
+        let mut subjects = BTreeSet::from([
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "terminal".into(), id: terminal_public_id.into() },
+        ]);
+        expand_topology_subjects(&tx, &mut subjects)?;
+        let subjects = subjects.into_iter().collect::<Vec<_>>();
+        let producer =
+            JournalProducer { kind: "session_restore".into(), id: terminal_public_id.into() };
+        let event_id = random_event_id("restore");
+        let now = unix_epoch_ms()?;
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "terminal.restore.applied",
+                class: JournalClass::Effect,
+                replay: JournalReplayPolicy::Never,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
     }
 }
 
