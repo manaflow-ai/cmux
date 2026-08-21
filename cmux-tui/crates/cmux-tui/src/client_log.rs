@@ -233,7 +233,12 @@ fn append_options() -> OpenOptions {
 
 fn open_sink() -> Option<Sink> {
     let path = platform::client_log_path()?;
-    if let Some(dir) = path.parent() {
+    // A relative override like CMUX_TUI_LOG_FILE=client.log has parent ""
+    // (current directory, which exists); create_dir_all("") errors and would
+    // silently disable logging.
+    if let Some(dir) = path.parent()
+        && !dir.as_os_str().is_empty()
+    {
         fs::create_dir_all(dir).ok()?;
     }
     let lock = append_options().open(lock_path(&path)).ok()?;
