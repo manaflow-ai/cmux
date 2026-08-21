@@ -12894,11 +12894,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// to current state; ending iteration (or cancelling the consuming task)
     /// unregisters the surface and clears its viewport pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Returns: An `AsyncStream` of output byte chunks.
+    public func terminalOutputStream(
+        surfaceID: String
+    ) -> AsyncStream<MobileTerminalOutputChunk> {
+        terminalOutputStream(surfaceID: surfaceID, ownerID: nil)
+    }
+
+    /// The owner-aware output stream for a terminal surface.
+    ///
+    /// - Parameter surfaceID: The terminal surface identifier.
     /// - Parameter ownerID: Optional identity for the mounted UI consumer.
     /// - Returns: An `AsyncStream` of output byte chunks.
     public func terminalOutputStream(
         surfaceID: String,
-        ownerID: UUID? = nil
+        ownerID: UUID?
     ) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             let streamToken = registerTerminalOutput(
