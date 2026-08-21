@@ -911,7 +911,14 @@ impl MachineUiState {
                 // machine hands its slot to the machine that moved up, or to
                 // the new last machine - never to a "+" footer, which would
                 // put a create prompt one accidental Enter away.
-                if let Some(MachineRailTarget::Machine(deleted)) = previous_target
+                if let Some(MachineRailTarget::Machine(_)) = previous_target
+                    && self.snapshot.machines.is_empty()
+                {
+                    // Every machine is gone: land on the first action row
+                    // ("+ new vm" when available), never on whatever footer
+                    // happens to share the deleted machine's old index.
+                    targets[0]
+                } else if let Some(MachineRailTarget::Machine(deleted)) = previous_target
                     && !self.snapshot.machines.is_empty()
                 {
                     let previous_index = previous

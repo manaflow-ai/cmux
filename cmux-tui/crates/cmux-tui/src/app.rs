@@ -37121,6 +37121,24 @@ mod tests {
         app.apply_machine_ui_update(update);
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+
+        // Deleting the only remaining machine drops the presentation and
+        // lands the rail on the first action row, not the SSH footer that
+        // happens to share the old index.
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(1));
+        app.machine_ui.as_mut().unwrap().request = None;
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        app.apply_machine_ui_update(update);
+        assert_eq!(app.machine_presented, None);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, None);
+        assert!(!ui.session_available);
+        assert_eq!(ui.rail_target(), Some(crate::machine::MachineRailTarget::NewVm));
     }
 
     #[test]
