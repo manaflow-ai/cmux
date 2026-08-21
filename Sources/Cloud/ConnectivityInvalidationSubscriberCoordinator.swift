@@ -85,6 +85,21 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                 accessToken: { [weak auth] in
                     try? await auth?.accessToken()
                 },
+                onStreamEvent: { event in
+                    await MainActor.run {
+                        #if DEBUG
+                        cmuxDebugLog("connectivity.stream \(event)")
+                        #endif
+                        // Frames sent while a stream was down are never
+                        // replayed; each fresh stream re-checks the reply
+                        // inbox so a nudge missed during a reconnect gap is
+                        // still picked up.
+                        if event == "connecting" {
+                            PhoneReplyInboxCoordinator.shared
+                                .sweepSoon(reason: "stream-connecting")
+                        }
+                    }
+                },
                 handler: { invalidation in
                     await MainActor.run {
                         #if DEBUG

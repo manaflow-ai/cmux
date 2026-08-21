@@ -58,6 +58,11 @@ public enum CmxConnectivityInvalidationError: Error, Equatable, Sendable {
 public actor CmxConnectivityInvalidationSubscriber {
     public typealias AccessTokenProvider = @Sendable () async -> String?
     public typealias Handler = @Sendable (CmxConnectivityInvalidation) async -> Void
+    /// Optional stream-lifecycle observer: "connecting", "served …", and
+    /// "failed …" transitions with detail. Lets an owner log reconnect
+    /// behavior and re-run any catch-up work (frames sent while a stream was
+    /// down are never replayed by the channel).
+    public typealias StreamEventObserver = @Sendable (String) async -> Void
 
     private enum StreamOutcome {
         case served
@@ -67,6 +72,7 @@ public actor CmxConnectivityInvalidationSubscriber {
     private let serviceBaseURL: URL
     private let accessToken: AccessTokenProvider
     private let session: URLSession
+    private let onStreamEvent: StreamEventObserver?
     private let backoff: CmxIrohReconnectBackoff
     private let sleep: @Sendable (TimeInterval) async throws -> Void
     private let handler: Handler
@@ -80,6 +86,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
             try await Task<Never, Never>.sleep(for: .seconds($0))
         },
+        onStreamEvent: StreamEventObserver? = nil,
         handler: @escaping Handler
     ) {
         self.serviceBaseURL = serviceBaseURL
@@ -87,6 +94,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         self.session = session
         self.backoff = backoff
         self.sleep = sleep
+        self.onStreamEvent = onStreamEvent
         self.handler = handler
     }
 
@@ -145,9 +153,11 @@ public actor CmxConnectivityInvalidationSubscriber {
 
     private func subscribeOnce() async -> StreamOutcome {
         guard let url = Self.subscribeURL(serviceBaseURL: serviceBaseURL) else {
+            await onStreamEvent?("failed cause=invalid_url")
             return .failed
         }
         guard let token = await accessToken(), !token.isEmpty else {
+            await onStreamEvent?("failed cause=no_token")
             return .failed
         }
         var request = URLRequest(url: url)
@@ -156,6 +166,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         task.maximumMessageSize = CmxConnectivityInvalidation.maximumFrameBytes
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
+        await onStreamEvent?("connecting")
 
         let clock = ContinuousClock()
         let startedAt = clock.now
@@ -166,12 +177,20 @@ public actor CmxConnectivityInvalidationSubscriber {
                 do {
                     message = try await task.receive()
                 } catch {
-                    if delivered { return .served }
+                    let closeCode = task.closeCode.rawValue
+                    if delivered {
+                        await onStreamEvent?("served close=\(closeCode)")
+                        return .served
+                    }
                     let closedCleanly = task.closeCode == .normalClosure
                         || task.closeCode == .goingAway
-                    return closedCleanly && clock.now - startedAt >= .seconds(60)
+                    let outcome: StreamOutcome = closedCleanly && clock.now - startedAt >= .seconds(60)
                         ? .served
                         : .failed
+                    await onStreamEvent?(
+                        "\(outcome == .served ? "served" : "failed") close=\(closeCode) error=\(String(describing: error))"
+                    )
+                    return outcome
                 }
                 let data: Data
                 switch message {
@@ -180,9 +199,11 @@ public actor CmxConnectivityInvalidationSubscriber {
                 case let .data(bytes):
                     data = bytes
                 @unknown default:
+                    await onStreamEvent?("failed cause=unknown_message_kind")
                     return .failed
                 }
                 guard let invalidation = try? CmxConnectivityInvalidation.parse(data) else {
+                    await onStreamEvent?("failed cause=bad_frame bytes=\(data.count)")
                     return .failed
                 }
                 guard !Task.isCancelled else { return .served }
