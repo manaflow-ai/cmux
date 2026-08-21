@@ -221,6 +221,23 @@ struct BrowserKeyCommand: LegacyBrowserCommand {
     static let configuration = CommandConfiguration(commandName: "press", helpNames: [], aliases: ["key", "keydown", "keyup"])
 }
 
+struct BrowserSelectCommand: LegacyBrowserCommand {
+    @Argument var selector: String?
+    @Argument var value: String?
+    @OptionGroup var options: BrowserSnapshotAfterOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "select", helpNames: [])
+}
+
+struct BrowserScrollCommand: LegacyBrowserCommand {
+    @OptionGroup var options: BrowserSnapshotAfterOptions
+    @Option(name: .customLong("selector")) var selector: String?
+    @Option(name: .customLong("dx")) var dx: Int?
+    @Option(name: .customLong("dy")) var dy: Int?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "scroll", helpNames: [])
+}
+
 private enum BrowserDisable: BrowserLeafName { static let commandName = "disable" }
 private enum BrowserEnable: BrowserLeafName { static let commandName = "enable" }
 private enum BrowserStatus: BrowserLeafName { static let commandName = "status" }
@@ -236,8 +253,6 @@ private enum BrowserHistory: BrowserLeafName { static let commandName = "history
 private enum BrowserURL: BrowserLeafName { static let commandName = "url"; static let aliases = ["get-url"] }
 private enum BrowserFocusWebview: BrowserLeafName { static let commandName = "focus-webview"; static let aliases = ["focus_webview"] }
 private enum BrowserWebviewFocused: BrowserLeafName { static let commandName = "is-webview-focused"; static let aliases = ["is_webview_focused"] }
-private enum BrowserSelect: BrowserLeafName { static let commandName = "select" }
-private enum BrowserScroll: BrowserLeafName { static let commandName = "scroll" }
 private enum BrowserGet: BrowserLeafName { static let commandName = "get" }
 private enum BrowserIs: BrowserLeafName { static let commandName = "is" }
 private enum BrowserFind: BrowserLeafName { static let commandName = "find" }
@@ -283,8 +298,6 @@ private typealias BrowserHistoryCommand = BrowserLeaf<BrowserHistory>
 private typealias BrowserURLCommand = BrowserLeaf<BrowserURL>
 private typealias BrowserFocusWebviewCommand = BrowserLeaf<BrowserFocusWebview>
 private typealias BrowserWebviewFocusedCommand = BrowserLeaf<BrowserWebviewFocused>
-private typealias BrowserSelectCommand = BrowserLeaf<BrowserSelect>
-private typealias BrowserScrollCommand = BrowserLeaf<BrowserScroll>
 private typealias BrowserGetCommand = BrowserLeaf<BrowserGet>
 private typealias BrowserIsCommand = BrowserLeaf<BrowserIs>
 private typealias BrowserFindCommand = BrowserLeaf<BrowserFind>
