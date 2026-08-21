@@ -6945,6 +6945,25 @@ class TerminalController {
         )
     }
 
+    /// Returns the URL that should be rejected for one browser-automation
+    /// input. Once the browser URL resolver has produced a URL, the raw text
+    /// must not be parsed again: Foundation treats `localhost:3000` as a
+    /// pseudo-scheme even though the browser resolver correctly turns it into
+    /// `http://localhost:3000`.
+    nonisolated static func browserURLAllowlistBlockedURL(
+        rawInput: String,
+        resolvedURL: URL?,
+        policy: BrowserURLAllowlistPolicy
+    ) -> URL? {
+        if let resolvedURL {
+            return policy.allows(resolvedURL) ? nil : resolvedURL
+        }
+        guard let parsedURL = URL(string: rawInput), parsedURL.scheme != nil else {
+            return nil
+        }
+        return policy.allows(parsedURL) ? nil : parsedURL
+    }
+
     private func v2BrowserOpenSplit(
         params: [String: Any],
         diffViewerRegistration: DiffViewerSessionPreparation
@@ -7303,14 +7322,13 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            if let resolvedURL = context.browserPanel.resolveSmartNavigation(from: url)?.url,
-               let failure = v2BrowserURLAllowlistFailure(for: resolvedURL) {
-                resolutionError = failure
-                return
-            }
-            if let parsedURL = URL(string: url),
-               parsedURL.scheme != nil,
-               let failure = v2BrowserURLAllowlistFailure(for: parsedURL) {
+            let resolvedURL = context.browserPanel.resolveSmartNavigation(from: url)?.url
+            if let blockedURL = Self.browserURLAllowlistBlockedURL(
+                rawInput: url,
+                resolvedURL: resolvedURL,
+                policy: BrowserURLAllowlistPolicy(defaults: .standard)
+            ),
+               let failure = v2BrowserURLAllowlistFailure(for: blockedURL) {
                 resolutionError = failure
                 return
             }
