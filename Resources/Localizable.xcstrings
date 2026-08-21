@@ -64962,6 +64962,13 @@
         }
       }
     },
+    "command.newGitGraphTab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Git Graph Tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいGitグラフタブ" } }
+      }
+    },
     "command.newBrowserWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
@@ -66570,6 +66577,13 @@
             "value": "ファイルをペインで開く"
           }
         }
+      }
+    },
+    "command.openGitGraphPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Git Graph as Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフをペインで開く" } }
       }
     },
     "command.openFindPane.title": {
@@ -148078,6 +148092,125 @@
         }
       }
     },
+    "gitGraph.column.author": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Author" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成者" } }
+      }
+    },
+    "gitGraph.column.commit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コミット" } }
+      }
+    },
+    "gitGraph.column.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Date" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "日時" } }
+      }
+    },
+    "gitGraph.column.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Description" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "説明" } }
+      }
+    },
+    "gitGraph.column.graph": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Graph" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グラフ" } }
+      }
+    },
+    "gitGraph.detachedHead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Detached HEAD" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デタッチされたHEAD" } }
+      }
+    },
+    "gitGraph.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Check the repository and refresh this tab." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リポジトリを確認して、このタブを更新してください。" } }
+      }
+    },
+    "gitGraph.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not load Git Graph" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフを読み込めませんでした" } }
+      }
+    },
+    "gitGraph.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Latest 500" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最新500件" } }
+      }
+    },
+    "gitGraph.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading commit history…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コミット履歴を読み込み中…" } }
+      }
+    },
+    "gitGraph.notRepository.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open this tab from a terminal inside a Git repository." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリ内のターミナルからこのタブを開いてください。" } }
+      }
+    },
+    "gitGraph.notRepository.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Git repository" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリがありません" } }
+      }
+    },
+    "gitGraph.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh Git Graph" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフを更新" } }
+      }
+    },
+    "gitGraph.remoteUnsupported.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use Git Graph from a local terminal for now." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在はローカルターミナルからGitグラフを使用してください。" } }
+      }
+    },
+    "gitGraph.remoteUnsupported.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote Git Graph is not available yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートGitグラフはまだ利用できません" } }
+      }
+    },
+    "gitGraph.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Git Graph" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフ" } }
+      }
+    },
+    "gitGraph.uncommittedChanges": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Uncommitted Changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未コミットの変更" } }
+      }
+    },
     "rightSidebar.mode.files": {
       "extractionState": "manual",
       "localizations": {
@@ -148093,6 +148226,13 @@
             "value": "ファイル"
           }
         }
+      }
+    },
+    "rightSidebar.mode.gitGraph": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Git Graph" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフ" } }
       }
     },
     "rightSidebar.mode.find": {

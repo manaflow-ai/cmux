@@ -8,33 +8,50 @@ extension Workspace {
         inPane paneID: PaneID,
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
+        openOrFocusRepositoryToolSurface(inPane: paneID, mode: .files, focus: focus)
+    }
+
+    /// Opens one Git Graph tab per pane, rooted to that pane's terminal repository.
+    @discardableResult
+    func openOrFocusGitGraphSurface(
+        inPane paneID: PaneID,
+        focus: Bool = true
+    ) -> RightSidebarToolPanel? {
+        openOrFocusRepositoryToolSurface(inPane: paneID, mode: .gitGraph, focus: focus)
+    }
+
+    private func openOrFocusRepositoryToolSurface(
+        inPane paneID: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool
+    ) -> RightSidebarToolPanel? {
         if let existing = bonsplitController.tabs(inPane: paneID).compactMap({ tab in
             panelIdFromSurfaceId(tab.id).flatMap { panels[$0] as? RightSidebarToolPanel }
-        }).first(where: { $0.mode == .files }) {
+        }).first(where: { $0.mode == mode }) {
             if focus {
                 focusPanel(existing.id)
             }
             return existing
         }
 
-        let sourcePanelID = fileBrowserSourceTerminalID(inPane: paneID)
+        let sourcePanelID = repositoryToolSourceTerminalID(inPane: paneID)
         let sourceDirectory = sourcePanelID.flatMap { panelID in
             effectivePanelDirectory(
                 panelId: panelID,
                 localFallback: terminalPanel(for: panelID)?.directory
             )
-        } ?? defaultFileBrowserDirectory
+        } ?? defaultRepositoryToolDirectory
 
         return newRightSidebarToolSurface(
             inPane: paneID,
-            mode: .files,
+            mode: mode,
             focus: focus,
             sourcePanelID: sourcePanelID,
             rootDirectory: sourceDirectory
         )
     }
 
-    private func fileBrowserSourceTerminalID(inPane paneID: PaneID) -> UUID? {
+    private func repositoryToolSourceTerminalID(inPane paneID: PaneID) -> UUID? {
         if let selectedTab = bonsplitController.selectedTab(inPane: paneID),
            let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
            terminalPanel(for: selectedPanelID) != nil {
@@ -46,7 +63,7 @@ extension Workspace {
         }.first(where: { terminalPanel(for: $0) != nil })
     }
 
-    private var defaultFileBrowserDirectory: String? {
+    private var defaultRepositoryToolDirectory: String? {
         let candidate = usesRemoteDirectoryProvenance
             ? trustedRemoteCurrentDirectory
             : currentDirectory

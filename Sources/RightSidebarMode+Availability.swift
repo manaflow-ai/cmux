@@ -6,6 +6,8 @@ extension RightSidebarMode {
         switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "files":
             return .files
+        case "git-graph", "gitgraph", "graph":
+            return .gitGraph
         case "find":
             return .find
         case "vault", "sessions":
@@ -27,7 +29,10 @@ extension RightSidebarMode {
     }
 
     static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
+        allCases.filter {
+            $0 != .customSidebar && $0 != .gitGraph
+                && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
@@ -39,7 +44,7 @@ extension RightSidebarMode {
 
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
         switch self {
-        case .files, .find, .sessions:
+        case .files, .gitGraph, .find, .sessions:
             return true
         case .feed:
             return feedEnabled

@@ -9,6 +9,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
     case newFileBrowser = "cmux.newFileBrowser"
+    case newGitGraph = "cmux.newGitGraph"
     case newSimulator = "cmux.newSimulator"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
@@ -32,6 +33,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newBrowser
         case "cmux.newFileBrowser", "newFileBrowser", "fileBrowser", "files":
             self = .newFileBrowser
+        case "cmux.newGitGraph", "newGitGraph", "gitGraph", "git-graph", "graph":
+            self = .newGitGraph
         case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
             self = .newSimulator
         case "cmux.splitRight", "splitRight":
@@ -66,6 +69,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"), ["new", "browser", "tab", "surface"])
         case .newFileBrowser:
             return (String(localized: "command.newFileBrowserTab.title", defaultValue: "New File Browser Tab"), ["new", "file", "browser", "explorer", "tree", "tab", "surface"])
+        case .newGitGraph:
+            return (String(localized: "command.newGitGraphTab.title", defaultValue: "New Git Graph Tab"), ["new", "git", "graph", "history", "branch", "commit", "tab", "surface"])
         case .newSimulator:
             return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane"), ["new", "simulator", "iphone", "ipad", "ios", "surface"])
         case .splitRight:
@@ -91,6 +96,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "globe"
         case .newFileBrowser:
             return "folder"
+        case .newGitGraph:
+            return "arrow.triangle.branch"
         case .newSimulator:
             return "iphone.gen3"
         case .splitRight:
@@ -102,7 +109,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect, .newFileBrowser, .newSimulator:
+        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect, .newFileBrowser, .newGitGraph, .newSimulator:
             return nil
         case .newTerminal:
             return .newTerminal

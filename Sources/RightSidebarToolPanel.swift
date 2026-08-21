@@ -20,6 +20,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
+    private var gitGraphModelStorage: GitGraphPanelModel?
     private var workspaceObservationCancellable: AnyCancellable?
 
     init(
@@ -67,6 +68,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         return store
     }
 
+    var gitGraphModel: GitGraphPanelModel {
+        if let model = gitGraphModelStorage { return model }
+        let model = GitGraphPanelModel()
+        gitGraphModelStorage = model
+        if let workspace {
+            syncGitGraphRoot(from: workspace, model: model)
+        }
+        return model
+    }
+
     var displayTitle: String { mode.label }
     var displayIcon: String? { mode.symbolName }
 
@@ -92,6 +103,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
+        case .gitGraph:
+            guard let model = gitGraphModelStorage else { return }
+            syncGitGraphRoot(from: workspace, model: model)
         case .feed, .dock, .customSidebar:
             break
         }
@@ -152,7 +166,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .customSidebar:
+        case .gitGraph, .feed, .dock, .customSidebar:
             break
         }
     }
@@ -174,7 +188,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .customSidebar:
+        case .gitGraph, .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -269,6 +283,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         store.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
     }
+
+    private func syncGitGraphRoot(from workspace: Workspace, model: GitGraphPanelModel) {
+        model.setDirectory(
+            resolvedFileExplorerDirectory(from: workspace),
+            isRemote: workspace.usesRemoteDirectoryProvenance
+        )
+    }
 }
 
 struct RightSidebarToolPanelView: View {
@@ -307,6 +328,11 @@ struct RightSidebarToolPanelView: View {
                 placement: .pane,
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
+            )
+        case .gitGraph:
+            GitGraphPanelView(
+                model: panel.gitGraphModel,
+                onFocus: requestPanelFocusIfNeeded
             )
         case .find:
             FileExplorerPanelView(

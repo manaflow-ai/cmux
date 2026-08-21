@@ -9269,6 +9269,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
         guard mode.canOpenAsPane else { return nil }
+        if mode == .files {
+            return openOrFocusFileBrowserSurface(inPane: paneId, focus: focus)
+        }
+        if mode == .gitGraph {
+            return openOrFocusGitGraphSurface(inPane: paneId, focus: focus)
+        }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
@@ -13344,6 +13350,8 @@ extension Workspace: BonsplitDelegate {
                 _ = newSimulatorSurface(inPane: pane, focus: true)
             case .newFileBrowser:
                 _ = openOrFocusFileBrowserSurface(inPane: pane, focus: true)
+            case .newGitGraph:
+                _ = openOrFocusGitGraphSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

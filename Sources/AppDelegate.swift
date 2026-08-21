@@ -16534,6 +16534,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .newGitGraph:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneID = workspace.bonsplitController.focusedPaneId
+                        ?? workspace.bonsplitController.allPaneIds.first,
+                      workspace.openOrFocusGitGraphSurface(inPane: paneID, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,

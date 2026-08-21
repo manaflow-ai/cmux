@@ -11,14 +11,15 @@ import Testing
 @Suite(.serialized)
 struct FileBrowserSurfaceTests {
     @Test
-    func defaultSurfaceTabBarButtonsIncludeFileBrowserAsFifthButton() {
+    func defaultSurfaceTabBarButtonsIncludeFileBrowserAndGitGraph() {
         #expect(
             CmuxSurfaceTabBarButton.defaults.map(\.id) == [
                 "cmux.newTerminal",
                 "cmux.newBrowser",
                 "cmux.splitRight",
                 "cmux.splitDown",
-                "cmux.newFileBrowser"
+                "cmux.newFileBrowser",
+                "cmux.newGitGraph"
             ]
         )
     }
@@ -79,5 +80,37 @@ struct FileBrowserSurfaceTests {
             workspace.panels.values.compactMap { $0 as? RightSidebarToolPanel }
                 .filter { $0.mode == .files }.count == 2
         )
+    }
+
+    @Test
+    func gitGraphIsScopedToPaneAndReusesWithinPane() throws {
+        let workspace = Workspace()
+        let firstTerminalID = try #require(workspace.focusedPanelId)
+        let firstPaneID = try #require(workspace.paneId(forPanelId: firstTerminalID))
+        let secondTerminal = try #require(
+            workspace.newTerminalSplit(from: firstTerminalID, orientation: .horizontal)
+        )
+        let secondPaneID = try #require(workspace.paneId(forPanelId: secondTerminal.id))
+        workspace.panelDirectories[firstTerminalID] = "/tmp/first-repo"
+        workspace.panelDirectories[secondTerminal.id] = "/tmp/second-repo"
+
+        let firstGraph = try #require(
+            workspace.openOrFocusGitGraphSurface(inPane: firstPaneID, focus: false)
+        )
+        let secondGraph = try #require(
+            workspace.openOrFocusGitGraphSurface(inPane: secondPaneID, focus: false)
+        )
+        let reusedFirstGraph = try #require(
+            workspace.openOrFocusGitGraphSurface(inPane: firstPaneID, focus: false)
+        )
+
+        #expect(firstGraph.id != secondGraph.id)
+        #expect(firstGraph.id == reusedFirstGraph.id)
+        #expect(firstGraph.sourcePanelID == firstTerminalID)
+        #expect(firstGraph.rootDirectory == "/tmp/first-repo")
+        #expect(secondGraph.sourcePanelID == secondTerminal.id)
+        #expect(secondGraph.rootDirectory == "/tmp/second-repo")
+        #expect(workspace.paneId(forPanelId: firstGraph.id) == firstPaneID)
+        #expect(workspace.paneId(forPanelId: secondGraph.id) == secondPaneID)
     }
 }
