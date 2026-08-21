@@ -626,10 +626,22 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
     }
 
+    /// Maximum nesting depth ``processTreeNode`` emits.
+    ///
+    /// A pathological parent chain — a self-spawning `npm exec` shim, a
+    /// runaway supervisor — nests thousands of processes deep. Recursing once
+    /// per level overflowed the 512 KB stack of the control-socket client
+    /// thread at roughly 590 levels and killed the app with SIGBUS. Past this
+    /// depth the remaining descendants are emitted as a flat list, which
+    /// bounds this recursion, the nesting `JSONSerialization` has to write,
+    /// and every consumer that walks `children` back down.
+    private static let maxProcessTreeDepth = 64
+
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
         rootPIDs: Set<Int>,
+        depth: Int = 0,
         visited: inout Set<Int>
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
@@ -637,18 +649,48 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return nil
         }
 
-        let childNodes = (childrenByParentPID[pid] ?? [])
-            .filter { allowedPIDs.contains($0) }
-            .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap {
-                processTreeNode(
-                    pid: $0,
-                    allowedPIDs: allowedPIDs,
-                    rootPIDs: rootPIDs,
-                    visited: &visited
-                )
-            }
+        let childNodes: [[String: Any]]
+        let childrenFlattened: Bool
+        if depth >= Self.maxProcessTreeDepth {
+            childNodes = flattenedDescendantNodes(
+                of: pid,
+                allowedPIDs: allowedPIDs,
+                rootPIDs: rootPIDs,
+                visited: &visited
+            )
+            childrenFlattened = !childNodes.isEmpty
+        } else {
+            childNodes = (childrenByParentPID[pid] ?? [])
+                .filter { allowedPIDs.contains($0) }
+                .sorted { processSortKey($0) < processSortKey($1) }
+                .compactMap {
+                    processTreeNode(
+                        pid: $0,
+                        allowedPIDs: allowedPIDs,
+                        rootPIDs: rootPIDs,
+                        depth: depth + 1,
+                        visited: &visited
+                    )
+                }
+            childrenFlattened = false
+        }
 
+        return processNodePayload(
+            for: process,
+            allowedPIDs: allowedPIDs,
+            rootPIDs: rootPIDs,
+            childNodes: childNodes,
+            childrenFlattened: childrenFlattened
+        )
+    }
+
+    private func processNodePayload(
+        for process: CmuxTopProcessInfo,
+        allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>,
+        childNodes: [[String: Any]] = [],
+        childrenFlattened: Bool = false
+    ) -> [String: Any] {
         var payload: [String: Any] = [
             "kind": "process",
             "pid": process.pid,
@@ -659,7 +701,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "thread_count": process.threadCount,
             "memory_source": process.memorySource.rawValue,
             "resident_memory_source": process.residentMemorySource.rawValue,
-            "resources": summary(for: [pid]).payload(),
+            "resources": summary(for: [process.pid]).payload(),
             "children": childNodes
         ]
         if let ttyDevice = process.ttyDevice {
@@ -687,7 +729,48 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         } else {
             payload["tpgid"] = NSNull()
         }
+        if childrenFlattened {
+            payload["children_flattened"] = true
+        }
         return payload
+    }
+
+    /// Emits every not-yet-visited descendant of `pid` as depth-1 leaves.
+    ///
+    /// Walks ``childrenByParentPID`` with an explicit stack so a deep chain
+    /// costs no stack frames, and stays inside the snapshot for the same
+    /// reason the recursion it replaces did: only snapshot children are
+    /// reachable from here.
+    private func flattenedDescendantNodes(
+        of pid: Int,
+        allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>,
+        visited: inout Set<Int>
+    ) -> [[String: Any]] {
+        var descendants: [Int] = []
+        var stack = (childrenByParentPID[pid] ?? []).filter { allowedPIDs.contains($0) }
+        while let candidate = stack.popLast() {
+            guard visited.insert(candidate).inserted,
+                  processesByPID[candidate] != nil else {
+                continue
+            }
+            descendants.append(candidate)
+            stack.append(
+                contentsOf: (childrenByParentPID[candidate] ?? []).filter { allowedPIDs.contains($0) }
+            )
+        }
+
+        return descendants
+            .sorted { processSortKey($0) < processSortKey($1) }
+            .compactMap { descendant in
+                processesByPID[descendant].map {
+                    processNodePayload(
+                        for: $0,
+                        allowedPIDs: allowedPIDs,
+                        rootPIDs: rootPIDs
+                    )
+                }
+            }
     }
 
     private func attributionReason(
