@@ -30,6 +30,8 @@ struct CmuxCommand: ParsableCommand {
             InternalFlagsCommand.self,
             SidebarFooterIconBalanceCommand.self,
             AuthCommand.self,
+            LoginCommand.self,
+            LogoutCommand.self,
             AIAccountsCommand.self,
         ]
     )
