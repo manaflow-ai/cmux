@@ -19,8 +19,55 @@ extension BrowserLeafName {
     static var aliases: [String] { [] }
 }
 
+/// Browser options shared by the delegated browser verb declarations.
+///
+/// The legacy browser runner remains the authority for which options combine
+/// for a particular verb. Declaring the vocabulary here lets shell completion
+/// offer the documented browser controls without changing that runner.
+struct BrowserCommandOptions: ParsableArguments {
+    @Option(name: .customLong("surface"), completion: .custom(CompletionCandidates.surfaces)) var surface: String?
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(
+        name: .customLong("profile"),
+        help: ArgumentHelp(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+    ) var profile: String?
+    @Option(name: .customLong("url")) var url: String?
+    @Option(name: .customLong("selector")) var selector: String?
+    @Option(name: .customLong("text")) var text: String?
+    @Option(name: .customLong("script")) var script: String?
+    @Option(name: .customLong("css")) var css: String?
+    @Option(name: .customLong("key")) var key: String?
+    @Option(name: .customLong("value")) var value: String?
+    @Option(name: .customLong("out"), completion: .file()) var out: String?
+    @Option(name: .customLong("path"), completion: .file()) var path: String?
+    @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: Int?
+    @Option(name: .customLong("timeout")) var timeout: Double?
+    @Option(name: .customLong("max-depth")) var maxDepth: Int?
+    @Option(name: .customLong("dx")) var dx: Int?
+    @Option(name: .customLong("dy")) var dy: Int?
+    @Option(name: .customLong("load-state"), completion: .list(["interactive", "complete"])) var loadState: String?
+    @Option(name: .customLong("function")) var function: String?
+    @Option(name: .customLong("return-to"), completion: .custom(CompletionCandidates.surfaces)) var returnTo: String?
+    @Option(name: .customLong("name")) var name: String?
+    @Option(name: .customLong("domain")) var domain: String?
+    @Option(name: .customLong("attr")) var attribute: String?
+    @Option(name: .customLong("property")) var property: String?
+    @Option(name: .customLong("index")) var index: Int?
+    @Flag(name: .customLong("snapshot-after")) var snapshotAfter = false
+    @Flag(name: [.customLong("interactive"), .customShort("i")]) var interactive = false
+    @Flag(name: .customLong("cursor")) var cursor = false
+    @Flag(name: .customLong("compact")) var compact = false
+    @Flag(name: .customLong("force")) var force = false
+    @Flag(name: .customLong("yes")) var yes = false
+    @Flag(name: .customLong("all")) var all = false
+    @Flag(name: .customLong("exact")) var exact = false
+    @Flag(name: .customLong("json")) var json = false
+}
+
 /// A browser verb whose detailed option validation remains in the legacy runner.
 private struct BrowserLeaf<Name: BrowserLeafName>: LegacyBrowserCommand {
+    @OptionGroup var options: BrowserCommandOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
     static var configuration: CommandConfiguration {
@@ -31,6 +78,16 @@ private struct BrowserLeaf<Name: BrowserLeafName>: LegacyBrowserCommand {
 protocol BrowserLegacyAliasName {
     static var commandName: String { get }
     static var abstract: String { get }
+}
+
+extension BrowserLegacyAliasName {
+    static func legacyAbstract(for browserCommand: String) -> String {
+        let format = String(
+            localized: "cli.browser.legacyAlias.abstract",
+            defaultValue: "Legacy alias for 'cmux browser %@'. Run 'cmux browser --help' for details."
+        )
+        return String(format: format, locale: .current, browserCommand)
+    }
 }
 
 /// A top-level compatibility alias for a browser subcommand.
@@ -77,28 +134,21 @@ struct BrowserCommand: LegacyBrowserCommand {
 }
 
 struct BrowserOpenCommand: LegacyBrowserCommand {
-    @Option(
-        name: .customLong("profile"),
-        help: ArgumentHelp(
-            String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")
-        )
-    ) var profile: String?
+    @Argument var url: String?
+    @OptionGroup var options: BrowserCommandOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "open", helpNames: [])
 }
 
 struct BrowserOpenSplitCommand: LegacyBrowserCommand {
-    @Option(
-        name: .customLong("profile"),
-        help: ArgumentHelp(
-            String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")
-        )
-    ) var profile: String?
+    @Argument var url: String?
+    @OptionGroup var options: BrowserCommandOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "open-split", helpNames: [])
 }
 
 struct BrowserDesignModeCommand: LegacyBrowserCommand {
+    @OptionGroup var options: BrowserCommandOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(
         commandName: "design-mode",
@@ -107,11 +157,30 @@ struct BrowserDesignModeCommand: LegacyBrowserCommand {
     )
 }
 
+struct BrowserGotoCommand: LegacyBrowserCommand {
+    @Argument var url: String?
+    @OptionGroup var options: BrowserCommandOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "goto", helpNames: [], aliases: ["navigate"])
+}
+
+struct BrowserSnapshotCommand: LegacyBrowserCommand {
+    @OptionGroup var options: BrowserCommandOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "snapshot", helpNames: [])
+}
+
+struct BrowserWaitCommand: LegacyBrowserCommand {
+    @Argument var selector: String?
+    @OptionGroup var options: BrowserCommandOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "wait", helpNames: [])
+}
+
 private enum BrowserDisable: BrowserLeafName { static let commandName = "disable" }
 private enum BrowserEnable: BrowserLeafName { static let commandName = "enable" }
 private enum BrowserStatus: BrowserLeafName { static let commandName = "status" }
 private enum BrowserNew: BrowserLeafName { static let commandName = "new" }
-private enum BrowserGoto: BrowserLeafName { static let commandName = "goto"; static let aliases = ["navigate"] }
 private enum BrowserBack: BrowserLeafName { static let commandName = "back" }
 private enum BrowserForward: BrowserLeafName { static let commandName = "forward" }
 private enum BrowserReload: BrowserLeafName { static let commandName = "reload" }
@@ -123,11 +192,8 @@ private enum BrowserHistory: BrowserLeafName { static let commandName = "history
 private enum BrowserURL: BrowserLeafName { static let commandName = "url"; static let aliases = ["get-url"] }
 private enum BrowserFocusWebview: BrowserLeafName { static let commandName = "focus-webview"; static let aliases = ["focus_webview"] }
 private enum BrowserWebviewFocused: BrowserLeafName { static let commandName = "is-webview-focused"; static let aliases = ["is_webview_focused"] }
-private enum BrowserSnapshot: BrowserLeafName { static let commandName = "snapshot" }
 private enum BrowserEval: BrowserLeafName { static let commandName = "eval" }
-private enum BrowserWait: BrowserLeafName { static let commandName = "wait" }
 private enum BrowserClick: BrowserLeafName { static let commandName = "click" }
-private enum BrowserDoubleClick: BrowserLeafName { static let commandName = "dblclick" }
 private enum BrowserHover: BrowserLeafName { static let commandName = "hover" }
 private enum BrowserFocus: BrowserLeafName { static let commandName = "focus" }
 private enum BrowserCheck: BrowserLeafName { static let commandName = "check" }
@@ -175,7 +241,6 @@ private typealias BrowserDisableCommand = BrowserLeaf<BrowserDisable>
 private typealias BrowserEnableCommand = BrowserLeaf<BrowserEnable>
 private typealias BrowserStatusCommand = BrowserLeaf<BrowserStatus>
 private typealias BrowserNewCommand = BrowserLeaf<BrowserNew>
-private typealias BrowserGotoCommand = BrowserLeaf<BrowserGoto>
 private typealias BrowserBackCommand = BrowserLeaf<BrowserBack>
 private typealias BrowserForwardCommand = BrowserLeaf<BrowserForward>
 private typealias BrowserReloadCommand = BrowserLeaf<BrowserReload>
@@ -187,9 +252,7 @@ private typealias BrowserHistoryCommand = BrowserLeaf<BrowserHistory>
 private typealias BrowserURLCommand = BrowserLeaf<BrowserURL>
 private typealias BrowserFocusWebviewCommand = BrowserLeaf<BrowserFocusWebview>
 private typealias BrowserWebviewFocusedCommand = BrowserLeaf<BrowserWebviewFocused>
-private typealias BrowserSnapshotCommand = BrowserLeaf<BrowserSnapshot>
 private typealias BrowserEvalCommand = BrowserLeaf<BrowserEval>
-private typealias BrowserWaitCommand = BrowserLeaf<BrowserWait>
 private typealias BrowserClickCommand = BrowserLeaf<BrowserClick>
 private typealias BrowserDoubleClickCommand = BrowserLeaf<BrowserDoubleClick>
 private typealias BrowserHoverCommand = BrowserLeaf<BrowserHover>
@@ -237,47 +300,47 @@ private typealias BrowserIdentifyCommand = BrowserLeaf<BrowserIdentify>
 
 enum OpenBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "open-browser"
-    static let abstract = "Legacy alias for 'cmux browser open'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "open")
 }
 enum NavigateAlias: BrowserLegacyAliasName {
     static let commandName = "navigate"
-    static let abstract = "Legacy alias for 'cmux browser navigate'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "navigate")
 }
 enum BrowserBackAlias: BrowserLegacyAliasName {
     static let commandName = "browser-back"
-    static let abstract = "Legacy alias for 'cmux browser back'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "back")
 }
 enum BrowserForwardAlias: BrowserLegacyAliasName {
     static let commandName = "browser-forward"
-    static let abstract = "Legacy alias for 'cmux browser forward'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "forward")
 }
 enum BrowserReloadAlias: BrowserLegacyAliasName {
     static let commandName = "browser-reload"
-    static let abstract = "Legacy alias for 'cmux browser reload'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "reload")
 }
 enum BrowserStatusAlias: BrowserLegacyAliasName {
     static let commandName = "browser-status"
-    static let abstract = "Legacy alias for 'cmux browser status'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "status")
 }
 enum GetURLAlias: BrowserLegacyAliasName {
     static let commandName = "get-url"
-    static let abstract = "Legacy alias for 'cmux browser get-url'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "get-url")
 }
 enum FocusWebviewAlias: BrowserLegacyAliasName {
     static let commandName = "focus-webview"
-    static let abstract = "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "focus-webview")
 }
 enum WebviewFocusedAlias: BrowserLegacyAliasName {
     static let commandName = "is-webview-focused"
-    static let abstract = "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "is-webview-focused")
 }
 enum DisableBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "disable-browser"
-    static let abstract = "Legacy alias for 'cmux browser disable'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "disable")
 }
 enum EnableBrowserAlias: BrowserLegacyAliasName {
     static let commandName = "enable-browser"
-    static let abstract = "Legacy alias for 'cmux browser enable'. Run 'cmux browser --help' for details."
+    static let abstract = legacyAbstract(for: "enable")
 }
 
 typealias OpenBrowserCommand = BrowserLegacyAlias<OpenBrowserAlias>
