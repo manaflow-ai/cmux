@@ -2714,7 +2714,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .superseded
         }
         if let outcome = race.value {
-            if outcome.didConnect, multiMacAggregationEnabled {
+            if outcome.didConnect {
                 // Start secondary dials only after the bounded foreground
                 // operation has handed ownership back to this shared entry.
                 // This preserves foreground-first ordering even though the
@@ -3453,7 +3453,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Presence is the pool's membership authority. Reconcile on every
         // online/offline/snapshot/routes transition so offline Macs stop
         // consuming battery and newly online Macs are warmed immediately.
-        if presence != nil, multiMacAggregationEnabled {
+        if presence != nil {
             switch update {
             case .seen:
                 break
@@ -3534,8 +3534,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await routeSyncTask.value
                     guard !Task.isCancelled else { return }
                     guard await self.isScopeCurrent(scope),
-                          self.presence != nil,
-                          self.multiMacAggregationEnabled else {
+                          self.presence != nil else {
                         return
                     }
                     // The scope check suspends. Drain any route operation that
@@ -5116,7 +5115,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsNewConnections: Bool = true,
         discoverLivePeers: Bool = false
     ) async {
-        guard let pairedMacStore, multiMacAggregationEnabled else { return }
+        guard let pairedMacStore else { return }
+        if !multiMacAggregationEnabled {
+            // The aggregation preference controls ongoing workspace fan-out,
+            // not account admission. A legacy install may have this switch
+            // persisted as false, but opening the app must still discover and
+            // persist every authenticated Mac instance so Computer Order is
+            // complete without a QR per build.
+            guard discoverLivePeers,
+                  connectionState == .connected,
+                  remoteClient != nil,
+                  let scope = await currentScopeSnapshot(),
+                  await isAggregationScopeValid(scope) else { return }
+            let loadedMacs = (try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )) ?? []
+            guard await isAggregationScopeValid(scope) else { return }
+            await establishDiscoveredSecondaryIrohMacs(
+                scope: scope,
+                excluding: loadedMacs
+            )
+            return
+        }
         let retryEvidenceGenerationAtStart =
             secondaryAggregationRetryEvidenceGeneration
         // Require a concrete signed-in user before any load/connection: a nil/empty
@@ -9601,7 +9622,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled, !isReconnectingStoredMac {
+                    if !isReconnectingStoredMac {
                         self.scheduleSecondaryAggregation(
                             discoverLivePeers: true
                         )
@@ -13728,7 +13749,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            if self?.multiMacAggregationEnabled == true {
+            if self?.connectionState == .connected,
+               self?.remoteClient != nil {
                 await self?.refreshSecondaryMacWorkspaces(
                     discoverLivePeers: true
                 )
