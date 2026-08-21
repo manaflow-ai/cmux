@@ -1067,11 +1067,12 @@ struct CMUXMobileRootView: View {
         presentPairing(.versionApproval)
     }
 
-    /// Manual host and pairing-code authorization create Tailscale routes, so
-    /// every ordinary Add Computer entrypoint shares this availability gate.
+    /// Add Computer (including its manual host:port form) is always available:
+    /// entering the address where a same-account Mac is reachable IS discovery
+    /// for LAN, WireGuard, and other networks Iroh may not find fast enough.
+    /// Only the Tailscale pairing-code scanner keeps a method gate.
     private var addComputerAction: (() -> Void)? {
-        guard allowsManualPairing else { return nil }
-        return showAddDevice
+        showAddDevice
     }
 
     /// Scanner entrypoints use the same gate as the manual pairing form.
