@@ -1375,6 +1375,14 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() {
+    run_main();
+    // Reached only by the normal return paths, which never call
+    // client_log::exit; flush so the last queued records (final status,
+    // shutdown diagnostics) reach the client log on every platform.
+    client_log::flush_for_exit();
+}
+
+fn run_main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {

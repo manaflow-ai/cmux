@@ -114,10 +114,17 @@ fn queue() -> Option<&'static SyncSender<Message>> {
 /// logged. The Unix atexit hook stays registered as a backstop for exits
 /// that do not come through here (including a normal return from main).
 pub(crate) fn exit(code: i32) -> ! {
+    flush_for_exit();
+    std::process::exit(code)
+}
+
+/// The bounded drain `exit` performs, callable from a normal return path
+/// (main falling off its end never runs `exit`, and non-Unix has no atexit
+/// hook to catch it).
+pub(crate) fn flush_for_exit() {
     #[cfg(unix)]
     drain_stderr_pipe(std::time::Duration::from_millis(250));
     flush_with_deadline(std::time::Duration::from_millis(250));
-    std::process::exit(code)
 }
 
 /// Drain the queue to disk, waiting at most `deadline`. Safe to call from
