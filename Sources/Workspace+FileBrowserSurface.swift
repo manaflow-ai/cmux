@@ -35,12 +35,10 @@ extension Workspace {
         }
 
         let sourcePanelID = repositoryToolSourceTerminalID(inPane: paneID)
-        let sourceDirectory = sourcePanelID.flatMap { panelID in
-            effectivePanelDirectory(
-                panelId: panelID,
-                localFallback: terminalPanel(for: panelID)?.directory
-            )
-        } ?? defaultRepositoryToolDirectory
+        let sourceDirectory = repositoryToolDirectory(
+            sourcePanelID: sourcePanelID,
+            rootDirectory: nil
+        )
 
         return newRightSidebarToolSurface(
             inPane: paneID,
@@ -63,16 +61,31 @@ extension Workspace {
         }.first(where: { terminalPanel(for: $0) != nil })
     }
 
-    private var defaultRepositoryToolDirectory: String? {
-        let candidate = usesRemoteDirectoryProvenance
-            ? trustedRemoteCurrentDirectory
-            : currentDirectory
-        let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmed, !trimmed.isEmpty {
-            return trimmed
+    func repositoryToolDirectory(sourcePanelID: UUID?, rootDirectory: String?) -> String? {
+        func normalized(_ directory: String?) -> String? {
+            guard let directory else { return nil }
+            let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
-        return usesRemoteDirectoryProvenance
-            ? nil
-            : FileManager.default.homeDirectoryForCurrentUser.path
+
+        if let sourcePanelID {
+            let runtimeDirectory = terminalPanel(for: sourcePanelID)?.directory
+            if let directory = effectivePanelDirectory(
+                panelId: sourcePanelID,
+                localFallback: runtimeDirectory
+            ) {
+                return directory
+            }
+        }
+        if let rootDirectory = normalized(rootDirectory) {
+            return rootDirectory
+        }
+        let workspaceDirectory = usesRemoteDirectoryProvenance
+            ? normalized(trustedRemoteCurrentDirectory)
+            : normalized(currentDirectory)
+        if let workspaceDirectory {
+            return workspaceDirectory
+        }
+        return usesRemoteDirectoryProvenance ? nil : FileManager.default.homeDirectoryForCurrentUser.path
     }
 }

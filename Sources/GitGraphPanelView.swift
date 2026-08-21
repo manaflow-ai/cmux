@@ -22,7 +22,10 @@ final class GitGraphPanelModel {
     func setDirectory(_ directory: String?, isRemote: Bool) {
         let normalized = directory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextDirectory = normalized?.isEmpty == false ? normalized : nil
-        guard self.directory != nextDirectory || (isRemote && state != .remoteUnsupported) else { return }
+        let needsStateTransition = isRemote
+            ? state != .remoteUnsupported
+            : state == .remoteUnsupported
+        guard self.directory != nextDirectory || needsStateTransition else { return }
         self.directory = nextDirectory
         loadTask?.cancel()
         if isRemote {
@@ -39,6 +42,7 @@ final class GitGraphPanelModel {
     }
 
     func reload() {
+        guard state != .remoteUnsupported else { return }
         guard let directory else {
             state = .notRepository
             return
@@ -59,6 +63,7 @@ final class GitGraphPanelModel {
             }
         }
     }
+
 }
 
 struct GitGraphPanelView: View {
@@ -291,7 +296,18 @@ private struct GitGraphCommitRow: View {
         .background(isHead ? Color.accentColor.opacity(0.09) : .clear)
         .overlay(alignment: .bottom) { Divider().opacity(0.28) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(row.commit.subject), \(row.commit.author), \(String(row.commit.oid.prefix(8)))")
+        .accessibilityLabel(
+            String(
+                format: String(
+                    localized: "gitGraph.commit.accessibilityLabel",
+                    defaultValue: "%1$@, %2$@, %3$@"
+                ),
+                locale: .current,
+                row.commit.subject,
+                row.commit.author,
+                String(row.commit.oid.prefix(8))
+            )
+        )
     }
 }
 

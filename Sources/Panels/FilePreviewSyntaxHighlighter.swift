@@ -4,52 +4,72 @@ import AppKit
 struct FilePreviewSyntaxHighlighter {
     /// Keeps per-keystroke recoloring bounded while large files retain the fast plain-text path.
     static let maximumHighlightedUTF16Length = 256 * 1024
+    private static let incrementalContextUTF16Length = 8 * 1024
 
     let language: FilePreviewSyntaxLanguage
     let baseColor: NSColor
     let appearance: NSAppearance
 
-    func apply(to textView: NSTextView) {
+    func apply(to textView: NSTextView, range requestedRange: NSRange? = nil) {
         guard let textStorage = textView.textStorage else { return }
         let text = textStorage.string
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        let source = text as NSString
+        let documentRange = NSRange(location: 0, length: source.length)
+        let targetRange = requestedRange.map { NSIntersectionRange($0, documentRange) } ?? documentRange
+        guard targetRange.length > 0 || documentRange.length == 0 else { return }
+        let segment = source.substring(with: targetRange)
+        let segmentRange = NSRange(location: 0, length: (segment as NSString).length)
         let palette = Palette(appearance: appearance)
 
         textStorage.beginEditing()
-        textStorage.addAttribute(.foregroundColor, value: baseColor, range: fullRange)
+        textStorage.addAttribute(.foregroundColor, value: baseColor, range: targetRange)
 
-        if language != .plainText, fullRange.length <= Self.maximumHighlightedUTF16Length {
-            let candidateStringRanges = ranges(for: stringPattern, in: text, fullRange: fullRange)
-            let commentSearchText = textMasking(candidateStringRanges, in: text)
+        if language != .plainText, documentRange.length <= Self.maximumHighlightedUTF16Length {
+            let candidateStringRanges = ranges(for: stringPattern, in: segment, fullRange: segmentRange)
+            let commentSearchText = textMasking(candidateStringRanges, in: segment)
             let commentRanges = ranges(
                 for: commentPattern,
                 in: commentSearchText,
-                fullRange: fullRange
+                fullRange: segmentRange
             )
-            apply(color: palette.comment, to: commentRanges, in: textStorage)
+            apply(
+                color: palette.comment,
+                to: commentRanges,
+                offset: targetRange.location,
+                in: textStorage
+            )
 
+            let commentIndex = ProtectedRangeIndex(commentRanges)
             let stringRanges = candidateStringRanges.filter { candidate in
-                !commentRanges.contains(where: { Self.contains(candidate.location, in: $0) })
+                !commentIndex.overlaps(candidate)
             }
-            apply(color: palette.string, to: stringRanges, in: textStorage)
-            let protectedRanges = commentRanges + stringRanges
+            apply(
+                color: palette.string,
+                to: stringRanges,
+                offset: targetRange.location,
+                in: textStorage
+            )
+            let protectedRanges = ProtectedRangeIndex(commentRanges + stringRanges)
 
             apply(
                 color: palette.number,
-                to: ranges(for: #"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, in: text, fullRange: fullRange),
+                to: ranges(for: #"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, in: segment, fullRange: segmentRange),
                 excluding: protectedRanges,
+                offset: targetRange.location,
                 in: textStorage
             )
             apply(
                 color: palette.keyword,
-                to: ranges(for: keywordPattern, in: text, fullRange: fullRange),
+                to: ranges(for: keywordPattern, in: segment, fullRange: segmentRange),
                 excluding: protectedRanges,
+                offset: targetRange.location,
                 in: textStorage
             )
             apply(
                 color: palette.type,
-                to: ranges(for: #"\b[A-Z][A-Za-z0-9_]*\b"#, in: text, fullRange: fullRange),
+                to: ranges(for: #"\b[A-Z][A-Za-z0-9_]*\b"#, in: segment, fullRange: segmentRange),
                 excluding: protectedRanges,
+                offset: targetRange.location,
                 in: textStorage
             )
             for rule in structuralRules {
@@ -58,10 +78,11 @@ struct FilePreviewSyntaxHighlighter {
                     to: ranges(
                         for: rule.pattern,
                         captureGroup: rule.captureGroup,
-                        in: text,
-                        fullRange: fullRange
+                        in: segment,
+                        fullRange: segmentRange
                     ),
-                    excluding: rule.canOverlapProtectedRanges ? [] : protectedRanges,
+                    excluding: rule.canOverlapProtectedRanges ? .empty : protectedRanges,
+                    offset: targetRange.location,
                     in: textStorage
                 )
             }
@@ -72,6 +93,17 @@ struct FilePreviewSyntaxHighlighter {
         typingAttributes[.foregroundColor] = baseColor
         textView.typingAttributes = typingAttributes
         textView.insertionPointColor = baseColor
+    }
+
+    static func affectedRange(for editedRange: NSRange, in text: String) -> NSRange {
+        let source = text as NSString
+        guard source.length > 0 else { return NSRange(location: 0, length: 0) }
+        let editLocation = min(editedRange.location, source.length)
+        let editEnd = min(NSMaxRange(editedRange), source.length)
+        let paddedStart = max(0, editLocation - incrementalContextUTF16Length)
+        let paddedEnd = min(source.length, editEnd + incrementalContextUTF16Length)
+        let paddedLength = max(1, paddedEnd - paddedStart)
+        return source.lineRange(for: NSRange(location: paddedStart, length: paddedLength))
     }
 
     private var commentPattern: String {
@@ -175,11 +207,16 @@ struct FilePreviewSyntaxHighlighter {
     private func apply(
         color: NSColor,
         to ranges: [NSRange],
-        excluding excludedRanges: [NSRange] = [],
+        excluding excludedRanges: ProtectedRangeIndex = .empty,
+        offset: Int,
         in textStorage: NSTextStorage
     ) {
-        for range in ranges where !excludedRanges.contains(where: { Self.overlaps(range, $0) }) {
-            textStorage.addAttribute(.foregroundColor, value: color, range: range)
+        for range in ranges where !excludedRanges.overlaps(range) {
+            textStorage.addAttribute(
+                .foregroundColor,
+                value: color,
+                range: NSRange(location: range.location + offset, length: range.length)
+            )
         }
     }
 
@@ -195,12 +232,43 @@ struct FilePreviewSyntaxHighlighter {
         return masked as String
     }
 
-    private static func overlaps(_ lhs: NSRange, _ rhs: NSRange) -> Bool {
-        NSIntersectionRange(lhs, rhs).length > 0
-    }
+    private struct ProtectedRangeIndex {
+        static let empty = ProtectedRangeIndex([])
 
-    private static func contains(_ location: Int, in range: NSRange) -> Bool {
-        location >= range.location && location < NSMaxRange(range)
+        private let ranges: [NSRange]
+
+        init(_ sourceRanges: [NSRange]) {
+            let sorted = sourceRanges.sorted { lhs, rhs in
+                lhs.location == rhs.location ? lhs.length < rhs.length : lhs.location < rhs.location
+            }
+            var merged: [NSRange] = []
+            for range in sorted {
+                guard let last = merged.last, range.location <= NSMaxRange(last) else {
+                    merged.append(range)
+                    continue
+                }
+                merged[merged.count - 1] = NSRange(
+                    location: last.location,
+                    length: max(NSMaxRange(last), NSMaxRange(range)) - last.location
+                )
+            }
+            ranges = merged
+        }
+
+        func overlaps(_ candidate: NSRange) -> Bool {
+            var lowerBound = 0
+            var upperBound = ranges.count
+            while lowerBound < upperBound {
+                let middle = (lowerBound + upperBound) / 2
+                if NSMaxRange(ranges[middle]) <= candidate.location {
+                    lowerBound = middle + 1
+                } else {
+                    upperBound = middle
+                }
+            }
+            guard lowerBound < ranges.count else { return false }
+            return ranges[lowerBound].location < NSMaxRange(candidate)
+        }
     }
 
     private enum Role {

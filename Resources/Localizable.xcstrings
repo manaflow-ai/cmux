@@ -64948,25 +64948,51 @@
     "command.newFileBrowserTab.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New File Browser Tab"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブ（ファイルブラウザ）"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "علامة تبويب جديدة لمتصفح الملفات" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nova kartica preglednika datoteka" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ny filbrowserfane" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Neuer Dateibrowser-Tab" } },
+        "en": { "stringUnit": { "state": "translated", "value": "New File Browser Tab" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Nueva pestaña del explorador de archivos" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Nouvel onglet Explorateur de fichiers" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nuova scheda del browser file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいタブ（ファイルブラウザ）" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផ្ទាំងកម្មវិធីរុករកឯកសារថ្មី" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "새 파일 브라우저 탭" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ny filutforskerfane" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nowa karta przeglądarki plików" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Nova aba do navegador de arquivos" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Новая вкладка файлового браузера" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แท็บเบราว์เซอร์ไฟล์ใหม่" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yeni Dosya Tarayıcısı Sekmesi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Нова вкладка файлового браузера" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建文件浏览器标签页" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "新增檔案瀏覽器分頁" } }
       }
     },
     "command.newGitGraphTab.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "علامة تبويب جديدة لمخطط Git" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nova kartica Git grafa" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ny Git-graffane" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Neuer Git-Graph-Tab" } },
         "en": { "stringUnit": { "state": "translated", "value": "New Git Graph Tab" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "新しいGitグラフタブ" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Nueva pestaña de gráfico de Git" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Nouvel onglet Graphe Git" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nuova scheda del grafo Git" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいGitグラフタブ" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផ្ទាំងក្រាហ្វ Git ថ្មី" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "새 Git 그래프 탭" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ny Git-graffane" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nowa karta grafu Git" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Nova aba do gráfico Git" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Новая вкладка графа Git" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แท็บกราฟ Git ใหม่" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yeni Git Grafiği Sekmesi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Нова вкладка графа Git" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建 Git 图谱标签页" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "新增 Git 圖譜分頁" } }
       }
     },
     "command.newBrowserWorkspace.title": {
@@ -66582,8 +66608,26 @@
     "command.openGitGraphPane.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فتح مخطط Git كجزء" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Otvori Git graf kao okno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Åbn Git-graf som rude" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Git-Graph als Bereich öffnen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Open Git Graph as Pane" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフをペインで開く" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir gráfico de Git como panel" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir le graphe Git dans un volet" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apri il grafo Git come riquadro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフをペインで開く" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកក្រាហ្វ Git ជាផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 그래프를 창으로 열기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Åpne Git-graf som rute" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Otwórz graf Git jako panel" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abrir gráfico Git como painel" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыть граф Git как панель" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดกราฟ Git เป็นบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Git Grafiğini Bölme Olarak Aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Відкрити граф Git як панель" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将 Git 图谱作为窗格打开" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將 Git 圖譜作為窗格開啟" } }
       }
     },
     "command.openFindPane.title": {
@@ -118774,35 +118818,51 @@
     "fileWorkspace.empty.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a file from the explorer to open it here."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エクスプローラーからファイルを選択すると、ここに開きます。"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "اختر ملفًا من المستكشف لفتحه هنا." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odaberite datoteku iz preglednika da je otvorite ovdje." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vælg en fil i filbrowseren for at åbne den her." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wähle im Explorer eine Datei aus, um sie hier zu öffnen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a file from the explorer to open it here." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Elige un archivo del explorador para abrirlo aquí." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Choisissez un fichier dans l’explorateur pour l’ouvrir ici." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scegli un file dall’esplora risorse per aprirlo qui." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エクスプローラーからファイルを選択すると、ここに表示されます。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ជ្រើសរើសឯកសារពីកម្មវិធីរុករក ដើម្បីបើកវានៅទីនេះ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "탐색기에서 파일을 선택하여 여기에 여세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Velg en fil i utforskeren for å åpne den her." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wybierz plik w eksploratorze, aby otworzyć go tutaj." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escolha um arquivo no explorador para abri-lo aqui." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выберите файл в проводнике, чтобы открыть его здесь." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เลือกไฟล์จากตัวสำรวจเพื่อเปิดที่นี่" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Burada açmak için gezginden bir dosya seçin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виберіть файл у провіднику, щоб відкрити його тут." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "从资源管理器中选择一个文件以在此处打开。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "從檔案總管中選擇檔案以在此處開啟。" } }
       }
     },
     "fileWorkspace.empty.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select a file"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルを選択"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "اختر ملفًا" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odaberite datoteku" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vælg en fil" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Datei auswählen" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Select a file" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Seleccionar un archivo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Sélectionner un fichier" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Seleziona un file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを選択" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ជ្រើសរើសឯកសារ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "파일 선택" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Velg en fil" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wybierz plik" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Selecionar um arquivo" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выберите файл" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เลือกไฟล์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bir dosya seç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виберіть файл" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "选择文件" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇檔案" } }
       }
     },
     "filePreview.share": {
@@ -148126,123 +148186,454 @@
         }
       }
     },
+    "gitGraph.commit.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "km": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@" } }
+      }
+    },
     "gitGraph.column.author": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "المؤلف" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Autor" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forfatter" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Autor" } },
         "en": { "stringUnit": { "state": "translated", "value": "Author" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "作成者" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Autor" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Auteur" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Autore" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成者" } },
+        "km": { "stringUnit": { "state": "translated", "value": "អ្នកនិពន្ធ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "작성자" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Forfatter" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Autor" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Autor" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Автор" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ผู้เขียน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yazar" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Автор" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "作者" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "作者" } }
       }
     },
     "gitGraph.column.commit": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الإيداع" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Commit" } },
         "en": { "stringUnit": { "state": "translated", "value": "Commit" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コミット" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コミット" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "커밋" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Коммит" } },
+        "th": { "stringUnit": { "state": "translated", "value": "คอมมิต" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Commit" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Коміт" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "提交" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "提交" } }
       }
     },
     "gitGraph.column.date": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "التاريخ" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Datum" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Dato" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Datum" } },
         "en": { "stringUnit": { "state": "translated", "value": "Date" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "日時" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Fecha" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Date" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Data" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "日時" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កាលបរិច្ឆេទ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "날짜" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Dato" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Data" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Data" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Дата" } },
+        "th": { "stringUnit": { "state": "translated", "value": "วันที่" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tarih" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Дата" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "日期" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "日期" } }
       }
     },
     "gitGraph.column.description": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الوصف" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Opis" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Beskrivelse" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Beschreibung" } },
         "en": { "stringUnit": { "state": "translated", "value": "Description" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "説明" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Descripción" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Description" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Descrizione" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "説明" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការពិពណ៌នា" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "설명" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Beskrivelse" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Opis" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Descrição" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Описание" } },
+        "th": { "stringUnit": { "state": "translated", "value": "คำอธิบาย" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Açıklama" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Опис" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "说明" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "說明" } }
       }
     },
     "gitGraph.column.graph": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "المخطط" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Graf" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Graf" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Graph" } },
         "en": { "stringUnit": { "state": "translated", "value": "Graph" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グラフ" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Gráfico" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Graphe" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Grafo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グラフ" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ក្រាហ្វ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "그래프" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Graf" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Graf" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Gráfico" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Граф" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กราฟ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Grafik" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Граф" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "图谱" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "圖譜" } }
       }
     },
     "gitGraph.detachedHead": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "HEAD منفصل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odvojeni HEAD" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Frakoblet HEAD" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Losgelöster HEAD" } },
         "en": { "stringUnit": { "state": "translated", "value": "Detached HEAD" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デタッチされたHEAD" } }
+        "es": { "stringUnit": { "state": "translated", "value": "HEAD separado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "HEAD détachée" } },
+        "it": { "stringUnit": { "state": "translated", "value": "HEAD scollegato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デタッチされたHEAD" } },
+        "km": { "stringUnit": { "state": "translated", "value": "HEAD ដាច់ដោយឡែក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "분리된 HEAD" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Frakoblet HEAD" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Odłączony HEAD" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "HEAD desanexado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Отсоединённый HEAD" } },
+        "th": { "stringUnit": { "state": "translated", "value": "HEAD ที่แยกออก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ayrık HEAD" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Від’єднаний HEAD" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "分离的 HEAD" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "分離的 HEAD" } }
       }
     },
     "gitGraph.failed.detail": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تحقق من المستودع وحدّث علامة التبويب هذه." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Provjerite repozitorij i osvježite ovu karticu." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kontrollér lageret, og opdater denne fane." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Überprüfe das Repository und aktualisiere diesen Tab." } },
         "en": { "stringUnit": { "state": "translated", "value": "Check the repository and refresh this tab." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リポジトリを確認して、このタブを更新してください。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Comprueba el repositorio y actualiza esta pestaña." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Vérifiez le dépôt et actualisez cet onglet." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Controlla il repository e aggiorna questa scheda." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リポジトリを確認して、このタブを更新してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ពិនិត្យឃ្លាំង ហើយផ្ទុកផ្ទាំងនេះឡើងវិញ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "저장소를 확인하고 이 탭을 새로고침하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kontroller repositoriet og oppdater denne fanen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Sprawdź repozytorium i odśwież tę kartę." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Verifique o repositório e atualize esta aba." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Проверьте репозиторий и обновите эту вкладку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ตรวจสอบที่เก็บและรีเฟรชแท็บนี้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Depoyu kontrol edin ve bu sekmeyi yenileyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Перевірте репозиторій і оновіть цю вкладку." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "请检查仓库并刷新此标签页。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請檢查儲存庫並重新整理此分頁。" } }
       }
     },
     "gitGraph.failed.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر تحميل مخطط Git" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Git graf nije moguće učitati" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Git-grafen kunne ikke indlæses" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Git-Graph konnte nicht geladen werden" } },
         "en": { "stringUnit": { "state": "translated", "value": "Could not load Git Graph" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフを読み込めませんでした" } }
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo cargar el gráfico de Git" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de charger le graphe Git" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile caricare il grafo Git" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフを読み込めませんでした" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនអាចផ្ទុកក្រាហ្វ Git បានទេ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 그래프를 불러올 수 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke laste Git-grafen" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się wczytać grafu Git" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível carregar o gráfico Git" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось загрузить граф Git" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถโหลดกราฟ Git ได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Git Grafiği yüklenemedi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося завантажити граф Git" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法加载 Git 图谱" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法載入 Git 圖譜" } }
       }
     },
     "gitGraph.limit": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "أحدث 500" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Najnovijih 500" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Seneste 500" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Neueste 500" } },
         "en": { "stringUnit": { "state": "translated", "value": "Latest 500" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "最新500件" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Últimos 500" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "500 plus récents" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ultimi 500" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最新500件" } },
+        "km": { "stringUnit": { "state": "translated", "value": "500 ចុងក្រោយ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "최근 500개" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Nyeste 500" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Najnowsze 500" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "500 mais recentes" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Последние 500" } },
+        "th": { "stringUnit": { "state": "translated", "value": "500 รายการล่าสุด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "En son 500" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Останні 500" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "最新 500 条" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "最新 500 筆" } }
       }
     },
     "gitGraph.loading": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "جارٍ تحميل سجل الإيداعات…" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Učitavanje historije commitova…" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Indlæser commithistorik…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Commit-Verlauf wird geladen…" } },
         "en": { "stringUnit": { "state": "translated", "value": "Loading commit history…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "コミット履歴を読み込み中…" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Cargando historial de commits…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Chargement de l’historique des commits…" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento della cronologia dei commit…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コミット履歴を読み込み中…" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំពុងផ្ទុកប្រវត្តិ commit…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "커밋 기록 불러오는 중…" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Laster commit-historikk…" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wczytywanie historii commitów…" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Carregando histórico de commits…" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка истории коммитов…" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำลังโหลดประวัติคอมมิต…" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Commit geçmişi yükleniyor…" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завантаження історії комітів…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在加载提交历史记录…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在載入提交記錄…" } }
       }
     },
     "gitGraph.notRepository.detail": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "افتح علامة التبويب هذه من طرفية داخل مستودع Git." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Otvorite ovu karticu iz terminala unutar Git repozitorija." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Åbn denne fane fra en terminal i et Git-lager." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Öffne diesen Tab aus einem Terminal in einem Git-Repository." } },
         "en": { "stringUnit": { "state": "translated", "value": "Open this tab from a terminal inside a Git repository." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリ内のターミナルからこのタブを開いてください。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Abre esta pestaña desde una terminal dentro de un repositorio Git." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrez cet onglet depuis un terminal situé dans un dépôt Git." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apri questa scheda da un terminale all’interno di un repository Git." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリ内のターミナルからこのタブを開いてください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកផ្ទាំងនេះពី terminal នៅក្នុងឃ្លាំង Git។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 저장소 안의 터미널에서 이 탭을 여세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Åpne denne fanen fra en terminal i et Git-repositorium." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Otwórz tę kartę z terminala znajdującego się w repozytorium Git." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abra esta aba em um terminal dentro de um repositório Git." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Откройте эту вкладку из терминала внутри репозитория Git." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดแท็บนี้จากเทอร์มินัลภายในที่เก็บ Git" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu sekmeyi bir Git deposunun içindeki terminalden açın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Відкрийте цю вкладку з термінала всередині репозиторію Git." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "请从 Git 仓库内的终端打开此标签页。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請從 Git 儲存庫內的終端機開啟此分頁。" } }
       }
     },
     "gitGraph.notRepository.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يوجد مستودع Git" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nema Git repozitorija" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Intet Git-lager" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Kein Git-Repository" } },
         "en": { "stringUnit": { "state": "translated", "value": "No Git repository" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリがありません" } }
+        "es": { "stringUnit": { "state": "translated", "value": "No hay repositorio Git" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aucun dépôt Git" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nessun repository Git" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリがありません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "គ្មានឃ្លាំង Git" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 저장소 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ingen Git-repositorium" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Brak repozytorium Git" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Nenhum repositório Git" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Нет репозитория Git" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่มีที่เก็บ Git" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Git deposu yok" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Немає репозиторію Git" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "没有 Git 仓库" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "沒有 Git 儲存庫" } }
       }
     },
     "gitGraph.refresh": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تحديث مخطط Git" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Osvježi Git graf" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Opdater Git-graf" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Git-Graph aktualisieren" } },
         "en": { "stringUnit": { "state": "translated", "value": "Refresh Git Graph" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフを更新" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Actualizar gráfico de Git" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Actualiser le graphe Git" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Aggiorna grafo Git" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフを更新" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផ្ទុកក្រាហ្វ Git ឡើងវិញ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 그래프 새로고침" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Oppdater Git-graf" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Odśwież graf Git" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Atualizar gráfico Git" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Обновить граф Git" } },
+        "th": { "stringUnit": { "state": "translated", "value": "รีเฟรชกราฟ Git" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Git Grafiğini Yenile" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Оновити граф Git" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "刷新 Git 图谱" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重新整理 Git 圖譜" } }
       }
     },
     "gitGraph.remoteUnsupported.detail": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "استخدم مخطط Git من طرفية محلية الآن." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Za sada koristite Git graf iz lokalnog terminala." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug Git-graf fra en lokal terminal indtil videre." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwende Git-Graph vorerst aus einem lokalen Terminal." } },
         "en": { "stringUnit": { "state": "translated", "value": "Use Git Graph from a local terminal for now." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "現在はローカルターミナルからGitグラフを使用してください。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Por ahora, usa el gráfico de Git desde una terminal local." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Pour le moment, utilisez le graphe Git depuis un terminal local." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Per ora, usa il grafo Git da un terminale locale." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在はローカルターミナルからGitグラフを使用してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សម្រាប់ពេលនេះ សូមប្រើក្រាហ្វ Git ពី terminal មូលដ្ឋាន។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "지금은 로컬 터미널에서 Git 그래프를 사용하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk Git-graf fra en lokal terminal inntil videre." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Na razie użyj grafu Git z lokalnego terminala." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Por enquanto, use o gráfico Git em um terminal local." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Пока используйте граф Git из локального терминала." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ขณะนี้ให้ใช้กราฟ Git จากเทอร์มินัลในเครื่อง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Şimdilik Git Grafiğini yerel bir terminalden kullanın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Поки що використовуйте граф Git з локального термінала." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "目前请从本地终端使用 Git 图谱。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前請從本機終端機使用 Git 圖譜。" } }
       }
     },
     "gitGraph.remoteUnsupported.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "مخطط Git البعيد غير متاح بعد" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Udaljeni Git graf još nije dostupan" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Fjern-Git-graf er ikke tilgængelig endnu" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Git-Graph ist noch nicht verfügbar" } },
         "en": { "stringUnit": { "state": "translated", "value": "Remote Git Graph is not available yet" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リモートGitグラフはまだ利用できません" } }
+        "es": { "stringUnit": { "state": "translated", "value": "El gráfico de Git remoto aún no está disponible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le graphe Git distant n’est pas encore disponible" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il grafo Git remoto non è ancora disponibile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートGitグラフはまだ利用できません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ក្រាហ្វ Git ពីចម្ងាយមិនទាន់អាចប្រើបានទេ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 Git 그래프는 아직 사용할 수 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ekstern Git-graf er ikke tilgjengelig ennå" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zdalny graf Git nie jest jeszcze dostępny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O gráfico Git remoto ainda não está disponível" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Удалённый граф Git пока недоступен" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กราฟ Git ระยะไกลยังไม่พร้อมใช้งาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Uzak Git Grafiği henüz kullanılamıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Віддалений граф Git поки недоступний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "远程 Git 图谱尚不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "遠端 Git 圖譜尚不可用" } }
       }
     },
     "gitGraph.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "مخطط Git" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Git graf" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Git-graf" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Git-Graph" } },
         "en": { "stringUnit": { "state": "translated", "value": "Git Graph" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフ" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Gráfico de Git" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Graphe Git" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Grafo Git" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフ" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ក្រាហ្វ Git" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 그래프" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Git-graf" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Graf Git" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Gráfico Git" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Граф Git" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กราฟ Git" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Git Grafiği" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Граф Git" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Git 图谱" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Git 圖譜" } }
       }
     },
     "gitGraph.uncommittedChanges": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تغييرات غير مودعة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nepotvrđene promjene" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ikke-committede ændringer" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nicht committete Änderungen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Uncommitted Changes" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "未コミットの変更" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Cambios sin confirmar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Modifications non validées" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Modifiche non sottoposte a commit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未コミットの変更" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការផ្លាស់ប្តូរដែលមិនទាន់ commit" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "커밋되지 않은 변경 사항" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ikke-committede endringer" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Niezatwierdzone zmiany" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Alterações não commitadas" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Незакоммиченные изменения" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การเปลี่ยนแปลงที่ยังไม่ได้คอมมิต" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Commit edilmemiş değişiklikler" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Незакомічені зміни" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未提交的更改" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未提交的變更" } }
       }
     },
     "rightSidebar.mode.files": {
@@ -148265,8 +148656,26 @@
     "rightSidebar.mode.gitGraph": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "مخطط Git" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Git graf" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Git-graf" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Git-Graph" } },
         "en": { "stringUnit": { "state": "translated", "value": "Git Graph" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフ" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Gráfico de Git" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Graphe Git" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Grafo Git" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitグラフ" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ក្រាហ្វ Git" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Git 그래프" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Git-graf" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Graf Git" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Gráfico Git" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Граф Git" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กราฟ Git" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Git Grafiği" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Граф Git" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Git 图谱" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Git 圖譜" } }
       }
     },
     "rightSidebar.mode.find": {

@@ -75,7 +75,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else {
-            textView.applyFilePreviewSyntaxHighlight(
+            textView.applyFilePreviewSyntaxHighlightIfStyleChanged(
                 language: panel.syntaxLanguage,
                 baseColor: themeForegroundColor
             )
@@ -121,7 +121,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         if let textView = scrollView.documentView as? NSTextView {
             textView.drawsBackground = drawsBackground
             textView.backgroundColor = resolvedBackgroundColor
-            textView.textColor = foregroundColor
+            if !(textView is SavingTextView) {
+                textView.textColor = foregroundColor
+            }
             textView.insertionPointColor = foregroundColor
         }
     }
@@ -129,6 +131,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
         var isApplyingPanelUpdate = false
+        private var pendingEditedRange: NSRange?
 
         init(panel: PanelModel) {
             self.panel = panel
@@ -136,10 +139,26 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         deinit {}
 
+        func textView(
+            _: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            pendingEditedRange = NSRange(
+                location: affectedCharRange.location,
+                length: (replacementString ?? "").utf16.count
+            )
+            return true
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
-                  let textView = notification.object as? NSTextView else { return }
+                  let textView = notification.object as? SavingTextView else { return }
             panel.updateTextContent(textView.string)
+            if let pendingEditedRange {
+                textView.applyIncrementalFilePreviewSyntaxHighlight(editedRange: pendingEditedRange)
+                self.pendingEditedRange = nil
+            }
         }
     }
 }
@@ -257,16 +276,64 @@ final class SavingTextView: NSTextView {
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+    private var filePreviewSyntaxLanguage: FilePreviewSyntaxLanguage?
+    private var filePreviewSyntaxBaseColor: NSColor?
+    private var filePreviewSyntaxAppearanceName: NSAppearance.Name?
+    private var lastSyntaxHighlightedDocumentLength = 0
 
     func applyFilePreviewSyntaxHighlight(
         language: FilePreviewSyntaxLanguage,
         baseColor: NSColor
     ) {
+        filePreviewSyntaxLanguage = language
+        filePreviewSyntaxBaseColor = baseColor
+        filePreviewSyntaxAppearanceName = effectiveAppearance.name
+        lastSyntaxHighlightedDocumentLength = (string as NSString).length
         FilePreviewSyntaxHighlighter(
             language: language,
             baseColor: baseColor,
             appearance: effectiveAppearance
         ).apply(to: self)
+    }
+
+    func applyFilePreviewSyntaxHighlightIfStyleChanged(
+        language: FilePreviewSyntaxLanguage,
+        baseColor: NSColor
+    ) {
+        guard filePreviewSyntaxLanguage != language
+                || filePreviewSyntaxBaseColor?.isEqual(baseColor) != true
+                || filePreviewSyntaxAppearanceName != effectiveAppearance.name else {
+            return
+        }
+        applyFilePreviewSyntaxHighlight(language: language, baseColor: baseColor)
+    }
+
+    func applyIncrementalFilePreviewSyntaxHighlight(editedRange: NSRange) {
+        guard let language = filePreviewSyntaxLanguage,
+              let baseColor = filePreviewSyntaxBaseColor else { return }
+        let documentLength = (string as NSString).length
+        let wasHighlighting = lastSyntaxHighlightedDocumentLength
+            <= FilePreviewSyntaxHighlighter.maximumHighlightedUTF16Length
+        let isHighlighting = documentLength
+            <= FilePreviewSyntaxHighlighter.maximumHighlightedUTF16Length
+        lastSyntaxHighlightedDocumentLength = documentLength
+
+        let highlighter = FilePreviewSyntaxHighlighter(
+            language: language,
+            baseColor: baseColor,
+            appearance: effectiveAppearance
+        )
+        if wasHighlighting != isHighlighting {
+            highlighter.apply(to: self)
+            return
+        }
+        highlighter.apply(
+            to: self,
+            range: FilePreviewSyntaxHighlighter.affectedRange(
+                for: editedRange,
+                in: string
+            )
+        )
     }
 
     convenience init() {

@@ -139,6 +139,36 @@ struct FileBrowserSurfaceTests {
     }
 
     @Test
+    func staleRemoteFileCompletionCannotReplaceTheLatestSelection() throws {
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-file-order-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let olderFile = fixtureDirectory.appendingPathComponent("older.swift")
+        let latestFile = fixtureDirectory.appendingPathComponent("latest.swift")
+        try "let older = true\n".write(to: olderFile, atomically: true, encoding: .utf8)
+        try "let latest = true\n".write(to: latestFile, atomically: true, encoding: .utf8)
+
+        let model = FileWorkspaceModel()
+        let workspaceID = UUID()
+        let olderRequest = model.beginRemoteFileOpenRequest()
+        let latestRequest = model.beginRemoteFileOpenRequest()
+
+        #expect(model.completeRemoteFileOpenRequest(
+            latestRequest,
+            workspaceID: workspaceID,
+            filePath: latestFile.path
+        ))
+        #expect(!model.completeRemoteFileOpenRequest(
+            olderRequest,
+            workspaceID: workspaceID,
+            filePath: olderFile.path
+        ))
+        #expect(model.previewPanel?.filePath == latestFile.path)
+    }
+
+    @Test
     func gitGraphIsScopedToPaneAndReusesWithinPane() throws {
         let workspace = Workspace()
         let firstTerminalID = try #require(workspace.focusedPanelId)

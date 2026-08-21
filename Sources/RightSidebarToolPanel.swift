@@ -22,6 +22,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileWorkspaceModelStorage: FileWorkspaceModel?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var gitGraphModelStorage: GitGraphPanelModel?
+    private var remoteFileOpenTask: Task<Void, Never>?
     private var workspaceObservationCancellable: AnyCancellable?
 
     init(
@@ -38,7 +39,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     deinit {
-        // Explicit no-op so future teardown has a single home.
+        remoteFileOpenTask?.cancel()
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -160,17 +161,26 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func openFileInWorkspace(_ filePath: String) {
         guard let workspace else { return }
 
+        remoteFileOpenTask?.cancel()
+        remoteFileOpenTask = nil
+        fileWorkspaceModel.cancelRemoteFileOpenRequest()
+
         if workspace.isRemoteWorkspace {
             let store = fileExplorerStore
-            Task { [weak self, weak workspace, weak store] in
+            let requestID = fileWorkspaceModel.beginRemoteFileOpenRequest()
+            remoteFileOpenTask = Task { [weak self, weak workspace, weak store] in
                 guard let self, let workspace, let store else { return }
                 do {
                     let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
-                    self.fileWorkspaceModel.openFile(
+                    guard !Task.isCancelled else { return }
+                    self.fileWorkspaceModel.completeRemoteFileOpenRequest(
+                        requestID,
                         workspaceID: workspace.id,
                         filePath: localURL.path
                     )
                 } catch {
+                    guard !Task.isCancelled,
+                          self.fileWorkspaceModel.failRemoteFileOpenRequest(requestID) else { return }
                     NSSound.beep()
                 }
             }
@@ -185,6 +195,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func close() {
+        remoteFileOpenTask?.cancel()
+        remoteFileOpenTask = nil
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
@@ -291,27 +303,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func resolvedFileExplorerDirectory(from workspace: Workspace) -> String? {
-        func normalized(_ directory: String?) -> String? {
-            guard let directory else { return nil }
-            let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        if let sourcePanelID {
-            let runtimeDirectory = workspace.terminalPanel(for: sourcePanelID)?.directory
-            if let directory = workspace.effectivePanelDirectory(
-                panelId: sourcePanelID,
-                localFallback: runtimeDirectory
-            ) {
-                return directory
-            }
-        }
-        if let rootDirectory = normalized(rootDirectory) {
-            return rootDirectory
-        }
-        return workspace.usesRemoteDirectoryProvenance
-            ? normalized(workspace.trustedRemoteCurrentDirectory)
-            : normalized(workspace.currentDirectory)
+        workspace.repositoryToolDirectory(
+            sourcePanelID: sourcePanelID,
+            rootDirectory: rootDirectory
+        )
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {

@@ -10,6 +10,7 @@ struct GitGraphSnapshotParser: Sendable {
         guard fields.count >= Self.fieldsPerCommit else { return [] }
 
         var commits: [GitGraphCommit] = []
+        let dateFormatter = ISO8601DateFormatter()
         var index = 0
         while index + Self.fieldsPerCommit <= fields.count {
             let oid = fields[index].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22,7 +23,7 @@ struct GitGraphSnapshotParser: Sendable {
             let author = String(fields[index + 3])
             let dateString = String(fields[index + 4])
             let subject = String(fields[index + 5])
-            guard let authoredAt = ISO8601DateFormatter().date(from: dateString) else {
+            guard let authoredAt = dateFormatter.date(from: dateString) else {
                 index += Self.fieldsPerCommit
                 continue
             }

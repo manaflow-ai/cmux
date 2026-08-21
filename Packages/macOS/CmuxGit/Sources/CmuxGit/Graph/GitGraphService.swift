@@ -3,6 +3,7 @@ import Foundation
 /// Loads a bounded, non-locking snapshot for a local Git repository.
 public struct GitGraphService: Sendable {
     public static let maximumCommitCount = 500
+    private static let requestedCommitCount = maximumCommitCount + 1
     private static let maximumLogOutputByteCount = 4 * 1_024 * 1_024
     private let runner: any WorkspaceChangesGitRunning
 
@@ -74,7 +75,7 @@ public struct GitGraphService: Sendable {
                 "--decorate=full",
                 "--no-color",
                 "--no-show-signature",
-                "--max-count=\(maximumCommitCount)",
+                "--max-count=\(requestedCommitCount)",
                 "--format=%H%x00%P%x00%D%x00%an%x00%aI%x00%s%x00",
             ],
             in: rootURL,
@@ -83,14 +84,15 @@ public struct GitGraphService: Sendable {
         guard logResult.exitCode == 0 || logResult.standardOutputWasTruncated else {
             throw GitGraphServiceError.commandFailed
         }
-        let commits = GitGraphSnapshotParser().commits(from: logResult.output)
+        let parsedCommits = GitGraphSnapshotParser().commits(from: logResult.output)
+        let commits = Array(parsedCommits.prefix(maximumCommitCount))
         return GitGraphSnapshot(
             repositoryRoot: root,
             branch: branch?.nilIfEmpty,
             headOID: headOID?.nilIfEmpty,
             isDirty: isDirty,
             rows: GitGraphLayout().rows(for: commits),
-            isTruncated: logResult.standardOutputWasTruncated || commits.count == maximumCommitCount
+            isTruncated: logResult.standardOutputWasTruncated || parsedCommits.count > maximumCommitCount
         )
     }
 }

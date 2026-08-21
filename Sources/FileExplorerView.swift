@@ -1535,24 +1535,15 @@ final class FileExplorerContainerView: NSView {
 extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
-        updateSearchLayout()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.scrollSearchFieldEditorToInsertionPoint()
-            self.updateSearchLayout()
-            if self.presentation == .workspace, self.searchField.stringValue.isEmpty {
-                self.cancelPendingSearchRefresh()
-                self.searchController.cancel(clear: true)
-                self.applySearchSnapshot(.empty)
-            }
-        }
+        scrollSearchFieldEditorToInsertionPoint()
         if presentation == .workspace, searchField.stringValue.isEmpty {
             cancelPendingSearchRefresh()
             searchController.cancel(clear: true)
             applySearchSnapshot(.empty)
+            updateSearchLayout()
             return
         }
-        scrollSearchFieldEditorToInsertionPoint()
+        updateSearchLayout()
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let gapMs = debugLastSearchTextChangeUptime > 0

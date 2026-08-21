@@ -6,8 +6,6 @@ extension RightSidebarMode {
         switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "files":
             return .files
-        case "git-graph", "gitgraph", "graph":
-            return .gitGraph
         case "find":
             return .find
         case "vault", "sessions":

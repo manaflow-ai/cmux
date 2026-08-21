@@ -96,6 +96,34 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(color.isEqual(baseColor))
     }
 
+    @Test("incremental highlighting leaves distant attributes untouched")
+    func incrementalHighlightingIsBoundedToTheEditedRegion() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let source = "let first = 1\n" + String(repeating: "padding\n", count: 5_000) + "let last = 2\n"
+        textView.string = source
+        textView.applyFilePreviewSyntaxHighlight(language: .swift, baseColor: .labelColor)
+
+        let distantRange = (source as NSString).range(of: "last")
+        let sentinelColor = NSColor.systemPink
+        textView.textStorage?.addAttribute(.foregroundColor, value: sentinelColor, range: distantRange)
+
+        textView.applyIncrementalFilePreviewSyntaxHighlight(editedRange: NSRange(location: 4, length: 1))
+
+        let retainedColor = try #require(
+            textView.textStorage?.attribute(
+                .foregroundColor,
+                at: distantRange.location,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        #expect(retainedColor.isEqual(sentinelColor))
+        let affectedRange = FilePreviewSyntaxHighlighter.affectedRange(
+            for: NSRange(location: 4, length: 1),
+            in: source
+        )
+        #expect(affectedRange.length < (source as NSString).length)
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -476,5 +504,7 @@ struct FilePreviewTextEditorTextKitTests {
             saveCount += 1
             return nil
         }
+
+        deinit {}
     }
 }

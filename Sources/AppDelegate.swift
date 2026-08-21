@@ -16527,8 +16527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             case .newFileBrowser:
                 guard let workspace = context.tabManager.selectedWorkspace,
-                      let paneID = workspace.bonsplitController.focusedPaneId
-                        ?? workspace.bonsplitController.allPaneIds.first,
+                      let paneID = workspace.bonsplitController.focusedPaneId,
                       workspace.openOrFocusFileBrowserSurface(inPane: paneID, focus: true) != nil else {
                     return false
                 }
@@ -16536,8 +16535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             case .newGitGraph:
                 guard let workspace = context.tabManager.selectedWorkspace,
-                      let paneID = workspace.bonsplitController.focusedPaneId
-                        ?? workspace.bonsplitController.allPaneIds.first,
+                      let paneID = workspace.bonsplitController.focusedPaneId,
                       workspace.openOrFocusGitGraphSurface(inPane: paneID, focus: true) != nil else {
                     return false
                 }

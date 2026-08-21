@@ -7,6 +7,7 @@ import SwiftUI
 final class FileWorkspaceModel {
     private(set) var previewPanel: FilePreviewPanel?
     private var previewPanelsByPath: [String: FilePreviewPanel] = [:]
+    private var remoteFileOpenRequestID: UUID?
 
     func openFile(workspaceID: UUID, filePath: String) {
         if let existing = previewPanelsByPath[filePath] {
@@ -19,7 +20,37 @@ final class FileWorkspaceModel {
         previewPanel = preview
     }
 
+    func beginRemoteFileOpenRequest() -> UUID {
+        let requestID = UUID()
+        remoteFileOpenRequestID = requestID
+        return requestID
+    }
+
+    @discardableResult
+    func completeRemoteFileOpenRequest(
+        _ requestID: UUID,
+        workspaceID: UUID,
+        filePath: String
+    ) -> Bool {
+        guard remoteFileOpenRequestID == requestID else { return false }
+        remoteFileOpenRequestID = nil
+        openFile(workspaceID: workspaceID, filePath: filePath)
+        return true
+    }
+
+    @discardableResult
+    func failRemoteFileOpenRequest(_ requestID: UUID) -> Bool {
+        guard remoteFileOpenRequestID == requestID else { return false }
+        remoteFileOpenRequestID = nil
+        return true
+    }
+
+    func cancelRemoteFileOpenRequest() {
+        remoteFileOpenRequestID = nil
+    }
+
     func close() {
+        cancelRemoteFileOpenRequest()
         for preview in previewPanelsByPath.values {
             preview.close()
         }
