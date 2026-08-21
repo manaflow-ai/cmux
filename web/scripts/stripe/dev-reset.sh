@@ -116,17 +116,12 @@ resolve_stack_env() {
 resolve_stripe_secret_key() {
   local stripe_config key
   stripe_config="$(stripe config --list 2>/dev/null || true)"
+  # Stripe CLI has printed this as `test_mode_api_key = 'sk_...'` and, in newer
+  # releases, as `test_mode_api_key=sk_...`; accept both.
   key="$(
     printf '%s\n' "$stripe_config" \
-      | awk '
-        $1 == "test_mode_api_key" {
-          value = $0
-          sub(/^[^:=]+[[:space:]]*[:=]?[[:space:]]*/, "", value)
-          gsub(/["'\'']/, "", value)
-          print value
-          exit
-        }
-      '
+      | sed -n -E "s/^[[:space:]]*test_mode_api_key[[:space:]]*[:=][[:space:]]*['\"]?((sk|rk)_(test|live)_[A-Za-z0-9]+)['\"]?.*$/\1/p" \
+      | head -n 1
   )"
 
   if [[ "$key" == sk_live_* || "$key" == rk_live_* ]]; then
