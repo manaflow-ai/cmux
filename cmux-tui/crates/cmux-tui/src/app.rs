@@ -10902,6 +10902,11 @@ impl App {
                 let next_key = update.snapshot.machines[next].key;
                 update.request = Some(MachineRequest::Switch(next_key));
                 update.select_rail_target(MachineRailTarget::Machine(next_key));
+                // The presented session belongs to a deleted machine: gate
+                // input away from it while the failover switch runs (a
+                // failed switch leaves the rail on the replacement, where
+                // Enter retries).
+                update.session_available = false;
             }
         }
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
@@ -37104,6 +37109,7 @@ mod tests {
         app.apply_machine_ui_update(update);
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(3))));
+        assert!(!ui.session_available, "input must not reach the deleted machine's session");
         assert_eq!(
             ui.rail_target(),
             Some(crate::machine::MachineRailTarget::Machine(MachineKey(3)))
