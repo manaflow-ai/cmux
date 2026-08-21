@@ -1,3 +1,5 @@
+import AppKit
+import CmuxAppKitSupportUI
 import Combine
 import Foundation
 import SwiftUI
