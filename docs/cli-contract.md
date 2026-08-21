@@ -60,6 +60,7 @@ Environment:
 
 | Command | Contract |
 | --- | --- |
+| `completion <bash\|zsh\|fish>` | Print a shell completion script without connecting to cmux. |
 | `welcome` | Print the welcome screen. |
 | `guide`, `--skill` | Print the same short Markdown guide to workspace, terminal, browser, computer-use, and Cloud methods. Works without the app, a socket, network access, or sign-in. `--json` returns `{topic: "cmux", format: "markdown", content: "..."}`. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
@@ -735,6 +736,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud guide --help` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux cloud --skill -h` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux completion --help` -> `Print a shell completion script for cmux.`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
