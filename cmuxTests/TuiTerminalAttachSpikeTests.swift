@@ -237,6 +237,17 @@ struct TuiTerminalAttachSpikeTests {
     }
 
     @Test
+    func bridgeSubprocessEnvironmentIsConfigIsolated() {
+        // The daemon spawn and every CLI call run with CMUX_TUI_CONFIG
+        // pointing at the app-managed config, never the user's interactive
+        // one. cmux-tui treats an empty value as unset (fall back to the
+        // user config), so the value must also be non-empty.
+        let env = TuiTerminalAttachBridge.bridgeEnvironment
+        #expect(env["CMUX_TUI_CONFIG"] == TuiTerminalAttachBridge.bridgeConfigPath)
+        #expect(TuiTerminalAttachBridge.bridgeConfigPath.isEmpty == false)
+    }
+
+    @Test
     func daemonSocketPathFollowsTuiConvention() {
         let path = TuiTerminalAttachPolicy.daemonSocketPath(
             sessionName: "cmux-tuispk",

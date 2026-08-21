@@ -58,7 +58,10 @@ final class TuiTerminalAttachBridge {
         return file.path
     }()
 
-    private nonisolated static var bridgeEnvironment: [String: String] {
+    /// Environment for every bridge-spawned cmux-tui process (the daemon and
+    /// each CLI call): the app process environment plus the config isolation
+    /// override. Internal (not private) so tests can pin the isolation.
+    nonisolated static var bridgeEnvironment: [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["CMUX_TUI_CONFIG"] = bridgeConfigPath
         return env
