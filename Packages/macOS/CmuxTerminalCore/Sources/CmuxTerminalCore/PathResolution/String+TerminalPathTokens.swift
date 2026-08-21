@@ -61,6 +61,63 @@ extension String {
         return String(characters[..<end])
     }
 
+    /// Strips a trailing editor-style line reference from the receiver.
+    ///
+    /// Compilers, linters, ripgrep and AI coding agents all print locations as
+    /// `path:line`, `path:line:column` or `path:startLine-endLine`. The
+    /// reference is not part of the file name, so path probing needs the bare
+    /// path as a candidate too.
+    ///
+    /// Only ASCII digit runs qualify, so a path whose final colon-separated
+    /// segment is non-numeric is left alone. At most two segments are removed,
+    /// which covers `:line:column` without eating genuine path components.
+    ///
+    /// - Returns: The receiver without its trailing line reference, or `nil`
+    ///   when there is no such reference or nothing would remain.
+    public func strippingTrailingLineSuffix() -> String? {
+        func isASCIIDigit(_ character: Character) -> Bool {
+            character.isASCII && character.isNumber
+        }
+
+        /// Removes one `:<digits>` or `:<digits>-<digits>` run from the end.
+        func strippingOneSegment(_ characters: [Character]) -> [Character]? {
+            var end = characters.count
+
+            var trailingDigits = 0
+            while end > 0, isASCIIDigit(characters[end - 1]) {
+                end -= 1
+                trailingDigits += 1
+            }
+            guard trailingDigits > 0 else { return nil }
+
+            // Optional `-<digits>` prefix, so `:144-198` is one reference.
+            if end > 0, characters[end - 1] == "-" {
+                end -= 1
+                var leadingDigits = 0
+                while end > 0, isASCIIDigit(characters[end - 1]) {
+                    end -= 1
+                    leadingDigits += 1
+                }
+                guard leadingDigits > 0 else { return nil }
+            }
+
+            guard end > 0, characters[end - 1] == ":" else { return nil }
+            end -= 1
+            return Array(characters[..<end])
+        }
+
+        var characters = Array(self)
+        var strippedAny = false
+        for _ in 0..<2 {
+            guard let stripped = strippingOneSegment(characters) else { break }
+            characters = stripped
+            strippedAny = true
+        }
+
+        guard strippedAny, !characters.isEmpty else { return nil }
+        return String(characters)
+    }
+
     /// Returns the bottom `rows` lines of captured terminal text.
     ///
     /// - Parameter rows: The number of visible rows.
@@ -135,6 +192,16 @@ extension String {
             let punctuationTrimmed = trimmed.trimmingTrailingTerminalPunctuation()
             if punctuationTrimmed != trimmed {
                 appendUnique(punctuationTrimmed)
+            }
+
+            // Line references come last so a file that genuinely ends in
+            // `:<digits>` still wins over its stripped spelling.
+            if let lineStripped = trimmed.strippingTrailingLineSuffix() {
+                appendUnique(lineStripped)
+            }
+            if punctuationTrimmed != trimmed,
+               let lineStripped = punctuationTrimmed.strippingTrailingLineSuffix() {
+                appendUnique(lineStripped)
             }
         }
 

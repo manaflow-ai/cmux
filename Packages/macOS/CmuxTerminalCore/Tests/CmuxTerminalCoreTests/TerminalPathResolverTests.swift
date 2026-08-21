@@ -239,3 +239,124 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 }
+
+@Suite struct TerminalPathLineSuffixTests {
+    @Test func stripsLineNumber() {
+        #expect("src/main.py:1292".strippingTrailingLineSuffix() == "src/main.py")
+    }
+
+    @Test func stripsLineRange() {
+        #expect(
+            "docs/synthetic-monitoring.md:144-198".strippingTrailingLineSuffix()
+                == "docs/synthetic-monitoring.md"
+        )
+    }
+
+    @Test func stripsLineAndColumn() {
+        #expect("app/models/user.rb:12:5".strippingTrailingLineSuffix() == "app/models/user.rb")
+    }
+
+    @Test func stripsFromAbsolutePath() {
+        #expect("/tmp/fixtures/notes.md:7".strippingTrailingLineSuffix() == "/tmp/fixtures/notes.md")
+    }
+
+    @Test func ignoresPathWithoutLineSuffix() {
+        #expect("docs/synthetic-monitoring.md".strippingTrailingLineSuffix() == nil)
+    }
+
+    @Test func ignoresNonNumericFinalSegment() {
+        #expect("/tmp/fixtures/notes.md:draft".strippingTrailingLineSuffix() == nil)
+    }
+
+    @Test func ignoresTrailingColonWithoutDigits() {
+        #expect("/tmp/fixtures/notes.md:".strippingTrailingLineSuffix() == nil)
+    }
+
+    @Test func ignoresDigitsWithoutColon() {
+        #expect("/tmp/fixtures/chapter2".strippingTrailingLineSuffix() == nil)
+    }
+
+    @Test func ignoresBareLineReferenceWithNoPath() {
+        #expect(":144".strippingTrailingLineSuffix() == nil)
+    }
+
+    @Test func stripsAtMostTwoSegments() {
+        // `:8` and `:16` come off; `:4` is left so genuine path components with
+        // numeric names are not eaten wholesale.
+        #expect("/tmp/a:4:8:16".strippingTrailingLineSuffix() == "/tmp/a:4")
+    }
+}
+
+@Suite struct TerminalQuicklookLineSuffixResolutionTests {
+    @Test func resolvesRelativePathWithLineNumber() {
+        let path = "/tmp/cmux-linesuffix/src/main.py"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveQuicklookPath(
+                "src/main.py:1292",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == path
+        )
+    }
+
+    @Test func resolvesRelativePathWithLineRange() {
+        let path = "/tmp/cmux-linesuffix/docs/notes.md"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveQuicklookPath(
+                "docs/notes.md:144-198",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == path
+        )
+    }
+
+    @Test func resolvesAbsolutePathWithLineAndColumn() {
+        let path = "/tmp/cmux-linesuffix/app/user.rb"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveQuicklookPath(
+                "\(path):12:5",
+                cwd: "/tmp"
+            ) == path
+        )
+    }
+
+    @Test func resolvesLineSuffixFollowedByTrailingPunctuation() {
+        let path = "/tmp/cmux-linesuffix/docs/notes.md"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveQuicklookPath(
+                "\(path):144).",
+                cwd: "/tmp"
+            ) == path
+        )
+    }
+
+    @Test func prefersLiteralPathThatReallyEndsWithLineSuffix() {
+        let literalPath = "/tmp/cmux-linesuffix/backup:2024"
+        let strippedPath = "/tmp/cmux-linesuffix/backup"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([literalPath, strippedPath])).resolveQuicklookPath(
+                literalPath,
+                cwd: "/tmp"
+            ) == literalPath
+        )
+    }
+
+    @Test func stillReturnsNilWhenNeitherSpellingExists() {
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([])).resolveQuicklookPath(
+                "src/missing.py:10",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == nil
+        )
+    }
+}
+
+@Suite struct TerminalOpenURLLineSuffixTests {
+    @Test func openURLResolvesPathWithLineNumber() {
+        let path = "/tmp/cmux-linesuffix/src/main.py"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveOpenURLFilePath(
+                "src/main.py:1292",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == path
+        )
+    }
+}
