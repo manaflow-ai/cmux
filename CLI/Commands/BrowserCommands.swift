@@ -22,9 +22,6 @@ extension BrowserLeafName {
 /// Routing options accepted by browser verbs that operate on a browser surface.
 struct BrowserTargetOptions: ParsableArguments {
     @Option(name: .customLong("surface"), completion: .custom(CompletionCandidates.surfaces)) var surface: String?
-    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
-    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
-    @Flag(name: .customLong("json")) var json = false
 }
 
 /// Options accepted only while creating a browser split.
@@ -33,9 +30,15 @@ struct BrowserOpenOptions: ParsableArguments {
         name: .customLong("profile"),
         help: ArgumentHelp(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
     ) var profile: String?
-    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
-    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Option(name: .customLong("focus")) var focus: String?
+}
+
+/// `browser open-split` only accepts a profile selector.
+struct BrowserOpenSplitOptions: ParsableArguments {
+    @Option(
+        name: .customLong("profile"),
+        help: ArgumentHelp(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+    ) var profile: String?
 }
 
 /// Options for browser navigation and element actions that can request a snapshot.
@@ -140,7 +143,7 @@ struct BrowserOpenCommand: LegacyBrowserCommand {
 
 struct BrowserOpenSplitCommand: LegacyBrowserCommand {
     @Argument var url: String?
-    @OptionGroup var options: BrowserOpenOptions
+    @OptionGroup var options: BrowserOpenSplitOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "open-split", helpNames: [])
 }
