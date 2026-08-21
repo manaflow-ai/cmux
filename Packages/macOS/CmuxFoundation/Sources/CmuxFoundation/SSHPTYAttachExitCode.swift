@@ -5,7 +5,19 @@ import Foundation
 /// Status 252 has a bounded consecutive-failure budget, while statuses 251,
 /// 254, and 255 use the general reconnect budget.
 public enum SSHPTYAttachExitCode: Int32 {
-    private static let healthyBridgeUptime: Double = 30
+    /// The largest no-progress budget the generated loop compares against.
+    ///
+    /// `CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT` is free-form text, and a value too
+    /// large for shell arithmetic makes `-ge` fail with `integer expression
+    /// expected` instead of answering, which would keep a bridge that never makes
+    /// progress retrying past its budget.
+    static let maximumNoProgressRetryLimit = 1_000_000
+
+    /// The bridge uptime that separates a healthy bridge from a rapid closure.
+    ///
+    /// `SSHPTYAttachReconnectBackoffPolicy` reuses it so the retry schedule and
+    /// the no-progress budget agree on what counts as a connected attempt.
+    static let healthyBridgeUptime: Double = 30
 
     /// A non-retryable attach failure.
     case fatal = 1
@@ -176,7 +188,10 @@ public enum SSHPTYAttachExitCode: Int32 {
         return (
             configurationLines: [
                 "cmux_ssh_attach_no_progress_limit=\"${CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT:-3}\"",
-                "case \"$cmux_ssh_attach_no_progress_limit\" in ''|*[!0-9]*|0*) cmux_ssh_attach_no_progress_limit=3 ;; esac",
+                // A digit count too large for shell arithmetic makes the budget
+                // comparison fail rather than answer, which would leave a bridge
+                // that never makes progress retrying forever, so cap it here.
+                "case \"$cmux_ssh_attach_no_progress_limit\" in ''|*[!0-9]*|0*) cmux_ssh_attach_no_progress_limit=3 ;; ???????*) cmux_ssh_attach_no_progress_limit=\(maximumNoProgressRetryLimit) ;; esac",
             ],
             status: bridgeClosedWithoutProgress.rawValue,
             limitReachedCommand: "if [ \"$cmux_ssh_attach_no_progress_retry\" -ge \"$cmux_ssh_attach_no_progress_limit\" ]; then if [ \"$cmux_ssh_attach_no_progress_limit\" -eq 1 ]; then cmux_ssh_attach_limit_format=\(singularFormat); else cmux_ssh_attach_limit_format=\(pluralFormat); fi; printf '\\n\\033[31m%s\\033[0m\\n' \"$(printf \"$cmux_ssh_attach_limit_format\" \"$cmux_ssh_attach_no_progress_limit\")\" >&2 || true; exit 1; fi"
