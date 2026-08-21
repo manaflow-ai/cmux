@@ -240,10 +240,33 @@ function handleMove(id, index, extra) {
 
   const dragged = ws.find((w) => w.id === id);
   if (!dragged) return;
+
+  // Dragging a row that is part of the multi-selection moves the WHOLE
+  // selection: the visible selected rows gather contiguously at the drop
+  // slot (visual order preserved) and all take the slot's container. This is
+  // the platform-standard resolution for non-contiguous selections and for
+  // selections mixing in-group and ungrouped rows. Hidden rows (inside a
+  // collapsed group) never move - what you see is what you drag.
+  multiTick();
+  const bulk = multiSelected.has(id) && multiSelected.size > 1;
+  const movingIds = bulk
+    ? visibleRowIds().filter((rid) => multiSelected.has(rid) || rid === id)
+    : [id];
+  const moving = new Set(movingIds);
+
   const entries = flatEntries().filter((e) => e.id !== id);
-  const prev = index > 0 ? entries[index - 1] : null;
-  const nextEntry = entries.slice(index).find((e) => e.kind === "ws");
-  const nextAny = index < entries.length ? entries[index] : null;
+  // Neighbors that will NOT move: rows moving with the drag can't define the
+  // drop's container or anchor.
+  let prev = null;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const e = entries[i];
+    if (e.kind === "ws" && moving.has(e.wsId ?? e.id)) continue;
+    prev = e;
+    break;
+  }
+  const stays = (e) => !(e.kind === "ws" && moving.has(e.wsId ?? e.id));
+  const nextEntry = entries.slice(index).find((e) => e.kind === "ws" && stays(e));
+  const nextAny = entries.slice(index).find(stays) ?? null;
   const nextWorkspace = nextEntry ? ws.find((w) => w.id === (nextEntry.wsId ?? nextEntry.id)) : null;
 
   let container;
@@ -261,13 +284,30 @@ function handleMove(id, index, extra) {
     }
   }
 
-  if ((dragged.group ?? null) !== container) {
-    if (container) {
-      cmux("workspace.group.add", { group_id: container, workspace_id: id });
-    } else {
-      cmux("workspace.group.remove", { workspace_id: id });
+  for (const rid of movingIds) {
+    const row = ws.find((w) => w.id === rid);
+    if (!row) continue;
+    if ((row.group ?? null) !== container) {
+      if (container) {
+        cmux("workspace.group.add", { group_id: container, workspace_id: rid });
+      } else {
+        cmux("workspace.group.remove", { workspace_id: rid });
+      }
     }
   }
+
+  if (bulk) {
+    // Atomic block placement: send the full tabs order with the moving rows
+    // inserted contiguously before the anchor.
+    const rest = ws.map((x) => x.id).filter((x) => !moving.has(x));
+    let insertAt = nextWorkspace ? rest.indexOf(nextWorkspace.id) : rest.length;
+    if (insertAt < 0) insertAt = rest.length;
+    const full = [...rest.slice(0, insertAt), ...movingIds, ...rest.slice(insertAt)];
+    cmux("workspace.reorder_many", { workspace_ids: JSON.stringify(full) });
+    clearMultiSelect();
+    return;
+  }
+
   if (nextWorkspace) {
     const before = nextWorkspace.index;
     const target = dragged.index < before ? before - 1 : before;
@@ -275,6 +315,9 @@ function handleMove(id, index, extra) {
   } else {
     cmux("workspace.reorder", { workspace_id: id, index: ws.length - 1 });
   }
+  // Dragging an unselected row with a selection active clears the stale
+  // selection (platform convention).
+  clearMultiSelect();
 }
 
 // --- rows ----------------------------------------------------------------------
@@ -354,6 +397,7 @@ function workspaceRow(w, entry) {
     .hoverBackground(() => (isMultiSelected(w()) ? "#4C9EEB33" : (isSelected(w()) ? "#7f7f7f3d" : "#7f7f7f24")))
     .frame({ maxWidth: "infinity" })
     .block(() => (entry().groupId ? "h:" + entry().groupId : null))
+    .dragSet(() => (isMultiSelected(w()) ? "multi" : null))
     .onTap((payload) => handleRowClick(w(), payload))
     .onDoubleTap(() => setEditingId(w().id))
     .contextMenu(workspaceMenu(w));

@@ -397,6 +397,7 @@ private struct SceneBoxStyle: ViewModifier {
     let node: SceneNode
     @State private var isHovered = false
     @Environment(\.sceneDraggedNodeId) private var draggedNodeId
+    @Environment(\.sceneStore) private var store
 
     func body(content: Content) -> some View {
         // Mid-drag, only the dragged row may show its hover wash - and the
@@ -440,7 +441,7 @@ private struct SceneBoxStyle: ViewModifier {
                 alignment: .leading
             )
             .frame(width: dimension("width"), height: dimension("height"))
-            .opacity(node.double("opacity") ?? 1)
+            .opacity((node.double("opacity") ?? 1) * fellowDragDim)
             // Outer margin: an inset OUTSIDE the background box. This is how
             // nesting indent is expressed (the box narrows from the left,
             // right edge fixed), as opposed to paddingLeading, which indents
@@ -459,6 +460,15 @@ private struct SceneBoxStyle: ViewModifier {
                     value = forcedHover || (isHovered && hoverAllowed)
                 }
             }
+    }
+
+    /// Rows sharing the dragged row's `dragSet` (a multi-selection being
+    /// dragged) dim to signal they move too; everything else stays put.
+    private var fellowDragDim: Double {
+        guard let draggedNodeId, draggedNodeId != node.id,
+              let mySet = node.string("dragSet"),
+              store?.node(draggedNodeId)?.string("dragSet") == mySet else { return 1 }
+        return 0.45
     }
 
     private var cornerRadius: CGFloat {
