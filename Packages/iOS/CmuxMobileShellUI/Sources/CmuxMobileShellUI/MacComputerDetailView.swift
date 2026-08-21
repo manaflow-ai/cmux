@@ -22,11 +22,11 @@ struct MacComputerDetailView: View {
     /// The route kind of the Connections row that opened this detail; its
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
-    /// Present the add-connection sheet titled for Tailscale: choosing
-    /// Tailscale for this Computer without a usable grant offers it under the
-    /// picker, so the choice never silently strands the Computer as
-    /// Disconnected. The scanner is one tap away inside the sheet.
-    var addTailscaleConnection: (() -> Void)? = nil
+    /// Presents the Add Tailscale Connection sheet STACKED on this detail
+    /// (never replacing the Computers sheet): choosing Tailscale for this
+    /// Computer without a usable grant offers it under the picker, and
+    /// dismissing it lands back here. The scanner is one tap away inside.
+    @State private var showsAddTailscaleConnection = false
     @Environment(\.dismiss) private var dismiss
     @State private var newDirectAddress = ""
     @State private var newDirectAddressLabel = ""
@@ -147,6 +147,28 @@ struct MacComputerDetailView: View {
                 customColorPick = color
             }
         }
+        // Stacked on top of the Computers sheet: dismissing returns to this
+        // detail instead of tearing the whole Computers flow down.
+        .sheet(isPresented: $showsAddTailscaleConnection) {
+            PairingView(
+                pairingCode: $store.pairingCode,
+                initialPresentation: .tailscaleSetup,
+                connectionError: store.connectionError,
+                connectionErrorGuidance: store.connectionErrorGuidance,
+                versionWarning: store.pairingVersionWarning,
+                connectPairingCode: { await store.connectPairingInput() },
+                acceptVersionWarning: { _ = await store.acceptPairingVersionWarning() },
+                connectManualHost: { name, host, port in
+                    await store.connectManualHost(name: name, host: host, port: port)
+                },
+                cancelPairing: { store.cancelPairing() },
+                cancel: { showsAddTailscaleConnection = false }
+            )
+        }
+        .onChange(of: computerHasUsableTailscaleAuthorization) { _, authorized in
+            // Pairing landed a grant for this Computer: the sheet's job is done.
+            if authorized { showsAddTailscaleConnection = false }
+        }
     }
 
     // MARK: - Connection configuration
@@ -213,20 +235,18 @@ struct MacComputerDetailView: View {
                         .foregroundStyle(.orange)
                 }
                 .accessibilityIdentifier("MobileComputerTailscaleUnauthorizedWarning")
-                if let addTailscaleConnection {
-                    Button {
-                        addTailscaleConnection()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.connections.tailscale.add",
-                                defaultValue: "Add Tailscale Connection"
-                            ),
-                            systemImage: "plus.circle"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
+                Button {
+                    showsAddTailscaleConnection = true
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.connections.tailscale.add",
+                            defaultValue: "Add Tailscale Connection"
+                        ),
+                        systemImage: "plus.circle"
+                    )
                 }
+                .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
             }
         } footer: {
             Text(connectionMethodFooterText)
@@ -250,23 +270,25 @@ struct MacComputerDetailView: View {
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: entry.enabled ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(entry.enabled ? Color.accentColor : Color.secondary)
+                            .font(.title2)
+                            .foregroundStyle(entry.enabled ? Color.accentColor : Color(.tertiaryLabel))
                         VStack(alignment: .leading, spacing: 2) {
                             if let label = entry.label, !label.isEmpty {
                                 Text(label)
+                                    .font(.body)
                                     .foregroundStyle(.primary)
                                 Text(entry.id)
-                                    .font(.caption.monospaced())
+                                    .font(.footnote.monospaced())
                                     .foregroundStyle(.secondary)
                             } else {
                                 Text(entry.id)
-                                    .font(.callout.monospaced())
+                                    .font(.body.monospaced())
                                     .foregroundStyle(.primary)
                             }
                         }
                         Spacer()
                     }
+                    .padding(.vertical, 2)
                     .contentShape(Rectangle())
                 }
                 // Plain style keeps the row text primary/secondary; only the

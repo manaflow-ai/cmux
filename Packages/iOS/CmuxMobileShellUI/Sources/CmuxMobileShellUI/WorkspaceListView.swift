@@ -70,9 +70,6 @@ struct WorkspaceListView: View {
     /// Standalone previews retain the local device-tree sheet.
     var showComputers: (() -> Void)? = nil
     var showPairingScanner: (() -> Void)?
-    /// Opens the add-connection sheet titled for Tailscale from a Computer's
-    /// method section; threaded to the Computers screen's detail view.
-    var addTailscaleConnection: (() -> Void)? = nil
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
@@ -668,8 +665,7 @@ struct WorkspaceListView: View {
                 DeviceTreeView(
                     store: store,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-                    showAddDevice: showAddDevice,
-                    addTailscaleConnection: addTailscaleConnection
+                    showAddDevice: showAddDevice
                 )
             }
         }

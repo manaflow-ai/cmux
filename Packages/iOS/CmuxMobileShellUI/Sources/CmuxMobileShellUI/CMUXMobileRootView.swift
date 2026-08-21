@@ -519,7 +519,6 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
-                    addTailscaleConnection: addTailscaleConnectionAction,
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
@@ -616,7 +615,6 @@ struct CMUXMobileRootView: View {
                 store: store,
                 selectWorkspace: selectWorkspaceFromComputers,
                 showAddDevice: addComputerAction,
-                addTailscaleConnection: addTailscaleConnectionAction,
                 dismissAction: dismissComputers
             )
         case let .pairing(pairingPresentation):
@@ -1073,13 +1071,6 @@ struct CMUXMobileRootView: View {
         return showPairingScanner
     }
 
-    /// A Computer's Tailscale method section adds a connection through the
-    /// add-connection sheet (scanner one tap away inside), never by opening
-    /// the camera directly. Same gate as the other pairing entrypoints.
-    private var addTailscaleConnectionAction: (() -> Void)? {
-        guard allowsManualPairing else { return nil }
-        return { presentPairing(.tailscaleSetup) }
-    }
 
     private var allowsManualPairing: Bool {
         #if os(iOS)
