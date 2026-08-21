@@ -118,12 +118,6 @@ struct TerminalComposerView: View {
     /// the last line as the field grows.
     private let inlineSendDiameter: CGFloat = 28
 
-    /// Line range for the growing compose field. Opens at a SINGLE line (`1...`) so it
-    /// starts as a compact one-line message box and grows as the user types, up to 14
-    /// lines before scrolling. Each added line grows this view's height, which the host
-    /// reserves above the toolbar, pushing only the terminal up.
-    private let composerLineLimit = 1...14
-
     /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
 
@@ -381,10 +375,13 @@ struct TerminalComposerView: View {
                         textColor: UIColor(store.activeTerminalTheme.terminalForegroundColor),
                         pasteAttachment: pasteAttachment
                     )
-                    // Opens at a single line and grows up to 14 lines so a long message has
-                    // room. Each added line grows this view, which the host reserves above the
+                    // Opens at a single line and grows up to 14 lines (the editor's
+                    // own sizeThatFits clamp) so a long message has room. Each added
+                    // line grows this view, which the host reserves above the
                     // always-visible toolbar; the toolbar and keyboard never move.
-                    .frame(minHeight: composerFieldMinHeight, maxHeight: 40 * 14)
+                    // No frame here: a minHeight on the editor would inflate the
+                    // one-line field past the container's 40pt baseline (the
+                    // container provides the floor, the editor only its text height).
                     // Natural-language to an agent, so normal iOS text assistance
                     // is on (autocorrect, sentence-case, spell check). The raw
                     // terminal input field keeps these OFF; only the composer

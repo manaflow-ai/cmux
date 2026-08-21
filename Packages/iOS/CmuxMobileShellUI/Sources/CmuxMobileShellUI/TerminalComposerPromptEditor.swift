@@ -43,6 +43,10 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         TaskComposerPromptEditorCoordinator(text: $text, isFocused: $isFocused)
     }
 
+    /// Line cap matching the original `TextField.lineLimit(1...14)`: the field
+    /// grows to 14 lines, then holds that height and scrolls internally.
+    private static let maximumLineCount = 14
+
     func makeUIView(context: Context) -> TerminalComposerPromptTextView {
         let view = TerminalComposerPromptTextView()
         view.delegate = context.coordinator
@@ -52,7 +56,11 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         view.autocapitalizationType = .sentences
         view.autocorrectionType = .yes
         view.backgroundColor = .clear
-        view.textContainerInset = UIEdgeInsets(top: 3, left: 0, bottom: 3, right: 0)
+        // Zero insets so the text box is EXACTLY the line box, like the SwiftUI
+        // TextField this view replaced; the composer's own `.padding(.vertical, 3)`
+        // plus the container's 6pt padding produce the design's 9pt text inset.
+        // Any inset here would stack on top of those and fatten the field.
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
         view.text = text
@@ -87,6 +95,33 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         view.isSelectable = !isDisabled
         view.isUserInteractionEnabled = !isDisabled
         if isDisabled, view.isFirstResponder { view.resignFirstResponder() }
+    }
+
+    /// Sizes the field exactly like the SwiftUI `TextField(axis: .vertical)`
+    /// with `.lineLimit(1...14)` it replaced: the ideal height is the text's
+    /// own height, clamped between one line and fourteen, and the view scrolls
+    /// internally only while the cap is binding. Without this, the wrapped
+    /// UITextView is at the mercy of whatever frame SwiftUI proposes and the
+    /// empty field renders far taller than the 40pt one-line design.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView view: TerminalComposerPromptTextView,
+        context: Context
+    ) -> CGSize? {
+        let width = proposal.width ?? view.bounds.width
+        guard width > 0, width.isFinite else { return nil }
+        let lineHeight = ceil(view.font?.lineHeight ?? UIFont.preferredFont(forTextStyle: .body).lineHeight)
+        let chromeHeight = view.textContainerInset.top + view.textContainerInset.bottom
+        let minHeight = lineHeight + chromeHeight
+        let maxHeight = lineHeight * CGFloat(Self.maximumLineCount) + chromeHeight
+        let fitted = view.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)
+        ).height
+        let needsScroll = fitted > maxHeight
+        if view.isScrollEnabled != needsScroll {
+            view.isScrollEnabled = needsScroll
+        }
+        return CGSize(width: width, height: min(max(fitted, minHeight), maxHeight))
     }
 }
 #endif
