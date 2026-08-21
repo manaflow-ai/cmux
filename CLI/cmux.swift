@@ -40712,8 +40712,10 @@ struct CMUXTermMain {
     }
 
     /// The facade owns an invocation only when the first non-global argument names a
-    /// declared command. Bare paths, undeclared commands, and the legacy escape hatch
-    /// all stay on the hand-rolled parser.
+    /// declared command. Delegated commands retain legacy help text until their
+    /// runners move into the facade; native completion commands keep facade help.
+    /// Bare paths, undeclared commands, and the legacy escape hatch all stay on the
+    /// hand-rolled parser.
     private static func shouldUseFacade() -> Bool {
         if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
             return false
@@ -40721,7 +40723,13 @@ struct CMUXTermMain {
         guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
             return false
         }
-        return CmuxCommand.declaredCommandNames.contains(command)
+        guard CmuxCommand.declaredCommandNames.contains(command) else {
+            return false
+        }
+        if CommandLine.arguments.dropFirst().contains("--help") {
+            return CmuxCommand.facadeNativeCommandNames.contains(command)
+        }
+        return true
     }
 
     private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {
