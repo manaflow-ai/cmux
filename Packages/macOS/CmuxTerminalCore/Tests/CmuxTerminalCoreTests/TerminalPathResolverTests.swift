@@ -252,8 +252,12 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
-    @Test func stripsLineAndColumn() {
-        #expect("app/models/user.rb:12:5".strippingTrailingLineSuffix() == "app/models/user.rb")
+    @Test func stripsOneSegmentPerCall() {
+        #expect("app/models/user.rb:12:5".strippingTrailingLineSuffix() == "app/models/user.rb:12")
+    }
+
+    @Test func stripsRangeBeforeColumn() {
+        #expect("report.md:10-20:5".strippingTrailingLineSuffix() == "report.md:10-20")
     }
 
     @Test func stripsFromAbsolutePath() {
@@ -280,10 +284,8 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(":144".strippingTrailingLineSuffix() == nil)
     }
 
-    @Test func stripsAtMostTwoSegments() {
-        // `:8` and `:16` come off; `:4` is left so genuine path components with
-        // numeric names are not eaten wholesale.
-        #expect("/tmp/a:4:8:16".strippingTrailingLineSuffix() == "/tmp/a:4")
+    @Test func ignoresColonAtStartOfToken() {
+        #expect(":12".strippingTrailingLineSuffix() == nil)
     }
 }
 
@@ -357,6 +359,89 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 "src/main.py:1292",
                 cwd: "/tmp/cmux-linesuffix"
             ) == path
+        )
+    }
+}
+
+@Suite struct TerminalLineSuffixCandidateDepthTests {
+    /// Every stripping depth is probed, so an intermediate spelling that really
+    /// exists wins over the fully stripped one.
+    @Test func prefersIntermediateSpellingThatReallyExists() {
+        let intermediate = "/tmp/cmux-linesuffix/backup:2024"
+        let fullyStripped = "/tmp/cmux-linesuffix/backup"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([intermediate, fullyStripped]))
+                .resolveQuicklookPath("\(intermediate):7", cwd: "/tmp") == intermediate
+        )
+    }
+
+    @Test func fallsBackToFullyStrippedWhenIntermediateIsAbsent() {
+        let fullyStripped = "/tmp/cmux-linesuffix/backup"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([fullyStripped]))
+                .resolveQuicklookPath("\(fullyStripped):2024:7", cwd: "/tmp") == fullyStripped
+        )
+    }
+
+    @Test func prefersIntermediateSpellingForRangeThenColumn() {
+        let intermediate = "/tmp/cmux-linesuffix/report.md:10-20"
+        let fullyStripped = "/tmp/cmux-linesuffix/report.md"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([intermediate, fullyStripped]))
+                .resolveQuicklookPath("\(intermediate):5", cwd: "/tmp") == intermediate
+        )
+    }
+
+    @Test func stopsAfterTwoDepths() {
+        // `:8` and `:16` come off; `:4` stays, so numeric path components are
+        // not eaten wholesale.
+        let path = "/tmp/cmux-linesuffix/a:4"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path]))
+                .resolveQuicklookPath("\(path):8:16", cwd: "/tmp") == path
+        )
+    }
+}
+
+@Suite struct TerminalOpenURLBareFilenameTests {
+    /// `URL(string: "main.py:1292")?.scheme` is `main.py`, so the scheme guard
+    /// used to reject bare filenames carrying a line reference.
+    @Test func resolvesBareFilenameWithLineNumber() {
+        let path = "/tmp/cmux-linesuffix/main.py"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveOpenURLFilePath(
+                "main.py:1292",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == path
+        )
+    }
+
+    @Test func resolvesExtensionlessBareFilenameWithLineNumber() {
+        let path = "/tmp/cmux-linesuffix/README"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([path])).resolveOpenURLFilePath(
+                "README:12",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == path
+        )
+    }
+
+    @Test func stillRejectsRealURLWithPort() {
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([])).resolveOpenURLFilePath(
+                "http://example.com:8080",
+                cwd: "/tmp/cmux-linesuffix"
+            ) == nil
+        )
+    }
+
+    @Test func stillRejectsFileURL() {
+        #expect(
+            TerminalPathResolver(fileExists: existsIn(["/tmp/cmux-linesuffix/main.py"]))
+                .resolveOpenURLFilePath(
+                    "file:///tmp/cmux-linesuffix/main.py",
+                    cwd: "/tmp/cmux-linesuffix"
+                ) == nil
         )
     }
 }

@@ -93,7 +93,8 @@ public struct TerminalPathResolver: Sendable {
     /// Resolves an open-URL request payload to an existing file path.
     ///
     /// Text that parses as a URL with a scheme is never treated as a file
-    /// path; everything else goes through ``resolveQuicklookPath(_:cwd:)``.
+    /// path, except when the scheme is an artifact of a trailing line
+    /// reference; everything else goes through ``resolveQuicklookPath(_:cwd:)``.
     ///
     /// - Parameters:
     ///   - rawText: The raw open-URL text from the runtime.
@@ -102,7 +103,14 @@ public struct TerminalPathResolver: Sendable {
     public func resolveOpenURLFilePath(_ rawText: String, cwd: String?) -> String? {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard URL(string: trimmed)?.scheme == nil else { return nil }
+        if URL(string: trimmed)?.scheme != nil {
+            // A bare filename carrying a line reference parses as a URL whose
+            // "scheme" is the filename itself: `main.py:1292` yields scheme
+            // `main.py`. Retry once without the reference — a genuine URL still
+            // has a scheme after stripping and stays rejected.
+            guard let withoutLineReference = trimmed.strippingTrailingLineSuffix(),
+                  URL(string: withoutLineReference)?.scheme == nil else { return nil }
+        }
         return resolveQuicklookPath(trimmed, cwd: cwd)
     }
 }

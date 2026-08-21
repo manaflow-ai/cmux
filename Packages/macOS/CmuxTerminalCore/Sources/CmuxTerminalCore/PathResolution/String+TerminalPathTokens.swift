@@ -61,61 +61,49 @@ extension String {
         return String(characters[..<end])
     }
 
-    /// Strips a trailing editor-style line reference from the receiver.
+    /// Strips one trailing editor-style line reference from the receiver.
     ///
     /// Compilers, linters, ripgrep and AI coding agents all print locations as
     /// `path:line`, `path:line:column` or `path:startLine-endLine`. The
     /// reference is not part of the file name, so path probing needs the bare
     /// path as a candidate too.
     ///
-    /// Only ASCII digit runs qualify, so a path whose final colon-separated
-    /// segment is non-numeric is left alone. At most two segments are removed,
-    /// which covers `:line:column` without eating genuine path components.
+    /// Exactly one `:<line>` or `:<startLine>-<endLine>` run is removed per
+    /// call so callers can probe every stripping depth in order, letting a file
+    /// whose name genuinely ends in `:<digits>` still win. Only ASCII digit runs
+    /// qualify, so a non-numeric final segment is left alone.
     ///
-    /// - Returns: The receiver without its trailing line reference, or `nil`
-    ///   when there is no such reference or nothing would remain.
+    /// - Returns: The receiver without its final line reference, or `nil` when
+    ///   there is no such reference or nothing would remain.
     public func strippingTrailingLineSuffix() -> String? {
         func isASCIIDigit(_ character: Character) -> Bool {
             character.isASCII && character.isNumber
         }
 
-        /// Removes one `:<digits>` or `:<digits>-<digits>` run from the end.
-        func strippingOneSegment(_ characters: [Character]) -> [Character]? {
-            var end = characters.count
+        let characters = Array(self)
+        var end = characters.count
 
-            var trailingDigits = 0
+        var trailingDigits = 0
+        while end > 0, isASCIIDigit(characters[end - 1]) {
+            end -= 1
+            trailingDigits += 1
+        }
+        guard trailingDigits > 0 else { return nil }
+
+        // Optional `-<digits>` prefix, so `:144-198` is one reference.
+        if end > 0, characters[end - 1] == "-" {
+            end -= 1
+            var leadingDigits = 0
             while end > 0, isASCIIDigit(characters[end - 1]) {
                 end -= 1
-                trailingDigits += 1
+                leadingDigits += 1
             }
-            guard trailingDigits > 0 else { return nil }
-
-            // Optional `-<digits>` prefix, so `:144-198` is one reference.
-            if end > 0, characters[end - 1] == "-" {
-                end -= 1
-                var leadingDigits = 0
-                while end > 0, isASCIIDigit(characters[end - 1]) {
-                    end -= 1
-                    leadingDigits += 1
-                }
-                guard leadingDigits > 0 else { return nil }
-            }
-
-            guard end > 0, characters[end - 1] == ":" else { return nil }
-            end -= 1
-            return Array(characters[..<end])
+            guard leadingDigits > 0 else { return nil }
         }
 
-        var characters = Array(self)
-        var strippedAny = false
-        for _ in 0..<2 {
-            guard let stripped = strippingOneSegment(characters) else { break }
-            characters = stripped
-            strippedAny = true
-        }
-
-        guard strippedAny, !characters.isEmpty else { return nil }
-        return String(characters)
+        guard end > 1, characters[end - 1] == ":" else { return nil }
+        end -= 1
+        return String(characters[..<end])
     }
 
     /// Returns the bottom `rows` lines of captured terminal text.
@@ -194,14 +182,22 @@ extension String {
                 appendUnique(punctuationTrimmed)
             }
 
-            // Line references come last so a file that genuinely ends in
-            // `:<digits>` still wins over its stripped spelling.
-            if let lineStripped = trimmed.strippingTrailingLineSuffix() {
-                appendUnique(lineStripped)
+            // Every stripping depth, shallowest first, so `backup:2024:7`
+            // probes `backup:2024` before `backup` and a file that genuinely
+            // ends in `:<digits>` still wins over its stripped spelling. Two
+            // depths cover `:line` and `:line:column`.
+            func appendLineSuffixStrippings(of token: String) {
+                var current = token
+                for _ in 0..<2 {
+                    guard let stripped = current.strippingTrailingLineSuffix() else { return }
+                    appendUnique(stripped)
+                    current = stripped
+                }
             }
-            if punctuationTrimmed != trimmed,
-               let lineStripped = punctuationTrimmed.strippingTrailingLineSuffix() {
-                appendUnique(lineStripped)
+
+            appendLineSuffixStrippings(of: trimmed)
+            if punctuationTrimmed != trimmed {
+                appendLineSuffixStrippings(of: punctuationTrimmed)
             }
         }
 
