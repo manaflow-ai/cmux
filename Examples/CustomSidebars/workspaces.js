@@ -345,9 +345,14 @@ function groupHeader(groupId) {
     ]);
 }
 
+// Identical geometry to groupHeader (chevron box, paddings, semibold 12)
+// so entering/leaving rename changes nothing but the text becoming editable.
 function groupEditRow(groupId) {
   const g = () => groupById(groupId);
   return HStack({ spacing: 6 }, [
+    Image(() => (isCollapsed(g() ?? {}) ? "chevron.right" : "chevron.down"))
+      .font(10).weight("semibold").color("tertiary")
+      .frame({ width: 14, height: 16 }),
     TextField(() => g()?.name ?? "", {
       placeholder: "Group name",
       onSubmit: (t) => {
@@ -358,7 +363,7 @@ function groupEditRow(groupId) {
       onCancel: () => setEditingId(null),
     }).font(12).weight("semibold"),
   ])
-    .paddingLeading(24)
+    .paddingLeading(8)
     .paddingTrailing(10)
     .paddingVertical(5)
     .cornerRadius(8)

@@ -280,7 +280,10 @@ private struct SceneTextFieldView: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: CGFloat(node.props["font"]?.doubleValue ?? 13))
+        field.font = .systemFont(
+            ofSize: CGFloat(node.props["font"]?.doubleValue ?? 13),
+            weight: Self.nsWeight(node.string("weight"))
+        )
         field.delegate = context.coordinator
         // First responder can only be claimed once the field is in a window;
         // hop one runloop turn (plain async, not a timed delay).
@@ -293,6 +296,17 @@ private struct SceneTextFieldView: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         field.placeholderString = node.string("placeholder")
+    }
+
+    private static func nsWeight(_ token: String?) -> NSFont.Weight {
+        switch token {
+        case "bold": return .bold
+        case "semibold": return .semibold
+        case "medium": return .medium
+        case "light": return .light
+        case "heavy": return .heavy
+        default: return .regular
+        }
     }
 
     @MainActor

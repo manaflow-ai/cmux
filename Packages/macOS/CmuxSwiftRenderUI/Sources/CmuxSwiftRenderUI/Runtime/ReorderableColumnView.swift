@@ -410,11 +410,17 @@ private struct ReorderableRowView: View {
             // by its leading margin).
             .background {
                 if moves {
+                    // A STABLE fill, deliberately not a material: a material
+                    // resamples whatever the row passes over mid-drag, which
+                    // reads as color flashing. The theme window background
+                    // keeps the row readable and constant; authors override
+                    // with a dragBackground color token.
                     RoundedRectangle(
                         cornerRadius: CGFloat(store?.node(childId)?.double("cornerRadius") ?? 8),
                         style: .continuous
                     )
-                    .fill(.ultraThinMaterial)
+                    .fill(dslColor(store?.node(childId)?.string("dragBackground"))
+                        ?? Color(nsColor: .windowBackgroundColor))
                     .padding(.leading, CGFloat(store?.node(childId)?.double("marginLeading") ?? 0))
                 }
             }
