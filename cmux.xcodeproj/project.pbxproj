@@ -940,6 +940,7 @@
 		C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */; };
 		D96290030000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290040000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift */; };
 		B90000D2A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */; };
+		C1A90000000000000000000B /* CMUXCLI+CommandTreeDump.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A90000000000000000000A /* CMUXCLI+CommandTreeDump.swift */; };
 		CC0033E15A1B2C3D4E5F0001 /* CMUXCLI+Comments.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */; };
 		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
 		112950000000000000000006 /* CMUXCLI+ContinuationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */; };
@@ -1289,6 +1290,7 @@
 		C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */; };
 		C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */; };
 		C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */; };
+		C1A900000000000000000009 /* CommandTreeDump.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000008 /* CommandTreeDump.swift */; };
 		CC0033E15A1B2C3D4E5F0005 /* CommentsListPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0006 /* CommentsListPayloadTests.swift */; };
 		A91C0D110000000000000002 /* CompletedRestoredAgentForkAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D110000000000000001 /* CompletedRestoredAgentForkAvailabilityTests.swift */; };
 		E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A37946EDBC5645DCB867DE82 /* CompletedRestoredAgentGenerationTests.swift */; };
@@ -4555,6 +4557,7 @@
 		C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexFireAndForgetHooks.swift"; sourceTree = "<group>"; };
 		D96290040000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexResumeBindingVerification.swift"; sourceTree = "<group>"; };
 		B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CommandSuggestions.swift"; sourceTree = "<group>"; };
+		C1A90000000000000000000A /* CMUXCLI+CommandTreeDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CommandTreeDump.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Comments.swift"; sourceTree = "<group>"; };
 		B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Config.swift"; sourceTree = "<group>"; };
 		112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ContinuationSupport.swift"; sourceTree = "<group>"; };
@@ -4829,6 +4832,7 @@
 		C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSettingsToggleTests.swift; sourceTree = "<group>"; };
 		C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteShortcutCustomizationTests.swift; sourceTree = "<group>"; };
 		C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CommandPaletteShortcutRouting.swift; sourceTree = "<group>"; };
+		C1A900000000000000000008 /* CommandTreeDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandTreeDump.swift; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0006 /* CommentsListPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentsListPayloadTests.swift; sourceTree = "<group>"; };
 		A91C0D110000000000000001 /* CompletedRestoredAgentForkAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentForkAvailabilityTests.swift; sourceTree = "<group>"; };
 		A37946EDBC5645DCB867DE82 /* CompletedRestoredAgentGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentGenerationTests.swift; sourceTree = "<group>"; };
@@ -9766,6 +9770,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */,
 				112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */,
+				C1A90000000000000000000A /* CMUXCLI+CommandTreeDump.swift */,
 				925800000000000000000001 /* CMUXCLI+Restore.swift */,
 
 				110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */,
@@ -9801,6 +9806,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C1A900000000000000000001 /* Commands */ = {
 			isa = PBXGroup;
 			children = (
+				C1A900000000000000000008 /* CommandTreeDump.swift */,
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
 			);
@@ -13692,6 +13698,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */,
 				D96290030000000000000001 /* CMUXCLI+CodexResumeBindingVerification.swift in Sources */,
 				B90000D2A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift in Sources */,
+				C1A90000000000000000000B /* CMUXCLI+CommandTreeDump.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0001 /* CMUXCLI+Comments.swift in Sources */,
 				B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
 				112950000000000000000006 /* CMUXCLI+ContinuationSupport.swift in Sources */,
@@ -13797,6 +13804,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7520C0DF0000000000000005 /* CodexTurnLedgerModels.swift in Sources */,
 				7520C0DF0000000000000007 /* CodexTurnLedgerPersistence.swift in Sources */,
 				7520C0DF0000000000000009 /* CodexTurnLifecycleCoordinator.swift in Sources */,
+				C1A900000000000000000009 /* CommandTreeDump.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				F97300010000000000000002 /* FreestyleInteractiveShellScript.swift in Sources */,
 				C1A900000000000000000005 /* GlobalOptions.swift in Sources */,
