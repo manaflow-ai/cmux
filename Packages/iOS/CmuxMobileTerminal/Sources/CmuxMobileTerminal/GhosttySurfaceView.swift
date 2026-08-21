@@ -463,6 +463,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let maximumTerminalDockPresentationGap = pointValue(
             host?.debugMaximumTerminalDockPresentationGap ?? 0
         )
+        let rendererDockPresentationGap = pointValue(
+            host?.debugRendererDockPresentationGap ?? 0
+        )
+        let maximumRendererDockPresentationGap = pointValue(
+            host?.debugMaximumRendererDockPresentationGap ?? 0
+        )
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
@@ -482,6 +488,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "dockMaxInternalPresentationGap=\(maximumInternalPresentationGap)",
             "terminalDockPresentationGap=\(terminalDockPresentationGap)",
             "terminalDockMaxPresentationGap=\(maximumTerminalDockPresentationGap)",
+            "rendererDockPresentationGap=\(rendererDockPresentationGap)",
+            "rendererDockMaxPresentationGap=\(maximumRendererDockPresentationGap)",
             "screenScale=\(pointValue(preferredScreenScale))",
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
             "keyboardGuideTop=\(keyboardDockTargetTop)",

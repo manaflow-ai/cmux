@@ -10483,12 +10483,10 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        assertTerminalRenderBottomAttachedToViewport(
-            dock,
-            context: context,
-            file: file,
-            line: line
-        )
+        // The render's settled attachment is asserted at echo-settled
+        // checkpoints, not here: mid-transition the render may intentionally
+        // hold while blank rows absorb the keyboard intrusion, and the fresh
+        // grid arrives with the Mac's viewport echo a round-trip later.
     }
 
     /// Repeatedly open and close the composer via the toolbar compose button and assert
@@ -10946,8 +10944,15 @@ final class cmuxUITests: XCTestCase {
 
         hideKeyboardButton.tap()
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        // The render refills the grown viewport only after the Mac's grid echo
+        // lands, so the settle wait includes the render attachment instead of
+        // asserting it against a pre-echo snapshot.
         let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
-            $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
+            guard $0["keyboardUp"] == "0",
+                  $0["keyboardTransitionID"] == "-1",
+                  let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else { return false }
+            return abs(renderMaxY - viewportHeight) <= 2
         }
         assertTerminalPresentationPinnedToDock(
             hiddenDock,
@@ -11068,8 +11073,15 @@ final class cmuxUITests: XCTestCase {
             accuracy: 2,
             "The notification dock must pin the composer to the visible software keyboard. keyboard=\(keyboard) dock=\(dock)"
         )
+        // The keyboard-up grid arrives with the Mac's viewport echo; wait for
+        // the settled render before asserting its attachment.
+        let settledDock = waitForDock(in: app, describe: "grid echo settled the keyboard-up render") {
+            guard let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else { return false }
+            return abs(renderMaxY - viewportHeight) <= 2
+        }
         assertTerminalRenderBottomAttachedToViewport(
-            dock,
+            settledDock,
             context: "notification keyboard dock"
         )
     }
