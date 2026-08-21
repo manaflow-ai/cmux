@@ -486,9 +486,17 @@ struct WorkspaceShellView: View {
         // One-time what's-new notice for the per-Computer connection-method
         // update. Only users who already HAVE Computers see it (fresh installs
         // learn the same in onboarding); any dismissal acknowledges it.
-        .onAppear { presentConnectionsUpdateNoticeIfNeeded() }
-        // Paired Macs load asynchronously after the shell appears, so the
-        // has-Computers gate must re-run when the list arrives.
+        .onAppear {
+            presentConnectionsUpdateNoticeIfNeeded()
+            // The shell can restore straight into cached workspaces without
+            // ever loading the paired-Mac list (it normally loads on the
+            // Computers sheet or a reconnect pass), so load it here and
+            // re-check — otherwise the has-Computers gate never answers.
+            Task {
+                await store.loadPairedMacs()
+                presentConnectionsUpdateNoticeIfNeeded()
+            }
+        }
         .onChange(of: store.pairedMacs.isEmpty) { _, _ in
             presentConnectionsUpdateNoticeIfNeeded()
         }
