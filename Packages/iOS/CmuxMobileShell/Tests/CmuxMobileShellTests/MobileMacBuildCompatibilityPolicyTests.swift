@@ -6,14 +6,14 @@ import Testing
 @testable import CmuxMobileShell
 
 @Suite struct MobileMacBuildCompatibilityPolicyTests {
-    @Test func developmentRequiresExactTag() {
+    @Test func developmentAllowsSiblingTagsWithoutBuildMetadata() {
         let policy = MobileMacBuildCompatibilityPolicy.development(
             expectedInstanceTag: "icap"
         )
 
         #expect(policy.allows(instanceTag: "icap"))
         #expect(policy.allows(instanceTag: " ICAP "))
-        #expect(!policy.allows(instanceTag: "tsmig"))
+        #expect(policy.allows(instanceTag: "tsmig"))
         #expect(!policy.allows(instanceTag: "default"))
         #expect(!policy.allows(instanceTag: "nightly"))
         #expect(!policy.allows(instanceTag: nil))
@@ -109,7 +109,7 @@ import Testing
         ))
     }
 
-    @Test func scopedStoreHidesAndRejectsIncompatibleRows() async throws {
+    @Test func scopedDevelopmentStorePreservesSiblingRows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -138,12 +138,12 @@ import Testing
             .development(expectedInstanceTag: "icap")
             .scoping(raw)
 
-        #expect(try await scoped.loadAll(
+        #expect(Set(try await scoped.loadAll(
             stackUserID: "user-1", teamID: "team-a"
-        ).map(\.instanceTag) == ["icap"])
+        ).compactMap(\.instanceTag)) == ["icap", "tsmig"])
         #expect(try await scoped.activeMac(
             stackUserID: "user-1", teamID: "team-a"
-        ) == nil)
+        )?.instanceTag == "tsmig")
 
         try await scoped.upsert(
             macDeviceID: "other-mac",
@@ -157,7 +157,7 @@ import Testing
         )
         #expect(try await raw.loadAll(
             stackUserID: "user-1", teamID: "team-a"
-        ).allSatisfy { $0.macDeviceID != "other-mac" })
+        ).contains { $0.macDeviceID == "other-mac" && $0.instanceTag == "tsmig" })
     }
 
     @Test func scopedStoreKeepsUnclaimedLegacyRowsMigratable() async throws {
