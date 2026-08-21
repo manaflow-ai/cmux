@@ -321,6 +321,20 @@ pub(crate) fn redirect_stderr_into_log() {
         if queue().is_none() {
             return;
         }
+        // Save the original fd 2 BEFORE creating the pipe: with stderr
+        // closed at startup (daemon/headless launches) pipe() would hand out
+        // fd 2 itself, and the "saved" descriptor would be the pipe's read
+        // end - restore would then point stderr at a read-only pipe.
+        if SAVED_STDERR.load(Ordering::Acquire) < 0 {
+            // SAFETY: F_DUPFD_CLOEXEC of fd 2; retained for restore.
+            let saved = unsafe { libc::fcntl(2, libc::F_DUPFD_CLOEXEC, 3) };
+            if saved < 0 {
+                // fd 2 is closed: there is no terminal stream to protect or
+                // restore; leave stderr alone.
+                return;
+            }
+            SAVED_STDERR.store(saved, Ordering::Release);
+        }
         let mut fds = [0i32; 2];
         // SAFETY: plain pipe(2); both ends are owned below.
         if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
@@ -336,11 +350,6 @@ pub(crate) fn redirect_stderr_into_log() {
         unsafe {
             libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
             libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        }
-        if SAVED_STDERR.load(Ordering::Acquire) < 0 {
-            // SAFETY: F_DUPFD_CLOEXEC of a live fd; retained for restore.
-            let saved = unsafe { libc::fcntl(2, libc::F_DUPFD_CLOEXEC, 3) };
-            SAVED_STDERR.store(saved, Ordering::Release);
         }
         // SAFETY: dup2 onto fd 2 replaces stderr atomically; close the now
         // duplicated write end.
