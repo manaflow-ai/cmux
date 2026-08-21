@@ -488,8 +488,8 @@ struct WorkspaceShellView: View {
         // learn the same in onboarding); any dismissal acknowledges it.
         .onAppear { presentConnectionsUpdateNoticeIfNeeded() }
         // Paired Macs load asynchronously after the shell appears, so the
-        // has-Computers gate must re-run when that answer arrives.
-        .onChange(of: store.hasKnownPairedMac) { _, _ in
+        // has-Computers gate must re-run when the list arrives.
+        .onChange(of: store.pairedMacs.isEmpty) { _, _ in
             presentConnectionsUpdateNoticeIfNeeded()
         }
         .sheet(
@@ -511,7 +511,7 @@ struct WorkspaceShellView: View {
     private func presentConnectionsUpdateNoticeIfNeeded() {
         guard !UserDefaults.standard.bool(
             forKey: MobileConnectionsUpdateSheet.acknowledgedKey
-        ), store.hasKnownPairedMac, !showsConnectionsUpdateNotice else { return }
+        ), !store.pairedMacs.isEmpty, !showsConnectionsUpdateNotice else { return }
         UserDefaults.standard.set(
             true,
             forKey: MobileConnectionsUpdateSheet.acknowledgedKey
