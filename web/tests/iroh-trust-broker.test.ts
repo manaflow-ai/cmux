@@ -1395,7 +1395,7 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
-  test("pair grants reject a Mac from another build lane", async () => {
+  test("pair grants accept another tagged DEV Mac", async () => {
     const fixture = makeFixture();
     const initiator = binding({
       userId: USER_A,
@@ -1417,22 +1417,21 @@ describe("Iroh discovery and grants", () => {
       acceptorBindingId: acceptor.id,
     };
 
-    await expectEffectFailure(
-      fixture.broker.issuePairGrant(
-        USER_A,
+    const result = await Effect.runPromise(fixture.broker.issuePairGrant(
+      USER_A,
+      body,
+      NOW,
+      initiator.clientNamespace,
+      fixture.bindingProof(
+        initiator.id,
+        "POST",
+        "api/devices/iroh/pair-grants",
         body,
-        NOW,
-        initiator.clientNamespace,
-        fixture.bindingProof(
-          initiator.id,
-          "POST",
-          "api/devices/iroh/pair-grants",
-          body,
-        ),
       ),
-      "IrohForbiddenError",
-    );
-    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+    )) as { grant: string };
+
+    expect(result.grant.split(".")).toHaveLength(3);
+    expect(fixture.repository.pairGrantAudits).toHaveLength(1);
   });
 
   test("an official iOS binding can pair with a Nightly Mac", async () => {
@@ -1700,7 +1699,7 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
-  test("tagged discovery never exposes sibling Mac lane metadata", async () => {
+  test("tagged DEV discovery exposes every tagged DEV Mac binding", async () => {
     const fixture = makeFixture();
     const iosA = binding({
       platform: "ios",
@@ -1736,6 +1735,7 @@ describe("Iroh discovery and grants", () => {
     expect(discovered.bindings.map((row) => row.binding_id)).toEqual([
       iosA.id,
       macA.id,
+      macB.id,
     ].sort());
   });
 

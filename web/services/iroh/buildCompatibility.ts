@@ -5,6 +5,8 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
   "dev.cmux.app.internal",
   "dev.cmux.app.demo",
 ]);
+const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";
+const OFFICIAL_MAC_TAGS = new Set(["default", "nightly"]);
 
 type BuildBinding = {
   readonly platform: string;
@@ -40,6 +42,20 @@ function iosBindingMacLaneCompatible(
   const targetHasCompatibleNamespace = target.clientNamespace === "legacy"
     || target.clientNamespace.startsWith("mac:");
   if (!targetHasCompatibleNamespace) return false;
+
+  // A tagged DEV iOS build is the control surface for all tagged DEV Mac
+  // builds. The tag still identifies each Mac instance for persistence and
+  // ordering, but it is not a compatibility lane boundary. Keep this behind
+  // the use-only fallback flag so stale-binding revocation remains exact-tag.
+  const targetTag = target.tag.trim().toLowerCase();
+  if (
+    legacyDefaultFallback
+    && caller.clientNamespace.startsWith(DEVELOPMENT_IOS_NAMESPACE_PREFIX)
+    && target.clientNamespace.startsWith("mac:")
+    && !OFFICIAL_MAC_TAGS.has(targetTag)
+  ) {
+    return true;
+  }
 
   // iOS builds that predate the X-Cmux-App-Namespace header register as
   // `legacy` and cannot send anything newer, so the missing namespace is the
