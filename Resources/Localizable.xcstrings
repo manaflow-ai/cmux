@@ -39641,6 +39641,31 @@
         }
       }
     },
+    "cli.root.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تحكم في cmux عبر مقبس Unix." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upravljajte cmuxom putem Unix utičnice." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Styr cmux via Unix-sokkel." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Steuere cmux über einen Unix-Socket." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Control cmux via Unix socket." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Controla cmux mediante un socket Unix." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Contrôlez cmux via un socket Unix." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Controlla cmux tramite un socket Unix." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Unix ソケット経由で cmux を操作します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "គ្រប់គ្រង cmux តាមរយៈរន្ធ Unix ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Unix 소켓을 통해 cmux를 제어합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kontroller cmux via en Unix-sokkel." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Steruj cmux za pomocą gniazda Unix." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Controle o cmux por meio de um soquete Unix." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Управляйте cmux через сокет Unix." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ควบคุม cmux ผ่านซ็อกเก็ต Unix" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux'u Unix soketi üzerinden denetleyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Керуйте cmux через сокет Unix." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "通过 Unix 套接字控制 cmux。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "透過 Unix socket 控制 cmux。" } }
+      }
+    },
     "cli.help.openNotification": {
       "extractionState": "manual",
       "localizations": {
