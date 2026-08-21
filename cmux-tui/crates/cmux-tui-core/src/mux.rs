@@ -2400,6 +2400,8 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         crate::journal_hooks::start(&mux)?;
+        #[cfg(unix)]
+        start_hosted_terminal_liveness_sweep(&mux);
         Ok(mux)
     }
 
@@ -12663,6 +12665,43 @@ impl Mux {
         true
     }
 
+    /// One pass of the hosted-terminal liveness sweep: commit the durable
+    /// exit for every terminal whose host is positively dead while its
+    /// surface still claims a healthy connection. Each commit runs on its
+    /// own thread so a wedged journal cannot stall the sweep itself; the
+    /// exit latch is first-writer-wins, so racing the reader is idempotent.
+    #[cfg(unix)]
+    pub(crate) fn sweep_hosted_terminal_liveness(self: &Arc<Self>) {
+        let surfaces: Vec<Arc<Surface>> = {
+            let state = self.state.lock().unwrap();
+            state.surfaces.values().cloned().collect()
+        };
+        for surface in surfaces {
+            let Some((identity, record_path)) = surface.hosted_death_evidence() else {
+                continue;
+            };
+            eprintln!(
+                "cmux-tui: terminal {} host proven dead by the liveness sweep while its \
+                 reader thread reported a healthy connection; committing exit",
+                identity.terminal_id
+            );
+            let mux = Arc::downgrade(self);
+            let thread = std::thread::Builder::new()
+                .name(format!("terminal-death-sweep-{}", identity.terminal_id))
+                .spawn(move || {
+                    crate::surface::commit_proven_host_death(
+                        &surface,
+                        &mux,
+                        &identity,
+                        &record_path,
+                    );
+                });
+            if let Err(error) = thread {
+                eprintln!("cmux-tui: could not start a terminal death commit thread: {error}");
+            }
+        }
+    }
+
     /// Reconcile a surface whose child exited before its tree insert
     /// completed. Hosted terminals commit their exit and detach every view;
     /// local terminals are reaped after the creator closes the insert race.
@@ -15029,6 +15068,39 @@ fn acknowledge_terminal_exit_sidecar(
         Ok(false) => !exit_path.exists(),
         Err(_) => false,
     }
+}
+
+/// Interval for the daemon-side hosted-terminal liveness sweep. Overridable
+/// via CMUX_TUI_HOST_LIVENESS_SWEEP_MS (0 disables the sweep).
+#[cfg(unix)]
+fn hosted_terminal_liveness_sweep_interval() -> Option<Duration> {
+    let ms = std::env::var("CMUX_TUI_HOST_LIVENESS_SWEEP_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(30_000);
+    (ms > 0).then(|| Duration::from_millis(ms))
+}
+
+/// Watches every hosted terminal's process-lifetime liveness proof from a
+/// dedicated thread. The per-terminal reader thread normally observes a host
+/// death as a socket EOF, but a wedged reader (stalled in journal or lock
+/// work) observes nothing, and the terminal then stays "running" for hours
+/// while attach clients freeze on its last frame. The sweep proves the death
+/// independently and commits the durable exit.
+#[cfg(unix)]
+fn start_hosted_terminal_liveness_sweep(mux: &Arc<Mux>) {
+    let Some(interval) = hosted_terminal_liveness_sweep_interval() else { return };
+    let weak = Arc::downgrade(mux);
+    let _ = std::thread::Builder::new().name("terminal-liveness-sweep".into()).spawn(move || {
+        loop {
+            std::thread::sleep(interval);
+            let Some(mux) = weak.upgrade() else { return };
+            if mux.shutting_down.load(Ordering::Acquire) {
+                return;
+            }
+            mux.sweep_hosted_terminal_liveness();
+        }
+    });
 }
 
 #[cfg(unix)]

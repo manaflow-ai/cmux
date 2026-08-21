@@ -1149,6 +1149,42 @@ enum ReconnectGiveUp<'a> {
     LeaveDetached { mux: &'a Weak<Mux> },
 }
 
+/// Commit the durable exit for a host whose process-lifetime liveness proof
+/// says it is dead. Prefers the host's fsynced exit sidecar; otherwise the
+/// exit outcome records that the host ended without one. Shared by the
+/// reader thread's reconnect loop and the daemon's periodic liveness sweep,
+/// so a host death is committed even when the reader thread is wedged and
+/// never observes the socket EOF. The durable latch is first-writer-wins,
+/// so concurrent callers stay idempotent.
+#[cfg(unix)]
+pub(crate) fn commit_proven_host_death(
+    surface: &Arc<Surface>,
+    mux: &Weak<Mux>,
+    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
+    record_path: &std::path::Path,
+) {
+    let Some(pty) = surface.as_pty() else { return };
+    let exit = crate::terminal_host_runtime::terminal_host_exit_record(record_path)
+        .ok()
+        .flatten()
+        .filter(|(_, exit)| {
+            exit.terminal_id == identity.terminal_id && exit.incarnation == identity.incarnation
+        })
+        .map(|(_, exit)| exit.exit)
+        .unwrap_or_else(|| {
+            TerminalExit::unknown("terminal host ended without a durable exit sidecar")
+        });
+    log_hosted_connection_event(identity, "host proven dead; committing durable terminal exit");
+    *pty.exit.lock().unwrap() = Some(exit);
+    mark_hosted_runtime_exited(pty, identity);
+    pty.host_connection_state
+        .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+    pty.stream_progress.notify();
+    if let Some(mux) = mux.upgrade() {
+        mux.surface_exited(surface.id);
+    }
+}
+
 /// Terminal reader threads must never end silently: a bare `return` leaves a
 /// zombie terminal that stays listed, keeps its attach mirrors frozen on the
 /// last frame, and swallows input and resizes forever (observed for six hours
@@ -3412,35 +3448,7 @@ impl Surface {
                         );
                         match liveness_probe {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
-                                let exit = crate::terminal_host_runtime::terminal_host_exit_record(
-                                    &record_path,
-                                )
-                                .ok()
-                                .flatten()
-                                .filter(|(_, exit)| {
-                                    exit.terminal_id == identity.terminal_id
-                                        && exit.incarnation == identity.incarnation
-                                })
-                                .map(|(_, exit)| exit.exit)
-                                .unwrap_or_else(|| {
-                                    TerminalExit::unknown(
-                                        "terminal host ended without a durable exit sidecar",
-                                    )
-                                });
-                                log_hosted_connection_event(
-                                    &identity,
-                                    "host proven dead; committing durable terminal exit",
-                                );
-                                *pty.exit.lock().unwrap() = Some(exit);
-                                mark_hosted_runtime_exited(pty, &identity);
-                                pty.host_connection_state.store(
-                                    TerminalHostConnectionState::Exited as u8,
-                                    Ordering::Release,
-                                );
-                                pty.stream_progress.notify();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.surface_exited(surface.id);
-                                }
+                                commit_proven_host_death(&surface, &mux, &identity, &record_path);
                                 return;
                             }
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Live)
@@ -5600,6 +5608,32 @@ impl Surface {
             Surface::Pty(pty) => pty.dead.load(Ordering::Acquire),
             Surface::Browser(browser) => browser.is_dead(),
         }
+    }
+
+    /// Probe a connected hosted terminal's process-lifetime liveness proof.
+    /// Returns evidence only when the host is positively dead while this
+    /// surface still presents its connection as healthy, i.e. the reader
+    /// thread has not observed the death (wedged reader, stalled stream).
+    #[cfg(unix)]
+    pub(crate) fn hosted_death_evidence(
+        &self,
+    ) -> Option<(crate::terminal_host_runtime::TerminalHostIdentity, PathBuf)> {
+        let pty = self.as_pty()?;
+        if pty.host_connection_state.load(Ordering::Acquire)
+            != TerminalHostConnectionState::Connected as u8
+        {
+            return None;
+        }
+        let identity = pty.host_identity.clone()?;
+        let (record, record_path) = match &*pty.runtime.lock().unwrap() {
+            PtyRuntime::Hosted(host) => host.discovery_record(),
+            PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => return None,
+        };
+        matches!(
+            crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record),
+            Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead)
+        )
+        .then_some((identity, record_path))
     }
 
     /// Clear the coalesced output flag; returns whether output was pending.
