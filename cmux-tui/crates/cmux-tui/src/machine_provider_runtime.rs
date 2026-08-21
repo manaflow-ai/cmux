@@ -1241,7 +1241,10 @@ impl ProviderMachineRuntime {
                     // long-lived provider emitting many distinct ids cannot
                     // grow the registry without bound.
                     progress_cells.retain(|machine_id, _| {
-                        snapshot.machines.iter().any(|machine| machine.id.as_str() == machine_id.as_str())
+                        snapshot
+                            .machines
+                            .iter()
+                            .any(|machine| machine.id.as_str() == machine_id.as_str())
                     });
                     let changed_snapshot_notice =
                         if !durable_notices_supported && snapshot.notice != last_snapshot_notice {
