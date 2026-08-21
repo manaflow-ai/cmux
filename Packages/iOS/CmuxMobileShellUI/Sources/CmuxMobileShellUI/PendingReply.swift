@@ -6,6 +6,7 @@ struct PendingReply: Equatable, Sendable {
     let workspaceId: String?
     let surfaceId: String?
     let macDeviceId: String?
+    let macInstanceTag: String?
     let retargetsToLiveSurfaceOwner: Bool
     let createdAt: Date
 }

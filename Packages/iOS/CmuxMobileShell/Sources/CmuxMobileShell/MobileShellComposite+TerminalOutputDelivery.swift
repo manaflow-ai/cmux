@@ -422,6 +422,7 @@ extension MobileShellComposite {
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
                terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
                !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+               terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle != false,
                !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
                 requestTerminalReplay(
@@ -509,6 +510,7 @@ extension MobileShellComposite {
                     let baselineReplayRequestCount = missingBaselineReplayBarrier
                         ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
                         : nil
+                    cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
                     terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
                     terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
                     terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -539,6 +541,7 @@ extension MobileShellComposite {
                     reason: "followup_cap"
                 )
             } else {
+                cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
                 terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
                 terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
                 terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)

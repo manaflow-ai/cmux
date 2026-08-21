@@ -27,7 +27,7 @@ extension DockSplitStore {
     }
 
     static func makeConfiguration() -> BonsplitConfiguration {
-        let config = GhosttyConfig.load()
+        let config = GhosttyConfig.loadForCmux()
         return BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,

@@ -1,6 +1,38 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Returns the hook event explicitly reported by an agent payload.
+    ///
+    /// Claude's hook command is selected by the installed settings, but the
+    /// payload also carries its lifecycle discriminator. Keeping that
+    /// discriminator available lets a stale or duplicated hook entry fail
+    /// closed instead of turning a child-agent event into a parent mutation.
+    func reportedHookEventName(from input: ClaudeHookParsedInput) -> String? {
+        let object = input.rawObject ?? input.object
+        return object.flatMap {
+            firstString(
+                in: $0,
+                keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+            )
+        }
+    }
+
+    /// Whether a Claude `stop` invocation is allowed to settle the parent.
+    ///
+    /// Payloads from current Claude Code versions identify their hook event;
+    /// only an explicit top-level `Stop` may run the visible completion path.
+    /// Older payloads omitted the discriminator, so those retain the legacy
+    /// command-driven behavior.
+    func shouldApplyClaudeStopVisibleMutation(_ input: ClaudeHookParsedInput) -> Bool {
+        guard let rawEvent = reportedHookEventName(from: input) else { return true }
+        let normalized = rawEvent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return normalized == "stop"
+    }
+
     func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
         let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,

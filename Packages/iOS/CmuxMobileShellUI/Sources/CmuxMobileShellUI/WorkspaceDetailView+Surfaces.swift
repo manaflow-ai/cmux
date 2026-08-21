@@ -46,6 +46,21 @@ extension WorkspaceDetailView {
                     // not the device appearance, or rows flash white over a
                     // dark theme (and vice versa).
                     .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                    // Same recovery chrome as the terminal: the last synced
+                    // surface stays visible underneath while the pill shows
+                    // reconnect progress (it renders nothing when connected).
+                    .overlay(alignment: .topLeading) {
+                        MobileMacConnectionStatusPill(
+                            host: host,
+                            status: effectiveConnectionStatus,
+                            reconnect: Self.reconnectAction(
+                                connectionRequiresReauth: store.connectionRequiresReauth,
+                                reconnect: { reconnectToWorkspaceMac() }
+                            )
+                        )
+                        .padding(.top, 10)
+                        .padding(.leading, 10)
+                    }
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -93,9 +108,13 @@ extension WorkspaceDetailView {
         let canOpenOnMac = store.supportsSurfaceFocus(in: workspace.id)
         switch renderer {
         case .todo(let todo):
+            // The capability set empties while the connection recovers, so it
+            // doubles as the "Mac can take mutations right now" signal; the
+            // snapshot itself stays rendered either way.
             TodoSurfaceView(
                 surface: macSurface,
-                todo: todo
+                todo: todo,
+                allowsMutations: store.supportsTodo(in: workspace.id)
             ) { mutation in
                 try await store.performTodoMutation(mutation, workspaceID: workspace.id)
             }

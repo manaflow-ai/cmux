@@ -1979,9 +1979,10 @@ public final class MobileIrohRuntimeComposition:
                     return []
                 }
             },
-            customPrivateFallback: { expectedMacDeviceID in
+            customPrivateFallback: { expectedMacDeviceID, expectedInstanceTag in
                 await customPrivatePaths.enabledPaths(
                     forMacDeviceID: expectedMacDeviceID,
+                    instanceTag: expectedInstanceTag,
                     accountID: accountID
                 )
             },
@@ -2261,15 +2262,12 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
-    private static func keychainAccessGroup(
+    static func keychainAccessGroup(
         infoDictionary: [String: Any]?
     ) -> String? {
-        let raw = infoDictionary?["CMUXKeychainAccessGroup"] as? String
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
-            return nil
-        }
-        return trimmed
+        MobileKeychainAccessGroupPolicy.resolve(
+            infoDictionary?["CMUXKeychainAccessGroup"] as? String
+        )
     }
 
     static func initialTransportVerificationMode(
@@ -2450,10 +2448,15 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         let liveMacs = await routeCatalog.liveMacCandidates(preferredTag: tag)
         var privateNetworkMacsByID: [String: CmxIrohSettingsSnapshot.PrivateNetworkMac] = [:]
         for mac in liveMacs {
-            let id = cmxCanonicalDeviceID(mac.deviceID)
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: mac.deviceID,
+                instanceTag: mac.instanceTag
+            )
+            let id = identity.id
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
-                    id: id,
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag,
                     displayName: mac.displayName ?? "",
                     supportsPrivatePaths: mac.capabilities.contains(
                         "iroh.private_paths.v1"
@@ -2462,9 +2465,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             }
         }
         for configuration in privatePathSnapshot.configurations {
-            if privateNetworkMacsByID[configuration.macDeviceID] == nil {
-                privateNetworkMacsByID[configuration.macDeviceID] = .init(
-                    id: configuration.macDeviceID,
+            if privateNetworkMacsByID[configuration.id] == nil {
+                privateNetworkMacsByID[configuration.id] = .init(
+                    macDeviceID: configuration.macDeviceID,
+                    instanceTag: configuration.instanceTag,
                     displayName: configuration.macDisplayName
                 )
             }
@@ -2510,6 +2514,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             customPrivateNetworks: privatePathSnapshot.configurations.map {
                 CmxIrohSettingsSnapshot.CustomPrivateNetwork(
                     macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag,
                     macDisplayName: $0.macDisplayName,
                     addresses: $0.addresses.map(\.value),
                     isEnabled: $0.isEnabled
@@ -2706,13 +2711,15 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     }
 
     public func removeIrohCustomPrivatePath(
-        macDeviceID: String
+        macDeviceID: String,
+        instanceTag: String?
     ) async throws {
         guard let activeAccountID else {
             throw SettingsError.unavailableCustomPrivatePath
         }
         _ = try await customPrivatePaths.remove(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             accountID: activeAccountID
         )
         publishIrohSettingsUpdate()
@@ -3230,11 +3237,23 @@ extension MobileIrohRuntimeComposition {
         )
         let canonicalTarget = cmxCanonicalDeviceID(macDeviceID)
         let matches = snapshot.bindings.filter { binding in
-            guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
+            let bindingIdentity = CmxMacAppInstanceIdentity(
+                macDeviceID: binding.deviceID,
+                instanceTag: binding.tag
+            )
+            guard bindingIdentity.macDeviceID == canonicalTarget else {
                 return false
             }
-            return isCompatibleMacTag(binding.tag)
-                && (instanceTag == nil || binding.tag == instanceTag)
+            guard isCompatibleMacTag(bindingIdentity.instanceTag) else {
+                return false
+            }
+            if let instanceTag {
+                return bindingIdentity.instanceTag == CmxMacAppInstanceIdentity(
+                    macDeviceID: canonicalTarget,
+                    instanceTag: instanceTag
+                ).instanceTag
+            }
+            return true
         }
         // Bound the WHOLE operation. Each revoke request carries its own network
         // timeout, so a large sequential loop could keep the forget (and its UI

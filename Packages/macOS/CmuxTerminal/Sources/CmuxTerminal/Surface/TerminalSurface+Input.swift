@@ -21,15 +21,7 @@ extension TerminalSurface {
     public func enqueueManualInputNamedKey(_ name: String) -> Bool {
         guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
         let frame = TerminalManualInput.namedKey(name).manualIOData
-        return frame.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return false }
-            ghostty_surface_text_input(
-                surface,
-                baseAddress.assumingMemoryBound(to: CChar.self),
-                UInt(bytes.count)
-            )
-            return true
-        }
+        return remoteOutputLane.enqueueTextInput(frame, to: surface)
     }
 
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
@@ -643,8 +635,12 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
-    /// Inject remote tmux `%output` into the terminal parser. If the Ghostty
-    /// runtime is not live yet, buffer a bounded tail and flush it on creation.
+    /// Enqueues remote tmux `%output` for the terminal parser.
+    ///
+    /// The native parser runs on the surface generation's FIFO output lane and
+    /// this method returns without waiting for Ghostty's renderer-state mutex.
+    /// If the runtime is not live yet, a bounded tail is buffered and flushed on
+    /// creation.
     @MainActor
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
@@ -656,8 +652,7 @@ extension TerminalSurface {
             return
         }
         flushPendingRemoteOutput(to: surface)
-        writeProcessOutputData(data, to: surface)
-        ghostty_surface_refresh(surface)
+        remoteOutputLane.enqueue(data, to: surface)
     }
 
     @MainActor
@@ -665,7 +660,7 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        writeProcessOutputData(buffered, to: surface)
+        remoteOutputLane.enqueue(buffered, to: surface)
     }
 
     static func readText(

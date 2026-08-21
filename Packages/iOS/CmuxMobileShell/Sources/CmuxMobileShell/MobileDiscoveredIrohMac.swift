@@ -29,9 +29,13 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
         lastSeenAt: Date,
         capabilities: [String] = []
     ) {
-        self.deviceID = deviceID
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: deviceID,
+            instanceTag: instanceTag
+        )
+        self.deviceID = identity.macDeviceID
         self.displayName = displayName
-        self.instanceTag = instanceTag
+        self.instanceTag = identity.instanceTag ?? ""
         self.routes = routes
         self.lastSeenAt = lastSeenAt
         self.capabilities = capabilities

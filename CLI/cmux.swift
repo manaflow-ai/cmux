@@ -3365,6 +3365,52 @@ struct CMUXCLI {
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    /// The shared MDM resolver, bound to the target `domain`'s suite with the
+    /// channel → release-domain fallback keyed off that domain.
+    private static func managedDevicePolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> ManagedDevicePolicy {
+        ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: ManagedDevicePolicy.defaultReleaseDomainDefaults(
+                bundleIdentifier: domain
+            )
+        )
+    }
+
+    /// Whether MDM locks browser availability for `domain`: the dedicated
+    /// policy key is enforced (forced `true`, `ManagedDevicePolicy.isEnforced`
+    /// semantics — a key forced `false` or non-Boolean does not lock the user
+    /// toggle, whose writes go to a different key), or an administrator forces
+    /// the user-level key directly, in which case a write would fight the
+    /// forced value.
+    private static func browserAvailabilityManagedByProfile(
+        defaults: UserDefaults,
+        domain: String
+    ) -> Bool {
+        let policy = managedDevicePolicy(defaults: defaults, domain: domain)
+        if policy.isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: browserDisabledDefaultsKey
+        ) {
+            return true
+        }
+        // A user key forced to any value (even false) still refuses writes:
+        // they could never change the effective value.
+        return policy.isKeyForcedInAppDomain(browserDisabledDefaultsKey)
+    }
+
+    /// Whether the browser is disabled by management for `domain` (the policy
+    /// key enforced, or the user key forced to true).
+    private static func browserDisabledByManagedPolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> Bool {
+        managedDevicePolicy(defaults: defaults, domain: domain)
+            .isBrowserDisableLocked(
+                browserDisabledUserDefaultsKey: browserDisabledDefaultsKey
+            )
+    }
 
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
@@ -3467,12 +3513,22 @@ struct CMUXCLI {
 
         let domain = Self.browserSettingsDomain(environment: environment)
         let defaults = UserDefaults(suiteName: domain) ?? .standard
+        let managedByProfile = Self.browserAvailabilityManagedByProfile(
+            defaults: defaults,
+            domain: domain
+        )
 
         switch action {
         case "disable", "disable-browser":
+            guard !managedByProfile else {
+                throw CLIError(message: "Browser availability is managed by your organization (MDM policy for domain \(domain)); it cannot be changed from the CLI.")
+            }
             defaults.set(true, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "enable", "enable-browser":
+            guard !managedByProfile else {
+                throw CLIError(message: "Browser availability is managed by your organization (MDM policy for domain \(domain)); it cannot be changed from the CLI.")
+            }
             defaults.set(false, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "status", "browser-status":
@@ -3481,12 +3537,17 @@ struct CMUXCLI {
             throw CLIError(message: "Unknown browser availability command: \(action)")
         }
 
-        let disabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
+        let storedDisabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
             ? false
             : defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+        let disabled = storedDisabled || Self.browserDisabledByManagedPolicy(
+            defaults: defaults,
+            domain: domain
+        )
         let payload: [String: Any] = [
             "enabled": !disabled,
             "disabled": disabled,
+            "managed": managedByProfile,
             "domain": domain,
             "key": Self.browserDisabledDefaultsKey
         ]
@@ -3689,6 +3750,10 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
+        if command == "__codex-teams-app-server-supervisor" {
+            let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
+            exit(status)
+        }
         if command == "coderouter" || command == "cr" {
             try runCoderouterAlias(commandArgs: rawCommandArgs)
             return
@@ -13077,24 +13142,49 @@ struct CMUXCLI {
         if paneOpt != nil, splitOpt != nil {
             throw CLIError(message: "ssh-session-attach: --pane cannot be combined with --split")
         }
-        let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+
+        // Ownership is resolved by the control socket before any surface
+        // mutation. The CLI only forwards the explicit workspace selector and
+        // consumes the authoritative workspace returned by that read.
+        let requestedWorkspaceID = try normalizeWorkspaceHandle(workspaceOpt, client: client)
+        var resolutionParams: [String: Any] = ["session_id": sessionID]
+        if let requestedWorkspaceID {
+            resolutionParams["workspace_id"] = requestedWorkspaceID
+        }
+        let resolution = try client.sendV2(
+            method: "surface.ssh_session_attach.resolve",
+            params: resolutionParams
+        )
+        guard let workspaceID = Self.normalizedEnvValue(resolution["workspace_id"] as? String) else {
+            throw CLIError(message: "ssh-session-attach: control socket returned no owning workspace")
+        }
+        let workspaceRef = Self.normalizedEnvValue(resolution["workspace_ref"] as? String)
+
         let initialCommand = sshSessionAttachStartupCommand(sessionID: sessionID)
         var params: [String: Any] = [
             "initial_command": initialCommand,
             "remote_pty_session_id": sessionID,
+            "workspace_id": workspaceID,
         ]
-        if let workspaceID {
-            params["workspace_id"] = workspaceID
-        }
         try applyFocusOption(focusOpt, defaultValue: true, to: &params)
 
         let payload: [String: Any]
         if let split = splitOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !split.isEmpty {
             params["direction"] = split
+            let inheritedSurfaceAnchor: String? = {
+                guard surfaceOpt == nil, workspaceOpt == nil,
+                      let callerWorkspaceID = Self.normalizedEnvValue(
+                          ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                      ),
+                      handlesMatch(callerWorkspaceID, workspaceID) ||
+                          (workspaceRef.map { handlesMatch(callerWorkspaceID, $0) } ?? false) else {
+                    return nil
+                }
+                return ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            }()
             let surfaceID = try normalizeSurfaceHandle(
-                surfaceOpt ?? (workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil),
+                surfaceOpt ?? inheritedSurfaceAnchor,
                 client: client,
                 workspaceHandle: workspaceID
             )
@@ -13464,6 +13554,14 @@ struct CMUXCLI {
         }
         var reconnectInputFilterStopRequested = false
         var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
+        // A persistent reattach's initial bytes are historical remote PTY
+        // output. Strip terminal queries before Ghostty parses them; otherwise
+        // its replies can arrive after the reconnect stdin filter hands off to
+        // live input and land in the remote shell.
+        let filtersReplayOutput = requireExisting && command == nil
+        var replayOutputFilter = SSHPTYReplayOutputFilter(
+            replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
+        )
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
             readinessDelivery?.cancel()
@@ -13484,12 +13582,23 @@ struct CMUXCLI {
             if count > 0 {
                 outputProgress.recordOutput(byteCount: count)
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
-                cliWriteStdout(Data(outputBuffer.prefix(count)))
+                let output = replayOutputFilter.filter(Data(outputBuffer.prefix(count)))
+                if !output.isEmpty {
+                    cliWriteStdout(output)
+                }
             } else if count == 0 {
+                let trailingReplay = replayOutputFilter.finish()
+                if !trailingReplay.isEmpty {
+                    cliWriteStdout(trailingReplay)
+                }
                 try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
+                    let trailingReplay = replayOutputFilter.finish()
+                    if !trailingReplay.isEmpty {
+                        cliWriteStdout(trailingReplay)
+                    }
                     try finishBridgeClosedNormally()
                     return
                 }
@@ -22450,7 +22559,9 @@ struct CMUXCLI {
 
         let appServerLogURL = codexTeamsLogURL(port: appServerPort, name: "app-server")
         let watcherLogURL = codexTeamsLogURL(port: appServerPort, name: "watcher")
-        let appServer = try startCodexTeamsProcess(
+        let launchExecutable = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let appServer = try CodexTeamsAppServerProcess(
+            supervisorExecutablePath: launchExecutable,
             executablePath: codexExecutablePath,
             arguments: ["app-server", "--listen", appServerURL],
             environment: launcherEnvironment,
@@ -22486,7 +22597,6 @@ struct CMUXCLI {
         }
         setenv("CMUX_CODEX_TEAMS_APP_SERVER_URL", appServerURL, 1)
         setenv("CMUX_CODEX_TEAMS_MAX_AUTO_DEPTH", String(Self.codexTeamsMaxAutoDepth), 1)
-        let launchExecutable = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let launchArguments = [launchExecutable, "codex-teams"] + commandArgs
         exportAgentLaunchCommandEnvironment(
             launcher: "codexTeams",
@@ -22551,14 +22661,20 @@ struct CMUXCLI {
         if let rootPid = rootCodex?.processIdentifier {
             watcherArguments += ["--owner-pid", String(rootPid)]
         }
-        watcherArguments += ["--app-server-pid", String(appServer.processIdentifier)]
-
-        watcher = try startCodexTeamsProcess(
-            executablePath: executablePath,
-            arguments: watcherArguments,
-            environment: launcherEnvironment,
-            logURL: watcherLogURL
-        )
+        let watcherLifetime = appServer.takeWatcherLifetimeWriteHandle()
+        do {
+            watcher = try startCodexTeamsProcess(
+                executablePath: executablePath,
+                arguments: watcherArguments,
+                environment: launcherEnvironment,
+                logURL: watcherLogURL,
+                standardInput: watcherLifetime
+            )
+        } catch {
+            try? watcherLifetime.close()
+            throw error
+        }
+        try? watcherLifetime.close()
 
         rootCodex?.waitUntilExit()
         let status = rootCodex?.terminationStatus ?? 0
@@ -22840,6 +22956,14 @@ struct CMUXCLI {
         process.terminate()
     }
 
+    private func codexTeamsTerminateProcess(_ process: CodexTeamsAppServerProcess?) {
+        guard let process else { return }
+        process.terminate()
+        if !process.waitUntilExit(timeout: 2) {
+            process.forceTerminate()
+        }
+    }
+
     private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient, socketPassword: String?) throws {
         let (workspaceId, rem0) = parseOption(commandArgs, name: "--workspace-id")
         let (surfaceId, rem1) = parseOption(rem0, name: "--surface-id")
@@ -22847,8 +22971,7 @@ struct CMUXCLI {
         let (codexPath, rem3) = parseOption(rem2, name: "--codex-path")
         let (launchPath, rem4) = parseOption(rem3, name: "--launch-path")
         let (maxDepthRaw, rem5a) = parseOption(rem4, name: "--max-auto-depth")
-        let (ownerPidRaw, rem5) = parseOption(rem5a, name: "--owner-pid")
-        let (appServerPidRaw, remaining) = parseOption(rem5, name: "--app-server-pid")
+        let (ownerPidRaw, remaining) = parseOption(rem5a, name: "--owner-pid")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "__codex-teams-watch: unknown flag '\(unknown)'")
         }
@@ -22864,12 +22987,10 @@ struct CMUXCLI {
         let codexExecutable = codexPath?.trimmingCharacters(in: .whitespacesAndNewlines)
         let maxDepth = Int(maxDepthRaw ?? "") ?? Self.codexTeamsMaxAutoDepth
         let ownerPid = ownerPidRaw.flatMap { Int32($0) } ?? 0
-        let appServerPid = appServerPidRaw.flatMap { Int32($0) } ?? 0
 
         var ownerSource: DispatchSourceProcess?
         if ownerPid > 0 {
             if !codexTeamsProcessExists(ownerPid) {
-                if appServerPid > 0 { kill(appServerPid, SIGTERM) }
                 return
             }
             let source = DispatchSource.makeProcessSource(
@@ -22878,9 +22999,6 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                if appServerPid > 0 {
-                    kill(appServerPid, SIGTERM)
-                }
                 exit(0)
             }
             source.resume()
@@ -25244,10 +25362,31 @@ struct CMUXCLI {
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
-                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                // Detected once (bounded process-ancestry walk) and reused for
+                // both the suppression gate and the notify payload's subagent
+                // tag, which stays accurate even when suppression is off.
+                let isNestedAgentSession = nestedAgentSessionDetected(
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: claudePid,
+                    precomputedNestedDetection: isNestedAgentSession,
+                    env: ProcessInfo.processInfo.environment
+                )
+
+                // A stale or duplicated Claude hook configuration can invoke
+                // this command for a child-agent lifecycle event. The command
+                // name alone is not enough to establish a parent turn stop:
+                // only an explicit top-level `Stop` may settle status or emit
+                // completion attention. Keep the event in Feed as telemetry.
+                guard shouldApplyClaudeStopVisibleMutation(parsedInput) else {
+                    telemetry.breadcrumb("claude-hook.stop.non-parent-event")
+                    sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+                    printClaudeHookAck()
+                    return
+                }
+
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
 
                 guard shouldApplyClaudeHookVisibleMutation(
@@ -25350,7 +25489,11 @@ struct CMUXCLI {
                         title: title,
                         subtitle: completion.subtitle,
                         body: completion.body,
-                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
+                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(
+                            pending: hasPendingBackgroundWork,
+                            agentKind: "claude",
+                            isSubagent: isNestedAgentSession
+                        )
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -25530,8 +25673,15 @@ struct CMUXCLI {
             }
             let workspaceId = resolvedTarget.workspaceId
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            // One ancestry walk per hook event, shared by the suppression gate
+            // and the notify payload's subagent tag.
+            let isNestedAgentSession = nestedAgentSessionDetected(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                precomputedNestedDetection: isNestedAgentSession,
                 env: ProcessInfo.processInfo.environment
             )
             let resolvedSurface = resolvedTarget
@@ -25622,7 +25772,11 @@ struct CMUXCLI {
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory.metaSegment(pending: notifyPending)
+                meta: notifyCategory.metaSegment(
+                    pending: notifyPending,
+                    agentKind: "claude",
+                    isSubagent: isNestedAgentSession
+                )
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -25799,8 +25953,15 @@ struct CMUXCLI {
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            // One ancestry walk per hook event, shared by the suppression gate
+            // and the notify payload's subagent tag.
+            let isNestedAgentSession = nestedAgentSessionDetected(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                precomputedNestedDetection: isNestedAgentSession,
                 env: ProcessInfo.processInfo.environment
             )
             guard shouldApplyClaudeHookVisibleMutation(
@@ -25912,7 +26073,11 @@ struct CMUXCLI {
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody,
-                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
+                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(
+                            pending: false,
+                            agentKind: "claude",
+                            isSubagent: isNestedAgentSession
+                        )
                     )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
@@ -28533,6 +28698,7 @@ struct CMUXCLI {
         currentAgentPID: Int?,
         nestedPromptEvent: Bool = false,
         transcriptSubagentSession: Bool = false,
+        precomputedNestedDetection: Bool? = nil,
         env: [String: String]
     ) -> Bool {
         if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
@@ -28544,6 +28710,32 @@ struct CMUXCLI {
             return false
         }
 
+        // Callers that also tag notify payloads with the nested flag pass the
+        // already-computed detection so the process-ancestry walk runs once
+        // per hook invocation.
+        if let precomputedNestedDetection {
+            return precomputedNestedDetection
+        }
+
+        return nestedAgentSessionDetected(
+            currentAgentPID: currentAgentPID,
+            nestedPromptEvent: nestedPromptEvent,
+            transcriptSubagentSession: transcriptSubagentSession,
+            env: env
+        )
+    }
+
+    /// Pure nested-session detection, independent of the user's
+    /// `suppressSubagentNotifications` setting. Used both by the suppression
+    /// gate above and to tag notify payloads with the `n=` subagent flag so
+    /// the app's notification-policy hooks can filter subagent events even
+    /// when built-in suppression is turned off.
+    func nestedAgentSessionDetected(
+        currentAgentPID: Int?,
+        nestedPromptEvent: Bool = false,
+        transcriptSubagentSession: Bool = false,
+        env: [String: String]
+    ) -> Bool {
         if nestedPromptEvent {
             return true
         }
@@ -30286,7 +30478,7 @@ export default CMUXSessionRestore;
             hooksFilePath: filePath,
             def: def
         )
-        let codexHookTrustEscapedKeyPrefixes = Self.codexHookTrustEscapedKeyPrefixes(
+        let codexHookTrustKeyPrefixes = Self.codexHookTrustKeyPrefixes(
             hooksFilePath: filePath,
             def: def
         )
@@ -30349,17 +30541,10 @@ export default CMUXSessionRestore;
                 } else {
                     existingContent = ""
                 }
-                let trustClean = Self.codexConfigTomlRemovingHookTrust(
+                let trustInstall = CmuxCodexConfigEditor().installingHooks(
                     in: existingContent,
-                    entries: codexHookTrustEntries,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
-                    removingTrustedHashes: codexLegacyHookTrustHashes
-                )
-                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
-                let trustInstall = Self.codexConfigTomlInstallingHookTrust(
-                    in: featureContent,
-                    entries: codexHookTrustEntries,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    trustEntries: codexHookTrustEntries,
+                    removingKeyPrefixes: codexHookTrustKeyPrefixes,
                     removingTrustedHashes: codexLegacyHookTrustHashes
                 )
                 let newContent = trustInstall.content
@@ -30532,7 +30717,7 @@ export default CMUXSessionRestore;
             hooksFilePath: filePath,
             def: def
         ).map(\.trustedHash)).union(Self.codexLegacyHookTrustHashes(def: def))
-        let codexHookTrustEscapedKeyPrefixesToRemove = Self.codexHookTrustEscapedKeyPrefixes(
+        let codexHookTrustKeyPrefixesToRemove = Self.codexHookTrustKeyPrefixes(
             hooksFilePath: filePath,
             def: def
         )
@@ -30595,10 +30780,10 @@ export default CMUXSessionRestore;
                 } catch {
                     throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
                 }
-                let newContent = Self.codexConfigTomlUninstallingHooksFeature(
+                let newContent = CmuxCodexConfigEditor().uninstallingHooks(
                     from: content,
                     removingHookTrustEntries: codexHookTrustEntriesToRemove,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixesToRemove,
+                    removingKeyPrefixes: codexHookTrustKeyPrefixesToRemove,
                     removingTrustedHashes: codexStaleHookTrustHashesToRemove
                 )
                 if newContent != content {
@@ -30627,185 +30812,7 @@ export default CMUXSessionRestore;
         }
     }
 
-    private static let cmuxCodexHooksFeatureBegin =
-        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin"
-    private static let cmuxCodexHooksFeatureEnd =
-        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end"
-    private static let cmuxCodexHooksFeaturePreviousLinePrefix =
-        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: "
-    private static let legacyCmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
-    private static let legacyCmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
-    private static let legacyCmuxCodexHooksFeaturePreviousLinePrefix =
-        "# cmux hooks codex feature previous line: "
-    private static let cmuxCodexHookTrustBegin =
-        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
-    private static let cmuxCodexHookTrustEnd =
-        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
-    private static let codexHookTrustTableHeaderRegex = try! NSRegularExpression(
-        pattern: #"^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\\n]|\\.)*)"\s*\]\s*(#.*)?$"#
-    )
-
-    struct CodexHookTrustEntry: Equatable {
-        let key: String
-        let trustedHash: String
-    }
-
-    private struct CodexHookTrustInstallResult: Equatable {
-        let content: String
-        let installedTrust: Bool
-    }
-
-    private enum CodexHookTrustBlockRemovalResult {
-        case notFound
-        case removed
-        case malformed
-    }
-
-    static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
-        var lines = tomlLines(from: existingContent)
-        removeCmuxCodexHooksFeatureBlock(from: &lines)
-        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
-        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
-
-        let insertedLines = [
-            cmuxCodexHooksFeatureBegin,
-            "hooks = true",
-            cmuxCodexHooksFeatureEnd,
-        ]
-        let insertedDottedLines = [
-            cmuxCodexHooksFeatureBegin,
-            "features.hooks = true",
-            cmuxCodexHooksFeatureEnd,
-        ]
-
-        if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
-            let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
-            if featuresStart + 1 < featuresEnd,
-               let hooksIndex = (featuresStart + 1..<featuresEnd)
-                .first(where: { tomlLineDefinesKey("hooks", line: lines[$0]) })
-            {
-                if !tomlLineDefinesTrueKey("hooks", line: lines[hooksIndex]) {
-                    let previousLine = lines[hooksIndex]
-                    lines.replaceSubrange(
-                        hooksIndex...hooksIndex,
-                        with: codexHooksFeatureLines(settingLine: "hooks = true", previousLine: previousLine)
-                    )
-                }
-            } else {
-                lines.insert(contentsOf: insertedLines, at: featuresStart + 1)
-            }
-        } else if let dottedHooksIndex = lines.firstIndex(where: { tomlLineDefinesDottedFeaturesKey("hooks", line: $0) }) {
-            if !tomlLineDefinesDottedFeaturesTrueKey("hooks", line: lines[dottedHooksIndex]) {
-                let previousLine = lines[dottedHooksIndex]
-                lines.replaceSubrange(
-                    dottedHooksIndex...dottedHooksIndex,
-                    with: codexHooksFeatureLines(settingLine: "features.hooks = true", previousLine: previousLine)
-                )
-            }
-        } else if let firstDottedFeaturesIndex = lines.firstIndex(where: { tomlLineDefinesAnyDottedFeaturesKey($0) }) {
-            lines.insert(contentsOf: insertedDottedLines, at: firstDottedFeaturesIndex)
-        } else {
-            if !lines.isEmpty, lines.last?.isEmpty == false {
-                lines.append("")
-            }
-            lines.append("[features]")
-            lines.append(contentsOf: insertedLines)
-        }
-
-        return tomlContent(from: lines)
-    }
-
-    private static func codexHooksFeatureLines(settingLine: String, previousLine: String? = nil) -> [String] {
-        var lines = [cmuxCodexHooksFeatureBegin]
-        if let previousLine {
-            lines.append(cmuxCodexHooksFeaturePreviousLinePrefix + previousLine)
-        }
-        lines.append(settingLine)
-        lines.append(cmuxCodexHooksFeatureEnd)
-        return lines
-    }
-
-    static func codexConfigTomlUninstallingHooksFeature(
-        from existingContent: String,
-        removingHookTrustEntries entries: [CodexHookTrustEntry] = [],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
-        removingTrustedHashes additionalTrustedHashes: Set<String> = []
-    ) -> String {
-        var lines = tomlLines(from: existingContent)
-        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
-        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
-        removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(
-            from: &lines,
-            removingEscapedKeys: escapedKeys,
-            removingEscapedKeyPrefixes: escapedKeyPrefixes,
-            removingTrustedHashes: trustedHashes
-        ) == .malformed {
-            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
-        }
-        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
-        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
-        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
-        removeEmptyFeaturesTable(from: &lines)
-        return tomlContent(from: lines)
-    }
-
-    private static func codexConfigTomlRemovingHookTrust(
-        in existingContent: String,
-        entries: [CodexHookTrustEntry],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
-        removingTrustedHashes additionalTrustedHashes: Set<String> = []
-    ) -> String {
-        var lines = tomlLines(from: existingContent)
-        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
-        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
-        let removalResult = removeCmuxCodexHookTrustBlock(
-            from: &lines,
-            removingEscapedKeys: escapedKeys,
-            removingEscapedKeyPrefixes: escapedKeyPrefixes,
-            removingTrustedHashes: trustedHashes
-        )
-        if removalResult == .malformed {
-            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
-        }
-        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
-        return tomlContent(from: lines)
-    }
-
-    private static func codexConfigTomlInstallingHookTrust(
-        in existingContent: String,
-        entries: [CodexHookTrustEntry],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
-        removingTrustedHashes additionalTrustedHashes: Set<String> = []
-    ) -> CodexHookTrustInstallResult {
-        var lines = tomlLines(from: existingContent)
-        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
-        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
-        let removalResult = removeCmuxCodexHookTrustBlock(
-            from: &lines,
-            removingEscapedKeys: escapedKeys,
-            removingEscapedKeyPrefixes: escapedKeyPrefixes,
-            removingTrustedHashes: trustedHashes
-        )
-        if removalResult == .malformed {
-            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
-        }
-        guard !entries.isEmpty else {
-            return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
-        }
-        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
-
-        if !lines.isEmpty, lines.last?.isEmpty == false {
-            lines.append("")
-        }
-        lines.append(cmuxCodexHookTrustBegin)
-        for entry in entries {
-            lines.append("[hooks.state.\"\(tomlBasicStringContent(entry.key))\"]")
-            lines.append("trusted_hash = \"\(tomlBasicStringContent(entry.trustedHash))\"")
-        }
-        lines.append(cmuxCodexHookTrustEnd)
-        return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: true)
-    }
+    typealias CodexHookTrustEntry = CmuxCodexConfigEditor.HookTrustEntry
 
     static func codexHookTrustEntries(
         hooks: [String: Any],
@@ -30851,12 +30858,12 @@ export default CMUXSessionRestore;
         return entries
     }
 
-    private static func codexHookTrustEscapedKeyPrefixes(
+    private static func codexHookTrustKeyPrefixes(
         hooksFilePath: String,
         def: AgentHookDef
     ) -> Set<String> {
         guard def.name == "codex" else { return [] }
-        return [tomlBasicStringContent("\(codexNormalizedHookSourcePath(hooksFilePath)):")]
+        return ["\(codexNormalizedHookSourcePath(hooksFilePath)):"]
     }
 
     private static func codexLegacyHookTrustHashes(def: AgentHookDef) -> Set<String> {
@@ -31038,353 +31045,6 @@ export default CMUXSessionRestore;
             return ["1", "true", "yes"].contains(string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
         }
         return false
-    }
-
-    private static func tomlBasicStringContent(_ value: String) -> String {
-        var escaped = ""
-        escaped.reserveCapacity(value.count)
-
-        for scalar in value.unicodeScalars {
-            switch scalar.value {
-            case 0x08:
-                escaped += "\\b"
-            case 0x09:
-                escaped += "\\t"
-            case 0x0A:
-                escaped += "\\n"
-            case 0x0C:
-                escaped += "\\f"
-            case 0x0D:
-                escaped += "\\r"
-            case 0x22:
-                escaped += "\\\""
-            case 0x5C:
-                escaped += "\\\\"
-            case 0x00...0x1F, 0x7F...0x9F:
-                if scalar.value <= 0xFFFF {
-                    escaped += String(format: "\\u%04X", scalar.value)
-                } else {
-                    escaped += String(format: "\\U%08X", scalar.value)
-                }
-            default:
-                escaped.unicodeScalars.append(scalar)
-            }
-        }
-
-        return escaped
-    }
-
-    private static func tomlLines(from content: String) -> [String] {
-        guard !content.isEmpty else { return [] }
-        var lines = content.components(separatedBy: "\n")
-        if content.hasSuffix("\n"), lines.last == "" {
-            lines.removeLast()
-        }
-        return lines
-    }
-
-    private static func tomlContent(from lines: [String]) -> String {
-        guard !lines.isEmpty else { return "" }
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private static func tomlLineDefinesKey(_ key: String, line: String) -> Bool {
-        let escapedKey = NSRegularExpression.escapedPattern(for: key)
-        return line.range(
-            of: #"^\s*"# + escapedKey + #"\s*="#,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlLineDefinesTrueKey(_ key: String, line: String) -> Bool {
-        let escapedKey = NSRegularExpression.escapedPattern(for: key)
-        return line.range(
-            of: #"^\s*"# + escapedKey + #"\s*=\s*true\s*(#.*)?$"#,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlLineDefinesDottedFeaturesKey(_ key: String, line: String) -> Bool {
-        let escapedKey = NSRegularExpression.escapedPattern(for: key)
-        return line.range(
-            of: #"^\s*features\s*\.\s*"# + escapedKey + #"\s*="#,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlLineDefinesDottedFeaturesTrueKey(_ key: String, line: String) -> Bool {
-        let escapedKey = NSRegularExpression.escapedPattern(for: key)
-        return line.range(
-            of: #"^\s*features\s*\.\s*"# + escapedKey + #"\s*=\s*true\s*(#.*)?$"#,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlLineDefinesAnyDottedFeaturesKey(_ line: String) -> Bool {
-        line.range(
-            of: #"^\s*features\s*\.\s*[^=\s]+\s*="#,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlLineIsTable(_ name: String, line: String) -> Bool {
-        let escapedName = NSRegularExpression.escapedPattern(for: name)
-        return line.range(
-            of: #"^\s*\[\s*"# + escapedName + #"\s*\]\s*(#.*)?$"#,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlLineIsAnyTableHeader(_ line: String) -> Bool {
-        let tomlKey = "(?:[A-Za-z0-9_-]+|\"[^\"\\n]*\"|'[^'\\n]*')"
-        let tomlKeyPath = tomlKey + "(?:\\s*\\.\\s*" + tomlKey + ")*"
-        let pattern = "^\\s*(?:\\[\\s*" + tomlKeyPath + "\\s*\\]|\\[\\[\\s*" + tomlKeyPath
-            + "\\s*\\]\\])\\s*(#.*)?$"
-        return line.range(
-            of: pattern,
-            options: .regularExpression
-        ) != nil
-    }
-
-    private static func tomlTableEndIndex(in lines: [String], after tableStart: Int) -> Int {
-        var index = tableStart + 1
-        while index < lines.count {
-            if tomlLineIsAnyTableHeader(lines[index]) {
-                return index
-            }
-            index += 1
-        }
-        return lines.count
-    }
-
-    private static func removeCmuxCodexHooksFeatureBlock(from lines: inout [String]) {
-        var index = 0
-        while index < lines.count {
-            guard tomlLineIsCodexHooksFeatureBegin(lines[index]) else {
-                index += 1
-                continue
-            }
-
-            if let endIndex = lines[index...].firstIndex(where: {
-                tomlLineIsCodexHooksFeatureEnd($0)
-            }) {
-                let previousLines = lines[index...endIndex].compactMap { line -> String? in
-                    tomlCodexHooksFeaturePreviousLine(from: line)
-                }
-                lines.replaceSubrange(index...endIndex, with: previousLines)
-            } else {
-                var blockEnd = index + 1
-                var previousLines: [String] = []
-                if blockEnd < lines.count,
-                   let previousLine = tomlCodexHooksFeaturePreviousLine(from: lines[blockEnd])
-                {
-                    previousLines.append(previousLine)
-                    blockEnd += 1
-                }
-                if blockEnd < lines.count, tomlLineIsCodexHooksFeatureSetting(lines[blockEnd]) {
-                    blockEnd += 1
-                }
-                lines.replaceSubrange(index..<blockEnd, with: previousLines)
-            }
-        }
-    }
-
-    @discardableResult
-    private static func removeCmuxCodexHookTrustBlock(
-        from lines: inout [String],
-        removingEscapedKeys escapedKeys: Set<String> = [],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
-        removingTrustedHashes trustedHashes: Set<String> = []
-    ) -> CodexHookTrustBlockRemovalResult {
-        var replacements: [(range: ClosedRange<Int>, lines: [String])] = []
-        var index = 0
-        while index < lines.count {
-            guard lines[index] == cmuxCodexHookTrustBegin else {
-                index += 1
-                continue
-            }
-
-            guard let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) else {
-                return .malformed
-            }
-            let preservedLines = codexHookTrustBlockUnownedLines(
-                from: lines[(index + 1)..<endIndex],
-                removingEscapedKeys: escapedKeys,
-                removingEscapedKeyPrefixes: escapedKeyPrefixes,
-                removingTrustedHashes: trustedHashes
-            )
-            replacements.append((index...endIndex, preservedLines))
-            index = endIndex + 1
-        }
-
-        for replacement in replacements.reversed() {
-            lines.replaceSubrange(replacement.range, with: replacement.lines)
-        }
-        return replacements.isEmpty ? .notFound : .removed
-    }
-
-    private static func codexHookTrustBlockUnownedLines(
-        from lines: ArraySlice<String>,
-        removingEscapedKeys escapedKeys: Set<String>,
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
-        removingTrustedHashes trustedHashes: Set<String>
-    ) -> [String] {
-        var preserved: [String] = []
-        var index = lines.startIndex
-        while index < lines.endIndex {
-            if let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]) {
-                let tableStart = index
-                index += 1
-                while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
-                    index += 1
-                }
-                if !codexHookTrustEscapedKeyIsRemoved(
-                    escapedKey,
-                    trustedHash: codexHookTrustTrustedHash(from: lines[tableStart..<index]),
-                    removingEscapedKeys: escapedKeys,
-                    removingEscapedKeyPrefixes: escapedKeyPrefixes,
-                    removingTrustedHashes: trustedHashes
-                ) {
-                    preserved.append(contentsOf: lines[tableStart..<index])
-                }
-                continue
-            }
-
-            guard tomlLineIsAnyTableHeader(lines[index]) else {
-                // Marker drift can capture user config lines; only cmux-owned
-                // hook trust tables are safe to discard.
-                preserved.append(lines[index])
-                index += 1
-                continue
-            }
-            let tableStart = index
-            index += 1
-            while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
-                index += 1
-            }
-            preserved.append(contentsOf: lines[tableStart..<index])
-        }
-        return preserved
-    }
-
-    private static func codexHookTrustEscapedKeyIsRemoved(
-        _ escapedKey: String,
-        trustedHash: String?,
-        removingEscapedKeys escapedKeys: Set<String>,
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
-        removingTrustedHashes trustedHashes: Set<String>
-    ) -> Bool {
-        if escapedKeys.contains(escapedKey) {
-            return true
-        }
-        guard let trustedHash, trustedHashes.contains(trustedHash) else {
-            return false
-        }
-        return escapedKeyPrefixes.contains { escapedKey.hasPrefix($0) }
-    }
-
-    private static func codexHookTrustTrustedHash(from lines: ArraySlice<String>) -> String? {
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard let equalsIndex = trimmed.firstIndex(of: "=") else { continue }
-            let key = String(trimmed[..<equalsIndex]).trimmingCharacters(in: .whitespaces)
-            guard key == "trusted_hash" else { continue }
-            let valueStart = trimmed.index(after: equalsIndex)
-            let value = String(trimmed[valueStart...]).trimmingCharacters(in: .whitespaces)
-            guard value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 else { continue }
-            return String(value.dropFirst().dropLast())
-        }
-        return nil
-    }
-
-    private static func stripMalformedCmuxCodexHookTrustMarker(from lines: inout [String]) {
-        lines.removeAll { $0 == cmuxCodexHookTrustBegin }
-    }
-
-    private static func removeCodexHookTrustTables(withEscapedKeys keys: Set<String>, from lines: inout [String]) {
-        guard !keys.isEmpty else { return }
-        var index = 0
-        while index < lines.count {
-            guard let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]),
-                  keys.contains(escapedKey) else {
-                index += 1
-                continue
-            }
-            let endIndex = codexHookTrustTableEndIndex(in: lines, after: index)
-            lines.removeSubrange(index..<endIndex)
-        }
-    }
-
-    private static func codexHookTrustTableEndIndex(in lines: [String], after tableStart: Int) -> Int {
-        var index = tableStart + 1
-        while index < lines.count {
-            if tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
-                return index
-            }
-            index += 1
-        }
-        return lines.count
-    }
-
-    private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        guard let match = codexHookTrustTableHeaderRegex.firstMatch(in: line, range: range),
-              let keyRange = Range(match.range(at: 1), in: line) else {
-            return nil
-        }
-        return String(line[keyRange])
-    }
-
-    private static func tomlLineIsCodexHookTrustBlockTableBoundary(_ line: String) -> Bool {
-        codexHookTrustTableEscapedKey(from: line) != nil || tomlLineIsAnyTableHeader(line)
-    }
-
-    private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {
-        line == cmuxCodexHooksFeatureBegin || line == legacyCmuxCodexHooksFeatureBegin
-    }
-
-    private static func tomlLineIsCodexHooksFeatureEnd(_ line: String) -> Bool {
-        line == cmuxCodexHooksFeatureEnd || line == legacyCmuxCodexHooksFeatureEnd
-    }
-
-    private static func tomlCodexHooksFeaturePreviousLine(from line: String) -> String? {
-        if line.hasPrefix(cmuxCodexHooksFeaturePreviousLinePrefix) {
-            return String(line.dropFirst(cmuxCodexHooksFeaturePreviousLinePrefix.count))
-        }
-        if line.hasPrefix(legacyCmuxCodexHooksFeaturePreviousLinePrefix) {
-            return String(line.dropFirst(legacyCmuxCodexHooksFeaturePreviousLinePrefix.count))
-        }
-        return nil
-    }
-
-    private static func tomlLineIsCodexHooksFeatureSetting(_ line: String) -> Bool {
-        tomlLineDefinesTrueKey("hooks", line: line)
-            || tomlLineDefinesDottedFeaturesTrueKey("hooks", line: line)
-    }
-
-    private static func removeEmptyFeaturesTable(from lines: inout [String]) {
-        guard let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) else {
-            return
-        }
-        let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
-        let bodyRange = featuresStart + 1..<featuresEnd
-        let hasContent = bodyRange.contains { index in
-            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
-            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
-        }
-        if !hasContent {
-            lines.removeSubrange(featuresStart..<featuresEnd)
-            if featuresStart == lines.count, featuresStart > 0,
-               lines[featuresStart - 1].trimmingCharacters(in: .whitespaces).isEmpty
-            {
-                lines.remove(at: featuresStart - 1)
-            } else if featuresStart > 0, featuresStart < lines.count,
-                      lines[featuresStart - 1].trimmingCharacters(in: .whitespaces).isEmpty,
-                      lines[featuresStart].trimmingCharacters(in: .whitespaces).isEmpty
-            {
-                lines.remove(at: featuresStart)
-            }
-        }
     }
 
     // MARK: Generic hook handler
@@ -32534,10 +32194,19 @@ export default CMUXSessionRestore;
             } else {
                 nestedPromptStop = false
             }
+            // One ancestry walk per hook event, shared by the suppression gate
+            // and the notify payload's subagent tag.
+            let isNestedAgentSession = nestedAgentSessionDetected(
+                currentAgentPID: pid,
+                nestedPromptEvent: nestedPromptStop,
+                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                env: env
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 nestedPromptEvent: nestedPromptStop,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                precomputedNestedDetection: isNestedAgentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
             let suppressCompletionNotification = suppressVisibleMutations
@@ -32608,7 +32277,11 @@ export default CMUXSessionRestore;
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag successful turn-end pings; error alerts always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
+                    ? AgentHookNotifyCategory.turnComplete.metaSegment(
+                        pending: antigravityHasActiveBackgroundWork,
+                        agentKind: def.name,
+                        isSubagent: isNestedAgentSession
+                    )
                     : nil
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
@@ -33003,6 +32676,17 @@ export default CMUXSessionRestore;
                 body: summary.body
             )
             if shouldSendNotification(fingerprint: notificationFingerprint) {
+                // One ancestry walk per delivered notification, feeding the
+                // notify payload's subagent tag below.
+                let notificationEventPID = preferredAgentHookEventPID(
+                    agentName: def.name,
+                    mappedPID: mapped?.pid,
+                    inferredPID: inferredPID
+                )
+                let isNestedAgentSession = nestedAgentSessionDetected(
+                    currentAgentPID: notificationEventPID,
+                    env: env
+                )
                 // Tag by the classifier's category so the app's agent notification
                 // settings cover every built-in agent: approval prompts gate under
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
@@ -33014,7 +32698,9 @@ export default CMUXSessionRestore;
                 // waiting cue doesn't deliver a false "waiting for input".
                 let notificationMeta = summary.notifyCategory.metaSegment(
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork()
+                        && hasActiveAntigravityBackgroundWork(),
+                    agentKind: def.name,
+                    isSubagent: isNestedAgentSession
                 )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
@@ -33207,22 +32893,17 @@ export default CMUXSessionRestore;
         socketPassword: String? = nil
     ) {
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
-        let reportedHookEventName = parsedInput.object.flatMap {
-            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-        } ?? parsedInput.rawObject.flatMap {
-            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-        }
+        let reportedEvent = reportedHookEventName(from: parsedInput)
         let hookEventName: String
-        if source == "codex",
-           let reportedHookEventName,
-           reportedHookEventName.replacingOccurrences(of: "_", with: "").lowercased()
-               == "permissionrequest" {
-            // A single notification handler now owns Codex PermissionRequest.
-            // Preserve the existing non-blocking Feed classification while that
-            // same handler drives the needs-input lifecycle and alert.
+        if let reportedEvent,
+           (source == "claude" || source == "codex") {
+            // Preserve an explicit lifecycle discriminator when a command
+            // entrypoint was selected by stale/duplicated settings. The
+            // classifier keeps approval semantics (including Codex's native
+            // PermissionRequest) non-blocking where required.
             hookEventName = FeedEventClassifier.classify(
                 source: source,
-                event: reportedHookEventName,
+                event: reportedEvent,
                 toolName: ""
             ).hookEventName
         } else {

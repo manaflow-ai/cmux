@@ -127,6 +127,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // SSH-session attach resolves ownership and reads the remote PTY
+        // registry before any surface mutation; keep the bounded remote query
+        // off the main actor.
+        "surface.ssh_session_attach.resolve",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
