@@ -93,9 +93,36 @@ import CmuxMobileShellModel
         #expect(!composite.startedMobileSimulatorPanelIDs.contains("sim-1"))
     }
 
+    @Test func existingSimulatorSelectionSurvivesDefaultSurfaceRefresh() {
+        let workspaceID = "workspace-1"
+        let selectedDescriptor = Self.descriptor(panelID: "sim-2")
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: workspaceID),
+            name: "Workspace",
+            terminals: [],
+            simulators: [Self.descriptor(), selectedDescriptor]
+        )
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: workspaceID, with: [Self.descriptor(), selectedDescriptor])
+        store.activate(panelID: selectedDescriptor.panelID, in: workspaceID)
+        let composite = MobileShellComposite(
+            workspaces: [workspace],
+            simulatorStreamStore: store
+        )
+
+        composite.selectedWorkspaceID = nil
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(store.activeState(in: workspaceID)?.id == selectedDescriptor.panelID)
+    }
+
     private static func descriptor() -> MobileSimulatorPanelDescriptor {
+        descriptor(panelID: "sim-1")
+    }
+
+    private static func descriptor(panelID: String) -> MobileSimulatorPanelDescriptor {
         MobileSimulatorPanelDescriptor(
-            panelID: "sim-1",
+            panelID: panelID,
             workspaceID: "workspace-1",
             title: "Simulator",
             selectedDeviceName: "iPhone 17",

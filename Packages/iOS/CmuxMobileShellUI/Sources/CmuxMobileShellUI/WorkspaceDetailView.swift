@@ -198,6 +198,9 @@ struct WorkspaceDetailView: View {
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()
             }
+            .onChange(of: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(\.panelID)) { _, _ in
+                store.refreshWorkspaceSelection()
+            }
             .onChange(of: workspace.simulators) { _, _ in
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()

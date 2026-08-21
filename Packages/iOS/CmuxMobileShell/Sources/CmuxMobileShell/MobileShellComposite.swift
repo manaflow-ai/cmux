@@ -10856,6 +10856,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
+        if simulatorStreamStore?.activeState(in: workspaceID) != nil {
+            return
+        }
+        if let browserStore = browserStreamEvents as? BrowserStreamStore,
+           browserStore.activeState(in: workspaceID) != nil {
+            return
+        }
         if let selectedSurface = selectedWorkspace.selectedMacSurface(id: nil) {
             selectedMacSurfaceID = selectedSurface.id
             return
