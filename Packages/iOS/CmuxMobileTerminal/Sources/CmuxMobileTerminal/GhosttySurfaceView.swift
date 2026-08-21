@@ -424,6 +424,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
+    /// Frame counter + one-shot latch for the scripted headless scroll
+    /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
+    var debugScrollScriptFrame = 0
+    var debugScrollScriptDone = false
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -3525,6 +3529,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
+        #if DEBUG
+        debugStepScrollScriptIfNeeded()
+        #endif
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be

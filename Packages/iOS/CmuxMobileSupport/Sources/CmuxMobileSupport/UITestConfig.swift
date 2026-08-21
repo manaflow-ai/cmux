@@ -214,6 +214,29 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the UI-test harness should auto-open the first workspace.
+    ///
+    /// When `CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`, the root view pushes the
+    /// first loaded workspace once after sign-in, so headless harnesses (for
+    /// example the scripted scroll verification) reach a terminal without GUI
+    /// taps. DEBUG-only.
+    public static var autoOpenFirstWorkspaceEnabled: Bool {
+        autoOpenFirstWorkspaceEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the auto-open-first-
+    /// workspace hook.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose value is `"1"`.
+    public static func autoOpenFirstWorkspaceEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders
