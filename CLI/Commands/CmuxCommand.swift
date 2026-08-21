@@ -73,4 +73,12 @@ struct CmuxCommand: ParsableCommand {
         }
         return names
     }
+
+    /// Commands implemented by the ArgumentParser facade itself rather than
+    /// delegated back to the legacy command runner.
+    static let facadeNativeCommandNames: Set<String> = [
+        "__complete-candidates",
+        "__dump-command-tree",
+        "completion",
+    ]
 }
