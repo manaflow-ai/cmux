@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 
 struct CmuxCommand: ParsableCommand {
@@ -184,7 +185,7 @@ struct CmuxCommand: ParsableCommand {
         } catch let error as FacadeValidationError {
             CMUXCLIOutput.writeStandardError("Error: \(error.message)\n")
             CMUXCLIOutput.writeStandardError("\(usageString(for: error.command))\n")
-            exit(error.exitCode)
+            Darwin.exit(error.exitCode)
         } catch {
             exit(withError: error)
         }
