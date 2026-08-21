@@ -212,8 +212,8 @@ struct AgentJournalStoreTests {
             // kind this build cannot decode. INSERT is allowed by design —
             // only UPDATE/DELETE are trigger-blocked.
             var handle: OpaquePointer?
-            #expect(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
             defer { sqlite3_close_v2(handle) }
+            try #require(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
             let insert = """
             INSERT INTO agent_journal(
                 event_id, schema_version, kind, occurred_at_ms, committed_at_ms,

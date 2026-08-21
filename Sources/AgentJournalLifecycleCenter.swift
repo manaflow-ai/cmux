@@ -62,7 +62,15 @@ final class AgentJournalLifecycleCenter: Sendable {
                 return loaded
             }
             for await operation in stream {
-                guard let store = lazyStore.store() else { continue }
+                guard let store = lazyStore.store() else {
+                    // Fails closed (no badges), but never silently: the open
+                    // failure itself was reported on the event bus, and each
+                    // dropped operation is visible in the debug log.
+#if DEBUG
+                    cmuxDebugLog("agentJournal.op.dropped reason=storeUnavailable")
+#endif
+                    continue
+                }
                 switch operation {
                 case .ingest(let event):
                     if let application = Self.reduceIngest(
