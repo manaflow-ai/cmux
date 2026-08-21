@@ -71,7 +71,9 @@ struct TerminalColorSchemeProtocolTests {
         ghostty_surface_set_color_scheme(try #require(first.surface.surface), GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("first", to: first)
         #expect(try waitForReport("first=1b5b3f3939373b316e", from: first))
-        #expect((try? String(contentsOf: second.outputURL, encoding: .utf8))?.isEmpty != false)
+        let secondLines = try String(contentsOf: second.outputURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+        #expect(secondLines == ["ready"])
     }
 
     private func makeHostedTerminal() throws -> HostedTerminal {
