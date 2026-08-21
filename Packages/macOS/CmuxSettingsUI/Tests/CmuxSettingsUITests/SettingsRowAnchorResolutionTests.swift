@@ -125,6 +125,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
+        "terminal.adaptiveDefaultTheme",
         "terminal.rendererRealization.enabled",
         "terminal.rendererRealization.idleSeconds",
         "terminal.rendererRealization.maxWarmRenderers",

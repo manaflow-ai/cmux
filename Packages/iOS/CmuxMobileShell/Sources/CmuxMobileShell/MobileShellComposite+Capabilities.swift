@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileShellModel
+public import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
@@ -119,9 +119,36 @@ extension MobileShellComposite {
         supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
             && discoversMacScopedWorkspaceMutations
     }
-    /// Whether the Mac supports creating task-composer workspaces.
+    /// Whether the New Task composer entrypoint is available. A connected
+    /// Mac's capability snapshot is authoritative for that Mac: any connected
+    /// Mac advertising task creation shows the entrypoint, and a fleet of
+    /// connected Macs that all lack it (remote flag off, or older builds)
+    /// hides it. With zero connected Macs there is no snapshot to consult, so
+    /// the entrypoint stays visible and the composer warns that no Mac is
+    /// connected instead of the button silently disappearing while offline.
     public var supportsTaskComposer: Bool {
-        supportedHostCapabilities.contains(Self.taskCreateCapability)
+        var sawConnectedMac = false
+        if connectionState == .connected {
+            if supportedHostCapabilities.contains(Self.taskCreateCapability) {
+                return true
+            }
+            sawConnectedMac = true
+        }
+        for (_, subscription) in secondaryMacSubscriptions {
+            if subscription.supportedHostCapabilities.contains(Self.taskCreateCapability) {
+                return true
+            }
+            sawConnectedMac = true
+        }
+        return !sawConnectedMac
+    }
+
+    /// True while at least one Mac session is live: the foreground connection
+    /// or any control-role secondary. The task composer keys its "No Mac is
+    /// connected" warning off this so the warning clears the moment any Mac
+    /// comes up, not only the foreground one.
+    public var hasAnyConnectedMac: Bool {
+        connectionState == .connected || !secondaryMacSubscriptions.isEmpty
     }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
@@ -137,6 +164,16 @@ extension MobileShellComposite {
     }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    /// Whether the Mac supports lifecycle-bound panel stat/fetch/thumbnail RPCs.
+    public var supportsPanelArtifacts: Bool { supportedHostCapabilities.contains(Self.panelArtifactCapability) }
+
+    /// Whether the workspace's owning Mac can serve panel file reads. The
+    /// panel artifact loader always talks to the foreground Mac's chat event
+    /// source, so a secondary Mac's surface must stay on the fallback card
+    /// even when that Mac advertises the capability.
+    public func supportsPanelArtifacts(in workspaceID: MobileWorkspacePreview.ID) -> Bool {
+        workspaceMutationTarget(for: workspaceID).isForeground && supportsPanelArtifacts
+    }
     public var supportsIrohArtifactLane: Bool {
         supportedHostCapabilities.contains(Self.irohArtifactLaneCapability)
     }

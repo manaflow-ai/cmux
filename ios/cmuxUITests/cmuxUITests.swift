@@ -4,7 +4,7 @@ import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
-    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
+    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5","efforts":[{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"gpt-5.5-mini","label":"GPT-5.5 Mini","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -1593,7 +1593,8 @@ final class cmuxUITests: XCTestCase {
             minimumCount: 2
         )
         XCTAssertTrue(didDisableCaffeine)
-        XCTAssertEqual(await server.caffeineSetValues(), [true, false])
+        let caffeineSetValues = await server.caffeineSetValues()
+        XCTAssertEqual(caffeineSetValues, [true, false])
     }
 
     @MainActor
@@ -1650,6 +1651,48 @@ final class cmuxUITests: XCTestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testComputerOrderListsSiblingBuildsSeparately() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "computerPriority",
+        ])
+        defer { app.terminate() }
+
+        let filterButton = app.buttons["MobileWorkspaceFilterMenu"]
+        XCTAssertTrue(filterButton.waitForExistence(timeout: 8))
+        tap(filterButton, in: app)
+
+        let editOrder = app.descendants(matching: .any)[
+            "MobileWorkspaceSortEditOrder"
+        ]
+        XCTAssertTrue(editOrder.waitForExistence(timeout: 3))
+        tap(editOrder, in: app)
+
+        let nightlyRow = app.descendants(matching: .any).matching(
+            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}nightly"
+        ).firstMatch
+        let stableRow = app.descendants(matching: .any).matching(
+            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}stable"
+        ).firstMatch
+        let nightlyLabel = app.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Nightly"
+        )).firstMatch
+        let stableLabel = app.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Stable"
+        )).firstMatch
+        XCTAssertTrue(nightlyRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(stableRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(nightlyLabel.waitForExistence(timeout: 5))
+        XCTAssertTrue(stableLabel.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(nightlyRow.frame, stableRow.frame)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-order-sibling-builds"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -3866,7 +3909,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsDoesNotExposeTerminalFilesChipAsBetaToggle() throws {
+    func testSettingsDoesNotExposeTaskComposerOrTerminalFilesBetaToggles() throws {
         let app = launchApp(
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
@@ -3877,13 +3920,26 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         tap(settings, in: app)
 
-        let toastsToggle = app.switches["MobileSettingsToastsEnabled"]
-        for _ in 0..<6 where !toastsToggle.exists || !toastsToggle.isHittable {
+        let taskComposerToggle = app.switches["MobileSettingsTaskComposer"]
+        let terminalFilesToggle = app.switches["MobileSettingsTerminalFilesChip"]
+        let betaFeaturesHeader = app.staticTexts["Beta Features"]
+        var exposedTaskComposerToggle = taskComposerToggle.exists
+        var exposedTerminalFilesToggle = terminalFilesToggle.exists
+        var exposedBetaFeaturesHeader = betaFeaturesHeader.exists
+        let versionRow = app.descendants(matching: .any)["MobileSettingsVersionRow"]
+        for _ in 0..<12 where !versionRow.exists || !versionRow.isHittable {
             app.swipeUp(velocity: .slow)
+            exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
+            exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
+            exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
         }
-        XCTAssertTrue(toastsToggle.waitForExistence(timeout: 4))
-        XCTAssertTrue(app.switches["MobileSettingsTaskComposer"].exists)
-        XCTAssertFalse(app.switches["MobileSettingsTerminalFilesChip"].exists)
+        XCTAssertTrue(versionRow.waitForExistence(timeout: 4))
+        exposedTaskComposerToggle = exposedTaskComposerToggle || taskComposerToggle.exists
+        exposedTerminalFilesToggle = exposedTerminalFilesToggle || terminalFilesToggle.exists
+        exposedBetaFeaturesHeader = exposedBetaFeaturesHeader || betaFeaturesHeader.exists
+        XCTAssertFalse(exposedTaskComposerToggle)
+        XCTAssertFalse(exposedTerminalFilesToggle)
+        XCTAssertFalse(exposedBetaFeaturesHeader)
     }
 
     @MainActor
@@ -4152,7 +4208,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
             XCTAssertEqual(
                 submittedCommand.label,
-                "codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+                "codex -c model_reasoning_effort='medium' -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
             )
 
             app.terminate()
@@ -4192,6 +4248,62 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(
             submittedCommand.label,
             "claude --model 'backend-next-999' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    /// Effort choices belong to the selected model, stay visible beside the
+    /// model control, and must be replaced when the model changes.
+    @MainActor
+    func testTaskComposerEffortPickerUsesSelectedModelCatalog() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        selectTaskComposerAgent(named: "Codex", in: app)
+
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(model.waitForExistence(timeout: 4))
+        tap(model, in: app)
+        tapMenuItem(app.buttons["GPT-5.5"], in: app)
+
+        let effort = app.buttons["MobileTaskComposerEffortPill"]
+        XCTAssertTrue(effort.waitForExistence(timeout: 3))
+        XCTAssertEqual(effort.value as? String, "Medium")
+        XCTAssertLessThan(model.frame.midX, effort.frame.midX)
+        XCTAssertLessThan(
+            effort.frame.midX,
+            app.buttons["MobileTaskComposerSubmitButton"].frame.midX
+        )
+
+        tap(effort, in: app)
+        XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 2))
+        tapMenuItem(app.buttons["High"], in: app)
+        XCTAssertEqual(effort.value as? String, "High")
+
+        tap(model, in: app)
+        tapMenuItem(app.buttons["GPT-5.5 Mini"], in: app)
+        XCTAssertEqual(effort.value as? String, "Low")
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "Native task composer model and effort pickers"
+        proof.lifetime = .keepAlways
+        add(proof)
+        tap(effort, in: app)
+        XCTAssertTrue(app.buttons["Low"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["High"].exists)
+        tapMenuItem(app.buttons["Low"], in: app)
+
+        try typeText("Use the exact model effort", into: taskComposerPrompt(in: app), in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: submit)
+        waitForExpectations(timeout: 3)
+        tap(submit, in: app)
+        let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            submittedCommand.label,
+            "codex -c model_reasoning_effort='low' -m 'gpt-5.5-mini' -- \"$CMUX_TASK_PROMPT\""
         )
     }
 
@@ -4481,7 +4593,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The Composer pill scroller must clip between its neighboring controls;
-    /// it must not underlap them to render a blur or fade at either edge.
+    /// its pills retain readable intrinsic widths and scroll behind hard edges.
     @MainActor
     func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
         let app = launchApp(mockData: false, environment: [
@@ -4522,15 +4634,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
         XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
         XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            scroller.frame.maxX,
-            "A long selected model must compress inside the pill viewport"
+        XCTAssertGreaterThan(
+            modelPill.frame.width,
+            120,
+            "A long selected model must keep enough width to show its label"
         )
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            submit.frame.minX,
-            "The selected model must never extend beneath Submit"
+        let modelMidXBeforeScroll = modelPill.frame.midX
+        scroller.swipeLeft()
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelMidXBeforeScroll,
+            "Overflowing picker pills must move together inside the scroller"
         )
 
         let attachment = XCTAttachment(screenshot: app.screenshot())

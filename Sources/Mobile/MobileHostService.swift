@@ -237,12 +237,12 @@ final class MobileHostService {
     /// are never on this unauthenticated surface.
     nonisolated static func publicStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
-        // the public payload (identity merges on top). `GhosttyConfig.load()`
-        // resolves named ghostty themes, cmux's managed defaults, and explicit
-        // color overrides into a complete effective palette; the phone applies
-        // it so its embedded terminal renders with the Mac's colors instead of
-        // the built-in Monokai default.
-        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
+        // the public payload (identity merges on top). `GhosttyConfig.loadForCmux()`
+        // resolves named Ghostty themes, Ghostty's built-in defaults or cmux's
+        // managed fresh-config defaults, and explicit color settings into a complete
+        // effective palette; the phone applies it so its embedded terminal
+        // renders with the Mac's colors instead of the built-in Monokai default.
+        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
         return [
             "routes": routes.mobileHostJSONObjects(for: .publicStatus, at: now),
             "terminal_fidelity": "render_grid",
@@ -381,6 +381,10 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Whether the managed-policy teardown already ran, so the frequent
+    /// `syncToSettings()` calls (every `UserDefaults` change) do not repeat
+    /// the full `stop()` while the policy stays enforced.
+    private var remoteControlPolicyStopApplied = false
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
     /// ``DeviceRegistryClient`` mirrors it into) refreshes when the Mac moves
@@ -753,11 +757,20 @@ final class MobileHostService {
     /// Iroh is an account-authenticated transport and starts for every signed-in
     /// Mac. The legacy listener remains opt-in so existing Tailscale and private
     /// network users keep their route without making it a prerequisite for Iroh.
+    /// An MDM-managed remote-control disable overrides both: no transport may
+    /// host while the policy is enforced.
     nonisolated static func startupPlan(
+        remoteControlDisabledByPolicy: Bool,
         legacyListenerEnabled: Bool,
         legacyListenerRunning: Bool
     ) -> MobileHostStartupPlan {
-        MobileHostStartupPlan(
+        guard !remoteControlDisabledByPolicy else {
+            return MobileHostStartupPlan(
+                activatesIroh: false,
+                startsLegacyListener: false
+            )
+        }
+        return MobileHostStartupPlan(
             activatesIroh: true,
             startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
         )
@@ -802,8 +815,12 @@ final class MobileHostService {
     /// since it persists to and rebinds the live singleton listener.
     func applyConfiguredPort(_ port: Int) async -> MobileHostPortApplyOutcome {
         let defaults = UserDefaults.standard
+        // Under a managed remote-control disable no listener may bind:
+        // classify as "saved while disabled" so the preference persists but
+        // no socket opens and no routes publish while the policy is enforced.
         if let preBind = Self.portApplyPreBindOutcome(
-            enabled: Self.isListeningEnabled(defaults: defaults),
+            enabled: Self.isListeningEnabled(defaults: defaults)
+                && MobileRemoteControlPolicy.isEnabled,
             currentBoundPort: listenerPort,
             requestedPort: port
         ) {
@@ -934,9 +951,13 @@ final class MobileHostService {
 
     func start() {
         let plan = Self.startupPlan(
+            remoteControlDisabledByPolicy: MobileRemoteControlPolicy.isDisabled,
             legacyListenerEnabled: Self.isListeningEnabled,
             legacyListenerRunning: listener != nil
         )
+        if MobileRemoteControlPolicy.isDisabled {
+            mobileHostLog.info("mobile host disabled by managed policy; not starting")
+        }
         guard plan.startsLegacyListener else {
             #if DEBUG
             if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
@@ -1175,6 +1196,18 @@ final class MobileHostService {
     /// against the app's real store; `start`/`restart` do the same, so there is
     /// no caller-supplied store to honor here.
     func syncToSettings() {
+        // An MDM-managed remote-control disable overrides every transport:
+        // tear down the Iroh runtime, the legacy listener, and every live
+        // connection, and refuse to re-arm until the policy is lifted.
+        guard MobileRemoteControlPolicy.isEnabled else {
+            if !remoteControlPolicyStopApplied {
+                remoteControlPolicyStopApplied = true
+                mobileHostLog.info("remote control disabled by managed policy; stopping mobile host")
+                stop()
+            }
+            return
+        }
+        remoteControlPolicyStopApplied = false
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
@@ -1255,12 +1288,23 @@ final class MobileHostService {
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
+        remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
+            MobileRemoteControlPolicy.isDisabled
+        },
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
             lifecycle: .explicitlyInvalidated,
             failure: .none
         )
+        // Universal admission funnel for every transport (Iroh and the legacy
+        // TCP listener): refuse here too, so races and already-open listeners
+        // cannot admit a connection while the managed policy is enforced.
+        guard !remoteControlDisabledByPolicy() else {
+            mobileHostLog.info("mobile host refused transport: remote control disabled by managed policy")
+            await transport.close()
+            return expectedExit
+        }
         MobileHostRequestActivity.beginConnection()
         guard await isCurrent() else {
             mobileHostLog.info("mobile host rejected stale transport")
@@ -1407,7 +1451,9 @@ final class MobileHostService {
         routeID: String? = nil,
         routeKind: String? = nil,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
-        target: MobileAttachTarget? = nil
+        target: MobileAttachTarget? = nil,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
         let routes = MobileHostPublicStatusCache.snapshot()
         let filteredRoutes = try Self.filteredRoutes(
@@ -1430,7 +1476,8 @@ final class MobileHostService {
         return try ticketStore.payload(
             for: ticket,
             routeDisclosureMode: routeDisclosureMode,
-            target: target
+            target: target,
+            pairingURLScheme: pairingURLScheme
         )
     }
 

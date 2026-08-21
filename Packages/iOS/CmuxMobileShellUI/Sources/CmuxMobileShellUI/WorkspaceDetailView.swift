@@ -74,6 +74,14 @@ struct WorkspaceDetailView: View {
     @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
+    // Rendered content width per trailing toolbar item, keyed by item. The
+    // title's width cap subtracts the structurally visible items' widths so
+    // they always fit and iOS never folds them into the overflow More menu
+    // (no per-item priority exists below iOS 27). Only structural removal
+    // deletes an entry (see the onChange handlers); a layout-driven
+    // disappearance (overflow into More) cannot release a reservation and
+    // make the collapse sticky.
+    @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -170,7 +178,8 @@ struct WorkspaceDetailView: View {
             hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
             hasActiveBrowserStream: activeBrowserStream != nil,
-            hasActiveSimulatorStream: activeSimulatorStream != nil
+            hasActiveSimulatorStream: activeSimulatorStream != nil,
+            selectedMacSurface: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)
         )
     }
     #endif
@@ -190,6 +199,17 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            // Structural removal drops the item's retained measurement so a
+            // returning item takes the fail-safe unmeasured reserve instead of
+            // a stale width for its first layout pass. Layout-driven
+            // disappearance (overflow into More) never flips these conditions,
+            // so it cannot release a reservation and make the collapse sticky.
+            .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
+                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
+            }
+            .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
+                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
+            }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
                 refreshWorkspaceChangesHint()
@@ -262,6 +282,12 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var altScreenNoticeIsVisible: Bool {
+        guard let selectedTerminalID else { return false }
+        return store.isAlternateScreen(surfaceID: selectedTerminalID)
+            && displaySettings.showAltScreenNotice
+    }
+
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
         if backButtonConfiguration != nil {
@@ -275,38 +301,106 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        if let selectedTerminalID,
-           store.isAlternateScreen(surfaceID: selectedTerminalID),
-           displaySettings.showAltScreenNotice {
+        // iOS 27's visibilityPriority(.high) natively keeps the trailing items
+        // out of the overflow More menu. The symbols are absent from SDK 26.x,
+        // so the branch is compiler-gated until an Xcode 27 toolchain builds
+        // this target; the measured title cap below stays the sizing mechanism
+        // on every OS (the native priority only decides who overflows, it does
+        // not grant the title the remaining space).
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            highPriorityTrailingToolbarItems
+        } else {
+            trailingToolbarItems
+        }
+        #else
+        trailingToolbarItems
+        #endif
+    }
+
+    @ToolbarContentBuilder
+    private var trailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
-                AltScreenNoticeButton {
-                    displaySettings.showAltScreenNotice = false
-                }
+                altScreenNoticeToolbarContent
             }
         }
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
-                WorkspaceChangesToolbarButton(
-                    chip: workspaceChangesChip,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue,
-                    action: openWorkspaceChanges
-                )
-                // The chrome sits on the terminal theme's background, not the
-                // system scheme; resolve the counts' green/red for that.
-                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                workspaceChangesToolbarContent
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+            trailingClusterToolbarContent
         }
     }
 
+    #if compiler(>=6.4)
+    @available(iOS 27.0, *)
+    @ToolbarContentBuilder
+    private var highPriorityTrailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                altScreenNoticeToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                workspaceChangesToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            trailingClusterToolbarContent
+        }
+        .visibilityPriority(.high)
+    }
+    #endif
+
+    private var altScreenNoticeToolbarContent: some View {
+        AltScreenNoticeButton {
+            displaySettings.showAltScreenNotice = false
+        }
+        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
+    }
+
+    private var workspaceChangesToolbarContent: some View {
+        WorkspaceChangesToolbarButton(
+            chip: workspaceChangesChip,
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            action: openWorkspaceChanges
+        )
+        // The chrome sits on the terminal theme's background, not the
+        // system scheme; resolve the counts' green/red for that.
+        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
+    }
+
+    private var trailingClusterToolbarContent: some View {
+        toolbarTrailingCluster
+            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
+    }
+
+    // Which trailing toolbar items are structurally in the bar right now.
+    // Must mirror the conditions in trailingToolbarItems.
+    private var structuralTrailingItemKeys: [String] {
+        var keys = ["trailing-cluster"]
+        if altScreenNoticeIsVisible { keys.append("altscreen-notice") }
+        if workspaceChangesAreAvailable { keys.append("changes") }
+        return keys
+    }
+
     private var workspaceTitleToolbarMenu: some View {
+        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
+            measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
+            measuredTrailingItemCount: measuredWidths.count,
+            trailingItemCount: structuralTrailingItemKeys.count,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -501,7 +595,7 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    private func reconnectToWorkspaceMac() {
+    func reconnectToWorkspaceMac() {
         Task {
             await store.reconnectToMac(
                 macDeviceID: workspace.macDeviceID,
@@ -517,7 +611,7 @@ struct WorkspaceDetailView: View {
     /// with a working keyboard. Hidden retained details keep their raw
     /// status: the guard only applies to the selected workspace on the
     /// foreground connection.
-    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+    var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
             if store.connectionRecoveryFailed {
@@ -687,8 +781,13 @@ struct WorkspaceDetailView: View {
         TerminalPickerMenu(
             value: TerminalPickerMenuValue(
                 liveTerminals: workspace.terminals,
+                liveSurfaces: workspace.surfaces,
                 snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
+                // Resolved through the workspace so the auto-presented
+                // fallback surface (no terminals, no explicit selection)
+                // carries the picker checkmark like any picked surface.
+                selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
                 canCreateWorkspace: canCreateWorkspace,
                 hasActiveBrowser: activeBrowser != nil,
                 isChatMode: isChatMode,
@@ -701,6 +800,7 @@ struct WorkspaceDetailView: View {
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
+                selectMacSurface: selectMacSurfaceFromPicker,
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
@@ -953,6 +1053,7 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         createTerminal()
     }
 
@@ -991,6 +1092,7 @@ struct WorkspaceDetailView: View {
         store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
     }
 
     private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
@@ -1000,6 +1102,7 @@ struct WorkspaceDetailView: View {
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
@@ -1011,6 +1114,7 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        store.selectedMacSurfaceID = nil
         let workspaceID = workspace.rpcWorkspaceID.rawValue
         let previousPanelID: String? = activeSimulatorStream.flatMap {
             $0.id == panelID ? nil : $0.id
@@ -1057,12 +1161,25 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
+        store.selectedMacSurfaceID = nil
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
         // already selected). A push-notification deep link uses the plain
         // `selectTerminal` path instead and is allowed to autofocus.
         store.selectTerminalFromChrome(terminalID)
+    }
+
+    private func selectMacSurfaceFromPicker(_ surfaceID: MobileSurfacePreview.ID) {
+        dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        // Streams outrank Mac surfaces in `WorkspaceActiveSurface.derive`, so
+        // a selected Simulator stream must be cleared before the Mac surface
+        // can become visible.
+        stopActiveSimulatorStream()
+        store.selectMacSurface(surfaceID)
     }
 
     func dismissTerminalKeyboardForChrome() {

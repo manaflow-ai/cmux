@@ -159,7 +159,13 @@ export default {
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parsePairedMacBackup(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
-      const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops, clientScope);
+      const result = await team.stub.backupPairedMacs(
+        team.teamId,
+        team.user.id,
+        parsed.ops,
+        clientScope,
+        parsed.expectedRevision,
+      );
       if (!result.ok) return json({ error: result.error }, result.status);
       return json(result);
     }

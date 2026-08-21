@@ -23,6 +23,7 @@ public struct BrowserSection: View {
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
+    @State private var defaultZoom: DefaultsValueModel<Double>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
@@ -39,6 +40,16 @@ public struct BrowserSection: View {
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
 
+    /// Whether management locks the embedded-browser disable (policy key
+    /// enforced, or the user key itself forced). Refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so a
+    /// profile pushed while the Settings window stays open re-renders
+    /// the row.
+    @State private var browserManagedByPolicy = ManagedDevicePolicy()
+        .isBrowserDisableLocked(
+            browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
+        )
+
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
@@ -54,6 +65,7 @@ public struct BrowserSection: View {
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
+        _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
@@ -85,7 +97,14 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
+                    browserDisabledUserDefaultsKey: catalog.browser.disabled.userDefaultsKey
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -96,13 +115,21 @@ public struct BrowserSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:browser:enable-browser",
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
-                subtitle: !disabled.current
+                subtitle: browserManagedByPolicy
+                    ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                    : !disabled.current
                     ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
                     : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
             ) {
-                Toggle("", isOn: Binding(get: { !disabled.current }, set: { disabled.set(!$0) }))
+                Toggle(
+                    "",
+                    isOn: browserManagedByPolicy
+                        ? .constant(false)
+                        : Binding(get: { !disabled.current }, set: { disabled.set(!$0) })
+                )
                     .labelsHidden()
                     .controlSize(.small)
+                    .disabled(browserManagedByPolicy)
                     .accessibilityIdentifier("BrowserEnabledToggle")
             }
             SettingsCardDivider()
@@ -173,6 +200,33 @@ public struct BrowserSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Default Page Zoom
+            SettingsCardRow(
+                configurationReview: .json("browser.defaultZoomLevel"),
+                String(localized: "settings.browser.defaultZoomLevel", defaultValue: "Default Page Zoom"),
+                subtitle: String(localized: "settings.browser.defaultZoomLevel.subtitle", defaultValue: "Zoom applied to newly opened browser pages. Zoom In, Zoom Out, and Actual Size still adjust each page."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text(formatZoomPercent(defaultZoom.current))
+                        .cmuxFont(.body, design: .monospaced)
+                        .monospacedDigit()
+                        .frame(width: 56, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { defaultZoom.current },
+                            set: { defaultZoom.set(BrowserZoomSettings().normalized($0)) }
+                        ),
+                        in: BrowserZoomSettings.minimumLevel...BrowserZoomSettings.maximumLevel,
+                        step: BrowserZoomSettings.step
+                    )
+                    .labelsHidden()
+                }
+                .accessibilityIdentifier("SettingsBrowserDefaultZoomStepper")
             }
             SettingsCardDivider()
 
@@ -551,6 +605,11 @@ public struct BrowserSection: View {
     /// minutes. Matches the legacy
     /// `browserHiddenWebViewDiscardDelayLabel` formatter, including
     /// the localized format strings.
+    private func formatZoomPercent(_ zoom: Double) -> String {
+        let format = String(localized: "settings.browser.defaultZoomLevel.percent", defaultValue: "%lld%%")
+        return String.localizedStringWithFormat(format, Int64((zoom * 100).rounded()))
+    }
+
     private func formatDiscardDelay(_ seconds: Double) -> String {
         let total = max(0, Int(seconds.rounded()))
         if total < 60 {

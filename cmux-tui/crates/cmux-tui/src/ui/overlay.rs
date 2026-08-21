@@ -531,7 +531,9 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let desired_width = help
         .rows
         .iter()
-        .map(|(action, shortcuts)| catalog.action_label(*action).width() + shortcuts.width() + 9)
+        .map(|(action, shortcuts)| {
+            app.action_display_label(*action).width() + shortcuts.width() + 9
+        })
         .max()
         .unwrap_or(44)
         .max(catalog.shortcuts.title.width() + close_text.width() + 8);
@@ -601,7 +603,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         help.rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
     {
         let row_y = y + 2 + line as u16;
-        let label = catalog.action_label(*action);
+        let label = app.action_display_label(*action);
         let shortcuts = format!(" {shortcuts} ");
         let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);

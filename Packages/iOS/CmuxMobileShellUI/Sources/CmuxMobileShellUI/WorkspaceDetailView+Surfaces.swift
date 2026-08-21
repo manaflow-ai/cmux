@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -37,6 +38,29 @@ extension WorkspaceDetailView {
             } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
                 simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if case let .macSurface(macSurface) = surface {
+                macSurfaceContent(macSurface)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
+                    // System colors, materials, and list backgrounds must
+                    // resolve against the terminal theme the surface sits on,
+                    // not the device appearance, or rows flash white over a
+                    // dark theme (and vice versa).
+                    .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                    // Same recovery chrome as the terminal: the last synced
+                    // surface stays visible underneath while the pill shows
+                    // reconnect progress (it renders nothing when connected).
+                    .overlay(alignment: .topLeading) {
+                        MobileMacConnectionStatusPill(
+                            host: host,
+                            status: effectiveConnectionStatus,
+                            reconnect: Self.reconnectAction(
+                                connectionRequiresReauth: store.connectionRequiresReauth,
+                                reconnect: { reconnectToWorkspaceMac() }
+                            )
+                        )
+                        .padding(.top, 10)
+                        .padding(.leading, 10)
+                    }
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -67,6 +91,66 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
+    /// Kind → renderer dispatch for the selected non-terminal Mac surface.
+    ///
+    /// `MacSurfaceRenderer.resolve` owns the gating policy (capability +
+    /// payload presence); unhandled kinds stay on the fallback card.
+    @ViewBuilder
+    func macSurfaceContent(_ macSurface: MobileSurfacePreview) -> some View {
+        let renderer = MacSurfaceRenderer.resolve(
+            surface: macSurface,
+            supportsTodo: store.supportsTodo(in: workspace.id),
+            supportsPanelArtifacts: store.supportsPanelArtifacts(in: workspace.id)
+        )
+        let openOnMac: () async -> Bool = { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
+            await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
+        }
+        let canOpenOnMac = store.supportsSurfaceFocus(in: workspace.id)
+        switch renderer {
+        case .todo(let todo):
+            // The capability set empties while the connection recovers, so it
+            // doubles as the "Mac can take mutations right now" signal; the
+            // snapshot itself stays rendered either way.
+            TodoSurfaceView(
+                surface: macSurface,
+                todo: todo,
+                allowsMutations: store.supportsTodo(in: workspace.id)
+            ) { mutation in
+                try await store.performTodoMutation(mutation, workspaceID: workspace.id)
+            }
+            .id(macSurface.id.rawValue)
+        case .filePreview(let path):
+            PanelFileSurfaceView(
+                surface: macSurface,
+                path: path,
+                loader: panelArtifactLoader(
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    surfaceID: macSurface.id.rawValue
+                ),
+                connectionStatus: effectiveConnectionStatus
+            )
+            .id(macSurface.id.rawValue)
+        case .markdown(let path):
+            MarkdownSurfaceView(
+                surface: macSurface,
+                path: path,
+                loader: panelArtifactLoader(
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    surfaceID: macSurface.id.rawValue
+                ),
+                connectionStatus: effectiveConnectionStatus
+            )
+            .id(macSurface.id.rawValue)
+        case .fallbackCard:
+            SurfaceFallbackCardView(
+                surface: macSurface,
+                workspaceName: workspace.name,
+                canOpenOnMac: canOpenOnMac,
+                openOnMac: openOnMac
+            )
+        }
+    }
+
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
