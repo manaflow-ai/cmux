@@ -7,9 +7,7 @@ import Testing
 
 @Suite struct MobileMacBuildCompatibilityPolicyTests {
     @Test func developmentAllowsSiblingTagsWithoutBuildMetadata() {
-        let policy = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "icap"
-        )
+        let policy = MobileMacBuildCompatibilityPolicy.development
 
         #expect(policy.allows(instanceTag: "icap"))
         #expect(policy.allows(instanceTag: " ICAP "))
@@ -19,30 +17,14 @@ import Testing
         #expect(!policy.allows(instanceTag: nil))
     }
 
-    @Test func developmentAllowsOnlyExplicitSiblingTags() {
-        let policy = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "phand1",
-            additionalInstanceTags: ["phand2", " PHAND3 "]
-        )
+    @Test func currentDevelopmentPolicyNeedsNoBuildMetadata() {
+        let policy = MobileMacBuildCompatibilityPolicy.current()
 
         #expect(policy.allows(instanceTag: "phand1"))
         #expect(policy.allows(instanceTag: "phand2"))
         #expect(policy.allows(instanceTag: "phand3"))
-        #expect(!policy.allows(instanceTag: "phand4"))
+        #expect(policy.allows(instanceTag: "unrelated"))
         #expect(!policy.allows(instanceTag: "default"))
-    }
-
-    @Test func currentDevelopmentPolicyParsesBuildMetadataAllowlist() throws {
-        let scope = try #require(MobileIOSBuildScope("phand1"))
-        let policy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: scope,
-            compatibleMacTags: "phand2, PHAND3 "
-        )
-
-        #expect(policy.allows(instanceTag: "phand1"))
-        #expect(policy.allows(instanceTag: "phand2"))
-        #expect(policy.allows(instanceTag: "phand3"))
-        #expect(!policy.allows(instanceTag: "unrelated"))
     }
 
     @Test func officialKeepsStableAndNightlyAsDistinctAllowedIdentities() {
@@ -88,9 +70,7 @@ import Testing
 
     @Test func legacyExceptionNeverWeakensTaggedOrDevelopmentIdentity() {
         let official = MobileMacBuildCompatibilityPolicy.official
-        let development = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "tsauth"
-        )
+        let development = MobileMacBuildCompatibilityPolicy.development
 
         #expect(official.allowsAuthenticatedHost(
             instanceTag: "default",
@@ -134,9 +114,7 @@ import Testing
                 now: Date(timeIntervalSince1970: seen)
             )
         }
-        let scoped = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "icap")
-            .scoping(raw)
+        let scoped = MobileMacBuildCompatibilityPolicy.development.scoping(raw)
 
         #expect(Set(try await scoped.loadAll(
             stackUserID: "user-1", teamID: "team-a"
@@ -188,9 +166,7 @@ import Testing
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 1)
         )
-        let scoped = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "icap")
-            .scoping(raw)
+        let scoped = MobileMacBuildCompatibilityPolicy.development.scoping(raw)
 
         #expect(try await scoped.loadAll(
             stackUserID: "user-1", teamID: "team-a"
@@ -212,7 +188,7 @@ import Testing
         ).first?.routes == [updatedRoute])
     }
 
-    @Test func scopedRemoveAllPreservesIncompatibleRows() async throws {
+    @Test func scopedRemoveAllRemovesAllDevelopmentRows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -237,15 +213,13 @@ import Testing
                 now: Date(timeIntervalSince1970: seenAt)
             )
         }
-        let scoped = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "icap")
-            .scoping(raw)
+        let scoped = MobileMacBuildCompatibilityPolicy.development.scoping(raw)
 
         try await scoped.removeAll()
 
         #expect(try await raw.loadAll(
             stackUserID: nil, teamID: nil
-        ).compactMap(\.instanceTag) == ["tsmig"])
+        ).isEmpty)
     }
 
     @Test func officialStoreKeepsStableAndNightlyButRejectsDevelopment() async throws {
@@ -281,9 +255,9 @@ import Testing
     }
 
     @MainActor
-    @Test func registryProjectionKeepsOnlyCompatibleInstances() {
+    @Test func registryProjectionKeepsEveryDevelopmentInstance() {
         let store = MobileShellComposite(
-            buildCompatibilityPolicy: .development(expectedInstanceTag: "icap")
+            buildCompatibilityPolicy: .development
         )
         let device = RegistryDevice(
             deviceId: "shared-mac",
@@ -303,14 +277,14 @@ import Testing
         let projected = store.compatibleRegistryDevices([device])
 
         #expect(projected.count == 1)
-        #expect(projected[0].instances.map(\.tag) == ["icap"])
-        #expect(projected[0].lastSeenAt == Date(timeIntervalSince1970: 10))
+        #expect(projected[0].instances.map(\.tag) == ["icap", "tsmig"])
+        #expect(projected[0].lastSeenAt == Date(timeIntervalSince1970: 20))
     }
 
     @MainActor
-    @Test func presenceProjectionKeepsOnlyCompatibleInstances() {
+    @Test func presenceProjectionKeepsEveryDevelopmentInstance() {
         let store = MobileShellComposite(
-            buildCompatibilityPolicy: .development(expectedInstanceTag: "icap")
+            buildCompatibilityPolicy: .development
         )
         let icap = PresenceInstance(
             deviceId: "shared-mac",
@@ -347,9 +321,9 @@ import Testing
             return
         }
         #expect(snapshot.devices.count == 1)
-        #expect(snapshot.devices[0].instances.map(\.tag) == ["icap"])
-        #expect(!snapshot.devices[0].online)
-        #expect(snapshot.devices[0].lastSeenAt == 10)
-        #expect(store.compatiblePresenceUpdate(.online(tsmig)) == nil)
+        #expect(snapshot.devices[0].instances.map(\.tag) == ["icap", "tsmig"])
+        #expect(snapshot.devices[0].online)
+        #expect(snapshot.devices[0].lastSeenAt == 20)
+        #expect(store.compatiblePresenceUpdate(.online(tsmig)) == .online(tsmig))
     }
 }

@@ -6093,13 +6093,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV app with a Mac that has the same DEV tag."
+            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use a DEV iPhone build with any DEV Mac build."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。この DEV アプリは同じ DEV タグを持つ Mac と一緒に使用してください。"
+            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。DEV iPhone ビルドは任意の DEV Mac ビルドと一緒に使用できます。"
           }
         }
       }
@@ -6127,13 +6127,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV builds must use the same DEV tag. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            "value": "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV ビルド同士は同じ DEV タグを使用する必要があります。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+            "value": "DEV iPhone ビルドは任意の DEV Mac ビルドに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }

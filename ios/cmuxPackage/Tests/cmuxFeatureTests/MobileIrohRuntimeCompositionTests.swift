@@ -480,7 +480,7 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func taggedDevelopmentDiscoveryCannotCrossIntoAnotherAgentLane() async throws {
+    func taggedDevelopmentDiscoveryIncludesSiblingMacBuilds() async throws {
         let discovery = try mobileIrohDiscovery(bindings: [
             mobileIrohBinding(
                 bindingID: "31000000-0000-4000-8000-000000000001",
@@ -514,11 +514,11 @@ struct MobileIrohRuntimeCompositionTests {
         await catalog.activate(scope: 4)
         await catalog.replace(with: discovery, scope: 4)
 
-        let isolated = await catalog.liveMacCandidates(
+        let development = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
-            compatibleWith: .development(expectedInstanceTag: "lane-a")
+            compatibleWith: .development
         )
-        #expect(isolated.map(\.instanceTag) == ["lane-a"])
+        #expect(development.map(\.instanceTag) == ["lane-a", "lane-b"])
 
         let official = await catalog.liveMacCandidates(
             preferredTag: "lane-a",

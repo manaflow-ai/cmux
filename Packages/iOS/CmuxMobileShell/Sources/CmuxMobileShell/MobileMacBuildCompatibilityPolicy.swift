@@ -8,45 +8,20 @@ internal import Foundation
 /// while this policy supplies the compatibility boundary used by persistence,
 /// registry projection, and live connection validation.
 public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
-    /// A tagged development build may use its matching Mac tag plus an explicit
-    /// set of sibling tags baked into that build. The additional set is empty by
-    /// default, preserving per-tag isolation for ordinary development builds.
-    case development(
-        expectedInstanceTag: String,
-        additionalInstanceTags: Set<String>
-    )
+    /// A development iOS build may use any authenticated development Mac tag.
+    /// The exact tag remains part of each Mac's identity; this case only defines
+    /// the development build lane.
+    case development
     /// A distributed iOS build may use Stable and Nightly Mac releases.
     case official
 
-    public static func development(
-        expectedInstanceTag: String
-    ) -> MobileMacBuildCompatibilityPolicy {
-        .development(
-            expectedInstanceTag: expectedInstanceTag,
-            additionalInstanceTags: []
-        )
-    }
-
     /// Resolves the policy compiled into the running iOS app.
     ///
-    /// - Parameters:
-    ///   - buildScope: The tagged development scope, when this is a tagged DEBUG build.
-    ///   - compatibleMacTags: Comma-separated sibling Mac tags intentionally
-    ///     admitted by this development build.
-    /// - Returns: Explicit development compatibility for DEBUG builds and official
+    /// - Returns: Development-lane compatibility for DEBUG builds and official
     ///   compatibility for distributed builds.
-    public static func current(
-        buildScope: MobileIOSBuildScope?,
-        compatibleMacTags: String? = nil
-    ) -> MobileMacBuildCompatibilityPolicy {
+    public static func current() -> MobileMacBuildCompatibilityPolicy {
         #if DEBUG
-        let additionalTags = Set((compatibleMacTags ?? "")
-            .split(separator: ",")
-            .map(String.init))
-        return .development(
-            expectedInstanceTag: buildScope?.value ?? "dev",
-            additionalInstanceTags: additionalTags
-        )
+        return .development
         #else
         return .official
         #endif
@@ -62,13 +37,8 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     public func allows(instanceTag: String?) -> Bool {
         guard let normalizedTag = Self.normalized(instanceTag) else { return false }
         switch self {
-        case let .development(expectedInstanceTag, additionalInstanceTags):
-            if normalizedTag == Self.normalized(expectedInstanceTag) {
-                return true
-            }
-            return additionalInstanceTags.contains {
-                normalizedTag == Self.normalized($0)
-            }
+        case .development:
+            return normalizedTag != "default" && normalizedTag != "nightly"
         case .official:
             return normalizedTag == "default" || normalizedTag == "nightly"
         }

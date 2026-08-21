@@ -2336,8 +2336,8 @@ public final class MobileIrohRuntimeComposition:
         for policy: MobileMacBuildCompatibilityPolicy?
     ) -> [String]? {
         switch policy {
-        case let .development(expectedInstanceTag, additionalInstanceTags):
-            [expectedInstanceTag] + additionalInstanceTags.sorted()
+        case .development:
+            nil
         case .official:
             ["default", "nightly"]
         case nil:

@@ -283,10 +283,7 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
-            buildCompatibilityPolicy: .development(
-                expectedInstanceTag: "phand1",
-                additionalInstanceTags: ["phand2", "phand3"]
-            ),
+            buildCompatibilityPolicy: .development,
             personalIrohDiscovery: ScriptedIrohDiscovery(
                 snapshots: [candidates]
             ),
@@ -392,10 +389,7 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
-            buildCompatibilityPolicy: .development(
-                expectedInstanceTag: "phand1",
-                additionalInstanceTags: ["phand2", "phand3"]
-            ),
+            buildCompatibilityPolicy: .development,
             personalIrohDiscovery: ScriptedIrohDiscovery(
                 snapshots: [candidates]
             ),
