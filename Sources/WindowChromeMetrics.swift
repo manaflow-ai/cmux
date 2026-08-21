@@ -66,7 +66,7 @@ enum SidebarChromeBandMetrics {
     static let bottomBandHeight: CGFloat = 44
     /// Label-colored so it lightens dark themes and darkens light ones.
     static var bandFill: Color {
-        Color.primary.opacity(0.05)
+        Color.primary.opacity(0.08)
     }
 }
 

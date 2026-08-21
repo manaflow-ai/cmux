@@ -528,6 +528,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 postUpdateActions + [{ [weak self] in
                     guard let self else { return }
                     self.performWidthRemeasureNow()
+                    self.settleTableWidthToClip()
                     self.noteAllRowHeights()
                     self.resetViewportToTop()
                 }]
@@ -648,8 +649,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageApply(deferredInteractiveResizeApply)
         }
         performWidthRemeasureNow()
+        settleTableWidthToClip()
         noteAllRowHeights()
         clampHorizontalScrollOrigin()
+    }
+
+    /// The document view can be left wider than its clip when a column-width
+    /// change lands while the view is hidden or mid-launch (the restore path
+    /// flips modes before the first layout pass); cells then center on the
+    /// stale width and render clipped at the divider. Pin the table frame to
+    /// the clip width at settle points.
+    private func settleTableWidthToClip() {
+        guard let containerView else { return }
+        let clipWidth = containerView.clipView.bounds.width
+        let table = containerView.tableView
+        guard clipWidth > 0, abs(table.bounds.width - clipWidth) > 0.5 else { return }
+        table.setFrameSize(NSSize(width: clipWidth, height: table.frame.height))
+        table.sizeLastColumnToFit()
+        table.needsLayout = true
     }
 
     /// Re-notifies EVERY row height. The changed-set optimizations compare
@@ -1403,6 +1420,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushViewportChange() {
         guard isPresentationActive else { return }
+        settleTableWidthToClip()
         clampHorizontalScrollOrigin()
         let width = currentColumnWidth()
 #if DEBUG
