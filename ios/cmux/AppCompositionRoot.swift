@@ -87,6 +87,11 @@ final class AppCompositionRoot {
         MobileDebugLog.shared.append("app launch · composition root initialized")
         #endif
 
+        // Arm the process-wide keyboard frame tracker before any screen can
+        // raise the keyboard: `.shared` is lazy, and a terminal host created
+        // later recovers missed keyboard transitions from this record.
+        _ = MobileKeyboardFrameTracker.shared
+
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh

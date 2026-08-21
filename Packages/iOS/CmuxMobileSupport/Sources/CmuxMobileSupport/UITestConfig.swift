@@ -79,16 +79,6 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Forces the iOS 27 keyboard-dock compatibility path on an older simulator.
-    /// DEBUG-only so production selection remains tied exclusively to the OS version.
-    public static var forceIOS27KeyboardDockWorkaround: Bool {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"] == "1"
-        #else
-        return false
-        #endif
-    }
-
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
