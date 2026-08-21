@@ -3714,10 +3714,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
             // No runtime means the callback has no trustworthy row-space
             // identity. Drop it rather than moving AppKit to stale geometry.
-            postWheelScroll(
-                requiresAuthoritativeResponse: false,
-                authoritativeResponseUnavailable: true
-            )
             return
         }
         publishScrollbarUpdate(authoritativeScrollbar)
