@@ -5973,6 +5973,19 @@ mod tests {
         assert!(!closed.load(Ordering::Acquire));
     }
 
+    /// Wait until the session records a torn-down transport. Asserting on
+    /// state instead of the broadcast Empty event avoids a startup race: the
+    /// reader thread can observe EOF and emit Empty before the test has
+    /// subscribed, and broadcasts are not replayed to late subscribers.
+    #[cfg(unix)]
+    fn wait_for_transport_loss(session: &Arc<RemoteSession>, context: &str) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.transport_lost() {
+            assert!(Instant::now() < deadline, "{context}: transport was never torn down");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// A fake daemon that completes the identify/set-client-info handshake
     /// for an unsubscribed session, then runs `and_then` with the server
     /// stream.
@@ -6025,16 +6038,8 @@ mod tests {
             }
             let _ = server.write_all(b"\n");
         });
-        let events = session.subscribe();
 
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(MuxEvent::Empty) => break,
-                Ok(_) => continue,
-                Err(error) => panic!("oversized frame never closed the session: {error}"),
-            }
-        }
+        wait_for_transport_loss(&session, "oversized frame");
         let reason = session.transport_disconnect_reason();
         assert!(
             reason.as_deref().is_some_and(|reason| reason.contains("exceeds the")),
@@ -6049,16 +6054,8 @@ mod tests {
     #[test]
     fn daemon_eof_disconnects_with_a_recorded_reason() {
         let (session, peer) = handshake_session_with_peer(drop);
-        let events = session.subscribe();
 
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(MuxEvent::Empty) => break,
-                Ok(_) => continue,
-                Err(error) => panic!("daemon EOF never closed the session: {error}"),
-            }
-        }
+        wait_for_transport_loss(&session, "daemon EOF");
         let reason = session.transport_disconnect_reason();
         assert!(
             reason.as_deref().is_some_and(|reason| reason.contains("closed the connection")),
@@ -6143,18 +6140,8 @@ mod tests {
         });
 
         let session = RemoteSession::connect_for_terminal_attach(&socket_path).unwrap();
-        let events = session.subscribe();
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(MuxEvent::Empty) => break,
-                Ok(_) => continue,
-                Err(_) => panic!(
-                    "an unresponsive daemon control channel never disconnected the attach session"
-                ),
-            }
-        }
+        wait_for_transport_loss(&session, "unresponsive daemon control channel");
         let reason = session.transport_disconnect_reason();
         assert!(
             reason.as_deref().is_some_and(|reason| reason.contains("liveness")),
