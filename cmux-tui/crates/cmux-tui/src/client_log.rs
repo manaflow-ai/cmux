@@ -385,8 +385,7 @@ pub(crate) fn redirect_stderr_into_log() {
                                 let text = text.trim_end();
                                 if text == PIPE_FLUSH_MARKER {
                                     PIPE_MARKERS_SEEN.fetch_add(1, Ordering::AcqRel);
-                                } else if !text.is_empty() && !log_tracked("WARN", "stderr", text)
-                                {
+                                } else if !text.is_empty() && !log_tracked("WARN", "stderr", text) {
                                     // Queue full: sleeping applies pipe
                                     // backpressure to a runaway writer
                                     // instead of burning a core converting
