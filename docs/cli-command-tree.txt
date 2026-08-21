@@ -23,21 +23,47 @@ command  auth status  aliases=-
   arg  arguments  kind=argument  completion=-
 command  capabilities  aliases=-
   arg  arguments  kind=argument  completion=-
+command  close-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  completion  aliases=-
   arg  shell  kind=argument  completion=list(bash,fish,zsh)
 command  config  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  current-window  aliases=-
   arg  arguments  kind=argument  completion=-
 command  docs  aliases=-
   arg  arguments  kind=argument  completion=-
 command  feedback  aliases=-
   arg  arguments  kind=argument  completion=-
+command  find-window  aliases=-
+  arg  --content  kind=flag  completion=-
+  arg  --select  kind=flag  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  query  kind=argument  completion=-
+command  focus-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  iroh-diag  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  last-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  list-windows  aliases=-
   arg  arguments  kind=argument  completion=-
 command  login  aliases=-
   arg  arguments  kind=argument  completion=-
 command  logout  aliases=-
   arg  arguments  kind=argument  completion=-
+command  new-window  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  next-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  ping  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  previous-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  reload-config  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -55,6 +81,10 @@ command  remotes list  aliases=ls
   arg  arguments  kind=argument  completion=-
 command  remotes remove  aliases=delete,rm
   arg  target  kind=argument  completion=-
+command  rename-window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  title  kind=argument  completion=-
 command  settings  aliases=-
   arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
