@@ -36,6 +36,16 @@ struct CmuxCommand: ParsableCommand {
             VMCommand.self,
             RemotesCommand.self,
             RemoteDaemonStatusCommand.self,
+            ListWindowsCommand.self,
+            CurrentWindowCommand.self,
+            NewWindowCommand.self,
+            FocusWindowCommand.self,
+            CloseWindowCommand.self,
+            FindWindowCommand.self,
+            NextWindowCommand.self,
+            PreviousWindowCommand.self,
+            LastWindowCommand.self,
+            RenameWindowCommand.self,
         ]
     )
 
