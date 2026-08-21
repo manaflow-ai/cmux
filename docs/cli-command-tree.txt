@@ -21,6 +21,151 @@ command  auth logout  aliases=-
   arg  arguments  kind=argument  completion=-
 command  auth status  aliases=-
   arg  arguments  kind=argument  completion=-
+command  browser  aliases=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  browser addinitscript  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser addscript  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser addstyle  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser back  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser check  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser click  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser console  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser cookies  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser dblclick  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser design-mode  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser devtools  aliases=dev-tools
+  arg  arguments  kind=argument  completion=-
+command  browser dialog  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser disable  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser download  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser enable  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser errors  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser eval  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser fill  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser find  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser focus  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser focus-mode  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser focus-webview  aliases=focus_webview
+  arg  arguments  kind=argument  completion=-
+command  browser forward  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser frame  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser geolocation  aliases=geo
+  arg  arguments  kind=argument  completion=-
+command  browser get  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser goto  aliases=navigate
+  arg  arguments  kind=argument  completion=-
+command  browser highlight  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser history  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser hover  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser identify  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser import  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser input  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser input_keyboard  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser input_mouse  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser input_touch  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser is  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser is-webview-focused  aliases=is_webview_focused
+  arg  arguments  kind=argument  completion=-
+command  browser keydown  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser keyup  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser network  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser new  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser offline  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser open  aliases=-
+  arg  --profile  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  browser open-split  aliases=-
+  arg  --profile  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  browser press  aliases=key
+  arg  arguments  kind=argument  completion=-
+command  browser profiles  aliases=profile
+  arg  arguments  kind=argument  completion=-
+command  browser react-grab  aliases=reactgrab
+  arg  arguments  kind=argument  completion=-
+command  browser reload  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser screencast  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser screenshot  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser scroll  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser scroll-into-view  aliases=scrollinto,scrollintoview
+  arg  arguments  kind=argument  completion=-
+command  browser select  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser snapshot  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser state  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser status  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser storage  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser tab  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser trace  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser type  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser uncheck  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser url  aliases=get-url
+  arg  arguments  kind=argument  completion=-
+command  browser viewport  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser wait  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser zoom  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser-back  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser-forward  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser-reload  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  browser-status  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  capabilities  aliases=-
   arg  arguments  kind=argument  completion=-
 command  close-surface  aliases=-
@@ -55,6 +200,8 @@ command  detach-tab  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  disable-browser  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  docs  aliases=-
   arg  arguments  kind=argument  completion=-
 command  drag-surface-to-split  aliases=-
@@ -65,6 +212,8 @@ command  drag-surface-to-split  aliases=-
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  direction  kind=argument  completion=list(down,left,right,up)
+command  enable-browser  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  feedback  aliases=-
   arg  arguments  kind=argument  completion=-
 command  find-window  aliases=-
@@ -83,10 +232,16 @@ command  focus-panel  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  focus-webview  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  focus-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  get-url  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  iroh-diag  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  is-webview-focused  aliases=-
   arg  arguments  kind=argument  completion=-
 command  last-pane  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
@@ -140,6 +295,8 @@ command  move-workspace-to-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  navigate  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  new-pane  aliases=-
   arg  --direction  kind=option  completion=list(down,left,right,up)
   arg  --focus  kind=option  completion=-
@@ -188,6 +345,8 @@ command  new-workspace  aliases=-
   arg  arguments  kind=argument  completion=-
 command  next-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  open-browser  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ping  aliases=-
   arg  arguments  kind=argument  completion=-
