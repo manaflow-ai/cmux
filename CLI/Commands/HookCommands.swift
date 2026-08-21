@@ -13,16 +13,6 @@ extension LegacyHookCommand {
 /// Preserves every argument after an agent-launching command for its downstream executable.
 private protocol AgentLauncherCommand: LegacyHookCommand {}
 
-extension AgentLauncherCommand {
-    static var configuration: CommandConfiguration {
-        CommandConfiguration(commandName: commandName, helpNames: [])
-    }
-
-    static var commandName: String {
-        fatalError("Agent launcher commands must provide a command name")
-    }
-}
-
 struct HooksCommand: LegacyHookCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "hooks", helpNames: [])
@@ -60,33 +50,33 @@ struct FeedHookCommand: LegacyHookCommand {
 
 struct ClaudeTeamsCommand: AgentLauncherCommand {
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
-    static let commandName = "claude-teams"
+    static let configuration = CommandConfiguration(commandName: "claude-teams", helpNames: [])
 }
 
 struct CodexTeamsCommand: AgentLauncherCommand {
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
-    static let commandName = "codex-teams"
+    static let configuration = CommandConfiguration(commandName: "codex-teams", helpNames: [])
 }
 
 /// Backward-compatible Codex hook installer entry point.
 struct CodexCommand: AgentLauncherCommand {
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
-    static let commandName = "codex"
+    static let configuration = CommandConfiguration(commandName: "codex", helpNames: [])
 }
 
 struct OMOCommand: AgentLauncherCommand {
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
-    static let commandName = "omo"
+    static let configuration = CommandConfiguration(commandName: "omo", helpNames: [])
 }
 
 struct OMXCommand: AgentLauncherCommand {
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
-    static let commandName = "omx"
+    static let configuration = CommandConfiguration(commandName: "omx", helpNames: [])
 }
 
 struct OMCCommand: AgentLauncherCommand {
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
-    static let commandName = "omc"
+    static let configuration = CommandConfiguration(commandName: "omc", helpNames: [])
 }
 
 struct AgentHibernationCommand: LegacyHookCommand {
