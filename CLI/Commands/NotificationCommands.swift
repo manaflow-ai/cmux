@@ -43,7 +43,7 @@ struct DismissNotificationCommand: LegacyNotificationCommand {
 
     static let configuration = CommandConfiguration(commandName: "dismiss-notification", helpNames: [])
 
-    mutating func validate() throws {
+    func run() throws {
         guard (id != nil) != allRead else {
             throw FacadeValidationError(
                 message: String(
@@ -53,6 +53,7 @@ struct DismissNotificationCommand: LegacyNotificationCommand {
                 command: Self.self
             )
         }
+        try GlobalOptions().makeCLI().run()
     }
 }
 
@@ -66,7 +67,7 @@ struct MarkNotificationReadCommand: NotificationTargetCommand {
 
     static let configuration = CommandConfiguration(commandName: "mark-notification-read", helpNames: [])
 
-    mutating func validate() throws {
+    func run() throws {
         let selectorCount = (id == nil ? 0 : 1) + (workspace == nil ? 0 : 1) + (all ? 1 : 0)
         guard selectorCount == 1 else {
             throw FacadeValidationError(
@@ -86,6 +87,7 @@ struct MarkNotificationReadCommand: NotificationTargetCommand {
                 command: Self.self
             )
         }
+        try GlobalOptions().makeCLI().run()
     }
 }
 
