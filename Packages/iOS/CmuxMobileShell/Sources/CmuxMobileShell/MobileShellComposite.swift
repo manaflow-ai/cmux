@@ -12677,7 +12677,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputAckResubscribeRetrySurfaceID = nil
     }
 
-    private static func terminalSnapshotReplacementBytes(
+    private nonisolated static func terminalSnapshotReplacementBytes(
         _ snapshotBytes: Data,
         activeScreen: MobileTerminalRenderGridFrame.Screen?
     ) -> Data {
@@ -13000,16 +13000,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ? MobileTerminalScrollbackPreference.resolve()
                         : 0
                 }
-                // Compatibility byte fallbacks do not carry the render-grid
-                // screen discriminator. Send the last screen that this
-                // surface actually delivered so the Mac can preserve an
-                // alternate-screen TUI's viewport when its grid capture is
-                // temporarily unavailable. This is advisory only; a full
-                // render-grid replay remains the authoritative replacement.
-                if let self,
-                   let activeScreen = self.terminalActiveScreenBySurfaceID[surfaceID] {
-                    params["known_active_screen"] = activeScreen.rawValue
-                }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
                     params: params
@@ -13071,6 +13061,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     replayBarrierTokenForRequest != nil
                         && self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
                 let replayHasAuthoritativeGrid = renderGrid?.full == true
+                var deliverCompatFallbackAsReplacement = false
                 if replacementRequiresAuthoritativeGrid && !replayHasAuthoritativeGrid {
                     MobileDebugLog.anchormux(
                         "CMUX_REPLAY non_authoritative_fallback surface=\(surfaceID) " +
@@ -13083,15 +13074,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         coveredReplayBarrierDroppedOutputCount:
                             coveredReplayBarrierDroppedOutputCountForRequest
                     )
-                    if !transferredInFlightToRetry {
+                    if transferredInFlightToRetry { return }
+                    let hasCompatFallbackBytes = snapshotBytes?.isEmpty == false
+                        || bytes?.isEmpty == false
+                    guard hasCompatFallbackBytes, self.hasTerminalOutputSink(surfaceID: surfaceID) else {
                         self.recordAppEvent(
                             .terminalReplayFailed,
                             correlationID: surfaceID,
                             startedAt: diagnosticStartedAt,
                             failure: .protocolViolation
                         )
+                        return
                     }
-                    return
+                    // The bounded retry budget is exhausted and the barrier has
+                    // failed open. The screen provably missed output, so install
+                    // the best available compatibility snapshot as a clearing
+                    // replacement rather than resuming live deltas on stale
+                    // state and discarding the payload in hand.
+                    deliverCompatFallbackAsReplacement = true
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY compat_fallback_replacement surface=\(surfaceID)"
+                    )
                 }
                 #if DEBUG
                 let seq = replaySeq ?? 0
@@ -13147,6 +13150,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         activeScreen: fallbackScreen
                     )
                     MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
+                } else if deliverCompatFallbackAsReplacement, let bytes, !bytes.isEmpty {
+                    // A raw tail appended to a screen that missed output would
+                    // interleave stale and new rows; as an exhausted-retry
+                    // replacement it gets the same clearing preamble as a VT
+                    // snapshot.
+                    deliverBytes = Self.terminalSnapshotReplacementBytes(
+                        bytes,
+                        activeScreen: fallbackScreen
+                    )
+                    MobileDebugLog.anchormux("CMUX_REPLAY raw_tail_replacement surface=\(surfaceID) bytes=\(bytes.count) seq=\(replaySeq ?? 0)")
                 } else {
                     deliverBytes = bytes
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
@@ -13258,6 +13271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         endSeq: replaySeq,
                         fullReplacement: snapshotBytes?.isEmpty == false
+                            || deliverCompatFallbackAsReplacement
                     )
                 } else if accepted {
                     self.consumeTerminalReplayFailureRetryAfterNoProgress(

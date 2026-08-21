@@ -146,3 +146,60 @@ import Testing
     #expect(String(data: recoveredChunk.data, encoding: .utf8) == "live-after-raw-fallback")
     #expect(recoveredChunk.streamToken != stalledChunk.streamToken)
 }
+
+@MainActor
+@Test func overloadRetryExhaustionInstallsBestEffortSnapshotReplacement() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayPayload(text: "cold-replay", sequence: nil)
+    // Every recovery attempt (the replacement request plus each bounded
+    // retry) returns only a VT snapshot; grid capture never succeeds.
+    for attempt in 0...MobileShellComposite.maxTerminalReplayFailureRetries {
+        await router.enqueueReplayPayload(
+            text: nil,
+            sequence: nil,
+            snapshotText: "snapshot-attempt-\(attempt)"
+        )
+    }
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+
+    store.deliverTerminalBytes(Data("stalled-apply".utf8), surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+    for index in 0..<TerminalOutputDeliveryQueue.maximumPendingCount {
+        #expect(store.deliverTerminalBytes(Data("queued-\(index)".utf8), surfaceID: surfaceID))
+    }
+    #expect(!store.deliverTerminalBytes(Data("overflow".utf8), surfaceID: surfaceID))
+
+    // Once the bounded retry budget is exhausted without an authoritative
+    // grid, the final snapshot must land as a clearing replacement instead
+    // of being discarded: the screen provably missed output.
+    let replacementChunk = try #require(await iterator.next())
+    let replacementText = String(decoding: replacementChunk.data, as: UTF8.self)
+    #expect(replacementText.hasPrefix("\u{1B}c"))
+    #expect(replacementText.contains(
+        "snapshot-attempt-\(MobileShellComposite.maxTerminalReplayFailureRetries)"
+    ))
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: replacementChunk.streamToken
+    )
+    let recoverySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(recoverySettled)
+
+    #expect(store.deliverTerminalBytes(Data("live-after-snapshot".utf8), surfaceID: surfaceID))
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-snapshot")
+}

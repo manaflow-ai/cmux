@@ -14941,12 +14941,6 @@ class TerminalController {
             v2String(params, "anchor") == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
             ? .screen
             : .viewport
-        // A VT/raw compatibility replay does not encode which Ghostty screen
-        // owns the exported rows. The iOS client supplies its last delivered
-        // screen as an advisory hint; a render-grid frame remains the
-        // authoritative source whenever capture succeeds.
-        let knownActiveScreen = v2String(params, "known_active_screen")
-            .flatMap(MobileTerminalRenderGridFrame.Screen.init(rawValue:))
         let scrollbackLines: Int
         if anchor == .screen {
             let requested = v2Int(params, "max_scrollback_rows")
@@ -15054,9 +15048,11 @@ class TerminalController {
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
             }
-            if let knownActiveScreen {
-                payload["active_screen"] = knownActiveScreen.rawValue
-            }
+            // No `active_screen` on compatibility fallbacks: the host has no
+            // authoritative screen source when grid capture fails, and echoing
+            // a client-supplied hint can go stale while the request is in
+            // flight. Omitting the field lets the client keep its currently
+            // tracked screen, which is always at least as fresh.
             payload["anchor"] = anchor.rawValue
             if !snapshotData.isEmpty {
                 payload["snapshot_format"] = "ghostty.active.vt"
