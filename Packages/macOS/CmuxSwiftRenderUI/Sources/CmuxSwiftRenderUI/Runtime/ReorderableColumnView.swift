@@ -118,8 +118,9 @@ struct ReorderableColumnView: View {
                 // Accordion: the slot's animating height masks the row at
                 // constant row height (fixedSize + clipped in
                 // ReorderableRowView, so no squish), and the row fades
-                // through the fold as it enters/leaves.
-                .transition(.opacity)
+                // quickly as it enters/leaves - the fade runs its own faster
+                // curve than the fold.
+                .transition(.opacity.animation(.easeOut(duration: 0.12)))
             }
         }
         // Animate DATA-driven structural changes (collapse/expand, external
