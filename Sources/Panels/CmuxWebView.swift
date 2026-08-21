@@ -1324,34 +1324,8 @@ final class CmuxWebView: WKWebView {
             || action == #selector(contextMenuDownloadLinkedFile(_:))
     }
 
-    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = comps.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
-        let candidates = ["imgurl", "mediaurl", "url", "q"]
-        for key in candidates {
-            guard let raw = map[key], !raw.isEmpty,
-                  let decoded = raw.removingPercentEncoding ?? raw as String?,
-                  let candidate = URL(string: decoded),
-                  isDownloadableScheme(candidate) else {
-                continue
-            }
-            return candidate
-        }
-        // Some links are wrapped as /url?...
-        if comps.path.lowercased() == "/url" {
-            for key in ["url", "q"] {
-                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
     private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        resolveGoogleRedirectURL(url) ?? url
+        BrowserDownloadURLNormalizer().normalize(url)
     }
 
     private func isLikelyFaviconURL(_ url: URL) -> Bool {
@@ -2514,15 +2488,18 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
-                    self.startContextMenuDownload(
-                        imageURL,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                    return
+                if let imageURL {
+                    let normalizedImageURL = self.normalizedLinkedDownloadURL(imageURL)
+                    if self.isDownloadableScheme(normalizedImageURL) {
+                        self.startContextMenuDownload(
+                            normalizedImageURL,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                        return
+                    }
                 }
                 if let imageURL, self.isDataURLScheme(imageURL) {
                     dataImageURL = imageURL
