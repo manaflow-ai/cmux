@@ -118,6 +118,22 @@ struct CmuxCommand: ParsableCommand {
             SendPanelCommand.self,
             SendKeyPanelCommand.self,
             TmuxCompatCommand.self,
+            HooksCommand.self,
+            SetupHooksCommand.self,
+            UninstallHooksCommand.self,
+            ClaudeHookCommand.self,
+            CodexHookCommand.self,
+            FeedHookCommand.self,
+            ClaudeTeamsCommand.self,
+            CodexTeamsCommand.self,
+            CodexCommand.self,
+            OMOCommand.self,
+            OMXCommand.self,
+            OMCCommand.self,
+            AgentHibernationCommand.self,
+            CoderouterCommand.self,
+            CodexTeamsWatchCommand.self,
+            CodexTeamsAppServerSupervisorCommand.self,
         ]
     )
 
