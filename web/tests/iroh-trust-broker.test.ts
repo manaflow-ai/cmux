@@ -69,6 +69,33 @@ describe("Iroh build compatibility", () => {
     expect(canIOSBindingUseMac(ios, stagingMac)).toBe(true);
   });
 
+  test("a tagged DEV iOS build may discover every tagged DEV Mac build", () => {
+    const ios = binding({
+      platform: "ios",
+      tag: "mdev",
+      clientNamespace: "dev.cmux.ios.mdev",
+    });
+    const siblingTags = ["msta", "mnyt", "cdial"];
+
+    for (const tag of siblingTags) {
+      expect(canIOSBindingUseMac(ios, binding({
+        platform: "mac",
+        tag,
+        clientNamespace: `mac:${tag}`,
+      }))).toBe(true);
+    }
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app",
+    }))).toBe(false);
+    expect(canIOSBindingForgetMac(ios, binding({
+      platform: "mac",
+      tag: "msta",
+      clientNamespace: "mac:msta",
+    }))).toBe(false);
+  });
+
   test("a legacy default-lane iOS binding may use default and nightly Macs", () => {
     const legacyIos = binding({
       platform: "ios",
