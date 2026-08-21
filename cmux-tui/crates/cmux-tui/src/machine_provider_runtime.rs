@@ -592,7 +592,7 @@ impl ProviderMachineRuntime {
                 .as_ref()
                 .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
             let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
-                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
+                if snapshot.machines.iter().any(|machine| machine.id.as_str() == machine_id) {
                     snapshot.selected_machine_id = Some(machine_id.clone());
                     true
                 } else {
