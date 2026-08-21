@@ -208,12 +208,15 @@ public final class GhosttySurfaceHostView: UIView {
         transition: MobileKeyboardTransition,
         durationOverride: TimeInterval? = nil
     ) {
-        // Flush layout that predates this keyboard leg so the animated pass
-        // below carries only keyboard motion.
-        layoutIfNeeded()
         keyboardTransitionGeneration &+= 1
         let generation = keyboardTransitionGeneration
         keyboardTransitionActive = true
+        // Flush layout that predates this keyboard leg so the animated pass
+        // below carries only keyboard motion. The transition flag is already
+        // set: the tracker observed this same notification first, so an
+        // unguarded flush would let the layout self-heal seat the dock at the
+        // new target instantly and the leg would animate nothing.
+        layoutIfNeeded()
         keyboardTargetHeight = max(0, targetHeight)
         surfaceView.beginHostedKeyboardTransition(isVisible: targetIsVisible)
 
