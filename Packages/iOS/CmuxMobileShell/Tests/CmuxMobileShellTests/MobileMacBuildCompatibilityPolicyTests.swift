@@ -15,6 +15,14 @@ import Testing
         #expect(!policy.allows(instanceTag: "default"))
         #expect(!policy.allows(instanceTag: "nightly"))
         #expect(!policy.allows(instanceTag: nil))
+        #expect(policy.allows(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.debug.sibling"
+        ))
+        #expect(!policy.allows(
+            instanceTag: "sibling",
+            clientNamespace: "mac:com.cmuxterm.app.staging.sibling"
+        ))
     }
 
     @Test func currentDevelopmentPolicyNeedsNoBuildMetadata() {

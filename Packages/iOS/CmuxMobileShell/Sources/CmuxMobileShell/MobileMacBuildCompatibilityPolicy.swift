@@ -34,14 +34,38 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     ///
     /// - Parameter instanceTag: The tag reported by authenticated host status.
     /// - Returns: `true` only when the Mac instance is compatible.
-    public func allows(instanceTag: String?) -> Bool {
+    public func allows(
+        instanceTag: String?,
+        clientNamespace: String? = nil
+    ) -> Bool {
         guard let normalizedTag = Self.normalized(instanceTag) else { return false }
         switch self {
         case .development:
+            if let clientNamespace,
+               clientNamespace != "legacy",
+               !Self.isDevelopmentMacNamespace(clientNamespace) {
+                return false
+            }
             return normalizedTag != "default" && normalizedTag != "nightly"
         case .official:
+            if let clientNamespace,
+               clientNamespace != "legacy",
+               !Self.isOfficialMacNamespace(clientNamespace) {
+                return false
+            }
             return normalizedTag == "default" || normalizedTag == "nightly"
         }
+    }
+
+    private static func isDevelopmentMacNamespace(_ value: String) -> Bool {
+        value == "mac:com.cmuxterm.app.debug"
+            || value.hasPrefix("mac:com.cmuxterm.app.debug.")
+    }
+
+    private static func isOfficialMacNamespace(_ value: String) -> Bool {
+        value == "mac:com.cmuxterm.app"
+            || value == "mac:com.cmuxterm.app.nightly"
+            || value.hasPrefix("mac:com.cmuxterm.app.nightly.")
     }
 
     /// Returns whether authenticated host status is compatible with this build.

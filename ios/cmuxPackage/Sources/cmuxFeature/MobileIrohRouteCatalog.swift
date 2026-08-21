@@ -174,7 +174,8 @@ public actor MobileIrohRouteCatalog {
                 instanceTag: identity.instanceTag ?? "",
                 routes: [route],
                 lastSeenAt: timestampParser.parse(binding.lastSeenAt),
-                capabilities: binding.capabilities
+                capabilities: binding.capabilities,
+                clientNamespace: binding.clientNamespace
             )
         }
     }
@@ -191,7 +192,12 @@ public actor MobileIrohRouteCatalog {
     ) -> [MobileDiscoveredIrohMac] {
         guard let limit else {
             return liveMacs
-                .filter { policy?.allows(instanceTag: $0.instanceTag) ?? true }
+                .filter {
+                    policy?.allows(
+                        instanceTag: $0.instanceTag,
+                        clientNamespace: $0.clientNamespace
+                    ) ?? true
+                }
                 .sorted { Self.candidateSortsBefore($0, $1, preferredTag: preferredTag) }
         }
         guard limit > 0 else { return [] }
@@ -202,7 +208,10 @@ public actor MobileIrohRouteCatalog {
         var best: [MobileDiscoveredIrohMac] = []
         best.reserveCapacity(min(limit, liveMacs.count))
         for candidate in liveMacs
-            where policy?.allows(instanceTag: candidate.instanceTag) ?? true {
+            where policy?.allows(
+                instanceTag: candidate.instanceTag,
+                clientNamespace: candidate.clientNamespace
+            ) ?? true {
             let insertionIndex = best.firstIndex {
                 Self.candidateSortsBefore(candidate, $0, preferredTag: preferredTag)
             } ?? best.endIndex
