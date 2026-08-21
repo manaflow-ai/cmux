@@ -23,7 +23,6 @@ struct VMCommand: LegacyVMCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "vm",
-        aliases: ["cloud"],
         subcommands: [
             VMBaseCommand.self,
             VMNewCommand.self,
@@ -44,7 +43,8 @@ struct VMCommand: LegacyVMCommand {
             VMSSHAttachCommand.self,
         ],
         defaultSubcommand: VMListCommand.self,
-        helpNames: []
+        helpNames: [],
+        aliases: ["cloud"]
     )
 }
 
@@ -82,23 +82,23 @@ struct VMNewCommand: LegacyVMCommand {
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "new", aliases: ["create"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "new", helpNames: [], aliases: ["create"])
 }
 
 struct VMListCommand: LegacyVMCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "ls", aliases: ["list"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "ls", helpNames: [], aliases: ["list"])
 }
 
 struct VMStatusCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
-    static let configuration = CommandConfiguration(commandName: "status", aliases: ["info"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "status", helpNames: [], aliases: ["info"])
 }
 
 struct VMSnapshotCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Option(name: .customLong("name")) var name: String?
-    static let configuration = CommandConfiguration(commandName: "snapshot", aliases: ["checkpoint"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "snapshot", helpNames: [], aliases: ["checkpoint"])
 }
 
 struct VMForkCommand: VMIDCommand {
@@ -119,7 +119,7 @@ struct VMRestoreCommand: LegacyVMCommand {
 
 struct VMRemoveCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
-    static let configuration = CommandConfiguration(commandName: "rm", aliases: ["destroy", "delete"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "rm", helpNames: [], aliases: ["destroy", "delete"])
 }
 
 struct VMExecCommand: VMIDCommand {
@@ -131,7 +131,7 @@ struct VMExecCommand: VMIDCommand {
 struct VMShellCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
-    static let configuration = CommandConfiguration(commandName: "shell", aliases: ["attach"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "shell", helpNames: [], aliases: ["attach"])
 }
 
 struct VMSSHCommand: VMIDCommand {
@@ -147,7 +147,7 @@ struct VMSSHInfoCommand: VMIDCommand {
 
 struct VMToolsCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
-    static let configuration = CommandConfiguration(commandName: "tools", aliases: ["tool-inspector"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "tools", helpNames: [], aliases: ["tool-inspector"])
 }
 
 struct VMPortsCommand: VMIDCommand {
@@ -176,16 +176,16 @@ struct RemotesCommand: LegacyVMCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(
         commandName: "remotes",
-        aliases: ["remote"],
         subcommands: [RemotesListCommand.self, RemotesAddCommand.self, RemotesRemoveCommand.self],
         defaultSubcommand: RemotesListCommand.self,
-        helpNames: []
+        helpNames: [],
+        aliases: ["remote"]
     )
 }
 
 struct RemotesListCommand: LegacyVMCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "list", aliases: ["ls"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [], aliases: ["ls"])
 }
 
 struct RemotesAddCommand: LegacyVMCommand {
@@ -197,7 +197,7 @@ struct RemotesAddCommand: LegacyVMCommand {
 
 struct RemotesRemoveCommand: LegacyVMCommand {
     @Argument var target: String?
-    static let configuration = CommandConfiguration(commandName: "remove", aliases: ["rm", "delete"], helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "remove", helpNames: [], aliases: ["rm", "delete"])
 }
 
 struct RemoteDaemonStatusCommand: LegacyVMCommand {
