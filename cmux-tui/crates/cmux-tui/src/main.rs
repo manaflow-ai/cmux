@@ -12,6 +12,7 @@ mod agent_hook_install;
 mod app;
 mod browser_input;
 mod cli;
+mod client_log;
 mod config;
 mod host_colors;
 mod keys;
@@ -55,7 +56,8 @@ mod remote_cli {
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
         );
@@ -747,11 +749,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
-                std::process::exit(0);
+                client_log::exit(0);
             }
             "-V" | "--version" => {
                 println!("cmux {}", version_string());
-                std::process::exit(0);
+                client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -766,7 +768,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     Ok(out)
 }
 
-fn version_string() -> String {
+pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
@@ -1374,10 +1376,18 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() {
+    run_main();
+    // Reached only by the normal return paths, which never call
+    // client_log::exit; flush so the last queued records (final status,
+    // shutdown diagnostics) reach the client log on every platform.
+    client_log::flush_for_exit();
+}
+
+fn run_main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        std::process::exit(agent_browser_provider::run());
+        client_log::exit(agent_browser_provider::run());
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
@@ -1386,48 +1396,55 @@ fn main() {
     // semantics.
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
-            eprintln!("cmux-tui terminal host: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
+            client_log::exit(1);
         }
         return;
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
-            eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: cannot protect machine-provider credentials: {error}"
+            );
+            client_log::exit(1);
         }
         discard_provider_secret_environment();
-        std::process::exit(config::run_ghostty_config_helper());
+        client_log::exit(config::run_ghostty_config_helper());
     }
     if let Err(error) = harden_provider_secret_process() {
-        eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: cannot protect machine-provider credentials: {error}"
+        );
+        client_log::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
-        std::process::exit(1);
+        client_log::exit(1);
     }
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
-        std::process::exit(exit_code);
+        client_log::exit(exit_code);
     }
     if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
-        eprintln!("cmux-tui: {error}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+        client_log::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(remote_cli::run(&raw_args, &usage()));
+        client_log::exit(remote_cli::run(&raw_args, &usage()));
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
-            eprintln!("cmux-tui: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            client_log::exit(1);
         }
         return;
     }
@@ -1435,11 +1452,15 @@ fn main() {
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
-            eprintln!("cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
             if error.show_help() {
-                eprintln!("{}", localization::catalog().machine_agent.help);
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "{}",
+                    localization::catalog().machine_agent.help
+                );
             }
-            std::process::exit(1);
+            client_log::exit(1);
         }
         return;
     }
@@ -1449,7 +1470,7 @@ fn main() {
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(cli::run(&raw_args, &usage()));
+        client_log::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -1500,8 +1521,8 @@ fn main() {
         None => run_server(args, provider_workspace_authority),
     };
     if let Err(e) = result {
-        eprintln!("cmux-tui: {e}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!("startup", "cmux-tui: {e}");
+        client_log::exit(1);
     }
 }
 
@@ -1950,14 +1971,15 @@ fn run_server(
                 return Err(error);
             }
         };
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
             runtime.info().link_socket.display(),
             runtime.info().admin_socket.display()
         );
         for route in &runtime.info().routes {
-            eprintln!("cmux-tui: remote route {route}");
+            crate::client_log::stderr_log!("startup", "cmux-tui: remote route {route}");
         }
         Some(runtime)
     } else {
@@ -1991,7 +2013,11 @@ fn run_server(
         }
     };
     if let Some(server) = &websocket_server {
-        eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: WebSocket control at ws://{}",
+            server.local_addr()
+        );
     }
     let served_socket = pending_server.into_bound_path();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2436,7 +2462,7 @@ fn run_tui_once(
     let color_result = publish_session_default_colors(&session, colors, surface_only);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {
-        eprintln!("cmux-tui: failed to set default colors: {err}");
+        crate::client_log::stderr_log!("startup", "cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
     app::run_with_machine_updates(
@@ -2458,7 +2484,11 @@ fn run_headless<F>(
 where
     F: Fn() -> bool,
 {
-    eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
+    crate::client_log::stderr_log!(
+        "startup",
+        "cmux-tui: headless, control socket at {}",
+        socket_path.display()
+    );
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
@@ -2480,8 +2510,8 @@ where
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux: {msg}\n\n{}", usage());
-    std::process::exit(2);
+    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    client_log::exit(2);
 }
 
 #[cfg(all(test, unix))]
