@@ -168,6 +168,9 @@ fn drain_stderr_pipe(deadline: std::time::Duration) {
     }
 }
 
+/// Unix only, like the redirect itself: off Unix stderr is never redirected,
+/// so exit-time diagnostics still echo to the terminal even if the final
+/// queued records miss the disk.
 #[cfg(unix)]
 extern "C" fn flush_at_exit() {
     // First let the pump catch up with the pipe (a panic message written to
@@ -398,6 +401,11 @@ pub(crate) fn redirect_stderr_into_log() {
 
 /// Undo `redirect_stderr_into_log` when the terminal is restored to the user.
 pub(crate) fn restore_stderr_from_log() {
+    // Drain the pipe before giving fd 2 back: bytes written moments ago
+    // (a library's parting error) may not have reached the pump yet, and
+    // clearing the flag first would skip the barrier.
+    #[cfg(unix)]
+    drain_stderr_pipe(std::time::Duration::from_millis(250));
     if !STDERR_REDIRECTED.swap(false, Ordering::AcqRel) {
         return;
     }
