@@ -18,7 +18,7 @@ struct ListWorkspacesCommand: LegacyWorkspaceCommand {
 struct NewWorkspaceCommand: LegacyWorkspaceCommand {
     @Option(name: .customLong("name")) var name: String?
     @Option(name: .customLong("description")) var description: String?
-    @Option(name: .customLong("cwd"), completion: .directory()) var cwd: String?
+    @Option(name: .customLong("cwd"), completion: .directory) var cwd: String?
     @Option(name: .customLong("command")) var command: String?
     @Option(name: .customLong("env")) var environment: [String] = []
     @Option(name: .customLong("env-file"), completion: .file()) var environmentFiles: [String] = []
