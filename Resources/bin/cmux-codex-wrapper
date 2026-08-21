@@ -274,11 +274,11 @@ cmux_codex_read_inject_args() {
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         while IFS= read -r -d '' arg; do
             cmux_codex_injected_args+=("$arg")
-        done < <("$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" hooks codex inject-args 2>/dev/null)
+        done < <("$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" hooks codex inject-args </dev/null 2>/dev/null)
     else
         while IFS= read -r -d '' arg; do
             cmux_codex_injected_args+=("$arg")
-        done < <("$CMUX_INJECT_CLI" hooks codex inject-args 2>/dev/null)
+        done < <("$CMUX_INJECT_CLI" hooks codex inject-args </dev/null 2>/dev/null)
     fi
     (( ${#cmux_codex_injected_args[@]} > 0 )) || return 1
     return 0

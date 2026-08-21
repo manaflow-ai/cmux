@@ -34,6 +34,7 @@ def run_wrapper(
     hooks_disabled: bool = False,
     restore_token: str | None = None,
     inject_args_available: bool = True,
+    inject_args_reads_stdin: bool = False,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -87,6 +88,11 @@ if [[ "${1:-}" == "ping" ]]; then
   exit
 fi
 if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "inject-args" ]]; then
+  if [[ "${FAKE_INJECT_ARGS_READS_STDIN:-0}" == "1" ]]; then
+    # Simulates an older cmux binary treating unknown subcommand as hook payload input.
+    cat >/dev/null
+    exit 1
+  fi
   [[ "${FAKE_INJECT_ARGS_AVAILABLE:-1}" == "1" ]] || exit 1
   printf '%s\\0' \
     '--enable' \
@@ -123,6 +129,7 @@ exit 1
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_SOCKET_STATE"] = socket_state
         env["FAKE_INJECT_ARGS_AVAILABLE"] = "1" if inject_args_available else "0"
+        env["FAKE_INJECT_ARGS_READS_STDIN"] = "1" if inject_args_reads_stdin else "0"
         if hooks_disabled:
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
@@ -291,6 +298,20 @@ def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
     expect(cmux_log == [], f"help: expected no cmux calls, got {cmux_log}", failures)
 
 
+def test_legacy_cli_stdin_read_does_not_hang(failures: list[str]) -> None:
+    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="missing",
+        argv=["resume"],
+        inject_args_reads_stdin=True,
+    )
+    expect(code == 0, f"legacy-cli-stdin: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["resume"], f"legacy-cli-stdin: original argv changed: {real_argv}", failures)
+    expect(any("hooks codex inject-args" in line for line in cmux_log),
+           f"legacy-cli-stdin: injection was never attempted: {cmux_log}", failures)
+    expect(observed_env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
+           f"legacy-cli-stdin: surface binding was stripped: {observed_env}", failures)
+
+
 def main() -> int:
     failures: list[str] = []
     test_every_resume_route_is_instrumented(failures)
@@ -300,6 +321,7 @@ def main() -> int:
     test_restore_tokens_do_not_gate_instrumentation(failures)
     test_injection_failure_preserves_cmux_context(failures)
     test_non_session_command_still_bypasses_hooks(failures)
+    test_legacy_cli_stdin_read_does_not_hang(failures)
     if failures:
         print("FAIL: Codex session-entrypoint wrapper reliability checks failed")
         for failure in failures:
