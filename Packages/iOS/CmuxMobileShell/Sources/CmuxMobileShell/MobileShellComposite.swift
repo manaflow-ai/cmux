@@ -9607,7 +9607,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return authorizedTailscale
         }
-        return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
+        // The Iroh method is just as strict as Tailscale Only: no raw
+        // host/port fallback, ever. Debug loopback stays dialable as the
+        // dev-build convenience (compiled out of production route sets).
+        if !irohRoutes.isEmpty {
+            return irohRoutes
+        }
+        return supportedRoutes.filter { $0.kind == .debugLoopback }
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.

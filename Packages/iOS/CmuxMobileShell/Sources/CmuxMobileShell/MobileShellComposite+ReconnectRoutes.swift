@@ -267,7 +267,11 @@ extension MobileShellComposite {
         if !irohRoutes.isEmpty {
             return irohRoutes
         }
-        return ordered
+        // The Iroh method never falls back to raw host/port routes: a pairing
+        // without an Iroh identity stays disconnected until the user either
+        // upgrades the Mac or selects Tailscale for it. Debug loopback remains
+        // the dev-build convenience.
+        return ordered.filter { $0.kind == .debugLoopback }
     }
 
     /// The dial order for one stored Mac, honoring the user's connection-method
