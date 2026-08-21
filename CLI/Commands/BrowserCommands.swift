@@ -166,6 +166,25 @@ struct BrowserGotoCommand: LegacyBrowserCommand {
     static let configuration = CommandConfiguration(commandName: "goto", helpNames: [], aliases: ["navigate"])
 }
 
+/// Browser navigation verbs that optionally emit a post-navigation snapshot.
+struct BrowserBackCommand: LegacyBrowserCommand {
+    @Flag(name: .customLong("snapshot-after")) var snapshotAfter = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "back", helpNames: [])
+}
+
+struct BrowserForwardCommand: LegacyBrowserCommand {
+    @Flag(name: .customLong("snapshot-after")) var snapshotAfter = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "forward", helpNames: [])
+}
+
+struct BrowserReloadCommand: LegacyBrowserCommand {
+    @Flag(name: .customLong("snapshot-after")) var snapshotAfter = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "reload", helpNames: [])
+}
+
 struct BrowserSnapshotCommand: LegacyBrowserCommand {
     @OptionGroup var options: BrowserSnapshotOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -492,9 +511,6 @@ private typealias BrowserDisableCommand = BrowserLeaf<BrowserDisable>
 private typealias BrowserEnableCommand = BrowserLeaf<BrowserEnable>
 private typealias BrowserStatusCommand = BrowserLeaf<BrowserStatus>
 private typealias BrowserNewCommand = BrowserLeaf<BrowserNew>
-private typealias BrowserBackCommand = BrowserLeaf<BrowserBack>
-private typealias BrowserForwardCommand = BrowserLeaf<BrowserForward>
-private typealias BrowserReloadCommand = BrowserLeaf<BrowserReload>
 private typealias BrowserURLCommand = BrowserLeaf<BrowserURL>
 private typealias BrowserFocusWebviewCommand = BrowserLeaf<BrowserFocusWebview>
 private typealias BrowserWebviewFocusedCommand = BrowserLeaf<BrowserWebviewFocused>
