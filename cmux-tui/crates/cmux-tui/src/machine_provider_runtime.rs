@@ -1159,8 +1159,7 @@ impl ProviderMachineRuntime {
                         // ids while no snapshot prunes the map. Clearing
                         // drops only coalescing state: an update already
                         // queued still delivers through its own Arc.
-                        if progress_cells.len() >= 128
-                            && !progress_cells.contains_key(&machine_id)
+                        if progress_cells.len() >= 128 && !progress_cells.contains_key(&machine_id)
                         {
                             progress_cells.clear();
                         }
