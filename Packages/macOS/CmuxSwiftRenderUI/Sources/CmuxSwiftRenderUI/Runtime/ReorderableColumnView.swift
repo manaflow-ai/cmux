@@ -431,18 +431,18 @@ private struct ReorderableRowView: View {
             // The shape matches the row's own box (its corner radius, inset
             // by its leading margin).
             .background {
-                if moves {
-                    // A STABLE fill, deliberately not a material: a material
-                    // resamples whatever the row passes over mid-drag, which
-                    // reads as color flashing. The theme window background
-                    // keeps the row readable and constant; authors override
-                    // with a dragBackground color token.
+                // No backdrop by default: the row must look exactly as it
+                // does at rest while dragging (its background must not
+                // change). A sidebar that wants a fill under the lifted row
+                // opts in with a dragBackground color token (stable color,
+                // never a material - materials resample what they pass over
+                // and flash).
+                if moves, let fill = dslColor(store?.node(childId)?.string("dragBackground")) {
                     RoundedRectangle(
                         cornerRadius: CGFloat(store?.node(childId)?.double("cornerRadius") ?? 8),
                         style: .continuous
                     )
-                    .fill(dslColor(store?.node(childId)?.string("dragBackground"))
-                        ?? Color(nsColor: .windowBackgroundColor))
+                    .fill(fill)
                     .padding(.leading, CGFloat(store?.node(childId)?.double("marginLeading") ?? 0))
                 }
             }
