@@ -21,6 +21,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private let service: String
     private let accessGroup: String?
     private let legacyProjectID: String?
+    /// The Stack project this store's slot belongs to. Non-nil keys the
+    /// account names per project (`cmux-auth-access-token.<projectID>`), so a
+    /// parked session for one backend environment survives while another is
+    /// active. `nil` preserves the historical single-slot account names.
+    private let projectID: String?
     private let log = AuthDebugLog()
 
     private var cachedAccessToken: String?
@@ -33,14 +38,36 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     ///   - accessGroup: The app's exact signed Keychain access group.
     ///   - legacyProjectID: The Stack project whose older account-only items
     ///     may be adopted from this same access group.
+    ///   - projectID: The Stack project keying this store's per-project token
+    ///     slot; `nil` keeps the historical single-slot behavior.
     public init(
         service: String,
         accessGroup: String? = nil,
-        legacyProjectID: String? = nil
+        legacyProjectID: String? = nil,
+        projectID: String? = nil
     ) {
         self.service = service
         self.accessGroup = accessGroup
         self.legacyProjectID = legacyProjectID
+        self.projectID = projectID
+    }
+
+    /// The Keychain account name for one token slot. A non-nil `projectID`
+    /// suffixes the base account (`<base>.<projectID>`) so each Stack project
+    /// gets its own slot inside the bundle-scoped service; `nil` (or empty)
+    /// returns the base account unchanged, matching every pre-per-project
+    /// install.
+    public static func account(base: String, projectID: String?) -> String {
+        guard let projectID, !projectID.isEmpty else { return base }
+        return "\(base).\(projectID)"
+    }
+
+    private var accessTokenAccountName: String {
+        Self.account(base: Self.accessTokenAccount, projectID: projectID)
+    }
+
+    private var refreshTokenAccountName: String {
+        Self.account(base: Self.refreshTokenAccount, projectID: projectID)
     }
 
     /// The keychain service name auth tokens are stored under, namespaced by
@@ -57,7 +84,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     public func getStoredAccessToken() async -> String? {
         if let cachedAccessToken { return cachedAccessToken }
         return readOrAdoptLegacyToken(
-            account: Self.accessTokenAccount,
+            account: accessTokenAccountName,
+            unsuffixedLegacyAccount: Self.accessTokenAccount,
             legacyAccount: legacyProjectID.map { "stack-auth-access-\($0)" }
         )
     }
@@ -65,7 +93,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     public func getStoredRefreshToken() async -> String? {
         if let cachedRefreshToken { return cachedRefreshToken }
         return readOrAdoptLegacyToken(
-            account: Self.refreshTokenAccount,
+            account: refreshTokenAccountName,
+            unsuffixedLegacyAccount: Self.refreshTokenAccount,
             legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
         )
     }
@@ -84,24 +113,30 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
         var allOK = true
         if let accessToken, !accessToken.isEmpty {
-            allOK = keychainWrite(accessToken, account: Self.accessTokenAccount) && allOK
+            allOK = keychainWrite(accessToken, account: accessTokenAccountName) && allOK
         } else {
-            keychainDelete(account: Self.accessTokenAccount)
+            keychainDelete(account: accessTokenAccountName)
         }
         if let refreshToken, !refreshToken.isEmpty {
-            allOK = keychainWrite(refreshToken, account: Self.refreshTokenAccount) && allOK
+            allOK = keychainWrite(refreshToken, account: refreshTokenAccountName) && allOK
         } else {
-            keychainDelete(account: Self.refreshTokenAccount)
+            keychainDelete(account: refreshTokenAccountName)
         }
         return allOK
     }
 
+    /// Clears this store's OWN slot plus both legacy tiers it may adopt from
+    /// (the un-suffixed single-slot accounts and the old SDK's account-only
+    /// items). Another project's suffixed slot is deliberately untouched, so
+    /// signing out of one backend environment never destroys a session parked
+    /// for the other.
     public func clearTokens() async {
         log.log("clearTokens called")
         cachedAccessToken = nil
         cachedRefreshToken = nil
-        keychainDelete(account: Self.accessTokenAccount)
-        keychainDelete(account: Self.refreshTokenAccount)
+        keychainDelete(account: accessTokenAccountName)
+        keychainDelete(account: refreshTokenAccountName)
+        deleteUnsuffixedLegacyTokens()
         deleteLegacyTokens()
     }
 
@@ -109,11 +144,13 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let snapshot = AuthTokenSnapshot(
             accessToken: readOrAdoptLegacyToken(
-                account: Self.accessTokenAccount,
+                account: accessTokenAccountName,
+                unsuffixedLegacyAccount: Self.accessTokenAccount,
                 legacyAccount: legacyProjectID.map { "stack-auth-access-\($0)" }
             ),
             refreshToken: readOrAdoptLegacyToken(
-                account: Self.refreshTokenAccount,
+                account: refreshTokenAccountName,
+                unsuffixedLegacyAccount: Self.refreshTokenAccount,
                 legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
             )
         )
@@ -137,7 +174,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         newAccessToken: String?
     ) async {
         let current = readOrAdoptLegacyToken(
-            account: Self.refreshTokenAccount,
+            account: refreshTokenAccountName,
+            unsuffixedLegacyAccount: Self.refreshTokenAccount,
             legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
         )
         let matches = current == compareRefreshToken
@@ -152,10 +190,24 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 #if canImport(Security)
     private func readOrAdoptLegacyToken(
         account: String,
+        unsuffixedLegacyAccount: String,
         legacyAccount: String?
     ) -> String? {
         if let current = keychainRead(account: account) {
             return current
+        }
+        // Un-suffixed legacy tier: the single-slot account name every install
+        // used before per-project slots. It lives in this store's own
+        // bundle-scoped service, so no access-group gate is needed (unlike
+        // the SDK tier below), and its owner is by construction the
+        // last-resolved project — which is exactly this store's project,
+        // because an organic project flip clears the store before any read.
+        // Adopt it into the suffixed slot and delete the un-suffixed item.
+        if account != unsuffixedLegacyAccount,
+           let unsuffixed = keychainRead(account: unsuffixedLegacyAccount),
+           keychainWrite(unsuffixed, account: account) {
+            keychainDelete(account: unsuffixedLegacyAccount)
+            return unsuffixed
         }
         // Legacy account-only items are ambiguous without the exact signed
         // access group. Never let a caller using the current-token-only API
@@ -168,6 +220,15 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         }
         keychainDeleteLegacy(account: legacyAccount)
         return legacy
+    }
+
+    /// Deletes the un-suffixed single-slot legacy items this store may adopt
+    /// from. A no-op for a store with no `projectID` (its own slot IS the
+    /// un-suffixed account, already deleted by the caller).
+    private func deleteUnsuffixedLegacyTokens() {
+        guard accessTokenAccountName != Self.accessTokenAccount else { return }
+        keychainDelete(account: Self.accessTokenAccount)
+        keychainDelete(account: Self.refreshTokenAccount)
     }
 
     private func deleteLegacyTokens() {
@@ -264,7 +325,12 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         _ = SecItemDelete(legacyBaseQuery(account: account) as CFDictionary)
     }
 #else
-    private func readOrAdoptLegacyToken(account: String, legacyAccount: String?) -> String? { nil }
+    private func readOrAdoptLegacyToken(
+        account: String,
+        unsuffixedLegacyAccount: String,
+        legacyAccount: String?
+    ) -> String? { nil }
+    private func deleteUnsuffixedLegacyTokens() {}
     private func deleteLegacyTokens() {}
     private func keychainRead(account: String) -> String? { nil }
     private func keychainWrite(_ value: String, account: String) -> Bool { false }

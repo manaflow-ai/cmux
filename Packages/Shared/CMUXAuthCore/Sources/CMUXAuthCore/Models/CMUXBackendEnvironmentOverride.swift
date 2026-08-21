@@ -50,4 +50,12 @@ public enum CMUXBackendEnvironmentOverride: String, CaseIterable, Codable, Senda
         case .staging: .development
         }
     }
+
+    /// Whether entering this environment requires an established, eligible
+    /// session before the switch may complete. Staging gates (a verified
+    /// team session, or DEBUG); production NEVER gates, so switching back is
+    /// always possible — the switch transaction's revert path relies on this.
+    public var requiresGatedSession: Bool {
+        self == .staging
+    }
 }

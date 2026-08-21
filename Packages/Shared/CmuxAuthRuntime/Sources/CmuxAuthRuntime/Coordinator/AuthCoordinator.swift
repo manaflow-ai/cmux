@@ -704,7 +704,9 @@ public final class AuthCoordinator {
         apply(.cleared())
     }
 
-    private func advanceSessionGeneration(notifySessionWillTransition: Bool = true) {
+    /// Internal (not private): the detach flow in `AuthCoordinator+Detach`
+    /// advances the generation with the same announce semantics as sign-out.
+    func advanceSessionGeneration(notifySessionWillTransition: Bool = true) {
         if notifySessionWillTransition {
             onSessionWillTransition()
         }

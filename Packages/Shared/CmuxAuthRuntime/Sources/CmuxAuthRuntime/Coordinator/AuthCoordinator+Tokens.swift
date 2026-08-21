@@ -1,4 +1,5 @@
-internal import CMUXAuthCore
+// `public`: ``waitForNextSignedInUser()`` returns ``CMUXAuthUser``.
+public import CMUXAuthCore
 import Foundation
 import OSLog
 
@@ -490,6 +491,29 @@ public extension AuthCoordinator {
         _ identity: AuthenticatedSessionIdentity
     ) -> Bool {
         publishedAuthenticatedSessionIdentity == identity
+    }
+
+    /// The signed-in user, waiting for one to be published when none is yet.
+    ///
+    /// Returns ``currentUser`` immediately when a session is already
+    /// authenticated; otherwise suspends on the identity stream until the
+    /// next non-nil identity is published (a sign-in or restore completing)
+    /// and returns the user it named. Returns `nil` only when the awaiting
+    /// task is cancelled before a session is published — there is no
+    /// timeout here; callers that need a deadline own it.
+    ///
+    /// Used by the backend-environment switch's `promptSignIn`/
+    /// `awaitRestoredUser` platform steps, which need an awaitable "the next
+    /// user, whoever signs in" rather than a poll.
+    func waitForNextSignedInUser() async -> CMUXAuthUser? {
+        if isAuthenticated, let currentUser { return currentUser }
+        for await identity in authenticatedSessionIdentities() {
+            guard identity != nil else { continue }
+            return currentUser
+        }
+        // The stream finished without a signed-in identity: the awaiting
+        // task was cancelled.
+        return nil
     }
 }
 
