@@ -82,12 +82,32 @@ struct Sink {
     path: PathBuf,
 }
 
+/// Append-mode open options for the log file. The log captures raw stderr
+/// (panics, provider child output), which can carry credentials, so the file
+/// is created owner-only on Unix.
+fn append_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+}
+
 fn open_sink() -> Option<Sink> {
     let path = platform::client_log_path()?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).ok()?;
     }
-    let file = OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    let file = append_options().open(&path).ok()?;
+    // Files created by older builds may be group/world readable; tighten them.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
     Some(Sink { file, path })
 }
 
@@ -150,7 +170,7 @@ fn write_record(sink: &mut Sink, record: &Record) {
         return;
     }
     if !handle_is_current(&sink.file, &sink.path) {
-        let Ok(fresh) = OpenOptions::new().create(true).append(true).open(&sink.path) else {
+        let Ok(fresh) = append_options().open(&sink.path) else {
             unlock(&sink.file);
             return;
         };
@@ -174,7 +194,7 @@ fn write_record(sink: &mut Sink, record: &Record) {
         if size >= MAX_ACTIVE_BYTES {
             let _ = sink.file.flush();
             let _ = fs::rename(&sink.path, rollover_path(&sink.path));
-            if let Ok(file) = OpenOptions::new().create(true).append(true).open(&sink.path) {
+            if let Ok(file) = append_options().open(&sink.path) {
                 let old = std::mem::replace(&mut sink.file, file);
                 unlock(&old);
                 return;
@@ -386,6 +406,21 @@ mod tests {
     #[test]
     fn sanitize_collapses_control_characters() {
         assert_eq!(sanitize("a\nb\x1b[31mc\t d "), "a b [31mc\t d");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn log_file_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("cmux-tui-log-mode-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("client.log");
+        let _ = fs::remove_file(&path);
+        drop(append_options().open(&path).unwrap());
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        fs::remove_file(&path).unwrap();
+        let _ = fs::remove_dir(&dir);
+        assert_eq!(mode, 0o600, "log must not be readable by other users");
     }
 
     #[test]
