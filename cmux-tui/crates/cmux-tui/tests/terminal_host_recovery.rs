@@ -48,6 +48,8 @@ struct RecoveryHarness {
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
+    host_reader_stall_ms: Option<u64>,
+    liveness_sweep_ms: Option<u64>,
 }
 
 impl RecoveryHarness {
@@ -64,6 +66,8 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            host_reader_stall_ms: None,
+            liveness_sweep_ms: None,
             dir,
         };
         harness.restart();
@@ -122,6 +126,8 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            host_reader_stall_ms: None,
+            liveness_sweep_ms: None,
             dir,
         }
     }
@@ -151,6 +157,12 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
+        }
+        if let Some(stall_ms) = self.host_reader_stall_ms {
+            command.env("CMUX_TUI_TEST_HOST_READER_STALL_MS", stall_ms.to_string());
+        }
+        if let Some(sweep_ms) = self.liveness_sweep_ms {
+            command.env("CMUX_TUI_HOST_LIVENESS_SWEEP_MS", sweep_ms.to_string());
         }
         command
     }
@@ -3154,6 +3166,53 @@ fn reconnect_keeps_watching_a_live_locked_host_and_commits_its_later_death() {
         &terminal_id,
         deadline,
         "liveness released after backoff budget",
+    );
+}
+
+/// The production incident shape: the host process family dies but the
+/// daemon's per-terminal reader thread is wedged (stalled in journal or lock
+/// work), so the socket EOF is never observed. Nothing else watches host
+/// liveness at runtime, so the terminal stays "running" for hours while
+/// attach clients freeze on the last frame and swallow input. A periodic
+/// daemon-side liveness sweep must commit the durable exit independently of
+/// the reader thread.
+#[test]
+fn host_death_with_a_stalled_reader_is_committed_by_the_liveness_sweep() {
+    let mut harness = RecoveryHarness::start_unstarted("stalled-reader-sweep");
+    harness.host_reader_stall_ms = Some(180_000);
+    harness.liveness_sweep_ms = Some(500);
+    harness.restart();
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (_record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    // Produce one output frame so the reader thread processes it and then
+    // stalls (the injected wedge).
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"send","surface":surface,"text":"ping\n",
+        }),
+    );
+    // Give the echo time to reach and wedge the reader.
+    std::thread::sleep(test_timeout(Duration::from_secs(2)));
+
+    // SAFETY: the record PID is the harness-owned terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    wait_for_terminal_exit_commit(
+        &harness.socket,
+        &terminal_id,
+        deadline,
+        "host SIGKILL with a wedged reader thread",
     );
 }
 

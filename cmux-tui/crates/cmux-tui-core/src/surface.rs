@@ -2968,6 +2968,18 @@ impl Surface {
                 let mut smart_renderer = smart_renderer;
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
+                // Test-only fault injection: after the first output frame is
+                // fully processed, stall this reader thread once, simulating
+                // a wedged reader that never observes its host's death.
+                #[cfg(debug_assertions)]
+                let mut test_reader_stall_after_output =
+                    std::env::var("CMUX_TUI_TEST_HOST_READER_STALL_MS")
+                        .ok()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .filter(|ms| *ms > 0)
+                        .map(Duration::from_millis);
+                #[cfg(debug_assertions)]
+                let mut test_reader_saw_output = false;
                 'connection: loop {
                     let pty = surface.as_pty().expect("host reader owns a PTY surface");
                     let mut stager = HostedFrameStager::new_for_version(
@@ -2980,6 +2992,12 @@ impl Surface {
                     let mut journal_target = None;
                     let mut journal_update = None;
                     'host_stream: loop {
+                        #[cfg(debug_assertions)]
+                        if test_reader_saw_output
+                            && let Some(stall) = test_reader_stall_after_output.take()
+                        {
+                            std::thread::sleep(stall);
+                        }
                         if journal_update.is_none() {
                             journal_target = pty.journal_target();
                             journal_update = journal_target
@@ -3051,6 +3069,10 @@ impl Surface {
                                     }
                                     _ => unreachable!(),
                                 };
+                                #[cfg(debug_assertions)]
+                                {
+                                    test_reader_saw_output = true;
+                                }
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
                                 let defaults = mux
