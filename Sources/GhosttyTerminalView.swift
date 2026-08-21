@@ -8465,7 +8465,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// document reflow may move AppKit bounds transiently, but they never write
     /// this state; only user scroll gestures, explicit restores, and
     /// authoritative Ghostty scrollbar packets do.
-    var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
+    private(set) var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8941,7 +8941,10 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
-            queue: .main
+            // Scrollbar publications are emitted by the main-thread flush or
+            // the main-thread wheel handler. Synchronous delivery preserves
+            // packet ordering while the intent transition is pending.
+            queue: nil
         ) { [weak self] notification in
             self?.handleScrollbarUpdate(notification)
         })
@@ -8973,7 +8976,10 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
-            queue: .main
+            // Every producer is ``GhosttyNSView.scrollWheel`` on the main
+            // thread. Do not enqueue this arm operation: the following
+            // authoritative snapshot must observe the new intent.
+            queue: nil
         ) { [weak self] notification in
             MainActor.assumeIsolated {
                 guard let self else { return }
