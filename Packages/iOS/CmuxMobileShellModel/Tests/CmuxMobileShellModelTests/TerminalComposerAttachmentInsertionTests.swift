@@ -1,6 +1,5 @@
-#if os(iOS)
 import Testing
-@testable import CmuxMobileShellUI
+@testable import CmuxMobileShellModel
 
 @Suite struct TerminalComposerAttachmentInsertionTests {
     @Test func quotesMacPathsAndSeparatesThemFromExistingDraftText() {
@@ -24,4 +23,3 @@ import Testing
         #expect(insertion.appending(to: "") == "'/tmp/image.png' ")
     }
 }
-#endif

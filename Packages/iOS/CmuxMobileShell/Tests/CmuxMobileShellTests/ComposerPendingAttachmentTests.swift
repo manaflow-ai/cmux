@@ -500,4 +500,68 @@ import Testing
 
         #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
     }
+
+    @Test func fileAddStagesKindFileWithDisplayName() {
+        let composite = Self.makeComposite()
+        let id = composite.addPendingFileAttachment(
+            Self.bytes("file"),
+            fileExtension: "PDF",
+            displayName: "Design Notes.pdf",
+            forTerminalID: "term-a"
+        )
+        #expect(id != nil)
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.count == 1)
+        #expect(staged.first?.kind == .file)
+        #expect(staged.first?.displayName == "Design Notes.pdf")
+        // Extension hint is normalized to lowercase for the Mac side.
+        #expect(staged.first?.format == "pdf")
+    }
+
+    /// A file between the per-image cap (8 MB) and the per-file cap (32 MB) is
+    /// accepted as a file even though the same bytes would be rejected as an
+    /// image — the per-item cap is kind-specific.
+    @Test func fileLargerThanImageCapIsAcceptedUpToFileCap() {
+        let composite = Self.makeComposite()
+        let overImageCap = Data(count: MobileShellComposite.maxPendingAttachmentImageBytes + 1)
+
+        #expect(composite.addPendingAttachment(overImageCap, format: "png", forTerminalID: "term-a") == nil)
+        #expect(composite.addPendingFileAttachment(
+            overImageCap,
+            fileExtension: "zip",
+            displayName: "big.zip",
+            forTerminalID: "term-a"
+        ) != nil)
+    }
+
+    @Test func fileOverFileCapIsRejected() {
+        let composite = Self.makeComposite()
+        let overFileCap = Data(count: MobileShellComposite.maxPendingAttachmentFileBytes + 1)
+
+        #expect(composite.addPendingFileAttachment(
+            overFileCap,
+            fileExtension: "zip",
+            displayName: "huge.zip",
+            forTerminalID: "term-a"
+        ) == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    /// The session-guarded file add shares the image path's sign-out semantics:
+    /// a generation bump while the file was being staged drops the stale bytes.
+    @Test func guardedFileAddDroppedAfterSignOutGenerationBump() {
+        let composite = Self.makeComposite()
+        let captured = composite.currentSessionGeneration
+        composite.signOut()
+
+        let id = composite.addPendingFileAttachment(
+            Self.bytes("stale"),
+            fileExtension: "txt",
+            displayName: "stale.txt",
+            forTerminalID: "term-a",
+            ifSessionGeneration: captured
+        )
+        #expect(id == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
 }

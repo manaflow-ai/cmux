@@ -798,6 +798,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// rejected outright (the view bounds the encode below this, but the store
     /// re-enforces it as the single source of truth).
     public nonisolated static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
+    /// Per-file raw-bytes cap for staged general files, matching the task
+    /// composer's upload ceiling (the same `mobile.task.attachment.upload`
+    /// transport delivers both). Still bounded by the per-terminal and global
+    /// byte budgets above.
+    public nonisolated static let maxPendingAttachmentFileBytes = TaskComposerAttachment.maximumFileBytes
     /// GLOBAL encoded-bytes budget summed across EVERY terminal's staged set, not
     /// just the target's. The per-terminal cap bounds one draft, but each live
     /// terminal carries its own per-terminal budget, so staging photos across many
@@ -8064,7 +8069,81 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// path and the second add re-reads the (already-grown) set, so the combined
     /// total can never exceed the cap. The store is the single source of truth.
     @discardableResult
-    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
+    public func addPendingAttachment(
+        _ data: Data,
+        format: String,
+        displayName: String? = nil,
+        forTerminalID terminalID: String? = nil
+    ) -> MobilePendingAttachment.ID? {
+        stagePendingAttachment(
+            kind: .image,
+            data: data,
+            format: format,
+            displayName: displayName,
+            forTerminalID: terminalID
+        )
+    }
+
+    /// Stage a picked or pasted file as a pending attachment for a terminal. The
+    /// bytes stay staged (chip row) until the next composer submit, which uploads
+    /// them to the Mac and references the returned path in the sent text. Shares
+    /// the image path's count and byte budgets; the per-item cap is the larger
+    /// file cap instead of the encoded-image cap.
+    /// - Parameters:
+    ///   - data: The file's raw bytes.
+    ///   - fileExtension: The source file's (lowercased) extension, used to name
+    ///     the delivered file and type previews.
+    ///   - displayName: The source file's user-visible name.
+    ///   - terminalID: The terminal to stage under; `nil` falls back to the
+    ///     selected terminal.
+    /// - Returns: The new attachment's stable id, or `nil` when nothing was
+    ///   staged (same cap/topology rules as the image path).
+    @discardableResult
+    public func addPendingFileAttachment(
+        _ data: Data,
+        fileExtension: String,
+        displayName: String,
+        forTerminalID terminalID: String? = nil
+    ) -> MobilePendingAttachment.ID? {
+        stagePendingAttachment(
+            kind: .file,
+            data: data,
+            format: fileExtension.lowercased(),
+            displayName: displayName,
+            forTerminalID: terminalID
+        )
+    }
+
+    /// Stage a file only if the captured session token still matches the current
+    /// one — the file-kind sibling of the session-guarded image add, sharing its
+    /// semantics (see ``addPendingAttachment(_:format:displayName:forTerminalID:ifSessionGeneration:)``).
+    @discardableResult
+    public func addPendingFileAttachment(
+        _ data: Data,
+        fileExtension: String,
+        displayName: String,
+        forTerminalID terminalID: String? = nil,
+        ifSessionGeneration capturedGeneration: Int
+    ) -> MobilePendingAttachment.ID? {
+        guard stagingSessionIsCurrent(
+            capturedGeneration: capturedGeneration,
+            terminalID: terminalID
+        ) else { return nil }
+        return addPendingFileAttachment(
+            data,
+            fileExtension: fileExtension,
+            displayName: displayName,
+            forTerminalID: terminalID
+        )
+    }
+
+    private func stagePendingAttachment(
+        kind: MobilePendingAttachment.Kind,
+        data: Data,
+        format: String,
+        displayName: String?,
+        forTerminalID terminalID: String?
+    ) -> MobilePendingAttachment.ID? {
         let key = terminalID ?? selectedTerminalID?.rawValue
         func reject(
             _ failure: DiagnosticFailureKind,
@@ -8085,8 +8164,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // longer see or send. This is the single validated path: both the base
         // call and the session-guarded variant funnel through here.
         guard terminalExistsInTopology(key) else { return reject(.superseded) }
-        // A single image larger than the per-image cap is rejected outright.
-        guard data.count <= Self.maxPendingAttachmentImageBytes else {
+        // A single item larger than its kind's cap is rejected outright: encoded
+        // images are bounded tighter than general files.
+        let perItemCap = switch kind {
+        case .image: Self.maxPendingAttachmentImageBytes
+        case .file: Self.maxPendingAttachmentFileBytes
+        }
+        guard data.count <= perItemCap else {
             return reject(.payloadTooLarge, count: data.count)
         }
         let existing = pendingAttachmentsByTerminalID[key] ?? []
@@ -8118,7 +8202,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard globalBytes + data.count <= Self.maxPendingAttachmentTotalBytesAllTerminals else {
             return reject(.resourceLimitReached, count: globalBytes + data.count)
         }
-        let attachment = MobilePendingAttachment(data: data, format: format)
+        let attachment = MobilePendingAttachment(
+            kind: kind,
+            data: data,
+            format: format,
+            displayName: displayName
+        )
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
         recordAppEvent(
             .terminalAttachmentStaged,
@@ -8152,10 +8241,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func addPendingAttachment(
         _ data: Data,
         format: String,
+        displayName: String? = nil,
         forTerminalID terminalID: String? = nil,
         ifSessionGeneration capturedGeneration: Int
     ) -> MobilePendingAttachment.ID? {
-        // A sign-out (or account switch) bumped the token while the photo was
+        guard stagingSessionIsCurrent(
+            capturedGeneration: capturedGeneration,
+            terminalID: terminalID
+        ) else { return nil }
+        return addPendingAttachment(
+            data,
+            format: format,
+            displayName: displayName,
+            forTerminalID: terminalID
+        )
+    }
+
+    /// The shared session/topology recheck behind both session-guarded adds.
+    /// - Returns: `false` (after recording the rejection) when the captured
+    ///   session token is stale or an explicitly targeted terminal no longer
+    ///   exists.
+    private func stagingSessionIsCurrent(
+        capturedGeneration: Int,
+        terminalID: String?
+    ) -> Bool {
+        // A sign-out (or account switch) bumped the token while the bytes were
         // loading/encoding: this is the previous user's content, drop it.
         guard capturedGeneration == signInGeneration else {
             recordAppEvent(
@@ -8163,21 +8273,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 correlationID: terminalID,
                 failure: .superseded
             )
-            return nil
+            return false
         }
         // For an explicit target, require it to still exist so a closed terminal
         // does not accrue orphaned bytes the user can no longer see or send. The
         // base add re-validates this for every path (including the selected-id
-        // fallback), so existence is enforced once and only once below.
+        // fallback), so existence is enforced once and only once there.
         if let terminalID, !terminalExistsInTopology(terminalID) {
             recordAppEvent(
                 .terminalAttachmentRejected,
                 correlationID: terminalID,
                 failure: .superseded
             )
-            return nil
+            return false
         }
-        return addPendingAttachment(data, format: format, forTerminalID: terminalID)
+        return true
     }
 
     /// Whether a terminal id is present in the current workspace/terminal
@@ -8295,6 +8405,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   send (and the draft reconcile) read a different terminal's draft or skip
     ///   the text the user actually composed at Send time.
     ///
+    /// - Parameter draftTextToReconcile: The text the FIELD held at Send time,
+    ///   when it differs from the sent text. ``submitComposer()`` sends the
+    ///   captured draft with uploaded file paths prepended; the field never
+    ///   contained those paths, so clearing the sent draft must compare against
+    ///   the field's snapshot, not the composed text. `nil` means the sent text
+    ///   IS the field text (every text-only path).
+    ///
     /// - Returns: `true` when the Mac acknowledged the paste (or the text was
     ///   empty, i.e. nothing to send), `false` when the send failed so the caller
     ///   keeps the text for a retry.
@@ -8302,7 +8419,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func submitComposerInput(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        capturedText: String? = nil
+        capturedText: String? = nil,
+        draftTextToReconcile: String? = nil
     ) async -> Bool {
         let text = capturedText ?? terminalInputText
         // Empty text is "nothing to send", which is a success from the caller's
@@ -8326,8 +8444,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // user switched terminals while the ack was in flight, the switch persists
         // the outgoing text as the captured terminal's draft, and the sent text
         // must be cleared from that key, not from whatever terminal is selected
-        // when the ack returns.
-        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
+        // when the ack returns. Compare against the field's own snapshot when the
+        // sent text was composed (file paths prepended), or the sent text itself
+        // otherwise.
+        let draftText = draftTextToReconcile ?? text
+        // A files-only send composes a non-empty sent text from an EMPTY field;
+        // there is no draft to clear, so skip the reconcile (its equality check
+        // would only rewrite the already-empty field).
+        if !draftText.isEmpty {
+            await reconcileComposerDraftAfterSend(
+                sentText: draftText,
+                submittedTerminalID: terminalID
+            )
+        }
         return true
     }
 
@@ -8385,6 +8514,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // images-only send snapshots empty text, which the text submit no-ops.
         let submittedText = terminalInputText
         let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
+        // Staged files uploaded during the loop below, in stage order. Their
+        // shell-quoted Mac paths are prepended to the sent text, and the staged
+        // bytes are removed only after that text send succeeds.
+        var uploadedFilePaths: [(id: MobilePendingAttachment.ID, path: String)] = []
         // Capture the submit-time session + connection identity ONCE up front and
         // re-check it before every subsequent send. The captured terminal already
         // pins the target surface, but it does NOT pin the session/transport the
@@ -8426,14 +8559,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // removal.
             guard pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
                 .contains(where: { $0.id == attachment.id }) else { continue }
-            let sent = await submitTerminalPasteImage(
-                attachment.data,
-                format: attachment.format,
-                workspaceID: workspaceID,
-                terminalID: submittedTerminalID
-            )
-            guard sent else { return false }
-            removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
+            switch attachment.kind {
+            case .image:
+                let sent = await submitTerminalPasteImage(
+                    attachment.data,
+                    format: attachment.format,
+                    workspaceID: workspaceID,
+                    terminalID: submittedTerminalID
+                )
+                guard sent else { return false }
+                removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
+            case .file:
+                // Files upload at send time and land in the MESSAGE as a
+                // shell-quoted Mac path, so unlike images the staged bytes are
+                // NOT removed here: their path only reaches the terminal with
+                // the text send below. Removing now would strand the file if
+                // that send fails; keeping it staged means a retry re-uploads
+                // (a fresh path on whatever Mac is then current) instead of
+                // silently dropping the attachment.
+                let uploaded = await uploadPendingFileAttachment(attachment)
+                guard case .success(let path) = uploaded else { return false }
+                uploadedFilePaths.append((id: attachment.id, path: path))
+            }
         }
         // Re-check the captured identity one last time before the text send. The
         // final image's send was awaited above, so a sign-out / Mac switch /
@@ -8445,15 +8592,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connection: submitConnectionGeneration,
             client: submitClient
         ) else { return false }
-        // Submit the captured text to the captured terminal (a no-op when empty,
-        // e.g. an images-only send). All images acked by here, so the text
+        // Prepend the uploaded files' shell-quoted Mac paths to the captured
+        // text, matching the image sends' paths-before-message ordering (an
+        // agent reads the references, then the message about them). With no
+        // files this is exactly the captured snapshot, so the text-only and
+        // images-only paths are unchanged (still a no-op on empty text).
+        var composedText = uploadedFilePaths.reduce(into: "") { partial, uploaded in
+            partial = TerminalComposerAttachmentInsertion(path: uploaded.path)
+                .appending(to: partial)
+        }
+        composedText += submittedText
+        // Submit to the captured terminal. All images acked by here, so the text
         // follows. Passing the snapshot (not the live field) keeps this immune to
-        // a switch/edit that happened during the image awaits above.
+        // a switch/edit that happened during the image awaits above. The draft
+        // reconcile compares against the FIELD's snapshot, not the composed text
+        // (the field never contained the file paths), so the sent draft still
+        // clears from wherever it lives.
         sendSucceeded = await submitComposerInput(
             workspaceID: workspaceID,
             terminalID: submittedTerminalID,
-            capturedText: submittedText
+            capturedText: composedText,
+            draftTextToReconcile: submittedText
         )
+        // The uploaded files' paths reached the terminal only with that text
+        // send; drop their staged bytes only now that it succeeded. On failure
+        // they stay staged (with the kept text) for a retry.
+        if sendSucceeded {
+            for uploaded in uploadedFilePaths {
+                removePendingAttachment(
+                    id: uploaded.id,
+                    forTerminalID: submittedTerminalID.rawValue
+                )
+            }
+        }
         return sendSucceeded
     }
 

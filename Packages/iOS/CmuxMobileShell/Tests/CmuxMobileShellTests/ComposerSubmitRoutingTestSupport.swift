@@ -49,8 +49,16 @@ actor RoutingHostRouter {
         var initialEnv: [String: String]?
         var operationID: String? = nil
     }
+    struct AttachmentUploadRecord: Sendable, Equatable {
+        var uploadID: String
+        var fileName: String
+        var totalBytes: Int
+        var last: Bool
+    }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var attachmentUploads: [AttachmentUploadRecord] = []
+    private var rejectAttachmentUpload = false
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
@@ -190,6 +198,14 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedAttachmentUploads() -> [AttachmentUploadRecord] { attachmentUploads }
+
+    /// Reject every mobile.task.attachment.upload with an error frame, modeling
+    /// a host that cannot accept the file (the composer must keep the staged
+    /// attachment AND the unsent text).
+    func setRejectAttachmentUpload(_ reject: Bool) {
+        rejectAttachmentUpload = reject
+    }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
     func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
@@ -220,6 +236,10 @@ actor RoutingHostRouter {
         var directoryOffset: Int?
         var directoryLimit: Int?
         var provider: String?
+        var uploadID: String?
+        var fileName: String?
+        var totalBytes: Int?
+        var uploadLast: Bool?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -417,6 +437,23 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.task.attachment.upload":
+            let record = AttachmentUploadRecord(
+                uploadID: info.uploadID ?? "",
+                fileName: info.fileName ?? "",
+                totalBytes: info.totalBytes ?? 0,
+                last: info.uploadLast ?? false
+            )
+            attachmentUploads.append(record)
+            if rejectAttachmentUpload {
+                return try? Self.errorFrame(id: id, message: "attachment upload rejected")
+            }
+            if record.last {
+                return try? Self.resultFrame(id: id, result: [
+                    "path": "/tmp/uploads/\(record.fileName)",
+                ])
+            }
+            return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
             return await terminalInputResponse(info)
         case "notification.dismiss":
@@ -525,7 +562,11 @@ private actor RoutingTransport: CmxByteTransport {
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,
                 directoryLimit: params?["limit"] as? Int,
-                provider: params?["provider"] as? String
+                provider: params?["provider"] as? String,
+                uploadID: params?["upload_id"] as? String,
+                fileName: params?["file_name"] as? String,
+                totalBytes: params?["total_bytes"] as? Int,
+                uploadLast: params?["last"] as? Bool
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
