@@ -36,6 +36,7 @@ import {
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
+  vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
@@ -336,13 +337,10 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
           if (isVmLimitExceededError(err)) {
-            return vmErrorResponse({
-              error: "vm_active_limit_exceeded",
-              status: 402,
-              message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-              action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
-              extra: { limit: err.limit },
-              details: { limit: err.limit },
+            return vmActiveLimitExceededResponse({
+              limit: err.limit,
+              planId: entitlements.planId,
+              retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
             });
           }
           if (isVmCreateCreditsInsufficientError(err)) {
