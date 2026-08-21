@@ -32,7 +32,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         field.lineBreakMode = .byTruncatingTail
         // Rename edits a resting title, so the field matches the resting weight
         // rather than the unread emphasis.
-        field.font = .systemFont(ofSize: fontSize, weight: SidebarTextWeight.restingTitle)
+        field.font = .systemFont(ofSize: fontSize, weight: SidebarTypography().restingTitle)
         field.inlineRenameTextColor = textColor
         field.placeholderString = placeholder
         field.setAccessibilityLabel(accessibilityLabel)
@@ -48,7 +48,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         // Keep driven visual/accessibility state in sync (NSViewRepresentable
         // convention). initialText/stringValue is intentionally NOT synced here:
         // doing so would reset the cursor and clobber in-progress typing.
-        nsView.font = .systemFont(ofSize: fontSize, weight: SidebarTextWeight.restingTitle)
+        nsView.font = .systemFont(ofSize: fontSize, weight: SidebarTypography().restingTitle)
         nsView.inlineRenameTextColor = textColor
         nsView.placeholderString = placeholder
         nsView.setAccessibilityLabel(accessibilityLabel)

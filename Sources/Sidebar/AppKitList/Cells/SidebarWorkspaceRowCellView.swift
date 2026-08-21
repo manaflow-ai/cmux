@@ -476,7 +476,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.stringValue = boundedTitle
         titleView.font = .systemFont(
             ofSize: model.scaled(12.5),
-            weight: SidebarTextWeight.title(hasUnread: model.unreadCount > 0)
+            weight: SidebarTypography().title(hasUnread: model.unreadCount > 0)
         )
         titleView.textColor = palette.primaryText
 
@@ -504,7 +504,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
             let descriptionColor = palette.secondary(0.84, inactiveOpacity: 0.95)
-            if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
+            // No markdown parse of a character-cut value (severed links
+            // autolink to wrong destinations) — the legacy engine's
+            // SidebarWorkspaceDescriptionText applies the same byte guard.
+            if description.utf8.count <= 4096,
+               let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
@@ -767,7 +771,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.actions?.onOpenStatusURL(url)
             }
         }
-        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: SidebarTextWeight.affordance)
+        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: SidebarTypography().affordance)
         let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
@@ -1051,7 +1055,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.removeInlineRenameSession()
             }
         )
-        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: SidebarTextWeight.restingTitle)
+        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: SidebarTypography().restingTitle)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true

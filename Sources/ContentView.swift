@@ -15453,7 +15453,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var titleFontWeight: Font.Weight {
-        SidebarTextWeight.titleSwiftUI(hasUnread: unreadCount > 0)
+        SidebarTypography().titleSwiftUI(hasUnread: unreadCount > 0)
     }
 
     private var fontScale: CGFloat {
@@ -15611,7 +15611,7 @@ struct TabItemView: View, Equatable {
                 CmuxSystemSymbolImage(magnified: "flag", pointSize: scaledFontSize(8))
                     .foregroundColor(activeSecondaryColor(0.65))
                 Text(title)
-                    .font(magnifiedFont(scaledFontSize(10), weight: SidebarTextWeight.affordanceSwiftUI))
+                    .font(magnifiedFont(scaledFontSize(10), weight: SidebarTypography().affordanceSwiftUI))
                     .foregroundColor(activeSecondaryColor(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -16044,7 +16044,7 @@ struct TabItemView: View, Equatable {
                             Text(pullRequestStatusLabel(pullRequest.status)).foregroundColor(pullRequestStatusColor(pullRequest.status)).lineLimit(1)
                             Spacer(minLength: 0)
                         }
-                        .font(magnifiedFont(scaledFontSize(10), weight: SidebarTextWeight.affordanceSwiftUI))
+                        .font(magnifiedFont(scaledFontSize(10), weight: SidebarTypography().affordanceSwiftUI))
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
                         if settings.makesPullRequestsClickable {
@@ -16097,7 +16097,7 @@ struct TabItemView: View, Equatable {
                     isPopoverPresented: isChecklistPopoverPresented,
                     primaryColor: activeSecondaryColor(0.9),
                     secondaryColor: activeSecondaryColor(0.65),
-                    summaryFont: magnifiedFont(scaledFontSize(10), weight: SidebarTextWeight.affordanceSwiftUI, monospacedDigit: true),
+                    summaryFont: magnifiedFont(scaledFontSize(10), weight: SidebarTypography().affordanceSwiftUI, monospacedDigit: true),
                     itemFont: magnifiedFont(scaledFontSize(10)),
                     fontScale: fontScale,
                     canAddItems: todoControlsEnabled,
@@ -16571,6 +16571,35 @@ extension String {
     }
 }
 
+extension SidebarStatusEntry {
+    /// Entry values arrive uncapped from the control socket, and both sidebar
+    /// engines re-render them on every content pass, so display and parse work
+    /// must be explicitly bounded. 4096 matches the description path's bound
+    /// and `SidebarMetadataMarkdownRenderer.maxCacheableBytes`.
+    private static let maxRowDisplayCharacters = 4096
+
+    /// Plain-text display for the one-line entry row. Cutting plain text is
+    /// safe; cutting markdown is not — see `sidebarRowMarkdownSource`.
+    var sidebarBoundedRowDisplayText: String {
+        sidebarDisplayText.sidebarBoundedDisplayString(
+            maxDisplayedLines: 1,
+            maxDisplayedCharacters: Self.maxRowDisplayCharacters
+        )
+    }
+
+    /// Markdown source for the entry row, or nil when the value exceeds the
+    /// bound. Markdown must parse from an uncut value: a bounded cut can sever
+    /// a link token mid-URL and the parser then autolinks the remnant into a
+    /// clickable link with a wrong destination. Oversized values degrade to
+    /// bounded plain text instead — the same contract as
+    /// `SidebarMetadataMarkdownRenderer.maxCacheableBytes`.
+    var sidebarRowMarkdownSource: String? {
+        let display = sidebarDisplayText
+        guard display.utf8.count <= Self.maxRowDisplayCharacters else { return nil }
+        return display
+    }
+}
+
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
@@ -16602,7 +16631,7 @@ private struct SidebarMetadataRows: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .cmuxFont(size: 10 * fontScale, weight: SidebarTextWeight.affordanceSwiftUI)
+                .cmuxFont(size: 10 * fontScale, weight: SidebarTypography().affordanceSwiftUI)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -16706,11 +16735,12 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func metadataText(underlined: Bool) -> some View {
-        let display = entry.sidebarDisplayText
+        let display = entry.sidebarBoundedRowDisplayText
         // SidebarMarkdownRenderer, not raw AttributedString(markdown:), so
         // bare-URL links shorten exactly as in the AppKit engine's entry line.
         if entry.format == .markdown,
-           let parsed = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
+           let markdownSource = entry.sidebarRowMarkdownSource,
+           let parsed = SidebarMarkdownRenderer(markdown: markdownSource).workspaceDescription {
             let attributed = parsed.applyingSidebarRowLinkPolicy(
                 activeForegroundColor: isActive ? foregroundColor : nil,
                 inactiveLinkColor: isActive ? nil : foregroundColor
@@ -16757,7 +16787,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .cmuxFont(size: 10 * fontScale, weight: SidebarTextWeight.affordanceSwiftUI)
+                .cmuxFont(size: 10 * fontScale, weight: SidebarTypography().affordanceSwiftUI)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -16792,7 +16822,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(displayMarkdown)?
             .applyingSidebarRowLinkPolicy(
                 activeForegroundColor: isActive ? activeForegroundColor : nil,
-                inactiveLinkColor: isActive ? nil : Color.secondary.opacity(0.95)
+                inactiveLinkColor: isActive ? nil : SidebarWorkspaceDescriptionText.inactiveForegroundColor
             )
         Group {
             if let renderedMarkdown {

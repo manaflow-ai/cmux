@@ -179,7 +179,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
+            weight: SidebarTypography().groupName
         )
         nameField.textColor = model.isAnchorActive
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)

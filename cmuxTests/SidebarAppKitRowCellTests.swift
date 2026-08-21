@@ -1746,6 +1746,33 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func oversizedMarkdownMetadataDegradesToPlainTextWithoutLinks() throws {
+        // A bounded cut before parsing could sever the link mid-URL and
+        // autolink the remnant into a wrong destination, so oversized values
+        // must skip markdown parsing entirely and render as plain text.
+        let markdown = "[artifact](https://example.com/builds/"
+            + String(repeating: "a", count: 5000) + ")"
+        let row = SidebarRowIconTextLine()
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: "artifact", value: markdown, format: .markdown),
+            model: Self.makeModel(),
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+
+        let markdownViews = Self.descendants(of: row).compactMap { $0 as? NSTextView }
+        #expect(markdownViews.allSatisfy(\.isHidden))
+        let plainField = try #require(
+            Self.descendants(of: row)
+                .compactMap { $0 as? NSTextField }
+                .first { !$0.isHidden && !$0.stringValue.isEmpty }
+        )
+        #expect(plainField.stringValue.hasPrefix("[artifact](https://example.com/builds/"))
+        #expect(plainField.stringValue.hasSuffix("..."))
+        #expect(plainField.stringValue.count < markdown.count)
+    }
+
+    @Test
     func metadataRowReconfigurationClearsMutuallyExclusiveState() throws {
         let row = SidebarRowIconTextLine()
         let model = Self.makeModel()

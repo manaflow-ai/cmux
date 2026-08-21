@@ -322,10 +322,10 @@ final class SidebarRowIconTextLine: NSView {
             }
         }
         let font = NSFont.systemFont(ofSize: model.scaled(10))
-        if entry.format == .markdown {
+        if entry.format == .markdown, let markdownSource = entry.sidebarRowMarkdownSource {
             markdownTextView.isHidden = false
             markdownTextView.configure(
-                markdown: entry.sidebarDisplayText,
+                markdown: markdownSource,
                 font: font,
                 color: color,
                 explicitURL: entry.url,
@@ -335,7 +335,7 @@ final class SidebarRowIconTextLine: NSView {
             textView.isHidden = true
             metadataButton.isHidden = false
             metadataButton.configure(
-                title: entry.sidebarDisplayText,
+                title: entry.sidebarBoundedRowDisplayText,
                 font: font,
                 color: color,
                 underlined: true,
@@ -345,7 +345,7 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             metadataButton.isHidden = true
             textView.isHidden = false
-            textView.stringValue = entry.sidebarDisplayText
+            textView.stringValue = entry.sidebarBoundedRowDisplayText
             textView.font = font
             textView.textColor = color
         }
@@ -554,7 +554,7 @@ final class SidebarRowPullRequestLine: NSView {
         onOpen: @escaping () -> Void
     ) {
         let color = palette.tertiary()
-        let font = NSFont.systemFont(ofSize: model.scaled(10), weight: SidebarTextWeight.affordance)
+        let font = NSFont.systemFont(ofSize: model.scaled(10), weight: SidebarTypography().affordance)
         iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
         iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)
         let title = "\(display.label) #\(display.number)"

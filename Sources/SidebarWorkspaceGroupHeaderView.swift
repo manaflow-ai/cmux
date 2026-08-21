@@ -181,7 +181,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: SidebarTextWeight.groupNameSwiftUI)
+                    .cmuxFont(size: metrics.nameFontSize, weight: SidebarTypography().groupNameSwiftUI)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
