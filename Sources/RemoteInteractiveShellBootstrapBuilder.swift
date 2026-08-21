@@ -11,6 +11,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
         bundledFishIntegration: String? = nil,
+        bundledClaudeWrapper: String? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
@@ -72,6 +73,27 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 "cat > \"$cmux_shell_dir/fish/config.fish\" <<'CMUXCMUXFISH'",
                 bundledFishIntegration,
                 "CMUXCMUXFISH",
+            ]
+        }
+        if let bundledClaudeWrapper {
+            // Ship the claude wrapper next to the remote CLI. The shell
+            // integration's `claude` shim already resolves
+            // `$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper`, which
+            // is exactly this path, so landing the file here is all that is
+            // needed -- no shim change. Without it the shim falls through to
+            // the real claude and the session runs with no cmux hooks at all,
+            // so a remote agent finishing never notifies anyone.
+            //
+            // Staged through a temp file and moved into place: a concurrent
+            // session may be executing this same path, and a half-written
+            // wrapper would break every claude launch on the host.
+            outerLines += [
+                "mkdir -p \"$HOME/.cmux/bin\"",
+                "cat > \"$HOME/.cmux/bin/.cmux-claude-wrapper.tmp\" <<'CMUXCLAUDEWRAPPER'",
+                bundledClaudeWrapper,
+                "CMUXCLAUDEWRAPPER",
+                "chmod +x \"$HOME/.cmux/bin/.cmux-claude-wrapper.tmp\"",
+                "mv -f \"$HOME/.cmux/bin/.cmux-claude-wrapper.tmp\" \"$HOME/.cmux/bin/cmux-claude-wrapper\"",
             ]
         }
         outerLines.append(contentsOf: commonShellExportLines)
@@ -221,12 +243,13 @@ enum RemoteInteractiveShellBootstrapBuilder {
 
     static func bundledShellIntegrationScript(
         named fileName: String,
+        subdirectory: String = "shell-integration",
         bundleResourceURL: URL? = Bundle.main.resourceURL,
         fileManager: FileManager = .default
     ) -> String? {
         guard let bundleResourceURL else { return nil }
         let url = bundleResourceURL
-            .appendingPathComponent("shell-integration", isDirectory: true)
+            .appendingPathComponent(subdirectory, isDirectory: true)
             .appendingPathComponent(fileName, isDirectory: false)
         guard fileManager.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),

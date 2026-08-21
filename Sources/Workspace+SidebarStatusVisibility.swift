@@ -30,6 +30,13 @@ extension Workspace {
             }
             statusKeysByPanelId[panelId, default: []].insert(statusKey)
         }
+        for (panelId, keys) in Self.agentStatusKeysAdmittedByLifecycle(
+            lifecycleStatesByPanelId: agentLifecycleStatesByPanelId,
+            livePanelIds: panels.keys,
+            storedStatusKeys: statusEntries.keys
+        ) {
+            statusKeysByPanelId[panelId, default: []].formUnion(keys)
+        }
         var visibleStatusKeys = Set<String>()
         for statusKeys in statusKeysByPanelId.values {
             let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
@@ -50,6 +57,37 @@ extension Workspace {
         }
 
         return visibleStatusKeys
+    }
+
+    /// Admits reserved agent status keys whose liveness is proven by a
+    /// hook-reported lifecycle rather than a recorded process.
+    ///
+    /// A remote agent has no local process, so no agent PID is ever recorded
+    /// for its key and the PID-derived pass can never admit it — its Running
+    /// chip would be stored but permanently invisible. Its liveness signal is
+    /// the hook-reported lifecycle (the same signal the todo lane trusts for
+    /// anyAgentRunning), so a live lifecycle admits the key too. Admitted
+    /// keys are grouped per panel and merged into the same per-panel
+    /// winner selection as the PID-derived keys, so a pane still shows only
+    /// its most current agent chip.
+    nonisolated static func agentStatusKeysAdmittedByLifecycle(
+        lifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]],
+        livePanelIds: some Collection<UUID>,
+        storedStatusKeys: some Collection<String>
+    ) -> [UUID: Set<String>] {
+        var admitted: [UUID: Set<String>] = [:]
+        for (panelId, lifecycleStates) in lifecycleStatesByPanelId
+        where livePanelIds.contains(panelId) {
+            for (key, lifecycle) in lifecycleStates {
+                guard lifecycle == .running || lifecycle == .needsInput,
+                      AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key),
+                      storedStatusKeys.contains(key) else {
+                    continue
+                }
+                admitted[panelId, default: []].insert(key)
+            }
+        }
+        return admitted
     }
 
     private func isSidebarStatusEntryLessCurrent(

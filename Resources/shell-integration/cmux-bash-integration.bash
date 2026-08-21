@@ -400,6 +400,12 @@ _cmux_install_cli_wrapper() {
     integration_dir="${integration_dir%/}"
     local bundle_dir="${integration_dir%/shell-integration}"
     local wrapper_path="$bundle_dir/bin/$wrapper_file"
+    if [[ ! -x "$wrapper_path" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
+        # Remote hosts have no app bundle: the ssh bootstrap lands wrappers
+        # next to the delivered CLI (~/.cmux/bin), not under the relay
+        # shell-state dir that CMUX_SHELL_INTEGRATION_DIR points at.
+        wrapper_path="$(dirname "$CMUX_BUNDLED_CLI_PATH")/$wrapper_file"
+    fi
     [[ -x "$wrapper_path" ]] || return 0
 
     existing_type="$(type -t "$command_name" 2>/dev/null || true)"
@@ -424,6 +430,42 @@ _cmux_install_cli_wrapper() {
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+
+# tmux panes run fresh login shells that never source this integration, so
+# nothing in them intercepts `claude` (the login profile re-prepends the real
+# binary's directory ahead of the PATH shim) and no hook or notification OSC
+# ever gets tmux-passthrough wrapping — agents finishing inside tmux notify
+# no one. Point the server's default-command at the same generated rcfile the
+# cmux tmux profile already uses, so panes come up integrated. Existing panes
+# are never touched — default-command only shapes panes created after it is
+# set — and a long-lived server is exactly the case that needs this, so a
+# running server is updated too. Only our own stale value (a previous
+# connection's relay path) or an empty one is replaced; a default-command the
+# user configured themselves is never overridden.
+tmux() {
+    # Remote relay shell-state dirs only: a local session's integration dir is
+    # the app bundle, and persisting a bundle path into long-lived tmux server
+    # state would break every new pane the moment that build is deleted. Local
+    # panes already inherit integration through the launch environment.
+    case "${CMUX_SHELL_INTEGRATION_DIR:-}" in
+        *"/.cmux/relay/"*)
+            if [[ -r "$CMUX_SHELL_INTEGRATION_DIR/.bashrc" ]]; then
+                command tmux start-server >/dev/null 2>&1 || true
+                local cmux_tmux_default_command
+                cmux_tmux_default_command="$(command tmux show-option -gv default-command 2>/dev/null)"
+                case "$cmux_tmux_default_command" in
+                    ""|*"/.cmux/relay/"*)
+                        command tmux set-option -g default-command \
+                            "exec ${SHELL:-bash} --rcfile '$CMUX_SHELL_INTEGRATION_DIR/.bashrc' -i" \
+                            >/dev/null 2>&1 || true
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+    command tmux "$@"
+}
+
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }

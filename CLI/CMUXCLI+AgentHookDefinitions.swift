@@ -172,7 +172,17 @@ extension CMUXCLI {
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
             inline = codexFireAndForgetAgentHookShellCommand(command, for: def)
         } else {
-            inline = agentHookShellCommand(command, for: def)
+            inline = agentHookShellCommand(
+                command,
+                for: def,
+                unreachableSnippet: oscFallbackBody(for: def, subcommand: event.cmuxSubcommand).map {
+                    oscNotificationFallbackSnippet(
+                        title: def.displayName,
+                        body: $0,
+                        noOpCommand: "echo '{}'"
+                    )
+                }
+            )
         }
         if def.name == "codex" {
             return codexPersistentHookScriptCommand(inline, eventTag: event.cmuxSubcommand)
@@ -259,17 +269,96 @@ extension CMUXCLI {
         return "{ \(command); }"
     }
 
+    /// Turn-visible events whose whole purpose is to tell the user the agent
+    /// wants them. Lifecycle bookkeeping (session-start, prompt-submit) carries
+    /// no user-facing message, so it has nothing to say over a fallback channel.
+    private static func oscFallbackBody(for def: AgentHookDef, subcommand: String) -> String? {
+        switch subcommandActions[subcommand] {
+        case .stop:
+            guard def.publishesStopNotification else { return nil }
+            return String(
+                localized: "cli.agent-hook.osc-fallback.completed",
+                defaultValue: "Task complete"
+            )
+        case .notification:
+            return String(
+                localized: "cli.agent-hook.osc-fallback.needsInput",
+                defaultValue: "Needs your input"
+            )
+        default:
+            return nil
+        }
+    }
+
+    /// Notification delivery for an agent the control socket cannot reach.
+    ///
+    /// The socket path needs `CMUX_SURFACE_ID`, which does not survive every
+    /// environment an agent legitimately runs in: it is deliberately cleared
+    /// inside tmux (surface identity inherited through a daemonized tmux server
+    /// would be stale), and it never exists across SSH. Both cases currently
+    /// land on the silent no-op branch, so the agent finishes and nobody is
+    /// told.
+    ///
+    /// Terminal output still reaches cmux in both cases, and Ghostty attributes
+    /// an OSC 777 sequence to the surface whose stream carried it -- exact pane
+    /// routing with no identity to inherit. Inside tmux the sequence is wrapped
+    /// for DCS passthrough, which the user enables with `allow-passthrough on`;
+    /// without it tmux drops the payload and this stays as silent as the no-op
+    /// it replaced.
+    ///
+    /// Written to the terminal device, never stdout: stdout is the hook's JSON
+    /// response channel and raw escape bytes there would corrupt it. `/dev/tty`
+    /// covers agents whose hooks keep a controlling terminal; the parent's tty
+    /// covers the ones that detach.
+    private static func oscNotificationFallbackSnippet(
+        title: String,
+        body: String,
+        noOpCommand: String
+    ) -> String {
+        let safeTitle = shellSingleQuoted(sanitizedOSCField(title))
+        let safeBody = shellSingleQuoted(sanitizedOSCField(body))
+        // Only the OSC introducer is an ESC, so the passthrough form doubles
+        // exactly that one byte rather than rescanning the payload.
+        let plainFormat = "\\033]777;notify;%s;%s\\007"
+        let tmuxFormat = "\\033Ptmux;\\033\\033]777;notify;%s;%s\\007\\033\\\\"
+        // tmux drops escape sequences it does not recognize unless passthrough
+        // is on. Set it here rather than asking the user to edit tmux.conf: it
+        // is a runtime server option, not a config write, so it costs nothing
+        // and disappears with the server.
+        return "{ if [ -n \"${TMUX:-}\" ]; then cmux_osc_fmt='\(tmuxFormat)'; command -v tmux >/dev/null 2>&1 && tmux set -g allow-passthrough on >/dev/null 2>&1; else cmux_osc_fmt='\(plainFormat)'; fi; cmux_osc_tty=/dev/tty; if [ ! -w \"$cmux_osc_tty\" ]; then cmux_osc_tty=\"/dev/$(ps -o tty= -p $PPID 2>/dev/null | tr -d '[:space:]')\"; fi; if [ -w \"$cmux_osc_tty\" ]; then printf \"$cmux_osc_fmt\" \(safeTitle) \(safeBody) >\"$cmux_osc_tty\" 2>/dev/null || true; fi; unset cmux_osc_fmt cmux_osc_tty; \(noOpCommand == "echo '{}'" ? stdinDrainingHookNoOpShellCommand : noOpCommand); }"
+    }
+
+    /// Strips control characters: an embedded ESC or BEL would close the OSC
+    /// frame early and let the remainder execute as terminal commands.
+    private static func sanitizedOSCField(_ raw: String) -> String {
+        let scalars = raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
+        return String(String(String.UnicodeScalarView(scalars)).prefix(120))
+    }
+
+    private static func shellSingleQuoted(_ raw: String) -> String {
+        "'\(raw.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
+    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+
     private static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
-        noOpCommand: String = "echo '{}'"
+        noOpCommand: String = "echo '{}'",
+        unreachableSnippet: String? = nil
     ) -> String {
         if case .pinned = def.dispatch {
             return pinnedAgentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
+        // The disable switch is checked before the fallback too: a user who
+        // turned this agent's hooks off gets silence on every channel.
+        let unreachableBranch = unreachableSnippet.map {
+            "elif [ \"$\(def.disableEnvVar)\" != \"1\" ]; then \($0); "
+        } ?? ""
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); \(unreachableBranch)else \(noOpSnippet); fi"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(

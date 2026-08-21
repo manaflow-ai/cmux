@@ -65,6 +65,16 @@ extension CMUXCLI {
         routing: ClaudeHookRoutingContext,
         client: SocketClient
     ) throws -> ClaudeHookDeliveryTarget? {
+        // The announced token is the strongest identity available: the app
+        // bound it to the surface whose output stream carried the
+        // announcement. It needs no environment, so it survives tmux (which
+        // clears CMUX_SURFACE_ID) and SSH (where that variable never existed),
+        // and it cannot go stale through a daemonized tmux server the way an
+        // inherited id would. Consult it before the pid/tty probes, which
+        // exist to recover identity the environment lost.
+        if let announced = announcedClaudeHookDeliveryTarget(client: client) {
+            return announced
+        }
         let pidProbeAllowed = routing.allowsPidProbe && routing.preferCallerTTYRouting
         let rehomeAllowed = routing.preferCallerTTYRouting
         if pidProbeAllowed {
@@ -242,6 +252,39 @@ extension CMUXCLI {
 
     /// `{surface_id}` probe: the workspace that CURRENTLY owns a known
     /// identity surface. Only a `source == "surface"` answer counts.
+    /// Resolves the surface from the token the launch wrapper announced over
+    /// the terminal stream, via `agent.identity.resolve`.
+    ///
+    /// Returns nil for every failure -- unknown token, an older app without
+    /// the method, no reachable socket -- because all of them mean "cannot
+    /// prove which surface this is", and the caller must not guess.
+    private func announcedClaudeHookDeliveryTarget(client: SocketClient) -> ClaudeHookDeliveryTarget? {
+        guard let token = nonEmptyClaudeHookIdentifier(
+            ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_TOKEN"]
+        ) else { return nil }
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(
+                method: "agent.identity.resolve",
+                params: ["token": token],
+                responseTimeout: 2.0
+            )
+        } catch {
+            return nil
+        }
+        guard let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
+              isUUID(workspaceId),
+              let surfaceId = normalizedHandleValue(payload["surface_id"] as? String),
+              isUUID(surfaceId) else {
+            return nil
+        }
+        return ClaudeHookDeliveryTarget(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            isAuthoritative: true
+        )
+    }
+
     private func rehomedClaudeHookDeliveryTarget(
         surfaceId: String?,
         claimedWorkspaceId: String?,

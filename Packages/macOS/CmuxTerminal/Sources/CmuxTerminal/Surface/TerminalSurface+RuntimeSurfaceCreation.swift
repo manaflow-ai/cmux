@@ -115,6 +115,23 @@ extension TerminalSurface {
            runtimeFilesystem.isExecutableFile(bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
         }
+        // The agent hook fallback writes its notification straight to the
+        // terminal from a POSIX shell, which cannot reach the string catalog.
+        // Export the localized text so that path is not the one place in the
+        // app that is always English. These also cross the relay, so a remote
+        // agent's fallback is localized too.
+        setManagedEnvironmentValue(
+            "CMUX_AGENT_NOTIFY_TITLE",
+            String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code")
+        )
+        setManagedEnvironmentValue(
+            "CMUX_AGENT_NOTIFY_COMPLETED",
+            String(localized: "cli.agent-hook.osc-fallback.completed", defaultValue: "Task complete")
+        )
+        setManagedEnvironmentValue(
+            "CMUX_AGENT_NOTIFY_NEEDS_INPUT",
+            String(localized: "cli.agent-hook.osc-fallback.needsInput", defaultValue: "Needs your input")
+        )
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
         }

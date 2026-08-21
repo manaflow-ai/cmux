@@ -215,6 +215,25 @@ doneFlags:
 		return runOMCRelay(socketPath, cmdArgs, refreshAddr)
 	}
 
+	// Agent hooks. Runs here because the agent itself runs on this host; the
+	// surface it belongs to is resolved from the token its launch wrapper
+	// announced over the terminal stream.
+	if cmdName == "hooks" {
+		// Hook invocations outlive the connection that launched their agent:
+		// a tmux pane bakes the relay port of whatever connection created it
+		// into its environment, and that port dies on reconnect. A stale
+		// CMUX_SOCKET_PATH must not doom delivery, so hooks always get the
+		// socket_addr fallback even when the address came from the
+		// environment. Reaching a newer relay of the same app is safe: the
+		// far side resolves the announced token and fails closed on a
+		// mismatch.
+		hooksRefreshAddr := refreshAddr
+		if hooksRefreshAddr == nil {
+			hooksRefreshAddr = readSocketAddrFile
+		}
+		return runHooksRelay(socketPath, cmdArgs, hooksRefreshAddr)
+	}
+
 	// Tmux compatibility layer (used by agent shims)
 	if cmdName == "__tmux-compat" {
 		return runTmuxCompat(socketPath, cmdArgs, refreshAddr)
@@ -1192,6 +1211,13 @@ func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
 
 // socketRoundTripV2 sends a JSON-RPC request and returns the result JSON.
 func socketRoundTripV2(socketPath, method string, params map[string]any, refreshAddr func() string) (string, error) {
+	return socketRoundTripV2Deadline(socketPath, method, params, refreshAddr, 15*time.Second)
+}
+
+// socketRoundTripV2Deadline is socketRoundTripV2 with a caller-chosen read
+// deadline, for calls that legitimately outlast the default 15s — the feed
+// hook's PermissionRequest blocks until the user answers (up to ~125s).
+func socketRoundTripV2Deadline(socketPath, method string, params map[string]any, refreshAddr func() string, readTimeout time.Duration) (string, error) {
 	conn, err := dialSocket(socketPath, refreshAddr)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to %s: %w", socketPath, err)
@@ -1218,7 +1244,7 @@ func socketRoundTripV2(socketPath, method string, params map[string]any, refresh
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {

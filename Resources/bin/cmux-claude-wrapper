@@ -239,7 +239,16 @@ find_real_claude() {
 # Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
 cmux_socket_available() {
     local socket="${CMUX_SOCKET_PATH:-}"
-    [[ -n "$socket" && -S "$socket" ]] || return 1
+    [[ -n "$socket" ]] || return 1
+    # A remote session reaches the app through a TCP relay
+    # (CMUX_SOCKET_PATH=127.0.0.1:<port>) rather than a unix socket file, and
+    # the CLI accepts either form for --socket. Testing only for -S would
+    # reject every remote session before it can be probed.
+    if [[ "$socket" == /* ]]; then
+        [[ -S "$socket" ]] || return 1
+    else
+        [[ "$socket" == *:* ]] || return 1
+    fi
 
     local self_dir cmux_bin
     self_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -605,8 +614,35 @@ clear_inherited_claude_session_identity_env() {
 
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
+#
+# The probe pings the app with a bounded timeout, so cache it: the same answer
+# is needed again by the ownership check below and claude startup must not pay
+# for it twice.
+CMUX_SOCKET_AVAILABLE_CACHE=""
+cmux_socket_available_cached() {
+    if [[ -z "$CMUX_SOCKET_AVAILABLE_CACHE" ]]; then
+        if cmux_socket_available; then
+            CMUX_SOCKET_AVAILABLE_CACHE=1
+        else
+            CMUX_SOCKET_AVAILABLE_CACHE=0
+        fi
+    fi
+    [[ "$CMUX_SOCKET_AVAILABLE_CACHE" == "1" ]]
+}
+
+# CMUX_SURFACE_ID is the strongest signal of a cmux terminal, but it is not the
+# only one. Shell integration deliberately clears it inside tmux (identity
+# inherited through a daemonized tmux server would be stale) and it never
+# survives SSH. Gating solely on it meant those sessions launched claude with
+# no hooks at all -- not a degraded notification, no hook to notify from.
+#
+# A live control socket is sufficient proof that this launch belongs to cmux:
+# the app answered a ping, and the terminal's output still lands on a cmux
+# surface, which is what the OSC notification fallback routes on. Stale
+# inherited environment is handled by the probe itself, which pings rather
+# than trusting the variable.
 IN_CMUX=0
-if [[ -n "$CMUX_SURFACE_ID" ]]; then
+if [[ -n "$CMUX_SURFACE_ID" ]] || cmux_socket_available_cached; then
     IN_CMUX=1
 fi
 
@@ -658,7 +694,7 @@ if [[ "$cmux_claude_resume_sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
     cmux_claude_app_restore_owned=1
 fi
 if [[ "$cmux_claude_app_restore_owned" != "1" ]] \
-      && ! cmux_socket_available; then
+      && ! cmux_socket_available_cached; then
     clear_inherited_claude_session_identity_env
     clear_inherited_claude_auth_selection_env
     reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
@@ -670,8 +706,13 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # Per-user, never world-shared /tmp: this wrapper also runs on multi-user
+    # remote hosts where TMPDIR is typically unset, and a predictable /tmp
+    # path could be pre-owned or swapped by another user between install and
+    # the module being --require'd into node.
+    local guard_dir="$HOME/.cmux/run"
+    mkdir -p "$guard_dir" && chmod 700 "$guard_dir" || return 1
+    guard_dir="$guard_dir/cmux-claude-node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
@@ -933,6 +974,145 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
 fi
 install_cmux_node_options
 
+# Announce this launch's identity on the terminal stream.
+#
+# Hooks need a surface to address. CMUX_SURFACE_ID cannot supply one inside
+# tmux (shell integration clears it: identity inherited through a daemonized
+# tmux server would be stale) or across SSH, and guessing from the focused
+# surface would mis-deliver a background agent onto whatever pane the user
+# happens to be looking at.
+#
+# Ghostty attributes an OSC 777 sequence to the surface whose stream carried
+# it, so announcing a freshly minted token binds this agent to the right
+# surface with no identity to inherit and nothing to go stale. cmux recognizes
+# the reserved title, records the binding, and never displays it. The token is
+# exported so every hook this launch spawns can address the socket by it.
+#
+# One-way by design: a query/response handshake would write a reply into the
+# terminal, where any program reading the tty could observe or corrupt it.
+mint_agent_hook_token() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+        return 0
+    fi
+    local random_token=""
+    if [[ -r /dev/urandom ]]; then
+        random_token="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | dd bs=32 count=1 2>/dev/null)"
+    fi
+    if [[ -n "$random_token" ]]; then
+        printf '%s' "$random_token"
+        return 0
+    fi
+    # Last resort: unique enough within a host, since the binding is scoped to
+    # one live surface and discarded when it closes.
+    printf 'cmux-%s-%s' "$$" "$(date +%s 2>/dev/null || echo 0)"
+}
+
+announce_agent_surface_identity() {
+    local token="$1"
+    [[ -n "$token" ]] || return 0
+    local announce_fmt
+    if [[ -n "${TMUX:-}" ]]; then
+        announce_fmt='\033Ptmux;\033\033]777;notify;%s;%s\007\033\\'
+        command -v tmux >/dev/null 2>&1 && tmux set -g allow-passthrough on >/dev/null 2>&1
+    else
+        announce_fmt='\033]777;notify;%s;%s\007'
+    fi
+    local announce_tty=/dev/tty
+    if [[ ! -w "$announce_tty" ]]; then
+        announce_tty="/dev/$(ps -o tty= -p $PPID 2>/dev/null | tr -d '[:space:]')"
+    fi
+    [[ -w "$announce_tty" ]] || return 0
+    printf "$announce_fmt" "cmux.agent.identity" "$token" >"$announce_tty" 2>/dev/null || true
+}
+
+export CMUX_AGENT_HOOK_TOKEN="$(mint_agent_hook_token)"
+announce_agent_surface_identity "$CMUX_AGENT_HOOK_TOKEN"
+
+# Turn-visible hooks (Stop, Notification) route through a small dispatch script
+# rather than calling the CLI directly.
+#
+# The CLI can deliver a notification only when it can resolve a surface, which
+# needs CMUX_SURFACE_ID -- absent inside tmux and across SSH. And on a remote
+# host `cmux` is not this CLI at all: it is a shim onto the cmuxd-remote Go
+# daemon, which implements no hooks subcommand. Calling it there fails, and
+# the user is never told their agent finished.
+#
+# Terminal output still reaches cmux in every one of those cases, and Ghostty
+# attributes an OSC 777 sequence to the surface whose stream carried it, so the
+# fallback recovers exact pane routing with no identity to inherit. Kept as a
+# generated POSIX script instead of inline JSON: it needs single quotes, escape
+# literals, and a tmux branch, and hand-escaping that through JSON-inside-bash
+# would be unreviewable and could break every launch if it were malformed.
+ensure_claude_hook_dispatch_script() {
+    # Per-user, never world-shared /tmp: this wrapper also runs on multi-user
+    # remote hosts where TMPDIR is typically unset, and a predictable /tmp
+    # path could be pre-owned or swapped by another user between install and
+    # every Stop/Notification hook executing it.
+    local guard_dir="$HOME/.cmux/run"
+    mkdir -p "$guard_dir" && chmod 700 "$guard_dir" || return 1
+    guard_dir="$guard_dir/cmux-claude-hook-dispatch"
+    mkdir -p "$guard_dir" || return 1
+    local dispatch_path="$guard_dir/dispatch.sh"
+    local temp_path
+    temp_path="$(mktemp "$guard_dir/dispatch.sh.XXXXXX")" || return 1
+    cat >"$temp_path" <<'CMUXCLAUDEDISPATCH'
+#!/bin/sh
+# Generated by cmux-claude-wrapper. Prefers the cmux control socket and falls
+# back to an OSC 777 desktop notification written to the terminal device.
+# Never writes the sequence to stdout: stdout is the hook's JSON response.
+cmux_event="$1"
+# Either identity lets the CLI resolve a surface: the environment variable
+# inside a plain cmux terminal, or the announced token everywhere else.
+if [ -n "${CMUX_SURFACE_ID:-}" ] || [ -n "${CMUX_AGENT_HOOK_TOKEN:-}" ]; then
+    # An older remote daemon answers an unimplemented subcommand on stderr and
+    # still exits 0, so the exit code cannot distinguish delivery from silence.
+    # The ack on stdout can: a hook that actually ran always prints JSON.
+    cmux_out="$("${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude "$cmux_event" 2>/dev/null)"
+    if [ -n "$cmux_out" ]; then
+        printf '%s\n' "$cmux_out"
+        exit 0
+    fi
+fi
+
+# Localized text is exported by the app; the English literals are the fallback
+# for a terminal that predates them or an environment that dropped them.
+case "$cmux_event" in
+    stop) cmux_body="${CMUX_AGENT_NOTIFY_COMPLETED:-Task complete}" ;;
+    notification) cmux_body="${CMUX_AGENT_NOTIFY_NEEDS_INPUT:-Needs your input}" ;;
+    *) cmux_body="" ;;
+esac
+cmux_title="${CMUX_AGENT_NOTIFY_TITLE:-Claude Code}"
+
+if [ -n "$cmux_body" ]; then
+    if [ -n "${TMUX:-}" ]; then
+        # tmux drops sequences it does not recognize unless passthrough is on.
+        # Set it here rather than asking the user to edit tmux.conf: it is a
+        # runtime server option that disappears with the server.
+        cmux_fmt='\033Ptmux;\033\033]777;notify;%s;%s\007\033\\'
+        command -v tmux >/dev/null 2>&1 && tmux set -g allow-passthrough on >/dev/null 2>&1
+    else
+        cmux_fmt='\033]777;notify;%s;%s\007'
+    fi
+    # A hook may run without a controlling terminal, so fall back to the
+    # parent's tty.
+    cmux_tty=/dev/tty
+    if [ ! -w "$cmux_tty" ]; then
+        cmux_tty="/dev/$(ps -o tty= -p $PPID 2>/dev/null | tr -d '[:space:]')"
+    fi
+    if [ -w "$cmux_tty" ]; then
+        printf "$cmux_fmt" "$cmux_title" "$cmux_body" >"$cmux_tty" 2>/dev/null || true
+    fi
+fi
+
+echo '{}'
+CMUXCLAUDEDISPATCH
+    chmod +x "$temp_path" || { rm -f "$temp_path"; return 1; }
+    mv -f "$temp_path" "$dispatch_path" || { rm -f "$temp_path"; return 1; }
+    export CMUX_CLAUDE_HOOK_DISPATCH="$dispatch_path"
+}
+ensure_claude_hook_dispatch_script || true
+
 # Build Claude settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
 # - preferredNotifChannel: disables Claude Code's OSC/terminal notification
@@ -965,7 +1145,7 @@ install_cmux_node_options
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"if [ -x \"${CMUX_CLAUDE_HOOK_DISPATCH:-}\" ]; then \"$CMUX_CLAUDE_HOOK_DISPATCH\" stop; else \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop; fi","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"if [ -x \"${CMUX_CLAUDE_HOOK_DISPATCH:-}\" ]; then \"$CMUX_CLAUDE_HOOK_DISPATCH\" notification; else \"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification; fi","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #

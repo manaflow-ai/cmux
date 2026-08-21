@@ -283,6 +283,8 @@ extension SessionRemoteWorkspaceSnapshot {
                 .bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder
                 .bundledShellIntegrationScript(named: "fish/config.fish"),
+            bundledClaudeWrapper: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-claude-wrapper", subdirectory: "bin"),
             terminalProfile: terminalProfile
         )
         let failureMessage = String(
@@ -400,6 +402,10 @@ extension SessionRemoteWorkspaceSnapshot {
                 ),
                 bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
                     named: "fish/config.fish"
+                ),
+                bundledClaudeWrapper: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "cmux-claude-wrapper",
+                    subdirectory: "bin"
                 ),
                 terminalProfile: terminalProfile
             )

@@ -1,6 +1,67 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Last-resort delivery for a turn-visible hook whose surface could not be
+    /// resolved, so the event would otherwise be dropped in silence.
+    ///
+    /// The resolver refuses to guess a surface, which is right: routing a
+    /// background agent onto whatever pane happens to be focused mis-delivers
+    /// it. But the common way to reach `nil` is not ambiguity, it is tmux --
+    /// the shell integration deliberately clears `CMUX_SURFACE_ID` inside tmux
+    /// because identity inherited through a daemonized tmux server would be
+    /// stale. The agent then finishes and nobody is told.
+    ///
+    /// Terminal output still reaches cmux, and Ghostty attributes an OSC 777
+    /// sequence to the surface whose stream carried it, so this recovers exact
+    /// pane routing without inventing an identity. Inside tmux the sequence is
+    /// wrapped for DCS passthrough (`allow-passthrough on`); without that tmux
+    /// drops it and this stays exactly as silent as the no-op it replaces.
+    ///
+    /// Never writes to stdout: that is the hook's JSON response channel.
+    func emitOSCNotificationFallback(title: String, body: String) {
+        let env = ProcessInfo.processInfo.environment
+        // A control character would close the OSC frame early and let the rest
+        // of the text execute as terminal commands.
+        func sanitized(_ raw: String) -> String {
+            let scalars = raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
+            return String(String(String.UnicodeScalarView(scalars)).prefix(120))
+        }
+        var payload = "\u{1B}]777;notify;\(sanitized(title));\(sanitized(body))\u{07}"
+        if env["TMUX"] != nil {
+            let doubled = payload.replacingOccurrences(of: "\u{1B}", with: "\u{1B}\u{1B}")
+            payload = "\u{1B}Ptmux;\(doubled)\u{1B}\\"
+            enableTmuxPassthrough()
+        }
+
+        // A hook may run without a controlling terminal, so fall back to the
+        // tty the caller reported.
+        var candidates = ["/dev/tty"]
+        if let ttyName = resolveCallerTTYName() {
+            candidates.append(ttyName.hasPrefix("/") ? ttyName : "/dev/\(ttyName)")
+        }
+        for path in candidates {
+            guard let handle = FileHandle(forWritingAtPath: path) else { continue }
+            defer { try? handle.close() }
+            guard (try? handle.write(contentsOf: Data(payload.utf8))) != nil else { continue }
+            return
+        }
+    }
+
+    /// tmux drops escape sequences it does not recognize unless passthrough is
+    /// on. Setting it here rather than asking the user to edit tmux.conf: this
+    /// is a runtime server option, not a config write, so it costs nothing and
+    /// disappears with the server. Best effort -- a failure just means the
+    /// notification is dropped, which is the behavior being replaced anyway.
+    private func enableTmuxPassthrough() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux", "set", "-g", "allow-passthrough", "on"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return }
+        process.waitUntilExit()
+    }
+
     func runClaudePushNotificationHook(
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
