@@ -1153,9 +1153,15 @@ impl ProviderMachineRuntime {
                         // while it pushes these, so a snapshot request would
                         // stall exactly the message it is meant to show.
                         let machine_id = progress.machine_id.as_str().to_string();
-                        // Provider-controlled text: cap it at the trust
-                        // boundary (char-safe) before it is stored or drawn.
-                        let mut message = progress.message.clone();
+                        // Provider-controlled text: strip terminal control
+                        // characters (ESC/OSC injection) and cap it at the
+                        // trust boundary (char-safe) before it is stored or
+                        // drawn.
+                        let mut message: String = progress
+                            .message
+                            .chars()
+                            .map(|c| if c.is_control() { ' ' } else { c })
+                            .collect();
                         if message.len() > 512 {
                             let mut end = 512;
                             while !message.is_char_boundary(end) {

@@ -8360,13 +8360,11 @@ fn prepare_machine_session(
     preparation: MachineSessionPreparation,
     app_events: SyncSender<AppEvent>,
 ) -> anyhow::Result<PreparedMachineSession> {
-    // A session reused from the warm pool was fully prepared when it was
-    // first opened: the managed-workspace guard and default colors were
-    // already applied, so only the (possibly stale) client size is refreshed.
-    // Skipping those round-trips is what makes warm switching instant.
-    if !replacement.reused {
-        ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
-    }
+    // The managed-workspace guard runs on every presentation, reused or
+    // not: a pooled session can change state while it is not presented, and
+    // the guard is the invariant that makes presenting it safe. Only the
+    // cosmetic default-colors round-trip is skipped for reused sessions.
+    ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
