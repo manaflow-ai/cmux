@@ -9458,9 +9458,7 @@ impl App {
         // Latest-value cell: the pump overwrites it while this update sat in
         // the queue, so this read is the newest stage; an emptied cell means
         // a newer update for this machine already consumed it.
-        let Some(message) =
-            latest.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()
-        else {
+        let Some(message) = latest.lock().unwrap_or_else(|p| p.into_inner()).take() else {
             return RenderAction::None;
         };
         let Some(ui) = self.machine_ui.as_mut() else { return RenderAction::None };

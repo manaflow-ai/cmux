@@ -565,9 +565,10 @@ impl MachineConnectionHub {
             return Vec::new();
         }
         ready.sort_unstable();
+        let evict_count = (ready_count - warm_limit).min(ready.len());
         ready
             .into_iter()
-            .take((ready_count - warm_limit).min(ready.len()))
+            .take(evict_count)
             .filter_map(|(_, key)| {
                 let slot = slots.get_mut(&key)?;
                 match std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected) {
