@@ -66,6 +66,7 @@ private struct CommandTreeCommandInfo: Decodable {
 private struct CommandTreeArgumentInfo: Decodable {
     let kind: String
     let preferredName: CommandTreeArgumentName?
+    let valueName: String?
     let completionKind: CommandTreeCompletionKind?
 }
 
@@ -116,7 +117,7 @@ private struct CommandTreeArgumentEntry {
     let completion: String
 
     init(_ argument: CommandTreeArgumentInfo) {
-        name = argument.preferredName?.rendered ?? "-"
+        name = argument.preferredName?.rendered ?? argument.valueName ?? "-"
         kind = argument.kind == "positional" ? "argument" : argument.kind
         completion = argument.completionKind?.rendered ?? "-"
     }
