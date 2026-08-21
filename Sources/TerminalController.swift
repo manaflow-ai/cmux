@@ -6933,6 +6933,18 @@ class TerminalController {
         return result
     }
 
+    private nonisolated func v2BrowserURLAllowlistFailure(for url: URL) -> V2CallResult? {
+        guard !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else { return nil }
+        return .err(
+            code: "browser_url_blocked",
+            message: String(
+                localized: "cli.browser.error.urlBlockedByPolicy",
+                defaultValue: "Blocked by your organization's browser policy"
+            ),
+            data: ["url": url.absoluteString]
+        )
+    }
+
     private func v2BrowserOpenSplit(
         params: [String: Any],
         diffViewerRegistration: DiffViewerSessionPreparation
@@ -7037,6 +7049,9 @@ class TerminalController {
                 return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
             }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let url, let failure = v2BrowserURLAllowlistFailure(for: url) {
+            return failure
         }
         if let error = v2RegisterDiffViewerURLIfNeeded(
             params: params,
@@ -7288,6 +7303,17 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
+            if let resolvedURL = context.browserPanel.resolveSmartNavigation(from: url)?.url,
+               let failure = v2BrowserURLAllowlistFailure(for: resolvedURL) {
+                resolutionError = failure
+                return
+            }
+            if let parsedURL = URL(string: url),
+               parsedURL.scheme != nil,
+               let failure = v2BrowserURLAllowlistFailure(for: parsedURL) {
+                resolutionError = failure
+                return
+            }
             if let error = v2InstallDiffViewerNavigationPreparationIfNeeded(
                 rawURL: url,
                 preparation: diffViewerNavigation
@@ -10416,6 +10442,9 @@ class TerminalController {
         let url = urlStr.flatMap(URL.init(string:))
         guard BrowserAvailabilitySettings.isEnabled() else {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let url, let failure = v2BrowserURLAllowlistFailure(for: url) {
+            return failure
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)

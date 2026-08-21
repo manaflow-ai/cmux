@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxSettings
 import Foundation
 import WebKit
 
@@ -20,6 +21,7 @@ import WebKit
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
+    var handleBlockedURLAllowlistNavigation: ((URL, WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent, ((WKNavigation?) -> Void)?) -> Void)?
@@ -39,6 +41,7 @@ import WebKit
     /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
+    private(set) var activePolicyBlockedURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
     weak var owner: BrowserPanel?
@@ -65,6 +68,7 @@ import WebKit
         activeSSLTrustBypassReplayRequest = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = nil
+        activePolicyBlockedURL = nil
         lastAttemptedURL = displayURL ?? request.url
         if sslBypassState.canRetainRequestForReplay(request) {
             lastAttemptedRequest = request
@@ -84,6 +88,7 @@ import WebKit
         activeSSLTrustBypassReplayRequest = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = nil
+        activePolicyBlockedURL = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
@@ -96,6 +101,7 @@ import WebKit
         activeSSLTrustBypassReplayRequest = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = nil
+        activePolicyBlockedURL = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
@@ -247,6 +253,7 @@ import WebKit
     }
 
     func activeErrorPageRetryForAutomation() -> BrowserErrorPageRetry? {
+        guard activePolicyBlockedURL == nil else { return .disabled }
         guard let failedURL = activeErrorPageDisplayURL?.absoluteString else { return nil }
         return retryForFailedNavigation(failedURL: failedURL)
     }
@@ -275,6 +282,15 @@ import WebKit
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
             handleSSLTrustBypassAction(url, in: webView)
+            return
+        }
+
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            decisionHandler(.cancel)
+            blockURLAllowlistNavigation(url, in: webView)
             return
         }
 
@@ -675,6 +691,14 @@ import WebKit
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
+        if navigationResponse.isForMainFrame,
+           let url = navigationResponse.response.url,
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            decisionHandler(.cancel)
+            blockURLAllowlistNavigation(url, in: webView)
+            return
+        }
+
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
 
@@ -759,6 +783,27 @@ import WebKit
 
     func recordSubframeDownloadIntent(_ url: URL) {
         subframeDownloadIntents.record(url)
+    }
+
+    /// Replaces a disallowed document with the localized policy explanation.
+    /// The caller has already cancelled WebKit's navigation decision.
+    func blockURLAllowlistNavigation(_ url: URL, in webView: WKWebView) {
+        clearAttemptedRequest(discardPendingBypasses: true)
+        activePolicyBlockedURL = url
+        if let handleBlockedURLAllowlistNavigation {
+            handleBlockedURLAllowlistNavigation(url, webView)
+        } else {
+            BrowserURLAllowlistBlockedPage(blockedURL: url).load(in: webView)
+        }
+    }
+
+    /// Applies a newly changed policy to the currently displayed document.
+    func enforceURLAllowlistPolicy(in webView: WKWebView, displayURL: URL? = nil) {
+        guard let url = displayURL ?? webView.url,
+              !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+            return
+        }
+        blockURLAllowlistNavigation(url, in: webView)
     }
 
     func recordPDFPrintIntent(_ url: URL) {

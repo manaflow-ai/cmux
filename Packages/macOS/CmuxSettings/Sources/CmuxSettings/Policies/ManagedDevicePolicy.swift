@@ -101,12 +101,19 @@ public struct ManagedDevicePolicy: Sendable {
     /// The profile-forced Boolean stored under `userDefaultsKey`, checking
     /// the app's own domain first and then the release fallback domain.
     public func forcedBool(forUserDefaultsKey userDefaultsKey: String) -> Bool? {
+        forcedObject(forUserDefaultsKey: userDefaultsKey) as? Bool
+    }
+
+    /// The profile-forced object stored under `userDefaultsKey`, checking the
+    /// app's own domain before the release-domain fallback. A non-`nil` object
+    /// means the key is managed even when its value has the wrong type.
+    public func forcedObject(forUserDefaultsKey userDefaultsKey: String) -> Any? {
         if let value = forcedObject(defaults, userDefaultsKey) {
-            return value as? Bool
+            return value
         }
         if let releaseDomainDefaults,
            let value = forcedObject(releaseDomainDefaults, userDefaultsKey) {
-            return value as? Bool
+            return value
         }
         return nil
     }
@@ -164,5 +171,16 @@ public struct ManagedDevicePolicy: Sendable {
     /// domain.
     public func isKeyForcedInAppDomain(_ userDefaultsKey: String) -> Bool {
         forcedObject(defaults, userDefaultsKey) != nil
+    }
+
+    /// Whether the embedded-browser URL allowlist is locked by MDM.
+    ///
+    /// The dedicated policy key is checked across the app and release domains;
+    /// the user-level key is checked in the app domain because that is the key
+    /// cmux writes. This lets channel builds honor a release-domain profile
+    /// without creating a write loop in their private preference suite.
+    public func isBrowserURLAllowlistLocked(userDefaultsKey: String) -> Bool {
+        forcedObject(forUserDefaultsKey: ManagedDevicePolicyKey.browserURLAllowlist.rawValue) != nil
+            || isKeyForcedInAppDomain(userDefaultsKey)
     }
 }

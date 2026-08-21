@@ -1463,6 +1463,14 @@
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
+        "urlAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional host or URL patterns that restrict every embedded-browser navigation. Empty means unrestricted for non-managed users."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,
