@@ -21,6 +21,13 @@ struct ClaudeBackgroundWorkNotifyTests {
         snapshot.first { $0.hasPrefix("set_agent_lifecycle claude_code \(value) ") }
     }
 
+    /// The pane state a hook sequence LEFT behind: the socket verbs are
+    /// last-write-wins, so only the final `set_status` / `set_agent_lifecycle`
+    /// of a run describes what the sidebar ends up showing.
+    private func lastLine(_ snapshot: [String], prefix: String) -> String? {
+        snapshot.last { $0.hasPrefix(prefix) }
+    }
+
     private func runStopHook(
         name: String,
         sessionId: String,
@@ -275,5 +282,131 @@ struct ClaudeBackgroundWorkNotifyTests {
         // With no pending work this is a real waiting state, so the pill flips.
         #expect(statusLine(snapshot, value: "Needs input") != nil,
                 "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+    }
+
+    @Test func agentCompletedNotificationLeavesPaneRunning() throws {
+        // `agent_completed` is Claude Code's user-facing form of SubagentStop: a
+        // Task subagent finished while the parent agent keeps working on its
+        // turn. It is progress, not an attention state, so it must not flip the
+        // pane to "Needs input" (which makes the workspace infer
+        // needs-attention) and must not fire a turn-complete ping.
+        // https://github.com/manaflow-ai/cmux/issues/10233
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-subagent")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-subagent",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-subagent",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        // Seed the working pane the parent agent is mid-turn in, so the
+        // assertions below distinguish "left the pane Running" from "published
+        // some other state" or "published nothing at all".
+        let promptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-subagent-session","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(promptResult)
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-subagent-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(result)
+        let snapshot = context.state.snapshot()
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "A finished subagent must not set the Needs input pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
+                "A finished subagent must not publish a needs-input lifecycle; saw \(snapshot)")
+        #expect(snapshot.first { $0.hasPrefix("notify_target_async ") } == nil,
+                "A finished subagent must not fire a turn-complete ping; saw \(snapshot)")
+        let lastStatus = try #require(
+            lastLine(snapshot, prefix: "set_status claude_code "),
+            "Expected the seeded Running pill in \(snapshot)"
+        )
+        #expect(lastStatus.hasPrefix("set_status claude_code Running "),
+                "The pane must be left Running after a subagent finishes; saw \(lastStatus)")
+        let lastLifecycle = try #require(
+            lastLine(snapshot, prefix: "set_agent_lifecycle claude_code "),
+            "Expected the seeded running lifecycle in \(snapshot)"
+        )
+        #expect(lastLifecycle.hasPrefix("set_agent_lifecycle claude_code running "),
+                "The lifecycle must be left running after a subagent finishes; saw \(lastLifecycle)")
+    }
+
+    @Test func agentCompletedNotificationDoesNotSwallowTheParentStop() throws {
+        // The subagent that finishes LAST still hands the turn back to the
+        // parent, whose own Stop owns the real turn-complete transition. The
+        // suppressed `agent_completed` must leave that signal intact.
+        // https://github.com/manaflow-ai/cmux/issues/10233
+        let session = "subagent-then-stop"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-subagent-stop")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-subagent-stop",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-subagent-stop",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let notifResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notifResult)
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+        let snapshot = context.state.snapshot()
+        // Exactly one ping, and it carries the parent's own last assistant
+        // message — asserting mere presence would be satisfied by the
+        // subagent's ping, which is the thing this fix removes.
+        let notifyLines = snapshot.filter { $0.hasPrefix("notify_target_async ") }
+        #expect(notifyLines.count == 1,
+                "Only the parent Stop may ping for this turn; saw \(notifyLines)")
+        #expect(notifyLines.first?.contains("|ok|c=turn-complete;p=0") == true,
+                "The surviving ping must be the parent Stop's turn-complete; saw \(notifyLines)")
+        let lastStatus = try #require(
+            lastLine(snapshot, prefix: "set_status claude_code "),
+            "Expected the parent Stop's pill in \(snapshot)"
+        )
+        #expect(lastStatus.hasPrefix("set_status claude_code Idle "),
+                "The parent Stop must leave the Idle pill; saw \(lastStatus)")
+        let lastLifecycle = try #require(
+            lastLine(snapshot, prefix: "set_agent_lifecycle claude_code "),
+            "Expected the parent Stop's lifecycle in \(snapshot)"
+        )
+        #expect(lastLifecycle.hasPrefix("set_agent_lifecycle claude_code idle "),
+                "The parent Stop must leave an idle lifecycle; saw \(lastLifecycle)")
     }
 }

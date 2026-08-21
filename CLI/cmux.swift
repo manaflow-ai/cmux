@@ -25728,6 +25728,13 @@ struct CMUXCLI {
             case "permission_prompt":
                 notifyCategory = .needsPermission
                 notifyPending = false
+            case "agent_completed":
+                // The user-facing form of SubagentStop: a Task subagent finished
+                // while the parent agent keeps working on its turn. Classified
+                // explicitly (rather than through the completion cue below) so a
+                // localized or reworded message cannot resurface it as attention.
+                notifyCategory = .turnComplete
+                notifyPending = false
             case "idle_prompt":
                 notifyCategory = .idleReminder
                 // The cached Stop-time flag is not stale in practice: a completed
@@ -25757,12 +25764,29 @@ struct CMUXCLI {
                 }
             }
 
+            // A completion notification reports progress, not a state that needs
+            // the user. Claude Code raises it when a Task subagent finishes
+            // (`agent_completed`), so the parent agent is still mid-turn: flipping
+            // the pane to "Needs input" here made the workspace infer
+            // needs-attention while work was still running, and the ping duplicated
+            // the one the parent's own Stop delivers at the real turn boundary.
+            // The Stop hook stays the sole owner of the turn-complete transition,
+            // so a subagent that finishes last still hands the pane whatever state
+            // that Stop produces. https://github.com/manaflow-ai/cmux/issues/10233
+            //
+            // Deliberately keyed on the CATEGORY, not on the `agent_completed`
+            // tag: the untyped fallback above classifies an older client's
+            // completion cue the same way, and the Notification hook never owns
+            // turn completion regardless of which path resolved it.
+            let isTurnCompleteCategoryNotification = (notifyCategory == .turnComplete)
+
             // An idle reminder while background work is still pending is not a
             // real "waiting for input" state: the pane is still running (the Stop
             // hook set it to Running) and the app suppresses this banner. Skip the
             // "Needs input" pill/lifecycle so the idle nag can't undo the Running
             // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+            let suppressNeedsInputState = isTurnCompleteCategoryNotification
+                || (notifyCategory == .idleReminder && notifyPending)
 
             // `.other` means "ungated, always deliver" — identical to an untagged
             // payload, so don't put it on the wire: the app parser accepts only
@@ -25809,7 +25833,9 @@ struct CMUXCLI {
                     color: "#4C8DFF", pid: claudePid
                 )
             }
-            _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            if !isTurnCompleteCategoryNotification {
+                _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            }
             printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
