@@ -31,15 +31,7 @@ extension WorkspaceDetailView {
                 chatContent(session)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .chat {
-                waitingSurfacePlaceholder(
-                    title: L10n.string("mobile.chat.waiting", defaultValue: "Waiting for Chat"),
-                    detail: L10n.string(
-                        "mobile.chat.waitingDetail",
-                        defaultValue: "The conversation will appear when it is ready."
-                    ),
-                    symbol: "bubble.left.and.bubble.right",
-                    accessibilityIdentifier: "WorkspaceChatPlaceholder"
-                )
+                chatWaitingSurfacePlaceholder()
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)

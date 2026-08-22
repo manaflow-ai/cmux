@@ -116,6 +116,28 @@ import CmuxMobileShellModel
         #expect(store.activeState(in: workspaceID)?.id == selectedDescriptor.panelID)
     }
 
+    @Test func staleMacSelectionFallsBackToAvailableSimulatorPanel() {
+        let workspaceID = "workspace-1"
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: workspaceID),
+            name: "Workspace",
+            terminals: [],
+            surfaces: []
+        )
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: workspaceID, with: [Self.descriptor()])
+        let composite = MobileShellComposite(
+            workspaces: [workspace],
+            simulatorStreamStore: store
+        )
+        composite.selectedMacSurfaceID = .init(rawValue: "stale-surface")
+
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(composite.selectedMacSurfaceID == nil)
+        #expect(store.activeState(in: workspaceID)?.id == Self.descriptor().panelID)
+    }
+
     private static func descriptor() -> MobileSimulatorPanelDescriptor {
         descriptor(panelID: "sim-1")
     }

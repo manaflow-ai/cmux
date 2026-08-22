@@ -61,7 +61,10 @@ import Testing
 
         model.workspace = updatedWorkspace
         controller.view.layoutIfNeeded()
-        await Task.yield()
+        await Self.waitForActivePanel(
+            expectedID: Self.descriptor().panelID,
+            activeID: { simulatorStore.activeState(in: workspaceID)?.id }
+        )
         controller.view.layoutIfNeeded()
 
         #expect(simulatorStore.activeState(in: workspaceID)?.id == Self.descriptor().panelID)
@@ -115,11 +118,26 @@ import Testing
         model.workspace = updatedWorkspace
         browserStreamStore.replaceBrowserPanels(in: workspaceID, with: [Self.browserDescriptor()])
         controller.view.layoutIfNeeded()
-        await Task.yield()
+        await Self.waitForActivePanel(
+            expectedID: Self.browserDescriptor().panelID,
+            activeID: { browserStreamStore.activeState(in: workspaceID)?.id }
+        )
         controller.view.layoutIfNeeded()
 
         #expect(browserStreamStore.activeState(in: workspaceID)?.id == Self.browserDescriptor().panelID)
         window.isHidden = true
+    }
+
+    private static func waitForActivePanel(
+        expectedID: String,
+        activeID: @escaping @MainActor () -> String?
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while activeID() != expectedID, clock.now < deadline {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private static func descriptor() -> MobileSimulatorPanelDescriptor {

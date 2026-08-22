@@ -10852,8 +10852,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// empty terminal frame when only Mac surfaces or streamed panels exist.
     private func syncDefaultSurfaceForWorkspace() {
         guard let selectedWorkspace else { return }
-        if selectedMacSurfaceID != nil {
+        if let selectedMacSurfaceID,
+           selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
             return
+        } else if selectedMacSurfaceID != nil {
+            self.selectedMacSurfaceID = nil
         }
         let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
         if simulatorStreamStore?.activeState(in: workspaceID) != nil {
