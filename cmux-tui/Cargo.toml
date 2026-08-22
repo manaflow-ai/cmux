@@ -116,8 +116,14 @@ terminput-crossterm = { version = "=0.4.7", default-features = false, features =
 futures-util = "0.3"
 hmac = "0.12"
 http = "1"
-hyper = { version = "1", features = ["http1", "server"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["service", "tokio"] }
+# chatmux-relay workspace verbs: `ignore` is ripgrep's own gitignore walker
+# (fs_tree/fs_search stay correct without shelling out to rg), `notify` is
+# the cross-platform fs-event backend for the fs_watch stream family.
+ignore = "0.4"
+notify = "8"
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
 subtle = "2.6.1"
 parking_lot = "0.12"

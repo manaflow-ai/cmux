@@ -65,8 +65,14 @@ cutover — pre-launch, no legacy.
 - The advertised relay protocol is **v2** (`wire::ADVERTISED_PROTOCOL_VERSION`)
   until the verb slices land, so the Worker's designed old-relay degrade
   applies instead of half-implemented verbs. The JS relay advertises v5.
-  If a verb frame arrives anyway (test override), the relay answers a
-  typed refusal instead of running it.
+  DIALECT: the workspace slice implements the full v6 verb set but does
+  NOT bump the advertised dialect — the PTY + exec slices (dialect 4/5)
+  land in parallel, and whichever slice merges LAST raises the advertised
+  dialect to 6 once e2e-relay + e2e-terminal-pty + e2e-workspace are all
+  green on the combined head. Harness runs meanwhile use the existing
+  `CHATMUX_RELAY_PROTOCOL=6` env override. Workspace frames that arrive
+  are always answered (typed refusal for unknown ops, never a socket
+  close); exec/PTY frames keep the slice-1 refusals.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).
@@ -80,19 +86,35 @@ The wire truth is chatmux `packages/protocol/src/relay.ts`, emitted to
 added to the chatmux protocol codegen (alongside the existing Swift and
 Kotlin targets) together with the wire-v6 pane verbs.
 
-Until that lands, `src/wire.rs` hand-models exactly the slice-1 subset and
-is clearly marked for replacement. Once `packages/protocol/generated/rust/`
-exists in chatmux:
+The generated file is VENDORED here as `src/relay_wire.rs` (chatmux
+`packages/protocol/generated/rust/relay_wire.rs`, copied verbatim — never
+edited, only re-vendored; `#[rustfmt::skip]` on the module declaration
+keeps the generated layout as the diff baseline). Vendored from chatmux
+commit `VENDORED_CHATMUX_SHA` (10 workspace ops). To re-vendor after a
+chatmux protocol change:
 
 1. In chatmux: `cd packages/protocol && bun run generate`.
-2. Copy `packages/protocol/generated/rust/relay.rs` (generated, do not
-   edit) into this crate as `src/protocol_generated.rs`.
-3. Replace the hand-modeled structs in `src/wire.rs` with re-exports from
-   the vendored module; keep only the tolerant-parse helpers.
-4. Record the chatmux commit sha of the vendored file in the copy header.
+2. Copy `packages/protocol/generated/rust/relay_wire.rs` over
+   `src/relay_wire.rs` verbatim and update the sha recorded above.
+3. Run the chatmux conformance harness against the rebuilt binary
+   (`apps/backend/test/e2e-workspace.ts` with `CHATMUX_E2E_RELAY_BIN`).
 
-Regenerate + re-copy is part of any chatmux protocol change that touches
-the relay group (cross-repo step; documented in both repos).
+`src/wire.rs` still hand-models the slice-1 core frames (hello,
+heartbeats, trust) with the tolerant parse; the v6 workspace frames decode
+through the vendored types (workspace.rs / watch.rs / preview_proxy.rs).
+The remaining hand-modeled structs migrate to the vendored file with the
+PTY/exec slices.
+
+## Preview proxy (slice 4, this crate)
+
+`preview_open` starts (or reuses) a reverse proxy of the target dev-server
+port per the pinned contract in chatmux pane-primitives-plan.md: chobitsu
+script-tag injection into text/html (skip on `x-chatmux-no-inject: 1`),
+`GET /__chatmux__/target.js` (vendored chobitsu 1.8.6 + connector, in
+`assets/`), `WS /__chatmux__/page` + `WS /__chatmux__/devtools` piping
+(latest page connection wins), `GET /__chatmux__/status` with credentialed
+CORS (ACAO=origin + ACAC=true), and a bounded console/network ring served
+by `preview_console_tail`.
 
 ## Conformance harness (chatmux repo)
 
@@ -102,6 +124,10 @@ The cross-language gate lives in chatmux `apps/backend`:
 - `test/e2e-pair-url.ts` — URL approval flow, deny path, rate limit.
 - `test/e2e-terminal-pty.ts`, `scripts/terminal-dev-server.ts` — PTY
   (slice 2 gate).
+- `test/e2e-workspace.ts` — wire-v6 workspace verbs + fs_watch + preview
+  shapes (this slice's gate; `CHATMUX_E2E_RELAY_BIN` points it at this
+  binary, with `CHATMUX_RELAY_PROTOCOL=6` until the dialect bump — see
+  DIALECT below).
 
 Point the harness at this binary with `CHATMUX_RELAY_BIN`:
 
