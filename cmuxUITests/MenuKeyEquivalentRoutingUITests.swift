@@ -391,6 +391,11 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             "Design Mode",
             "The active mode control should expose a concise text state instead of another toolbar glyph"
         )
+        XCTAssertEqual(
+            browserToolbar(app).descendants(matching: .any).matching(identifier: "BrowserDesignModeButton").count,
+            1,
+            "Design Mode should have one active text control, not an additional inactive toolbar icon"
+        )
         XCTAssertFalse(
             toolbarElement(app, identifier: "BrowserFocusModeButton").exists,
             "Focus Mode should not create a second active control while Design Mode is active"
@@ -399,11 +404,6 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             toolbarElement(app, identifier: "BrowserScreenshotPageButton").exists,
             "Screenshot should remain in the overflow menu while Design Mode is active"
         )
-        XCTAssertFalse(
-            toolbarElement(app, identifier: "BrowserDesignModeButton").exists,
-            "The inactive Design Mode icon should be replaced by the shared active chip"
-        )
-
         app.typeKey("d", modifierFlags: [.command, .option, .control])
         XCTAssertTrue(
             waitForCondition(timeout: 10.0) { !designModeButton.exists },
