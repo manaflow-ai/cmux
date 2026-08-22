@@ -31,6 +31,9 @@ struct MacComputerDetailView: View {
     @State private var newDirectAddress = ""
     @State private var newDirectAddressLabel = ""
     @State private var showsAddDirectAddress = false
+    /// The id of the Direct address being edited in the shared add/edit
+    /// alert; `nil` means the alert is adding a new entry.
+    @State private var editingDirectAddressID: String?
     /// Optimistic method selection: moves the picker the moment the user taps
     /// while the persist + store reload reconcile the authoritative value.
     @State private var pendingConnectionMethod: MobileConnectionMethod?
@@ -104,7 +107,9 @@ struct MacComputerDetailView: View {
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .alert(
-            L10n.string("mobile.connections.direct.add", defaultValue: "Add Address"),
+            editingDirectAddressID == nil
+                ? L10n.string("mobile.connections.direct.add", defaultValue: "Add Address")
+                : L10n.string("mobile.connections.direct.edit", defaultValue: "Edit Address"),
             isPresented: $showsAddDirectAddress
         ) {
             TextField(
@@ -126,10 +131,15 @@ struct MacComputerDetailView: View {
                 text: $newDirectAddressLabel
             )
             .accessibilityIdentifier("MobileComputerDirectAddressLabelField")
-            Button(L10n.string("mobile.connections.direct.addConfirm", defaultValue: "Add")) {
-                addDirectAddress()
+            Button(editingDirectAddressID == nil
+                ? L10n.string("mobile.connections.direct.addConfirm", defaultValue: "Add")
+                : L10n.string("mobile.common.save", defaultValue: "Save")
+            ) {
+                saveDirectAddress()
             }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                editingDirectAddressID = nil
+            }
         } message: {
             Text(L10n.string(
                 "mobile.connections.direct.addMessage",
@@ -335,11 +345,52 @@ struct MacComputerDetailView: View {
                 // check circle carries the accent color.
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("MobileComputerDirectAddress-\(entry.id)")
+                // Tap toggles, so editing lives one gesture away on both the
+                // leading swipe and the long-press menu.
+                .swipeActions(edge: .leading) {
+                    Button {
+                        beginEditingDirectAddress(entry)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.common.edit", defaultValue: "Edit"),
+                            systemImage: "pencil"
+                        )
+                    }
+                    .tint(.orange)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        deleteDirectAddress(entry)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.common.delete", defaultValue: "Delete"),
+                            systemImage: "trash"
+                        )
+                    }
+                }
+                .contextMenu {
+                    Button {
+                        beginEditingDirectAddress(entry)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.common.edit", defaultValue: "Edit"),
+                            systemImage: "pencil"
+                        )
+                    }
+                    Button(role: .destructive) {
+                        deleteDirectAddress(entry)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.common.delete", defaultValue: "Delete"),
+                            systemImage: "trash"
+                        )
+                    }
+                }
             }
-            .onDelete(perform: deleteDirectAddresses)
             Button {
                 newDirectAddress = ""
                 newDirectAddressLabel = ""
+                editingDirectAddressID = nil
                 showsAddDirectAddress = true
             } label: {
                 Label(
@@ -392,17 +443,38 @@ struct MacComputerDetailView: View {
         return MobilePairedMacDirectAddress(address: trimmed, port: nil)
     }
 
-    private func addDirectAddress() {
-        guard var entry = parsedNewDirectAddress else { return }
+    /// Prefills the shared add/edit alert with an existing entry. The id is
+    /// captured so Save replaces that entry (keeping its enabled state)
+    /// instead of appending.
+    private func beginEditingDirectAddress(_ entry: MobilePairedMacDirectAddress) {
+        newDirectAddress = entry.id
+        newDirectAddressLabel = entry.label ?? ""
+        editingDirectAddressID = entry.id
+        showsAddDirectAddress = true
+    }
+
+    private func saveDirectAddress() {
+        guard var entry = parsedNewDirectAddress else {
+            editingDirectAddressID = nil
+            return
+        }
         let trimmedLabel = newDirectAddressLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         entry.label = trimmedLabel.isEmpty ? nil : trimmedLabel
         var drafts = directAddressDrafts
-        guard !drafts.contains(where: { $0.id == entry.id }) else {
-            newDirectAddress = ""
-            return
-        }
-        drafts.append(entry)
+        let editedID = editingDirectAddressID
+        editingDirectAddressID = nil
         newDirectAddress = ""
+        if let editedID, let index = drafts.firstIndex(where: { $0.id == editedID }) {
+            // A duplicate of ANOTHER entry is a no-op, same as adding one.
+            guard !drafts.contains(where: { $0.id == entry.id && $0.id != editedID }) else {
+                return
+            }
+            entry.enabled = drafts[index].enabled
+            drafts[index] = entry
+        } else {
+            guard !drafts.contains(where: { $0.id == entry.id }) else { return }
+            drafts.append(entry)
+        }
         persistDirectAddresses(drafts)
     }
 
@@ -413,9 +485,9 @@ struct MacComputerDetailView: View {
         persistDirectAddresses(drafts)
     }
 
-    private func deleteDirectAddresses(at offsets: IndexSet) {
+    private func deleteDirectAddress(_ entry: MobilePairedMacDirectAddress) {
         var drafts = directAddressDrafts
-        drafts.remove(atOffsets: offsets)
+        drafts.removeAll { $0.id == entry.id }
         persistDirectAddresses(drafts)
     }
 
