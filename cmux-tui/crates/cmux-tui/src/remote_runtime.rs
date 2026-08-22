@@ -127,7 +127,10 @@ impl DaemonCleanupPauseHandle {
 
     fn wait_until_reached(&self) {
         self.reached
-            .recv_timeout(Duration::from_secs(3))
+            // The daemon performs real filesystem and socket setup before it
+            // reaches this deterministic test hook. Keep the observation
+            // bounded without coupling it to parallel CI runner load.
+            .recv_timeout(Duration::from_secs(10))
             .expect("daemon shutdown did not reach the lifecycle cleanup pause");
     }
 
@@ -1890,7 +1893,8 @@ async fn run_daemon(
                         state_dir.join("workspace-http.token"),
                     )
                     .await?;
-                    eprintln!(
+                    crate::client_log::stderr_log!(
+                        "remote",
                         "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
                         server.local_addr(),
                         server.token_file().display()
@@ -2787,6 +2791,15 @@ mod tests {
     use cmux_remote::daemon::RemoteDaemon;
 
     use super::*;
+
+    fn instrumented_test_timeout(timeout: Duration) -> Duration {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        timeout.saturating_mul(scale)
+    }
 
     fn resolved_test_route(
         route: &str,
@@ -4919,13 +4932,16 @@ mod tests {
             reconnect: ReconnectPolicy {
                 initial_delay: Duration::from_millis(10),
                 maximum_delay: Duration::from_millis(10),
-                attempt_timeout: Duration::from_millis(50),
+                // This fixture injects carrier EOF directly and asserts prompt
+                // shutdown during SSH bootstrap. Give setup handshakes their
+                // own budget and keep heartbeat timing out of that invariant.
+                attempt_timeout: instrumented_test_timeout(Duration::from_secs(1)),
                 full_jitter: false,
-                heartbeat_interval: Some(Duration::from_millis(10)),
-                heartbeat_timeout: Duration::from_millis(10),
+                heartbeat_interval: None,
+                heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
             },
-            startup_timeout: Duration::from_secs(5),
+            startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
             local_socket: Some(directory.path().join("client.sock")),
             ssh,
@@ -4939,7 +4955,8 @@ mod tests {
 
         cut_tx.send(()).unwrap();
         proxy.join().unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline =
+            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
         let pid = loop {
             if let Ok(value) = fs::read_to_string(&pid_file)
                 && let Ok(pid) = value.parse::<libc::pid_t>()
@@ -4957,28 +4974,30 @@ mod tests {
         thread::spawn(move || {
             let _ = done_tx.send(client.shutdown());
         });
-        let completed_promptly = match done_rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(result) => {
-                result.unwrap();
-                true
-            }
-            Err(_) => {
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
+        let completed_promptly =
+            match done_rx.recv_timeout(instrumented_test_timeout(Duration::from_millis(500))) {
+                Ok(result) => {
+                    result.unwrap();
+                    true
                 }
-                done_rx
-                    .recv_timeout(Duration::from_secs(3))
-                    .expect("client shutdown stayed blocked after SSH cleanup")
-                    .unwrap();
-                false
-            }
-        };
+                Err(_) => {
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
+                    }
+                    done_rx
+                        .recv_timeout(instrumented_test_timeout(Duration::from_secs(3)))
+                        .expect("client shutdown stayed blocked after SSH cleanup")
+                        .unwrap();
+                    false
+                }
+            };
         assert!(
             completed_promptly,
             "client shutdown waited for the reconnect SSH bootstrap timeout"
         );
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline =
+            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
         while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
@@ -5213,12 +5232,12 @@ mod tests {
         options.providers = providers;
         options.auth = ClientAuthMode::Carrier;
         options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = Duration::from_millis(20);
+        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
         options.reconnect.full_jitter = false;
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let (connection, selected) = tokio::time::timeout(
-            Duration::from_millis(500),
+            instrumented_test_timeout(Duration::from_millis(500)),
             connect_first_available(&options, shutdown_rx),
         )
         .await
@@ -5259,12 +5278,12 @@ mod tests {
         options.providers = providers;
         options.auth = ClientAuthMode::Carrier;
         options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = Duration::from_millis(20);
+        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
         options.reconnect.full_jitter = false;
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let (connection, selected) = tokio::time::timeout(
-            Duration::from_millis(500),
+            instrumented_test_timeout(Duration::from_millis(500)),
             connect_first_available(&options, shutdown_rx),
         )
         .await

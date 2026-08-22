@@ -16,6 +16,8 @@ public struct VerifiedReplayCapturedViewportAnchor: Equatable, Sendable {
 
 @MainActor
 extension GhosttySurfaceView {
+    private static let maximumVerifiedReplayPresentationRetries: UInt8 = 3
+
     nonisolated static func requiresVerifiedReplayPresentedDrain(
         hasPresentedContents: Bool
     ) -> Bool {
@@ -41,18 +43,25 @@ extension GhosttySurfaceView {
                 var scrollbar = ghostty_surface_scrollbar_s()
                 let captured: VerifiedReplayCapturedViewportAnchor?
                 if ghostty_surface_scrollbar(operation.surface, &scrollbar) {
-                    let interactionGeneration = gate.withLock {
-                        $0.appliedInteractionGeneration
-                    }
-                    captured = VerifiedReplayViewportAnchor(
-                        scrollbarTotal: scrollbar.total,
-                        offset: scrollbar.offset,
-                        len: scrollbar.len
-                    ).map {
-                        VerifiedReplayCapturedViewportAnchor(
-                            anchor: $0,
-                            interactionGeneration: interactionGeneration
+                    let viewportState = gate.withLock {
+                        (
+                            interactionGeneration: $0.appliedInteractionGeneration,
+                            preservesUserViewportAnchor: $0.preservesUserViewportAnchor
                         )
+                    }
+                    if viewportState.preservesUserViewportAnchor {
+                        captured = VerifiedReplayViewportAnchor(
+                            scrollbarTotal: scrollbar.total,
+                            offset: scrollbar.offset,
+                            len: scrollbar.len
+                        ).map {
+                            VerifiedReplayCapturedViewportAnchor(
+                                anchor: $0,
+                                interactionGeneration: viewportState.interactionGeneration
+                            )
+                        }
+                    } else {
+                        captured = nil
                     }
                 } else {
                     captured = nil
@@ -260,10 +269,12 @@ extension GhosttySurfaceView {
         // GPU write and layer assignment is behind us, so the CPU pixel copy
         // cannot race swap-chain reuse.
         verifiedReplayRenderSuppressed = true
+        _ = renderPresentationGate.setSuppressed(true)
         var retainedFrozenPresentation = false
         defer {
             if !retainedFrozenPresentation {
                 verifiedReplayRenderSuppressed = false
+                resumeQueuedRenderAfterReplaySuppression()
             }
         }
         guard let frozen = await makeVerifiedReplayFrozenPresentationForFreeze(
@@ -420,14 +431,24 @@ extension GhosttySurfaceView {
         verifiedReplayReadyTransactionID = nil
         verifiedReplayRenderSuppressed = false
         CATransaction.commit()
+        resumeQueuedRenderAfterReplaySuppression()
     }
 
     /// Called by Ghostty after one exact tokened command reaches the model
     /// renderer layer. A stale completion has a different token and cannot arm
     /// the pending fence.
-    func handleVerifiedReplayRenderPresented(token: UInt64) {
-        guard var pending = pendingVerifiedReplayPresentation else { return }
-        guard token == pending.fence.expectedToken else { return }
+    ///
+    /// - Returns: `true` when the caller should release the ordinary render
+    ///   gate directly. Verified replay callbacks return `false`; their gate
+    ///   is released by `completePendingVerifiedReplayPresentationIfPresented`
+    ///   only after readback and presentation are both verified.
+    @discardableResult
+    func handleVerifiedReplayRenderPresented(token: UInt64) -> Bool {
+        guard var pending = pendingVerifiedReplayPresentation else { return true }
+        // A replay can be queued behind an ordinary frame. Let that frame's
+        // callback use the normal gate-release path; `finishRenderSubmission`
+        // still rejects genuinely stale tokens by identity.
+        guard token == pending.fence.expectedToken else { return true }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let modelGeometry = verifiedReplayPresentationGeometry(
@@ -444,7 +465,7 @@ extension GhosttySurfaceView {
             MobileDebugLog.anchormux(
                 "verified_replay.callback_rejected reason=\(failureReason)"
             )
-            return
+            return false
         }
         guard pending.fence.acknowledge(
             token: token,
@@ -452,16 +473,49 @@ extension GhosttySurfaceView {
             geometryRevision: verifiedReplayGeometryRevision,
             geometry: modelGeometry
         ) else {
-            return
+            return false
         }
         pendingVerifiedReplayPresentation = pending
         completePendingVerifiedReplayPresentationIfPresented()
+        return false
+    }
+
+    /// A tokened replay can be rejected by Ghostty after the GPU completes,
+    /// most commonly because the host layer resized between encoding and the
+    /// main-thread assignment. Keep the frozen transaction alive and replace
+    /// only that stale token. Backend failures complete the waiter so the
+    /// shell-level replay barrier can request a fresh authoritative frame.
+    @discardableResult
+    func handleVerifiedReplayRenderFailure(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) -> Bool {
+        guard pendingVerifiedReplayPresentation?.id == token else { return false }
+        if status == GHOSTTY_RENDER_PRESENTATION_DISCARDED {
+            if restartPendingVerifiedReplayPresentationForCurrentGeometry(countsAsRetry: true) {
+                return true
+            }
+        }
+        completePendingVerifiedReplayPresentation(id: token, returning: nil)
+        clearVerifiedReplayPresentation()
+        return false
     }
 
     /// Replaces an in-flight token after renderer geometry changes. Ghostty's
     /// size guard correctly discards the old target without a callback, so the
     /// same replay operation must submit again at the newest layer geometry.
-    func restartPendingVerifiedReplayPresentationForCurrentGeometry() {
+    @discardableResult
+    func restartPendingVerifiedReplayPresentationForCurrentGeometry(
+        countsAsRetry: Bool = false
+    ) -> Bool {
+        if !countsAsRetry, renderReplacementInFlight {
+            // Keep at most one geometry replacement queued on the serial
+            // output queue. The current replacement's disposition will drive
+            // the coalesced follow-up once it is safe to submit.
+            needsAnotherRender = true
+            needsDraw = true
+            return true
+        }
         guard var pending = pendingVerifiedReplayPresentation,
               let surface,
               pending.surface == surface,
@@ -470,7 +524,16 @@ extension GhosttySurfaceView {
               verifiedReplayRenderSuppressed,
               !renderPipelineRecoveryPaused,
               !isRenderingSuspendedForVerifiedReplay else {
-            return
+            return false
+        }
+        guard !countsAsRetry
+                || pending.presentationRetryCount < Self.maximumVerifiedReplayPresentationRetries else {
+            MobileDebugLog.anchormux(
+                "verified_replay.resubmit_drop reason=retry_limit"
+            )
+            completePendingVerifiedReplayPresentation(id: pending.id, returning: nil)
+            clearVerifiedReplayPresentation()
+            return false
         }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         guard let geometry = verifiedReplayPresentationGeometry(
@@ -478,11 +541,15 @@ extension GhosttySurfaceView {
             host: layer,
             viewportRect: terminalViewportRect
         ) else {
-            return
+            return false
         }
+        let oldToken = pending.id
         let token = makeSurfaceOperationID()
         pending.id = token
         pending.startedAt = CACurrentMediaTime()
+        if countsAsRetry {
+            pending.presentationRetryCount &+= 1
+        }
         pending.fence.restart(
             expectedToken: token,
             expectedGeometryRevision: verifiedReplayGeometryRevision,
@@ -494,11 +561,34 @@ extension GhosttySurfaceView {
         MobileDebugLog.anchormux(
             "verified_replay.resubmit reason=geometry revision=\(verifiedReplayGeometryRevision)"
         )
-        enqueueVerifiedReplaySubmission(
-            read: pending.read,
-            submission: VerifiedReplayRenderSubmission(surface: surface, token: token),
-            generation: surfaceGeneration
+        let replacement = GhosttySurfaceView.RenderSubmission(
+            token: token,
+            generation: surfaceGeneration,
+            kind: .verifiedReplay,
+            surface: surface,
+            verifiedReplayRead: pending.read,
+            presentationRetryCount: 0
         )
+        if !replaceInFlightRenderSubmission(with: replacement) {
+            // Geometry changes can race the failure callback. If the old
+            // token is still the active submission, release it before queuing
+            // the replacement, otherwise the gate would retain a token whose
+            // failure callback has already been consumed.
+            if renderSubmission?.token == oldToken {
+                cancelRenderSubmission(token: oldToken)
+            }
+            guard enqueueVerifiedReplaySubmission(
+                read: pending.read,
+                submission: VerifiedReplayRenderSubmission(surface: surface, token: token),
+                generation: surfaceGeneration
+            ) else {
+                completePendingVerifiedReplayPresentation(id: token, returning: nil)
+                clearVerifiedReplayPresentation()
+                return false
+            }
+        }
+        renderReplacementInFlight = true
+        return true
     }
 
     /// Called by the display link until the exact acknowledged target reaches
@@ -534,12 +624,20 @@ extension GhosttySurfaceView {
             verifiedReplayReadyFence = pending.fence
             verifiedReplayReadyTransactionID = transactionID
         }
-        completePendingVerifiedReplayPresentation(
-            id: pending.id,
-            returning: VerifiedReplayPresentedSubmission(
-                observedFrame: pending.observedFrame
-            )
+        let token = pending.id
+        let result = VerifiedReplayPresentedSubmission(
+            observedFrame: pending.observedFrame
         )
+        // The callback can arrive before the readback Task is scheduled. Keep
+        // the render gate occupied until this exact fence is satisfied, then
+        // release it once, after the continuation has been claimed.
+        guard completePendingVerifiedReplayPresentation(
+            id: token,
+            returning: result
+        ) else {
+            return
+        }
+        finishRenderSubmission(token: token)
     }
 
     func verifiedReplayPendingFenceFailureReason() -> String? {

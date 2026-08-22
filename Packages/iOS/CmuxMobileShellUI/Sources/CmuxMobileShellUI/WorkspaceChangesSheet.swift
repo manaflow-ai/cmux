@@ -60,11 +60,23 @@ public struct WorkspaceChangesSheet: View {
         .task(id: workspaceID) {
             await loadChangedFiles(invalidateCache: true)
         }
+        .onAppear {
+            store.recordAppEvent(.changesOpened, correlationID: workspaceID)
+        }
+        .onDisappear {
+            store.recordAppEvent(.changesClosed, correlationID: workspaceID)
+        }
     }
 
     private var listActions: WorkspaceChangesListActions {
         WorkspaceChangesListActions(
-            onSelectFile: { _ in },
+            onSelectFile: { index in
+                store.recordAppEvent(
+                    .changedFileSelected,
+                    correlationID: workspaceID,
+                    count: index
+                )
+            },
             onRefresh: { await loadChangedFiles(invalidateCache: true) },
             onRetry: { Task { await loadChangedFiles(invalidateCache: true) } }
         )
@@ -92,6 +104,7 @@ public struct WorkspaceChangesSheet: View {
         }
         let copy: @MainActor @Sendable (String) -> Void = { text in
             UIPasteboard.general.string = text
+            store.recordAppEvent(.diffCopied, correlationID: workspaceID)
         }
         let inlinePreview: @MainActor @Sendable (Int, FileDiffPreviewRevision) -> AnyView = {
             index,
@@ -187,7 +200,18 @@ public struct WorkspaceChangesSheet: View {
         if maxLines == nil,
            !forceRefresh,
            let cached = presentationCache.presentation(forPath: path) {
+            store.recordAppEvent(
+                .fileDiffCacheHit,
+                correlationID: workspaceID
+            )
             return cached
+        }
+        if let maxLines {
+            store.recordAppEvent(
+                .fileDiffExpanded,
+                correlationID: workspaceID,
+                count: maxLines
+            )
         }
         let response = try await store.fetchFileDiff(
             workspaceID: workspaceID,

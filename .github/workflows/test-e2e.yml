@@ -502,11 +502,10 @@ jobs:
           # one xcodebuild invocation; a filter can select a suite living in either.
           xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
           swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
-          counts = []
-          if xctest:
-              counts.append(xctest[-1])
-          if swift_testing:
-              counts.append(swift_testing[-1])
+          # App-hosted Swift Testing can emit a selected run followed by an
+          # auxiliary zero-test run. Count every summary so the later host
+          # teardown cannot erase a test that actually executed.
+          counts = xctest + swift_testing
           if counts:
               print(max(counts))
           PY
@@ -604,17 +603,18 @@ jobs:
             | xargs -I{} echo "Duration: {}s"
 
       - name: Upload recording artifact
+        id: recording
         if: ${{ always() && steps.filter.outputs.record_video == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-recording
           path: /tmp/test-recording.mp4
           if-no-files-found: warn
+          retention-days: 30
 
-      - name: Post results to cmux-dev-artifacts
+      - name: Publish test summary
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.DEV_ARTIFACTS_TOKEN }}
           TEST_RESULT: ${{ steps.tests.outputs.test_result || 'failed' }}
           TEST_SUMMARY: ${{ steps.tests.outputs.test_summary }}
           TEST_OUTPUT: ${{ steps.tests.outputs.test_output }}
@@ -622,10 +622,10 @@ jobs:
           COMMIT_SHA: ${{ steps.sha.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
           RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
+          RECORDING_URL: ${{ steps.recording.outputs.artifact-url }}
         run: |
           set -euo pipefail
 
-          LABEL="$TEST_RESULT"
           if [ "$TEST_RESULT" = "passed" ]; then
             STATUS_EMOJI="PASSED"
           else
@@ -634,47 +634,41 @@ jobs:
 
           REF_DISPLAY="${{ inputs.ref || github.ref_name }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-          ARTIFACT_URL="$RUN_URL#artifacts"
+          {
+            echo "## E2E test result"
+            echo
+            echo "**Status:** $STATUS_EMOJI"
+            echo "**Ref:** \`$REF_DISPLAY\`"
+            echo "**SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)"
+            echo "**Test:** \`$TEST_FILTER\`"
+            echo "**Workflow run:** $RUN_URL"
 
-          BODY="**Status:** $STATUS_EMOJI
-          **Ref:** \`$REF_DISPLAY\`
-          **SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
-          **Test:** \`$TEST_FILTER\`
-          **Workflow run:** $RUN_URL"
+            if [ "$RECORD_VIDEO" = "true" ]; then
+              if [ -n "$RECORDING_URL" ]; then
+                echo "**Recording:** [Download artifact]($RECORDING_URL) (retained for 30 days)"
+              else
+                echo "**Recording:** unavailable"
+              fi
+            fi
 
-          if [ "$RECORD_VIDEO" = "true" ]; then
-            BODY="$BODY
-          **Recording:** [Download from artifacts]($ARTIFACT_URL)"
-          fi
+            if [ -n "$TEST_OUTPUT" ]; then
+              echo
+              echo "<details><summary>Test output (last 200 lines)</summary>"
+              echo
+              echo '```'
+              printf '%s\n' "$TEST_OUTPUT"
+              echo '```'
+              echo
+              echo "</details>"
+            fi
 
-          if [ -n "$TEST_OUTPUT" ]; then
-            BODY="$BODY
-
-          <details><summary>Test output (last 200 lines)</summary>
-
-          \`\`\`
-          $TEST_OUTPUT
-          \`\`\`
-
-          </details>"
-          fi
-
-          if [ -n "$TEST_SUMMARY" ]; then
-            BODY="$BODY
-
-          \`\`\`
-          $TEST_SUMMARY
-          \`\`\`"
-          fi
-
-          ISSUE_URL=$(gh issue create \
-            --repo manaflow-ai/cmux-dev-artifacts \
-            --title "[$STATUS_EMOJI] $TEST_FILTER @ ${COMMIT_SHA:0:7} ($REF_DISPLAY)" \
-            --body "$BODY" \
-            --label "$LABEL")
-
-          echo "Issue posted: $ISSUE_URL"
-          echo "::notice title=Test Result Issue::$ISSUE_URL"
+            if [ -n "$TEST_SUMMARY" ]; then
+              echo
+              echo '```'
+              printf '%s\n' "$TEST_SUMMARY"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clean owned DerivedData
         if: always()

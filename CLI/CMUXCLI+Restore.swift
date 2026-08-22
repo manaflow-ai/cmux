@@ -3,6 +3,13 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    var restoreCommandUsageLine: String {
+        String(
+            localized: "cli.help.restore",
+            defaultValue: "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+        )
+    }
+
     func controlAgentLaunchCommandPayload(
         _ command: AgentLaunchCommand
     ) -> [String: Any] {
@@ -18,6 +25,9 @@ extension CMUXCLI {
         }
         if let environment = command.environment {
             payload["environment"] = environment
+        }
+        if let verificationHome = command.verificationHome {
+            payload["verification_home"] = verificationHome
         }
         if let capturedAt = command.capturedAt {
             payload["captured_at"] = capturedAt
@@ -73,7 +83,7 @@ extension CMUXCLI {
                 )
             )
         }
-        let record = try restoreRecord(from: rawRecord)
+        var record = try restoreRecord(from: rawRecord)
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw loggedRestoreError(
                 stage: "record.kind-mismatch",
@@ -93,6 +103,14 @@ extension CMUXCLI {
                     localized: "cli.restore.error.checkpointMismatch",
                     defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
                 )
+            )
+        }
+
+        if let surfaceID = params["surface_id"] as? String {
+            record = try recoveredHermesRestoreRecord(
+                record,
+                surfaceID: surfaceID,
+                processEnvironment: processEnvironment
             )
         }
 
@@ -181,6 +199,54 @@ extension CMUXCLI {
         )
     }
 
+    /// Repairs transient Hermes TUI identities using hook process-generation
+    /// evidence and the durable Hermes state database.
+    private func recoveredHermesRestoreRecord(
+        _ record: RestoreRecord,
+        surfaceID: String,
+        processEnvironment: [String: String]
+    ) throws -> RestoreRecord {
+        guard record.kind == "hermes-agent",
+              let checkpointID = record.checkpointID,
+              let surfaceUUID = UUID(uuidString: surfaceID) else {
+            return record
+        }
+        var recoveryEnvironment = processEnvironment
+        recoveryEnvironment.merge(record.environment) { _, restored in restored }
+        if let captured = record.launchCommand?.environment {
+            recoveryEnvironment.merge(captured) { _, restored in restored }
+        }
+        let hookStatePath = agentHookStatePath(
+            sessionStoreSuffix: "hermes-agent",
+            env: processEnvironment
+        )
+        switch HermesLegacySessionIdentityRecovery().resolve(
+            surfaceID: surfaceUUID,
+            corruptSessionID: checkpointID,
+            expectedWorkingDirectory: record.workingDirectory
+                ?? record.launchCommand?.workingDirectory,
+            hookStateFileURL: URL(fileURLWithPath: hookStatePath),
+            environment: recoveryEnvironment
+        ) {
+        case .valid, .legacyRestore, .unavailable:
+            return record
+        case .missing:
+            throw loggedRestoreError(
+                stage: "hermes.checkpoint.missing",
+                detail: checkpointID,
+                message: String(
+                    localized: "cli.restore.error.noRecord",
+                    defaultValue: "restore: this session has nothing to restore. Start the agent again in this terminal."
+                )
+            )
+        case .recovered(let candidate):
+            return record.repairingHermesCheckpoint(
+                candidate.sessionID,
+                fallbackLaunchCommand: candidate.launchCommand
+            )
+        }
+    }
+
     private func currentRestoreSurfaceID(
         client: SocketClient,
         processEnvironment: [String: String]
@@ -193,21 +259,12 @@ extension CMUXCLI {
             )
         }
 
-        let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
         do {
-            let payload = try client.sendV2(
-                method: "agent.resolve_delivery_target",
-                params: [
-                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
-                    "pid_resolution": resolution,
-                ]
+            let payload = try implicitCallerIdentifyResponse(
+                client: client,
+                processEnvironment: processEnvironment
             )
-            guard payload["source"] as? String == "pid",
-                  payload["pid_resolution"] as? String == resolution,
-                  let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                  isUUID(workspaceID),
-                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
-                  isUUID(surfaceID) else {
+            guard let surfaceID = identifiedCallerSurfaceID(in: payload) else {
                 throw currentRestoreSurfaceUnknownError()
             }
             return surfaceID
@@ -331,41 +388,60 @@ extension CMUXCLI {
     }
 
     private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
-        if arguments.first == "--surface" {
-            if arguments.count == 1 {
-                return RestoreSelector(
-                    surface: nil,
-                    usesCurrentSurface: true,
-                    kind: nil,
-                    checkpointID: nil
-                )
-            }
-            guard arguments.count == 2, !arguments[1].isEmpty else {
+        if arguments == ["--surface"] {
+            return RestoreSelector(
+                surface: nil,
+                usesCurrentSurface: true,
+                kind: nil,
+                checkpointID: nil
+            )
+        }
+
+        let surfaceOptionCount = arguments.filter { argument in
+            argument == "--surface" || argument.hasPrefix("--surface=")
+        }.count
+        guard surfaceOptionCount <= 1 else {
+            throw CLIError(message: String(
+                localized: "cli.restore.usage.surface",
+                defaultValue: "Usage: cmux restore --surface [id|ref]"
+            ))
+        }
+        let (surface, positionalArguments) = parseOption(arguments, name: "--surface")
+        if surfaceOptionCount == 1 {
+            guard let surface,
+                  !surface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.restore.usage.surface",
                     defaultValue: "Usage: cmux restore --surface [id|ref]"
                 ))
             }
-            return RestoreSelector(
-                surface: arguments[1],
-                usesCurrentSurface: false,
-                kind: nil,
-                checkpointID: nil
-            )
+            if positionalArguments.isEmpty {
+                return RestoreSelector(
+                    surface: surface,
+                    usesCurrentSurface: false,
+                    kind: nil,
+                    checkpointID: nil
+                )
+            }
         }
-        guard arguments.count == 2,
-              !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+
+        guard positionalArguments.count == 2,
+              !positionalArguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !positionalArguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.restore.usage.positional",
-                defaultValue: "Usage: cmux restore <kind> <checkpoint-id>"
+                defaultValue: """
+                Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
+                       cmux restore <kind> <checkpoint-id> --surface <id|ref>
+                       cmux restore --surface=<id|ref> <kind> <checkpoint-id>
+                """
             ))
         }
         return RestoreSelector(
-            surface: nil,
-            usesCurrentSurface: true,
-            kind: arguments[0],
-            checkpointID: arguments[1]
+            surface: surface,
+            usesCurrentSurface: surface == nil,
+            kind: positionalArguments[0],
+            checkpointID: positionalArguments[1]
         )
     }
 
@@ -428,6 +504,7 @@ extension CMUXCLI {
             arguments: arguments,
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String],
+            verificationHome: object["verification_home"] as? String,
             capturedAt: (object["captured_at"] as? NSNumber)?.doubleValue,
             source: object["source"] as? String
         )

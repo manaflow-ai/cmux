@@ -71,6 +71,12 @@ actor RoutingHostRouter {
     private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
     private var directoryListError: (code: String?, message: String)?
     private var directorySearchError: (code: String?, message: String)?
+    private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
+    private var taskModelListProviders: [String] = []
+    private var holdTaskModelList = false
+    private var taskModelListHeld = false
+    private var taskModelListContinuation: CheckedContinuation<Void, Never>?
+    private var taskModelListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -141,6 +147,28 @@ actor RoutingHostRouter {
         hostCapabilities = capabilities
     }
 
+    func setTaskModels(
+        _ models: [MobileTaskAgentModel],
+        provider: MobileTaskAgentProvider
+    ) {
+        taskModelsByProvider[provider.rawValue] = models
+    }
+
+    func setHoldTaskModelList(_ hold: Bool) {
+        holdTaskModelList = hold
+    }
+
+    func awaitTaskModelListReached() async {
+        if taskModelListHeld { return }
+        await withCheckedContinuation { taskModelListReachedWaiters.append($0) }
+    }
+
+    func releaseTaskModelList() {
+        let continuation = taskModelListContinuation
+        taskModelListContinuation = nil
+        continuation?.resume()
+    }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -163,6 +191,7 @@ actor RoutingHostRouter {
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
+    func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
     }
@@ -190,6 +219,7 @@ actor RoutingHostRouter {
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+        var provider: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -349,6 +379,40 @@ actor RoutingHostRouter {
                 "total_count": allEntries.count,
                 "next_offset": end < allEntries.count ? end : NSNull() as Any,
             ])
+        case "mobile.task.models.list":
+            let provider = info.provider ?? ""
+            taskModelListProviders.append(provider)
+            if holdTaskModelList {
+                taskModelListHeld = true
+                let reachedWaiters = taskModelListReachedWaiters
+                taskModelListReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { taskModelListContinuation = $0 }
+            }
+            let models: [[String: Any]] = taskModelsByProvider[provider, default: []].map { model in
+                var object: [String: Any] = [
+                    "id": model.id,
+                    "display_name": model.displayName,
+                    "efforts": model.efforts.map { effort in
+                        var effortObject: [String: Any] = [
+                            "id": effort.id,
+                            "display_name": effort.displayName,
+                        ]
+                        if let description = effort.description {
+                            effortObject["description"] = description
+                        }
+                        return effortObject
+                    },
+                ]
+                if let defaultEffortID = model.defaultEffortID {
+                    object["default_effort_id"] = defaultEffortID
+                }
+                return object
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "source": "discovered",
+                "models": models,
+            ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
             let format = info.imageFormat ?? ""
@@ -477,7 +541,8 @@ private actor RoutingTransport: CmxByteTransport {
                 query: params?["query"] as? String,
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,
-                directoryLimit: params?["limit"] as? Int
+                directoryLimit: params?["limit"] as? Int,
+                provider: params?["provider"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

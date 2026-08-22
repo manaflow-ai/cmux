@@ -101,6 +101,24 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "nextSidebarTab", combos: [["⌃", "⌘", "]"]], description: { en: "Next workspace", ja: "次のワークスペース" } },
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
+      {
+        id: "nextSidebarTabInGroup",
+        combos: [],
+        description: { en: "Next workspace in group", ja: "グループ内の次のワークスペース" },
+        note: {
+          en: "unbound by default; skips the group anchor and uses window-wide cycling when ungrouped",
+          ja: "デフォルトでは未割り当て。グループのアンカーを除いて循環し、グループに属していない場合はウインドウ全体を循環",
+        },
+      },
+      {
+        id: "prevSidebarTabInGroup",
+        combos: [],
+        description: { en: "Previous workspace in group", ja: "グループ内の前のワークスペース" },
+        note: {
+          en: "unbound by default; skips the group anchor and uses window-wide cycling when ungrouped",
+          ja: "デフォルトでは未割り当て。グループのアンカーを除いて循環し、グループに属していない場合はウインドウ全体を循環",
+        },
+      },
       { id: "moveWorkspaceUp", combos: [["⌃", "⌥", "⌘", "["]], description: { en: "Move workspace up", ja: "ワークスペースを上へ移動" } },
       { id: "moveWorkspaceDown", combos: [["⌃", "⌥", "⌘", "]"]], description: { en: "Move workspace down", ja: "ワークスペースを下へ移動" } },
       {

@@ -18,6 +18,9 @@ public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    /// Stable identity for this logical client across focused/control role
+    /// handoffs. A replacement client receives a new identity.
+    public let instanceID: String = UUID().uuidString
     private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
@@ -25,6 +28,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
+    /// Whether this session is bound to an exact Tailscale endpoint the user
+    /// authorized locally, rather than an endpoint learned through discovery.
+    public var usesLocallyAuthorizedTailscaleRoute: Bool {
+        guard route.kind == .tailscale else { return false }
+        switch transportRequest.authorizationMode {
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            return true
+        case .stackBearer, .transportAdmission:
+            return false
+        }
+    }
     private let allowsStackAuthFallback: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
@@ -687,7 +701,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create", "mobile.task.attachment.upload":
             return false
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
@@ -723,7 +739,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
-        case "mobile.browser.list":
+        case "mobile.browser.list", "mobile.browser.create":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value

@@ -61,6 +61,163 @@ import Testing
         #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_HOST", env: env) == nil)
     }
 
+    #if DEBUG
+    @Test(arguments: ["eligible", "ineligible"])
+    func autoConnectMigrationFixtureRequiresMockDataAndParsesEligibility(_ raw: String) {
+        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": raw,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "  migration-run  ",
+        ])
+
+        #expect(configuration?.eligibility.rawValue == raw)
+        #expect(configuration?.identifier == "migration-run")
+        #expect(configuration?.presentsShellSettingsBeforeMigration == false)
+        #expect(configuration?.initialModalHost == nil)
+        #expect(configuration?.readinessGate == nil)
+        #expect(configuration?.persistedConnectionMethod == nil)
+        #expect(configuration?.legacyResolution == nil)
+        #expect(configuration?.showsLayoutProbe == false)
+        #expect(
+            configuration?.defaultsSuiteName
+                == "dev.cmux.uitest.autoConnectMigration.migration-run"
+        )
+    }
+
+    @Test func autoConnectMigrationFixtureParsesPersistedUpgradeState() {
+        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": " automatic ",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_V1_RESOLUTION": " ineligible ",
+        ])
+
+        #expect(configuration?.persistedConnectionMethod == .automatic)
+        #expect(configuration?.legacyResolution == .ineligible)
+    }
+
+    @Test func autoConnectMigrationFixtureRequiresExplicitLayoutProbeOptIn() {
+        let baseEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+        ]
+        var enabledEnvironment = baseEnvironment
+        enabledEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES"] = " 1 "
+        var disabledEnvironment = baseEnvironment
+        disabledEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES"] = "true"
+
+        #expect(
+            AutoConnectMigrationUITestConfiguration(environment: enabledEnvironment)?
+                .showsLayoutProbe == true
+        )
+        #expect(
+            AutoConnectMigrationUITestConfiguration(environment: disabledEnvironment)?
+                .showsLayoutProbe == false
+        )
+    }
+
+    @Test func autoConnectMigrationFixtureParsesInitialSettingsDeferralBehindMockGate() {
+        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": " 1 ",
+        ])
+
+        #expect(configuration?.presentsShellSettingsBeforeMigration == true)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "0",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": "1",
+        ]) == nil)
+    }
+
+    @Test func autoConnectMigrationFixtureParsesRealInitialModalHosts() throws {
+        let cases: [(String, AutoConnectMigrationUITestConfiguration.InitialModalHost)] = [
+            ("root-pairing", .rootPairing),
+            ("workspace-list-device-tree", .workspaceListDeviceTree),
+            ("workspace-detail-terminal-text", .workspaceDetailTerminalText),
+        ]
+
+        for (rawValue, expected) in cases {
+            let configuration = try #require(AutoConnectMigrationUITestConfiguration(
+                environment: [
+                    "CMUX_UITEST_MOCK_DATA": "1",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST": rawValue,
+                ]
+            ))
+            #expect(configuration.initialModalHost == expected)
+        }
+    }
+
+    @Test func autoConnectMigrationFixtureParsesReadinessGates() throws {
+        let cases: [(String, AutoConnectMigrationUITestConfiguration.ReadinessGate)] = [
+            ("authentication-restoring", .authenticationRestoring),
+            ("scene-inactive", .sceneInactive),
+            ("explicit-attach-route", .explicitAttachRoute),
+        ]
+
+        for (rawValue, expected) in cases {
+            let configuration = try #require(AutoConnectMigrationUITestConfiguration(
+                environment: [
+                    "CMUX_UITEST_MOCK_DATA": "1",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE": rawValue,
+                ]
+            ))
+            #expect(configuration.readinessGate == expected)
+        }
+    }
+
+    @Test func autoConnectMigrationFixtureRejectsUnsafeOrIncompleteInputs() {
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "0",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "unknown",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "   ",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST": "unknown",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE": "unknown",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": "invalid",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_V1_RESOLUTION": "invalid",
+        ]) == nil)
+    }
+    #endif
+
     // MARK: - dogfoodAttachURL (NOT mock-gated)
 
     /// The core P2 fix: the dogfood attach URL must be returned even when mock data
@@ -154,6 +311,23 @@ import Testing
         #expect(UITestConfig.changesPreviewMode(
             from: [:],
             arguments: ["CMUX_UITEST_CHANGES_PREVIEW=diff"]
+        ) == nil)
+        #endif
+    }
+
+    @Test func pushReadinessPreviewUsesExplicitInputsWithEnvironmentPrecedence() {
+        #if DEBUG
+        #expect(UITestConfig.pushReadinessPreviewState(
+            from: ["CMUX_UITEST_PUSH_READINESS_PREVIEW": "healthy"],
+            arguments: ["CMUX_UITEST_PUSH_READINESS_PREVIEW=unavailable"]
+        ) == "healthy")
+        #expect(UITestConfig.pushReadinessPreviewState(
+            from: [:],
+            arguments: ["CMUX_UITEST_PUSH_READINESS_PREVIEW=permission-denied"]
+        ) == "permission-denied")
+        #else
+        #expect(UITestConfig.pushReadinessPreviewState(
+            from: ["CMUX_UITEST_PUSH_READINESS_PREVIEW": "healthy"]
         ) == nil)
         #endif
     }

@@ -349,7 +349,7 @@ const FakeServer = struct {
         try self.send(
             stream,
             .{
-                .protocol = "cmux.protocol/1",
+                .protocol = "cmux.protocol/2",
                 .type = "stream_item",
                 .stream_id = stream_id,
                 .sequence = "1",
@@ -380,7 +380,7 @@ const FakeServer = struct {
         try self.send(
             stream,
             .{
-                .protocol = "cmux.protocol/1",
+                .protocol = "cmux.protocol/2",
                 .type = "stream_end",
                 .stream_id = stream_id,
                 .reason = "canceled",
@@ -410,7 +410,7 @@ const FakeServer = struct {
         try expectString(
             parsed.value.object,
             "protocol",
-            "cmux.protocol/1",
+            "cmux.protocol/2",
         );
         try expectString(parsed.value.object, "type", "request");
         try expectString(
@@ -452,7 +452,7 @@ const FakeServer = struct {
         idempotency_key: []const u8,
     ) !void {
         try self.send(stream, .{
-            .protocol = "cmux.protocol/1",
+            .protocol = "cmux.protocol/2",
             .type = "response",
             .id = id,
             .ok = false,
@@ -476,7 +476,7 @@ const FakeServer = struct {
         result: anytype,
     ) !void {
         try self.send(stream, .{
-            .protocol = "cmux.protocol/1",
+            .protocol = "cmux.protocol/2",
             .type = "response",
             .id = id,
             .ok = true,

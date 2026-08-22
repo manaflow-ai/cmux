@@ -125,9 +125,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let visible else { return }
         try await setActive(
             macDeviceID: macDeviceID,
-            instanceTag: visible?.instanceTag,
+            instanceTag: visible.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -181,9 +182,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let visible else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: visible?.instanceTag,
+            instanceTag: visible.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -233,9 +235,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let visible else { return }
         try await remove(
             macDeviceID: macDeviceID,
-            instanceTag: visible?.instanceTag,
+            instanceTag: visible.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -375,10 +378,20 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         requiresExactInstanceTag: Bool
     ) async throws -> MobilePairedMac? {
-        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first {
-                $0.macDeviceID == macDeviceID
-                    && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+        let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+                    && (!requiresExactInstanceTag
+                        || MacPairingKey(
+                            macDeviceID: $0.macDeviceID,
+                            instanceTag: $0.instanceTag
+                        ) == MacPairingKey(
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag
+                        ))
             }
+        guard requiresExactInstanceTag || matches.count == 1 else { return nil }
+        return matches.first
     }
 }

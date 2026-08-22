@@ -10,6 +10,11 @@ import AppKit
 /// An outgoing attachment bubble: a photo glyph plus the attachment's
 /// display name, with the host-side path when known.
 public struct ChatAttachmentBubbleView: View {
+    private struct ThumbnailLoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     private let attachment: ChatAttachment
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
@@ -23,6 +28,7 @@ public struct ChatAttachmentBubbleView: View {
     @State private var thumbnailData: Data?
     @State private var thumbnailFailed = false
     @State private var thumbnailPath: String?
+    @State private var thumbnailSourceIdentity: String?
     @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
@@ -62,7 +68,6 @@ public struct ChatAttachmentBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .sheet(item: $fallbackSelection) { selection in
@@ -87,11 +92,27 @@ public struct ChatAttachmentBubbleView: View {
                 }
             }
             .buttonStyle(.plain)
-            .task(id: hostPath) {
-                await loadThumbnail(path: hostPath)
+            .accessibilityLabel(Text(verbatim: displayName))
+            .accessibilityValue(Text(verbatim: hostPath))
+            .accessibilityIdentifier("ChatAttachmentButton")
+            .task(id: ThumbnailLoadIdentity(
+                path: hostPath,
+                sourceIdentity: artifactLoader.sourceIdentity
+            )) {
+                guard !Task.isCancelled else { return }
+                let loadIdentity = ThumbnailLoadIdentity(
+                    path: hostPath,
+                    sourceIdentity: artifactLoader.sourceIdentity
+                )
+                await loadThumbnail(
+                    path: hostPath,
+                    loader: artifactLoader,
+                    identity: loadIdentity
+                )
             }
         } else {
             bubble
+                .accessibilityElement(children: .combine)
         }
     }
 
@@ -202,16 +223,31 @@ public struct ChatAttachmentBubbleView: View {
         return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
     }
 
-    private func loadThumbnail(path: String) async {
-        if thumbnailPath != path {
+    private func loadThumbnail(
+        path: String,
+        loader: ChatArtifactLoader,
+        identity: ThumbnailLoadIdentity
+    ) async {
+        guard !Task.isCancelled else { return }
+        if thumbnailPath != path || thumbnailSourceIdentity != identity.sourceIdentity {
             thumbnailPath = path
+            thumbnailSourceIdentity = identity.sourceIdentity
             thumbnailData = nil
             thumbnailFailed = false
         }
         guard thumbnailData == nil, !thumbnailFailed else { return }
         do {
-            thumbnailData = try await artifactLoader.thumbnail(path: path, maxDimension: 256).data
+            let data = try await loader.thumbnail(path: path, maxDimension: 256).data
+            guard !Task.isCancelled,
+                  thumbnailPath == identity.path,
+                  thumbnailSourceIdentity == identity.sourceIdentity
+            else { return }
+            thumbnailData = data
         } catch {
+            guard !Task.isCancelled,
+                  thumbnailPath == identity.path,
+                  thumbnailSourceIdentity == identity.sourceIdentity
+            else { return }
             thumbnailFailed = true
         }
     }

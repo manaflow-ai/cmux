@@ -244,7 +244,55 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
-    func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadySendingReplayServer(
+        listenerFD: Int32,
+        replay: Data
+    ) -> XCTestExpectation {
+        let handled = expectation(description: "pty bridge replay server handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.fulfill() }
+
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let payload: [String: Any] = [
+                "type": "ready",
+                "attachment_token": "attach-token",
+                "replay_bytes": replay.count,
+            ]
+            guard var status = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+                return
+            }
+            status.append(0x0A)
+            Self.writeAll(fd: clientFD, data: status)
+            Self.writeAll(fd: clientFD, data: replay)
+        }
+        return handled
+    }
+
+    func startBridgeReadyThenResetAfterClientEOFServer(
+        listenerFD: Int32,
+        waitBeforeClientEOF: [DispatchSemaphore] = []
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready reset server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -289,6 +337,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         return
                     }
                 }
+            }
+
+            for semaphore in waitBeforeClientEOF {
+                guard semaphore.wait(timeout: .now() + 5) == .success else { return }
             }
 
             while true {
@@ -381,7 +433,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = isolatedCLIChildEnvironment(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -433,6 +485,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
+
         _ = outputGroup.wait(timeout: .now() + 2)
 
         outputLock.lock()
@@ -447,5 +500,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    /// App-host CI gives XCTest an isolated Core Foundation home. CLI tests
+    /// then supply a narrower HOME for each subprocess. Keep all three user
+    /// configuration roots on that per-test home so the inherited app-host
+    /// redirects cannot make sibling CLI tests share state.
+    private func isolatedCLIChildEnvironment(
+        _ environment: [String: String]
+    ) -> [String: String] {
+        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
+              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawHome.isEmpty else {
+            return environment
+        }
+
+        var resolved = environment
+        resolved["CFFIXED_USER_HOME"] = rawHome
+        resolved["XDG_CONFIG_HOME"] = URL(
+            fileURLWithPath: rawHome,
+            isDirectory: true
+        ).appendingPathComponent(".config", isDirectory: true).path
+        return resolved
+    }
+
+    private static func writeAll(fd: Int32, data: Data) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var remaining = rawBuffer.count
+            var cursor = base
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written < 0, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
     }
 }

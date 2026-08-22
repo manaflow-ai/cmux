@@ -178,6 +178,22 @@ impl<'a> SnapshotPathIndex<'a> {
     }
 
     fn contains(&self, collection: &str, value: &Value, path: &ResolvedResourcePath) -> bool {
+        if collection == "terminals" {
+            let has_structural_scope = path.workspace.is_some()
+                || path.screen.is_some()
+                || path.pane.is_some()
+                || path.tab.is_some();
+            if !has_structural_scope {
+                return true;
+            }
+            let tabs = value["tab_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .chain(value["tab_id"].as_str());
+            return tabs.into_iter().any(|tab| self.tab_matches_path(tab, path));
+        }
         let id = value["id"].as_str();
         let (workspace, screen, pane, tab) = match collection {
             "workspaces" => (id, None, None, None),
@@ -191,7 +207,7 @@ impl<'a> SnapshotPathIndex<'a> {
                 let screen = pane.and_then(|id| self.screen_by_pane.get(id).copied());
                 (screen.and_then(|id| self.workspace_by_screen.get(id).copied()), screen, pane, id)
             }
-            "terminals" | "browsers" => {
+            "browsers" => {
                 let tab = value["tab_id"].as_str();
                 let pane = tab.and_then(|id| self.pane_by_tab.get(id).copied());
                 let screen = pane.and_then(|id| self.screen_by_pane.get(id).copied());
@@ -203,6 +219,16 @@ impl<'a> SnapshotPathIndex<'a> {
             && path.screen.as_ref().is_none_or(|id| screen == Some(id.as_str()))
             && path.pane.as_ref().is_none_or(|id| pane == Some(id.as_str()))
             && path.tab.as_ref().is_none_or(|id| tab == Some(id.as_str()))
+    }
+
+    fn tab_matches_path(&self, tab: &str, path: &ResolvedResourcePath) -> bool {
+        let pane = self.pane_by_tab.get(tab).copied();
+        let screen = pane.and_then(|id| self.screen_by_pane.get(id).copied());
+        let workspace = screen.and_then(|id| self.workspace_by_screen.get(id).copied());
+        path.workspace.as_ref().is_none_or(|id| workspace == Some(id.as_str()))
+            && path.screen.as_ref().is_none_or(|id| screen == Some(id.as_str()))
+            && path.pane.as_ref().is_none_or(|id| pane == Some(id.as_str()))
+            && path.tab.as_ref().is_none_or(|id| tab == id.as_str())
     }
 }
 
@@ -461,6 +487,12 @@ mod tests {
         }
     }
 
+    fn terminal_selectors(terminal: &TerminalPublicId) -> ResourceSelectors {
+        let mut selectors = session_selectors();
+        selectors.terminal = Some(terminal.to_string());
+        selectors
+    }
+
     fn public_id(prefix: &str, index: usize) -> String {
         format!("{prefix}_{index:032x}")
     }
@@ -579,6 +611,36 @@ mod tests {
         let mismatched_path =
             resolved_path(Some(&wrong_workspace), Some(&screen_id), Some(&pane_id), Some(&tab_id));
         assert!(!index.contains("terminals", exact_matches[0], &mismatched_path,));
+
+        let second_target = target + SCREENS_PER_WORKSPACE;
+        let second_workspace = public_id("ws", second_target / SCREENS_PER_WORKSPACE);
+        let second_screen = public_id("screen", second_target);
+        let second_pane = public_id("pane", second_target);
+        let second_tab = public_id("tab", second_target);
+        let multiview = json!({
+            "id":public_id("term", RESOURCE_COUNT + 1),
+            "tab_id":tab_id,
+            "tab_ids":[tab_id, second_tab],
+        });
+        assert!(index.contains("terminals", &multiview, &workspace_path));
+        assert!(index.contains(
+            "terminals",
+            &multiview,
+            &resolved_path(
+                Some(&second_workspace),
+                Some(&second_screen),
+                Some(&second_pane),
+                Some(&second_tab),
+            ),
+        ));
+
+        let detached = json!({
+            "id":public_id("term", RESOURCE_COUNT + 2),
+            "tab_id":Value::Null,
+            "tab_ids":[],
+        });
+        assert!(index.contains("terminals", &detached, &resolved_path(None, None, None, None)));
+        assert!(!index.contains("terminals", &detached, &workspace_path));
     }
 
     #[test]
@@ -855,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn topology_closes_advance_every_durable_stream_in_one_batch() {
+    fn topology_closes_leave_terminal_lifetime_stream_unchanged() {
         for (operation, selector_field) in [
             (ResourceOperation::WorkspaceClose, "workspace_id"),
             (ResourceOperation::ScreenClose, "screen_id"),
@@ -907,22 +969,20 @@ mod tests {
             }
             let (terminal_snapshot, terminal_events) =
                 mux.terminal_registry_events_page(before_terminal).unwrap();
-            assert_eq!(terminal_snapshot.revision, before_terminal + 1, "{operation:?}");
-            assert_eq!(terminal_events.len(), 1, "{operation:?}");
-            assert_eq!(terminal_events[0].kind, "terminal-closed");
-            assert_eq!(terminal_events[0].mutation_id, key);
+            assert_eq!(terminal_snapshot.revision, before_terminal, "{operation:?}");
+            assert!(terminal_events.is_empty(), "{operation:?}");
 
             let replay = dispatch(&mux, request()).unwrap();
             assert_eq!(replay["replayed"], true, "{operation:?}");
             assert_eq!(replay["revision"], closed["revision"], "{operation:?}");
             assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
-            assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
+            assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal);
             mux.shutdown();
         }
     }
 
     #[test]
-    fn pane_close_wakes_only_wait_exit_calls_for_its_tombstoned_terminals() {
+    fn pane_close_detaches_views_without_settling_terminal_exit_waits() {
         let mux = mux();
         let created = terminal_workspace(&mux, "pane-close-exit-waits");
         let screen_id = created["value"]["screen_id"].as_str().unwrap();
@@ -951,7 +1011,6 @@ mod tests {
             ),
         )
         .unwrap();
-        let unrelated_pane_id = unrelated["value"]["pane_id"].as_str().unwrap().to_string();
         let unrelated_terminal =
             TerminalPublicId::parse(unrelated["value"]["terminal_id"].as_str().unwrap()).unwrap();
 
@@ -989,43 +1048,43 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut settled_ids = Vec::new();
-        for _ in 0..2 {
-            let (terminal_id, result) = settled_rx
-                .recv_timeout(Duration::from_secs(1))
-                .expect("pane close stranded a terminal exit wait");
-            let error = result.unwrap_err();
-            assert!(error.to_string().contains("is not live"), "{error:#}");
-            settled_ids.push(terminal_id.to_string());
-        }
-        settled_ids.sort();
-        let mut expected_ids = vec![first_terminal.to_string(), second_terminal.to_string()];
-        expected_ids.sort();
-        assert_eq!(settled_ids, expected_ids);
-        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 5);
+        assert!(settled_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 3);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&first_terminal), 1);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&second_terminal), 1);
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&unrelated_terminal), 1);
 
-        dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::PaneClose,
-                selectors(None, None, Some(&unrelated_pane_id), None),
-                json!({}),
-                Some("close-unrelated-pane-after-wait-check"),
-            ),
-        )
-        .unwrap();
-        let (terminal_id, result) = settled_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("cleanup pane close stranded its terminal exit wait");
-        assert_eq!(terminal_id, unrelated_terminal);
-        assert!(result.unwrap_err().to_string().contains("is not live"));
+        for (index, expected_terminal) in
+            [first_terminal, second_terminal, unrelated_terminal].into_iter().enumerate()
+        {
+            crate::resource_router::dispatch_resource_request(
+                &mux,
+                parsed(
+                    ResourceOperation::TerminalClose,
+                    terminal_selectors(&expected_terminal),
+                    json!({}),
+                    Some(&format!("explicit-close-after-pane-detach-{index}")),
+                ),
+            )
+            .unwrap();
+            let (terminal_id, result) = settled_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("explicit terminal close stranded its exit wait");
+            assert_eq!(terminal_id, expected_terminal);
+            let error = result.unwrap_err();
+            let resource = error
+                .downcast_ref::<ResourceError>()
+                .expect("explicit terminal close returns a typed resource error");
+            assert_eq!(resource.code, "terminal.closed");
+            assert_eq!(resource.details["terminal_id"], terminal_id.as_str());
+            assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+        }
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 6);
         mux.shutdown();
     }
 
     #[test]
-    fn topology_close_commit_failure_leaves_every_projection_live() {
+    fn topology_close_commit_failure_leaves_every_projection_live_and_fences_replay() {
         let mux = mux();
         let created = terminal_workspace(&mux, "atomic-close-rollback");
         let workspace = created["value"]["workspace_id"].as_str().unwrap();
@@ -1044,8 +1103,20 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.code, "mutation.indeterminate");
         mux.set_resource_patch_failure_for_test(false);
+
+        let replay = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceClose,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                Some("atomic-close-rollback-effect"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(replay.code, "mutation.indeterminate");
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);
@@ -1337,7 +1408,7 @@ mod tests {
             parsed(
                 ResourceOperation::PaneSplit,
                 selectors(None, None, Some(&pane_id), None),
-                json!({"direction":"right","ratio":0.5}),
+                json!({"direction":"right","viewport_width":0.5}),
                 Some("all-pane-split"),
             ),
         )
@@ -1398,6 +1469,15 @@ mod tests {
             public_session_snapshot(&mux).unwrap()["terminals"].as_array().unwrap().len(),
             7
         );
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let created_screen = snapshot["screens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == screen_id)
+            .unwrap();
+        assert_eq!(created_screen["layout"]["root"]["kind"], "viewport");
+        assert_eq!(created_screen["layout"]["root"]["columns"][1]["width"], 0.5);
     }
 
     #[test]
