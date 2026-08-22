@@ -1046,6 +1046,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -parallel-testing-enabled NO \
               "${ONLY_TESTING_ARGS[@]}" \
               CMUX_SKIP_ZIG_BUILD=1 \
               test 2>&1 &
