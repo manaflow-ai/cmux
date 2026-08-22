@@ -29075,26 +29075,126 @@
     "cli.agentHook.error.journalAppend": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Dodavanje u dnevnik agentske kuke nije uspjelo za %@ %@." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Tilføjelse til agent-hook-journalen mislykkedes for %@ %@." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Das Anhängen an das Agent-Hook-Journal ist für %@ %@ fehlgeschlagen." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Agent hook journal append failed for %@ %@." } },
-        "es": { "stringUnit": { "state": "translated", "value": "No se pudo anexar al diario del hook del agente para %@ %@." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Échec de l’ajout au journal du hook d’agent pour %@ %@." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiungere al journal dell’hook dell’agente per %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックジャーナルへの追記に失敗しました。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការបន្ថែមទៅកំណត់ហេតុ agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Tillegg til agent-hook-journalen mislyktes for %@ %@." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dodać wpisu do dziennika haka agenta dla %@ %@." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao adicionar ao diário do hook do agente para %@ %@." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось добавить запись в журнал хука агента для %@ %@." } },
-        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มข้อมูลลงบันทึก agent hook สำหรับ %@ %@ ไม่สำเร็จ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası günlüğüne ekleme yapılamadı." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося додати запис до журналу хука агента для %@ %@." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法为 %@ %@ 追加代理钩子日志。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法為 %@ %@ 附加代理程式掛鉤日誌。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodavanje agentske kuke u dnevnik nije uspjelo za %@ %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføjelse af agent-hook til journalen mislykkedes for %@ %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Anhängen des Agent-Hooks an das Journal ist für %@ %@ fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook journal append failed for %@ %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo añadir el hook del agente al diario para %@ %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’ajout du hook d’agent au journal pour %@ %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aggiungere l’hook dell’agente al diario per %@ %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបន្ថែម agent hook ទៅក្នុងកំណត់ហេតុបានបរាជ័យសម្រាប់ %@ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det oppstod en feil ved å legge agent-hooken til journalen for %@ %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się dodać haka agenta do dziennika dla %@ %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao adicionar o hook do agente ao diário para %@ %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось добавить хук агента в журнал для %@ %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่ม agent hook ลงในบันทึกประจำวันสำหรับ %@ %@ ไม่สำเร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ için aracı kancasını günlüğe ekleme başarısız oldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося додати хук агента до журналу для %@ %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将 %@ %@ 的代理钩子追加到日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將 %@ %@ 的代理程式掛鉤追加到日誌。"
+          }
+        }
       }
     },
     "cli.agentHook.error.notificationDelivery": {
@@ -29218,131 +29318,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。"
-          }
-        }
-      }
-    },
-    "cli.agentHook.error.journalAppend": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodavanje agentske kuke u dnevnik nije uspjelo za %@ %@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tilføjelse af agent-hook til journalen mislykkedes for %@ %@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Anhängen des Agent-Hooks an das Journal ist für %@ %@ fehlgeschlagen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent hook journal append failed for %@ %@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo añadir el hook del agente al diario para %@ %@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec de l’ajout du hook d’agent au journal pour %@ %@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile aggiungere l’hook dell’agente al diario per %@ %@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបន្ថែម agent hook ទៅក្នុងកំណត់ហេតុបានបរាជ័យសម្រាប់ %@ %@។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Det oppstod en feil ved å legge agent-hooken til journalen for %@ %@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się dodać haka agenta do dziennika dla %@ %@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Falha ao adicionar o hook do agente ao diário para %@ %@."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось добавить хук агента в журнал для %@ %@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เพิ่ม agent hook ลงในบันทึกประจำวันสำหรับ %@ %@ ไม่สำเร็จ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ %@ için aracı kancasını günlüğe ekleme başarısız oldu."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося додати хук агента до журналу для %@ %@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法将 %@ %@ 的代理钩子追加到日志。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法將 %@ %@ 的代理程式掛鉤追加到日誌。"
           }
         }
       }
@@ -69582,7 +69557,6 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "不支援 Shell '%@'。支援：bash、zsh、fish。" } }
       }
     },
-
     "canvas.commandScrollHint": {
       "extractionState": "manual",
       "localizations": {
@@ -72436,25 +72410,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "نصوص إكمال الأوامر لـ zsh وbash وfish."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Skripte za automatsko dovršavanje za zsh, bash i fish."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Completion-scripts til zsh, bash og fish."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Shell-Completion-Skripte für zsh, bash und fish."
           }
         },
         "en": {
@@ -72466,91 +72440,91 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Scripts de autocompletado de shell para zsh, bash y fish."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Scripts de complétion shell pour zsh, bash et fish."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Script di completamento della shell per zsh, bash e fish."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "zsh、bash、fish 用のシェル補完スクリプト。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "ស្គ្រីបបំពេញបញ្ជីពាក្យបញ្ជាសម្រាប់ zsh, bash, និង fish។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "zsh, bash, fish용 셸 자동 완성 스크립트."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Skallfullføringsskript for zsh, bash og fish."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Skrypty uzupełniania powłoki dla zsh, bash i fish."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Scripts de autocompletar do shell para zsh, bash e fish."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Скрипты автодополнения оболочки для zsh, bash и fish."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "สคริปต์เติมคำสั่งอัตโนมัติสำหรับ zsh, bash และ fish"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "zsh, bash ve fish için kabuk tamamlama betikleri."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Скрипти автодоповнення оболонки для zsh, bash і fish."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "适用于 zsh、bash 和 fish 的 shell 补全脚本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "適用於 zsh、bash 和 fish 的 shell 補全指令碼。"
           }
         }
       }
@@ -72561,25 +72535,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "الاستخدام: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Upotreba: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Brug: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Verwendung: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "en": {
@@ -72591,91 +72565,91 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Utilisation : cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Utilizzo: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "使用法: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "របៀបប្រើ: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "사용법: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Bruk: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Użycie: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Использование: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "การใช้งาน: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Kullanım: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "Використання: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies|completion]"
           }
         }
       }
@@ -559991,6 +559965,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：文字過大；經 JSON 跳脫後的上限為 %@ MiB"
+          }
+        }
+      }
+    },
+    "cli.docs.completion.cliContractLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عقد CLI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ugovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Vertrag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI contract"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato de la CLI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrat de la CLI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contratto della CLI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិច្ចសន្យា CLI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 계약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrakt CLI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato da CLI"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อตกลง CLI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI sözleşmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契约"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
           }
         }
       }
