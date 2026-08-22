@@ -902,7 +902,14 @@ func applyNotifyCallerEnv(
 	hasExplicitSurface bool,
 	hasExplicitWindow bool,
 ) string {
-	if method != "notification.create" || hasExplicitWorkspace || hasExplicitSurface || hasExplicitWindow {
+	if method != "notification.create" || hasExplicitSurface || hasExplicitWindow {
+		return method
+	}
+	// An explicit workspace target must not inherit a surface from the caller's
+	// environment: the normal notification resolver can otherwise prioritize
+	// that stale surface and deliver into a different workspace.
+	if hasExplicitWorkspace {
+		delete(params, "surface_id")
 		return method
 	}
 	workspaceID, _ := params["workspace_id"].(string)
