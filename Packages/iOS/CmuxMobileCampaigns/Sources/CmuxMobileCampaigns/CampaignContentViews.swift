@@ -67,7 +67,9 @@ struct CampaignCardContent: View {
                     placeholder(aspectRatio: image.aspectRatio)
                 }
             }
-            .frame(maxWidth: .infinity)
+            // Capped so a tall image cannot push the title and body below
+            // the sheet's medium detent.
+            .frame(maxWidth: .infinity, maxHeight: 220)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityLabel(
                 image.alt?.resolved(languageCode: Self.languageCode) ?? ""
