@@ -94,6 +94,50 @@ struct TerminalConfigurationApplySchedulerTests {
     }
 
     @Test @MainActor
+    func replacingRetryingSnapshotRollsBackBeforeApplyingNewWork() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumImmediatePriorityCount: 1,
+            maximumVisitsPerDrain: 1,
+            schedule: manualScheduler.schedule
+        )
+        let firstSnapshot = Snapshot(id: 1)
+        let secondSnapshot = Snapshot(id: 2)
+        var events: [String] = []
+
+        scheduler.replacePendingWork(
+            snapshot: firstSnapshot,
+            prioritizedIDs: [11],
+            nextID: { nil },
+            apply: { id, snapshot in
+                events.append("apply:\(id):\(snapshot.id)")
+                return .retry
+            },
+            abandon: { id, snapshot in
+                events.append("abandon:\(id):\(snapshot.id)")
+            }
+        )
+        scheduler.replacePendingWork(
+            snapshot: secondSnapshot,
+            prioritizedIDs: [22],
+            nextID: { nil },
+            apply: { id, snapshot in
+                events.append("apply:\(id):\(snapshot.id)")
+                return .complete
+            }
+        )
+
+        #expect(
+            events == [
+                "apply:11:1",
+                "abandon:11:1",
+                "apply:22:2",
+            ]
+        )
+        #expect(manualScheduler.pendingCount == 1)
+    }
+
+    @Test @MainActor
     func sharesOneDerivedSnapshotAcrossEverySurface() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
