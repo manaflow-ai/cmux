@@ -68,6 +68,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
     let reconnectPolicy = RemoteReconnectPolicy()
+    let bootstrapRetryPolicy = RemoteBootstrapRetryPolicy()
     // MARK: - Queue-confined state
     //
     // Every var below is confined to `queue` (see the isolation essay).
@@ -116,6 +117,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reconnectRetryCount = 0
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
+    var bootstrapFailureFingerprint: String?
+    var bootstrapFailureCount = 0
+    var bootstrapFailureTotal = 0
     var connectionAttemptTask: Task<Void, Never>?
     var connectionAttemptToken: UUID?
     var consecutiveUnreachableProbeCount = 0
@@ -336,11 +340,39 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
-            let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
-            let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            let detail = "Remote daemon bootstrap failed: \(Self.userFacingRemoteDaemonBootstrapErrorMessage(error, strings: daemonStrings))\(retrySuffix)"
-            publishDaemonStatus(.error, detail: detail)
-            publishState(.error, detail: detail)
+            let failureMessage = Self.userFacingRemoteDaemonBootstrapErrorMessage(error, strings: daemonStrings)
+            let evaluation = bootstrapRetryPolicy.evaluate(
+                fingerprint: RemoteBootstrapRetryPolicy.fingerprint(for: error),
+                previousFingerprint: bootstrapFailureFingerprint,
+                previousConsecutiveFailures: bootstrapFailureCount,
+                previousTotalFailures: bootstrapFailureTotal
+            )
+            bootstrapFailureFingerprint = evaluation.fingerprint
+            bootstrapFailureCount = evaluation.consecutiveFailures
+            bootstrapFailureTotal = evaluation.totalFailures
+            switch evaluation.decision {
+            case .retry:
+                let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
+                let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
+                let detail = "Remote daemon bootstrap failed: \(failureMessage)\(retrySuffix)"
+                publishDaemonStatus(.error, detail: detail)
+                publishState(.error, detail: detail)
+            case .suspend:
+                cancelReconnectRetryLocked()
+                reconnectSuspended = true
+                let pausedSuffix = String(
+                    localized: "remoteDaemon.bootstrap.reconnectPaused",
+                    defaultValue: "Automatic reconnect paused after %d identical failures; repair the remote install and use Reconnect to try again."
+                )
+                let detail = "Remote daemon bootstrap failed: \(failureMessage). " +
+                    String(format: pausedSuffix, evaluation.consecutiveFailures)
+                debugLog(
+                    "remote.session.bootstrap.suspended consecutive=\(evaluation.consecutiveFailures) " +
+                    "total=\(evaluation.totalFailures) fingerprint=\(evaluation.fingerprint) \(debugConfigSummary())"
+                )
+                publishDaemonStatus(.error, detail: detail)
+                publishState(.suspended, detail: detail)
+            }
         }
     }
 
@@ -392,6 +424,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             cancelReconnectRetryLocked()
             reconnectRetryCount = 0
             consecutiveUnreachableProbeCount = 0
+            bootstrapFailureFingerprint = nil
+            bootstrapFailureCount = 0
+            bootstrapFailureTotal = 0
             // A live connection ends any suspension; without this a future
             // failure would hit the suspended guard and never reschedule.
             reconnectSuspended = false

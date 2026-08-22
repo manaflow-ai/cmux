@@ -145418,6 +145418,74 @@
         }
       }
     },
+    "remoteDaemon.bootstrap.buildOutputEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxd-remote build output is missing or empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxd-remote のビルド出力がないか空です"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.reconnectPaused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic reconnect paused after %d identical failures; repair the remote install and use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ失敗が %d 回続いたため自動再接続を一時停止しました。リモートインストールを修復して「再接続」を実行してください。"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.createDirectoryFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -145482,6 +145550,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモートデーモンのバイナリをインストールできませんでした：%@"
+          }
+        }
+      }
+    },
+    "remoteDaemon.upload.verifyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました"
+          }
+        }
+      }
+    },
+    "remoteDaemon.upload.verifyFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました：%@"
           }
         }
       }

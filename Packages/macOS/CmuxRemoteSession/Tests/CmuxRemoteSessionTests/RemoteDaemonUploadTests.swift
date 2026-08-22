@@ -269,6 +269,117 @@ struct RemoteDaemonUploadTests {
         #expect(runner.requests.map(Self.uploadStep) == [.createDirectory, .upload, .finalize, .cleanup])
     }
 
+    @Test("Bootstrap repairs an executable install whose probe reports zero bytes")
+    func bootstrapRepairsZeroByteInstall() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-bootstrap-repair-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let payload = Data("cached daemon payload".utf8)
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let manifestJSON = """
+        {"schemaVersion":1,"appVersion":"test-version","releaseTag":"test","releaseURL":"https://example.invalid","checksumsAssetName":"checksums","checksumsURL":"https://example.invalid/checksums","entries":[{"goOS":"linux","goArch":"amd64","assetName":"cmuxd-remote-linux-amd64","downloadURL":"https://example.invalid/cmuxd-remote","sha256":"\(hash)"}]}
+        """
+        let manifest = try #require(
+            WorkspaceRemoteDaemonManifest(
+                infoDictionary: [WorkspaceRemoteDaemonManifest.infoDictionaryKey: manifestJSON]
+            )
+        )
+        let repository = RemoteDaemonManifestRepository(homeDirectory: home)
+        let cachedURL = try repository.cachedBinaryURL(
+            version: "test-version",
+            goOS: "linux",
+            goArch: "amd64"
+        )
+        try fileManager.createDirectory(
+            at: cachedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try payload.write(to: cachedURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cachedURL.path)
+
+        let runner = RecordingProcessRunner { request in
+            let command = request.arguments.last ?? ""
+            if command.contains(RemoteSessionCoordinator.remotePlatformProbeHomeMarker) {
+                return RemoteCommandResult(
+                    status: 0,
+                    stdout: """
+                    \(RemoteSessionCoordinator.remotePlatformProbeHomeMarker)\(home.path)
+                    \(RemoteSessionCoordinator.remotePlatformProbeOSMarker)Linux
+                    \(RemoteSessionCoordinator.remotePlatformProbeArchMarker)x86_64
+                    \(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)yes
+                    \(RemoteSessionCoordinator.remotePlatformProbeSizeMarker)0
+                    """,
+                    stderr: ""
+                )
+            }
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .upload, .finalize:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .cleanup:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .unknown:
+                if command.contains("hello") {
+                    return RemoteCommandResult(
+                        status: 0,
+                        stdout: #"{"ok":true,"result":{"name":"cmuxd-remote","version":"test-version","capabilities":[]}}"#,
+                        stderr: ""
+                    )
+                }
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "test@repair.example",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: false,
+            persistentDaemonSlot: nil
+        )
+        let coordinator = RemoteSessionCoordinator(
+            host: NoopRemoteSessionHost(),
+            configuration: configuration,
+            proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
+            connectionBroker: NativeSSHConnectionBroker(),
+            manifestRepository: repository,
+            processRunner: runner,
+            reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
+            relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),
+            buildInfo: ManifestBuildInfo(version: "test-version", manifest: manifest),
+            daemonStrings: RemoteDaemonStrings(
+                missingPersistentPTYCapability: "",
+                missingRequiredFunctionality: ""
+            ),
+            strings: RemoteSessionStrings(
+                connectedVMNoProxyFormat: "%@",
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
+            )
+        )
+        defer { coordinator.stop() }
+
+        let hello = try coordinator.queue.sync {
+            try coordinator.bootstrapDaemonLocked(requiredCapabilities: [])
+        }
+        #expect(hello.version == "test-version")
+        #expect(runner.requests.contains { Self.uploadStep(for: $0) == .upload })
+        #expect(runner.requests.contains { Self.uploadStep(for: $0) == .finalize })
+    }
+
     @Test("Upload process failures do not expose arbitrary local error text")
     func uploadProcessFailureSanitizesLocalDetail() throws {
         try assertProcessFailureIsSanitized(
@@ -441,4 +552,13 @@ struct RemoteDaemonUploadTests {
             )
         )
     }
+}
+
+private struct ManifestBuildInfo: RemoteSessionBuildInfoProviding {
+    let version: String
+    let manifest: WorkspaceRemoteDaemonManifest
+
+    func appVersion() -> String? { version }
+    func embeddedDaemonManifest() -> WorkspaceRemoteDaemonManifest? { manifest }
+    func executableDirectoryURL() -> URL? { nil }
 }

@@ -166,6 +166,45 @@ struct RemotePlatformProbeScriptTests {
         )
     }
 
+    @Test("Bootstrap diagnostics include remote size and the persistent daemon log tail")
+    func diagnosticsIncludeSizeAndLogTail() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-diagnostics-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let remotePath = home.appendingPathComponent(".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote")
+        let logURL = home.appendingPathComponent(".cmux/daemon/test/repair-slot/daemon.log")
+        try fileManager.createDirectory(at: remotePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("abc".utf8).write(to: remotePath)
+        try Data("daemon_ready\nrepair_reason=integrity\n".utf8).write(to: logURL)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let result = try Self.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "PATH=/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                RemoteSessionCoordinator.remoteDaemonDiagnosticsScript(
+                    remotePath: remotePath.path,
+                    version: "test",
+                    persistentDaemonSlot: "repair-slot"
+                ),
+            ]
+        )
+
+        let outputComment = Comment(rawValue: result.stdout + result.stderr)
+        #expect(result.status == 0, outputComment)
+        #expect(result.stdout.contains("remote_path=\(remotePath.path)"), outputComment)
+        #expect(result.stdout.contains("remote_size=3"), outputComment)
+        #expect(result.stdout.contains("daemon_log_tail:"), outputComment)
+        #expect(result.stdout.contains("repair_reason=integrity"), outputComment)
+    }
+
     @Test("Probe sanitizes the version before shell interpolation")
     func probeScriptSanitizesVersionBeforeShellInterpolation() throws {
         let fileManager = FileManager.default

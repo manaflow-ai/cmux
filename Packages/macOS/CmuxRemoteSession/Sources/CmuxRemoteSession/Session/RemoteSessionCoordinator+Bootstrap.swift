@@ -15,6 +15,7 @@ extension RemoteSessionCoordinator {
     static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
     static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
     static let remotePlatformProbeExistsMarker = "__CMUX_REMOTE_EXISTS__="
+    static let remotePlatformProbeSizeMarker = "__CMUX_REMOTE_SIZE__="
 
     func bootstrapDaemonLocked(requiredCapabilities: [String]) throws -> DaemonHello {
         debugLog("remote.bootstrap.begin \(debugConfigSummary())")
@@ -38,7 +39,10 @@ extension RemoteSessionCoordinator {
         )
 
         let hadExistingBinary = bootstrapState.binaryExists
-        debugLog("remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0)")
+        debugLog(
+            "remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0) " +
+            "size=\(bootstrapState.binarySize.map(String.init) ?? "unknown")"
+        )
         if forceExplicitOverrideInstall || !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
@@ -48,16 +52,28 @@ extension RemoteSessionCoordinator {
         do {
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         } catch {
+            let diagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+            Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: diagnostic)
             guard hadExistingBinary else {
-                throw error
+                throw Self.annotatedRemoteDaemonBootstrapError(
+                    error,
+                    remotePath: remotePath,
+                    diagnostic: diagnostic
+                )
             }
-            debugLog(
-                "remote.bootstrap.helloRetry remotePath=\(remotePath) " +
-                "detail=\(error.localizedDescription)"
-            )
+            try removeRemoteDaemonInstallLocked(remotePath: remotePath)
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
-            hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+            do {
+                hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+            } catch {
+                let retryDiagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+                throw Self.annotatedRemoteDaemonBootstrapError(
+                    error,
+                    remotePath: remotePath,
+                    diagnostic: retryDiagnostic ?? diagnostic
+                )
+            }
         }
         let missingCapabilities = Self.missingRequiredCapabilities(requiredCapabilities, in: hello.capabilities)
         if hadExistingBinary, !missingCapabilities.isEmpty {
@@ -65,9 +81,23 @@ extension RemoteSessionCoordinator {
                 "remote.bootstrap.capabilityMissing remotePath=\(remotePath) " +
                 "missing=\(missingCapabilities.joined(separator: ",")) capabilities=\(hello.capabilities.joined(separator: ","))"
             )
+            let diagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+            Self.logHelloRetry(remotePath: remotePath, error: NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon missing required capabilities: \(missingCapabilities.joined(separator: ","))",
+            ]), diagnostic: diagnostic)
+            try removeRemoteDaemonInstallLocked(remotePath: remotePath)
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
-            hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+            do {
+                hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+            } catch {
+                let retryDiagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+                throw Self.annotatedRemoteDaemonBootstrapError(
+                    error,
+                    remotePath: remotePath,
+                    diagnostic: retryDiagnostic ?? diagnostic
+                )
+            }
         }
 
         debugLog(
@@ -111,10 +141,13 @@ extension RemoteSessionCoordinator {
           *) exit 71 ;;
         esac
         cmux_remote_path="$HOME/.cmux/bin/cmuxd-remote/\(scriptVersion)/${cmux_go_os}-${cmux_go_arch}/cmuxd-remote"
-        if [ -x "$cmux_remote_path" ]; then
+        if [ -x "$cmux_remote_path" ] && [ -s "$cmux_remote_path" ]; then
           printf '%syes\\n' '\(Self.remotePlatformProbeExistsMarker)'
+          cmux_remote_size="$(wc -c < "$cmux_remote_path" 2>/dev/null || printf '0')"
+          printf '%s%s\\n' '\(Self.remotePlatformProbeSizeMarker)' "$cmux_remote_size"
         else
           printf '%sno\\n' '\(Self.remotePlatformProbeExistsMarker)'
+          printf '%s0\\n' '\(Self.remotePlatformProbeSizeMarker)'
         fi
         """
     }
@@ -151,7 +184,8 @@ extension RemoteSessionCoordinator {
         line.hasPrefix(remotePlatformProbeHomeMarker) ||
             line.hasPrefix(remotePlatformProbeOSMarker) ||
             line.hasPrefix(remotePlatformProbeArchMarker) ||
-            line.hasPrefix(remotePlatformProbeExistsMarker)
+            line.hasPrefix(remotePlatformProbeExistsMarker) ||
+            line.hasPrefix(remotePlatformProbeSizeMarker)
     }
 
     func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
@@ -184,8 +218,13 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        let binaryExists = lines.first { $0.hasPrefix(Self.remotePlatformProbeExistsMarker) }
+        let binaryExistsMarker: Bool? = lines.first { $0.hasPrefix(Self.remotePlatformProbeExistsMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeExistsMarker.count)) == "yes" }
+        let binarySize = lines.first { $0.hasPrefix(Self.remotePlatformProbeSizeMarker) }
+            .flatMap { Int64(String($0.dropFirst(Self.remotePlatformProbeSizeMarker.count)).trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let binaryExists = binaryExistsMarker.map { marker in
+            marker && (binarySize.map { $0 > 0 } ?? true)
+        }
         if result.status != 0, binaryExists == nil {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 13, userInfo: [
@@ -196,7 +235,8 @@ extension RemoteSessionCoordinator {
         return RemoteBootstrapState(
             platform: RemotePlatform(goOS: goOS, goArch: goArch),
             homeDirectory: homeDirectory,
-            binaryExists: binaryExists ?? false
+            binaryExists: binaryExists ?? false,
+            binarySize: binarySize
         )
     }
 
@@ -223,7 +263,8 @@ extension RemoteSessionCoordinator {
 
     func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
         if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(),
-           FileManager.default.isExecutableFile(atPath: explicitBinary.path) {
+           FileManager.default.isExecutableFile(atPath: explicitBinary.path),
+           Self.fileSize(at: explicitBinary) > 0 {
             debugLog("remote.build.explicit path=\(explicitBinary.path)")
             return explicitBinary
         }
@@ -293,13 +334,22 @@ extension RemoteSessionCoordinator {
                 NSLocalizedDescriptionKey: "failed to build cmuxd-remote: \(detail)",
             ])
         }
-        guard FileManager.default.isExecutableFile(atPath: output.path) else {
+        guard FileManager.default.isExecutableFile(atPath: output.path),
+              Self.fileSize(at: output) > 0 else {
             throw NSError(domain: "cmux.remote.daemon", code: 24, userInfo: [
-                NSLocalizedDescriptionKey: "cmuxd-remote build output is not executable",
+                NSLocalizedDescriptionKey: String(
+                    localized: "remoteDaemon.bootstrap.buildOutputEmpty",
+                    defaultValue: "cmuxd-remote build output is missing or empty"
+                ),
             ])
         }
         debugLog("remote.build.output path=\(output.path)")
         return output
+    }
+
+    private static func fileSize(at url: URL) -> Int64 {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
     }
 
     func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {

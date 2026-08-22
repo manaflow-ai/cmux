@@ -350,8 +350,14 @@ extension CMUXCLI {
             scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
-            "case \"$cmux_ssh_reconnect_limit\" in '') cmux_ssh_reconnect_limit='∞'; cmux_ssh_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_reconnect_limit=20; cmux_ssh_reconnect_unbounded=0 ;; *) cmux_ssh_reconnect_unbounded=0 ;; esac",
+            // A missing limit used to mean infinity, which left a corrupt or
+            // permanently unavailable daemon spinning forever in the pane.
+            // Keep the supervisor finite even when an old persisted launcher
+            // omitted CMUX_SSH_RECONNECT_LIMIT.
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
+            "cmux_ssh_reconnect_hard_limit=20; if [ \"$cmux_ssh_reconnect_limit\" -gt \"$cmux_ssh_reconnect_hard_limit\" ]; then cmux_ssh_reconnect_limit=\"$cmux_ssh_reconnect_hard_limit\"; fi",
+            "cmux_ssh_reconnect_unbounded=0",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
@@ -406,7 +412,7 @@ extension CMUXCLI {
             // retry is actually pending; see CMUXCLI.sshPTYAttachWrapperRetryPending
             // and SSHPTYAttachRetryScriptBuilder.
             scriptLines += [
-                "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_retry\" -lt \"$cmux_ssh_reconnect_limit\" ]; then CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1; else CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=0; fi",
+                "  if [ \"$cmux_ssh_retry\" -lt \"$cmux_ssh_reconnect_limit\" ]; then CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1; else CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=0; fi",
                 "  export CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY",
             ]
         }
@@ -444,7 +450,7 @@ extension CMUXCLI {
             scriptLines += ["  if [ \"$cmux_ssh_status\" -eq 255 ]; then cmux_ssh_reauth_required=1; fi", "  fi"]
         }
         let retryLimitCondition = retryPTYAttachStatus
-            ? "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
+            ? "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
             : "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
         scriptLines.append(retryLimitCondition)
         scriptLines += [
