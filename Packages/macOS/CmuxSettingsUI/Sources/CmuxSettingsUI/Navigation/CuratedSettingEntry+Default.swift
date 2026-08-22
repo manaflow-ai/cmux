@@ -365,6 +365,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
             .init(section: .browser, id: "external-patterns", title: "URLs to Always Open Externally", synonyms: "browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"),
             .init(section: .browser, id: "http-allowlist", title: "HTTP Hosts Allowed in Embedded Browser", synonyms: "browser.insecureHttpHostsAllowedInEmbeddedBrowser insecure http allowlist localhost localtest non-https warning"),
+            .init(
+                section: .browser,
+                id: "url-allowlist",
+                title: String(localized: "settings.browser.urlAllowlist", defaultValue: "Embedded Browser URL Allowlist"),
+                synonyms: String(localized: "settings.search.alias.setting.browser.url-allowlist", defaultValue: "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy")
+            ),
             .init(section: .browser, id: "react-grab", title: "React Grab Version", synonyms: "browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component"),
             .init(section: .browser, id: "history", title: "Browsing History", synonyms: "browsing history clear visited pages omnibar suggestions delete"),
 

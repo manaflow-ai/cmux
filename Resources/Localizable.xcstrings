@@ -4113,6 +4113,56 @@
         }
       }
     },
+    "cli.agentHook.error.notificationDelivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل تسليم إشعار خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dostava obavijesti agentske kuke nije uspjela za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Levering af agent-hook-notifikationen mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Zustellung der Agent-Hook-Benachrichtigung ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook notification delivery failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo entregar la notificación del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la livraison de la notification du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile recapitare la notifica dell’hook dell’agente per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック通知を配信できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការបញ្ជូនការជូនដំណឹង agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 알림을 전달하지 못했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Levering av agent-hook-varslingen mislyktes for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dostarczyć powiadomienia haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao entregar a notificação do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось доставить уведомление хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ส่งการแจ้งเตือน agent hook สำหรับ %@ %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası bildirimi teslim edilemedi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося доставити сповіщення хуку агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法传递 %@ %@ 的代理钩子通知。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。" } }
+      }
+    },
+    "cli.agentHook.error.targetResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل حل هدف خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Rješavanje odredišta agentske kuke nije uspjelo za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Agent-hook-målløsning mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Zielauflösung des Agent-Hooks ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook target resolution failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo resolver el destino del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la résolution de la cible du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Risoluzione della destinazione dell’hook dell’agente non riuscita per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック配信先を解決できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការដោះស្រាយគោលដៅ agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 대상을 확인하지 못했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke målet for agent-hooken for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się rozpoznać celu haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao resolver o destino do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось определить цель хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถแก้ไขปลายทาง agent hook สำหรับ %@ %@ ได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası hedefi çözülemedi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося визначити ціль хуку агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法解析 %@ %@ 的代理钩子目标。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法解析 %@ %@ 的代理程式掛鉤目標。" } }
+      }
+    },
     "agent.generic.notification.body.approvalNeeded": {
       "extractionState": "manual",
       "localizations": {
@@ -4130,23 +4180,6 @@
         }
       }
     },
-    "agent.generic.notification.body.needsAttention": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ needs your attention"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の確認が必要です"
-          }
-        }
-      }
-    },
     "agent.generic.notification.body.reportedError": {
       "extractionState": "manual",
       "localizations": {
@@ -4160,23 +4193,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ がエラーを報告しました"
-          }
-        }
-      }
-    },
-    "agent.generic.notification.body.sentNotification": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sent a notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ から通知が届きました"
           }
         }
       }
@@ -26725,6 +26741,41 @@
         }
       }
     },
+    "browser.error.urlAllowlist.attemptedURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attempted URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "試行したURL" } }
+      }
+    },
+    "browser.error.urlAllowlist.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by your organization's embedded-browser policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは組織の内蔵ブラウザポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.userMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by the embedded-browser URL policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは内蔵ブラウザのURLポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織のポリシーによりブロックされました" } }
+      }
+    },
+    "browser.error.urlAllowlist.userTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
+      }
+    },
     "browser.error.insecure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -35136,6 +35187,20 @@
             "value": "信頼済み差分ビューアのセッションがありません"
           }
         }
+      }
+    },
+    "cli.browser.error.urlBlockedByPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's browser policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織のブラウザポリシーによりブロックされました" } }
+      }
+    },
+    "cli.browser.error.urlBlockedByUserPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
       }
     },
     "cli.browser.error.operationFailed": {
@@ -171691,7 +171756,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."
           }
         },
         "es": {
@@ -171715,7 +171780,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。エントリを削除するとそのホストをブロックし、リセットでデフォルトに戻せます。"
           }
         },
         "ko": {
@@ -171810,7 +171875,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line. Remove entries to block them."
           }
         },
         "es": {
@@ -171834,7 +171899,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード。エントリを削除するとそのホストをブロックします。"
           }
         },
         "ko": {
@@ -172016,6 +172081,80 @@
             "value": "儲存"
           }
         }
+      }
+    },
+    "settings.browser.httpAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.browser.urlAllowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Embedded Browser URL Allowlist" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザURL許可リスト" } }
+      }
+    },
+    "settings.browser.urlAllowlist.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、管理ポリシーがない場合にリストを空にするとすべてのWebオリジンを許可します。無効なルールだけの値は安全側でブロックされます。cmux内部ドキュメントは引き続き利用できます。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1行に1ルール: localhost、*.localhost、example.com、https://git.example.com、または http://localhost:3000。エントリを削除するとそのURLをブロックします。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なルールがあります。無効なルールだけの値は安全側でブロックされます。ホストまたはHTTP(S) URLパターンを使用してください。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "settings.browser.urlAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.search.alias.setting.browser.url-allowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist قائمة سماح URL localhost حرف بدل مخطط منفذ سياسة المؤسسة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozvoljenih URL-ova localhost zamjenski znak shema port organizacijska politika" } },
+        "da": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tilladelsesliste localhost jokertegn skema port organisationspolitik" } },
+        "de": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-Zulassungsliste localhost Wildcard Schema Port Organisationsrichtlinie" } },
+        "en": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "es": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URL permitidas localhost comodín esquema puerto política de la organización" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist liste d’autorisation URL localhost caractère générique schéma port politique de l’organisation" } },
+        "it": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist elenco URL consentiti localhost carattere jolly schema porta criterio organizzativo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL許可リスト localhost ワイルドカード スキーム ポート 組織 ポリシー" } },
+        "km": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 허용 목록 localhost 와일드카드 스킴 포트 조직 정책" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tillatelsesliste localhost jokertegn skjema port organisasjonspolicy" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozwolonych URL localhost wildcard schemat port polityka organizacji" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URLs permitidas localhost curinga esquema porta política da organização" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список разрешённых URL localhost подстановочный знак схема порт политика организации" } },
+        "th": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist รายการ URL ที่อนุญาต localhost wildcard รูปแบบ พอร์ต นโยบายองค์กร" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL izin listesi localhost joker karakter şema bağlantı noktası kuruluş politikası" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список дозволених URL localhost шаблон схема порт політика організації" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允许列表 localhost 通配符 协议 端口 组织策略" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允許清單 localhost 萬用字元 通訊協定 連接埠 組織政策" } }
       }
     },
     "settings.browser.import": {

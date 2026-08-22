@@ -303,12 +303,6 @@ extension TerminalController {
                     defaultValue: "Artifact transfer is temporarily unavailable.",
                     path: nil
                 )
-            case .permissionDenied:
-                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
-            case .notRegularFile:
-                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
-            case .readFailed:
-                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(
