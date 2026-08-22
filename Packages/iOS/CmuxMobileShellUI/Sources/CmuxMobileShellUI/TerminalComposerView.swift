@@ -344,60 +344,7 @@ struct TerminalComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                // The attach button offers the same sources as the task
-                // composer's menu: Photo Library, Choose Files (when the
-                // paired Mac supports file uploads), and Paste.
-                Menu {
-                    Button {
-                        presentPhotoPicker()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.composer.attach.photoLibrary",
-                                defaultValue: "Photo Library"
-                            ),
-                            systemImage: "photo.on.rectangle"
-                        )
-                    }
-                    if store.supportsComposerFileAttachments {
-                        Button {
-                            presentFileImporter()
-                        } label: {
-                            Label(
-                                L10n.string(
-                                    "mobile.composer.attach.chooseFiles",
-                                    defaultValue: "Choose Files"
-                                ),
-                                systemImage: "folder"
-                            )
-                        }
-                    }
-                    Button {
-                        _ = pasteComposerAttachments()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.composer.attach.paste",
-                                defaultValue: "Paste"
-                            ),
-                            systemImage: "doc.on.clipboard"
-                        )
-                    }
-                } label: {
-                    MobileComposerIconLabel(
-                        systemImage: "paperclip",
-                        foregroundStyle: AnyShapeStyle(
-                            store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                        ),
-                        size: controlHeight
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("MobileComposerAttach")
-                .accessibilityLabel(L10n.string(
-                    "mobile.composer.attach.add",
-                    defaultValue: "Add Attachment"
-                ))
+                attachMenuButton
 
                 micButton
 
@@ -621,6 +568,88 @@ struct TerminalComposerView: View {
         ) {
             toggleDictation()
         }
+    }
+
+    /// The attach control offers the same sources as the task composer's
+    /// menu: Photo Library, Choose Files (when the paired Mac supports file
+    /// uploads), and Paste. On iOS 26 the control is a system GLASS button —
+    /// not a custom glass background — because that is what lets the system
+    /// morph the button into the presented menu; earlier OSes keep the shared
+    /// material circle with a plain menu presentation.
+    @ViewBuilder
+    private var attachMenuButton: some View {
+        if #available(iOS 26.0, *) {
+            attachMenu {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(
+                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                    )
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+        } else {
+            attachMenu {
+                MobileComposerIconLabel(
+                    systemImage: "paperclip",
+                    foregroundStyle: AnyShapeStyle(
+                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                    ),
+                    size: controlHeight
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func attachMenu(
+        @ViewBuilder label: () -> some View
+    ) -> some View {
+        Menu {
+            Button {
+                presentPhotoPicker()
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.composer.attach.photoLibrary",
+                        defaultValue: "Photo Library"
+                    ),
+                    systemImage: "photo.on.rectangle"
+                )
+            }
+            if store.supportsComposerFileAttachments {
+                Button {
+                    presentFileImporter()
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.composer.attach.chooseFiles",
+                            defaultValue: "Choose Files"
+                        ),
+                        systemImage: "folder"
+                    )
+                }
+            }
+            Button {
+                _ = pasteComposerAttachments()
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.composer.attach.paste",
+                        defaultValue: "Paste"
+                    ),
+                    systemImage: "doc.on.clipboard"
+                )
+            }
+        } label: {
+            label()
+        }
+        .accessibilityIdentifier("MobileComposerAttach")
+        .accessibilityLabel(L10n.string(
+            "mobile.composer.attach.add",
+            defaultValue: "Add Attachment"
+        ))
     }
 
     /// Record the modal boundary before changing the PhotosPicker binding. The
