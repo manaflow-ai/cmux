@@ -426,7 +426,9 @@ impl MachineRequest {
             MachineRequest::DeleteManagedMachine { .. } => "delete-managed-machine",
             MachineRequest::RestoreManagedMachine { .. } => "restore-managed-machine",
             MachineRequest::PurgeManagedMachine { .. } => "purge-managed-machine",
-            MachineRequest::CreateManagedIsolatedWorkspace(_) => "create-managed-isolated-workspace",
+            MachineRequest::CreateManagedIsolatedWorkspace(_) => {
+                "create-managed-isolated-workspace"
+            }
             MachineRequest::CreateManagedHostWorkspace(_) => "create-managed-host-workspace",
             MachineRequest::RenameManagedWorkspace { .. } => "rename-managed-workspace",
             MachineRequest::DeleteManagedWorkspace { .. } => "delete-managed-workspace",
