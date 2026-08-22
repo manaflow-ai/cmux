@@ -70,8 +70,9 @@ class SchemaReader:
         result: list[KeyEntry] = []
         properties = self.document.get("properties", {})
         if isinstance(properties, dict):
+            child_seen: set[tuple[str, str]] = set()
             for name, schema in properties.items():
-                self._walk(str(name), schema, result, set())
+                self._walk(str(name), schema, result, set(), child_seen)
         # A composition branch can be reached both while walking the operator
         # itself and while walking its parent.  Those traversals describe the
         # same JSON key, so keep the first deterministic row rather than
@@ -91,6 +92,7 @@ class SchemaReader:
         schema: Any,
         result: list[KeyEntry],
         seen: set[tuple[str, str]],
+        child_seen: set[tuple[str, str]],
     ) -> None:
         resolved = self.resolve(schema)
         signature = (path, json.dumps(resolved, sort_keys=True, default=str))
@@ -105,7 +107,7 @@ class SchemaReader:
         if not any(entry.path == path for entry in result):
             result.append(self._entry(path, resolved))
 
-        self._walk_children(path, resolved, result, seen)
+        self._walk_children(path, resolved, result, seen, child_seen)
 
     def _walk_children(
         self,
@@ -113,7 +115,18 @@ class SchemaReader:
         schema: dict[str, Any],
         result: list[KeyEntry],
         seen: set[tuple[str, str]],
+        child_seen: set[tuple[str, str]],
     ) -> None:
+        # Composition and conditional branches can refer back to the same
+        # schema identity. `_walk`'s entry guard is not enough here because
+        # these branches are descended directly; keep a separate child guard
+        # so recursive allOf/oneOf/anyOf and if/then/else graphs terminate
+        # without suppressing the first normal traversal.
+        child_signature = (path, json.dumps(schema, sort_keys=True, default=str))
+        if child_signature in child_seen:
+            return
+        child_seen.add(child_signature)
+
         # Walk the canonical object shape before composition and conditional
         # branches. A discriminator often repeats a property with only a
         # `const`; visiting that branch first would make path deduplication
@@ -121,7 +134,7 @@ class SchemaReader:
         properties = schema.get("properties")
         if isinstance(properties, dict):
             for name, child in properties.items():
-                self._walk(f"{path}.{name}", child, result, seen)
+                self._walk(f"{path}.{name}", child, result, seen, child_seen)
 
         additional = schema.get("additionalProperties")
         if additional is True:
@@ -141,14 +154,14 @@ class SchemaReader:
             property_names = schema.get("propertyNames")
             if isinstance(property_names, dict):
                 dynamic["_propertyNames"] = self.resolve(property_names)
-            self._walk(f"{path}.*", dynamic, result, seen)
+            self._walk(f"{path}.*", dynamic, result, seen, child_seen)
 
         items = schema.get("items")
         if isinstance(items, dict):
             item_schema = self.resolve(items)
             # `[]` makes array members unambiguous in the generated reference,
             # while retaining the parent array row above.
-            self._walk(f"{path}[]", item_schema, result, seen)
+            self._walk(f"{path}[]", item_schema, result, seen, child_seen)
 
         # Composition branches can carry additional properties (for example
         # the conditional fields on an array member). Walk every composition
@@ -158,7 +171,7 @@ class SchemaReader:
             branches = schema.get(operator)
             if isinstance(branches, list):
                 for branch in branches:
-                    self._walk_children(path, self.resolve(branch), result, seen)
+                    self._walk_children(path, self.resolve(branch), result, seen, child_seen)
 
         # Conditional schemas can introduce properties that do not appear in
         # the unconditional object shape. Walk every branch so a key accepted
@@ -168,7 +181,7 @@ class SchemaReader:
         for operator in ("if", "then", "else"):
             branch = schema.get(operator)
             if isinstance(branch, dict):
-                self._walk_children(path, self.resolve(branch), result, seen)
+                self._walk_children(path, self.resolve(branch), result, seen, child_seen)
 
         # Draft 2019-09+ dependent schemas are conditional object branches too.
         # Each value applies at the same JSON path as its parent.
@@ -176,7 +189,7 @@ class SchemaReader:
         if isinstance(dependent_schemas, dict):
             for branch in dependent_schemas.values():
                 if isinstance(branch, dict):
-                    self._walk_children(path, self.resolve(branch), result, seen)
+                    self._walk_children(path, self.resolve(branch), result, seen, child_seen)
 
     def _entry(self, path: str, schema: dict[str, Any]) -> KeyEntry:
         return KeyEntry(
@@ -188,10 +201,22 @@ class SchemaReader:
         )
 
 
-def format_type(schema: dict[str, Any], reader: SchemaReader) -> str:
+def format_type(
+    schema: dict[str, Any],
+    reader: SchemaReader,
+    _seen: set[str] | None = None,
+) -> str:
+    active = set() if _seen is None else set(_seen)
+    signature = json.dumps(schema, sort_keys=True, default=str)
+    if signature in active:
+        return "any"
+    active.add(signature)
+
     branches = schema.get("oneOf") or schema.get("anyOf")
     if isinstance(branches, list) and branches:
-        return join_types(format_type(reader.resolve(branch), reader) for branch in branches)
+        return join_types(
+            format_type(reader.resolve(branch), reader, active) for branch in branches
+        )
 
     all_of = schema.get("allOf")
     if isinstance(all_of, list) and all_of:
@@ -200,7 +225,7 @@ def format_type(schema: dict[str, Any], reader: SchemaReader) -> str:
         # definitions commonly put a `$ref` and a pattern-bearing `anyOf`
         # side-by-side here.
         concrete = join_types(
-            format_type(reader.resolve(part), reader) for part in all_of
+            format_type(reader.resolve(part), reader, active) for part in all_of
         )
         if concrete != "any":
             return concrete
@@ -211,16 +236,16 @@ def format_type(schema: dict[str, Any], reader: SchemaReader) -> str:
     if raw_type == "array":
         items = schema.get("items")
         if isinstance(items, dict):
-            return f"array<{format_type(reader.resolve(items), reader)}>"
+            return f"array<{format_type(reader.resolve(items), reader, active)}>"
         prefix_items = schema.get("prefixItems")
         if isinstance(prefix_items, list) and prefix_items:
-            return f"array<{join_types(format_type(reader.resolve(item), reader) for item in prefix_items)}>"
+            return f"array<{join_types(format_type(reader.resolve(item), reader, active) for item in prefix_items)}>"
         return "array<any>"
     if raw_type == "object":
         if schema.get("_dynamic"):
             additional = schema.get("additionalProperties")
             if isinstance(additional, dict):
-                return f"map<string, {format_type(reader.resolve(additional), reader)}>"
+                return f"map<string, {format_type(reader.resolve(additional), reader, active)}>"
             return "map<string, any>"
         return "object"
     if raw_type:
@@ -279,14 +304,24 @@ def infer_type_from_schema(schema: dict[str, Any]) -> str | None:
     return None
 
 
-def format_default(value: Any, schema: dict[str, Any], reader: SchemaReader) -> str:
+def format_default(
+    value: Any,
+    schema: dict[str, Any],
+    reader: SchemaReader,
+    _seen: set[str] | None = None,
+) -> str:
     if value is MISSING:
+        active = set() if _seen is None else set(_seen)
+        signature = json.dumps(schema, sort_keys=True, default=str)
+        if signature in active:
+            return "—"
+        active.add(signature)
         branches = schema.get("oneOf") or schema.get("anyOf") or schema.get("allOf")
         if isinstance(branches, list):
             for branch in branches:
                 resolved = reader.resolve(branch)
                 if "default" in resolved:
-                    return format_default(resolved["default"], resolved, reader)
+                    return format_default(resolved["default"], resolved, reader, active)
         return "—"
     return f"`{json.dumps(value, ensure_ascii=False, sort_keys=True)}`"
 
@@ -295,19 +330,25 @@ def format_description(
     schema: dict[str, Any],
     reader: SchemaReader,
     path: str | None = None,
+    _seen: set[str] | None = None,
 ) -> str:
     direct = schema.get("description")
     if isinstance(direct, str) and direct.strip():
         return direct.strip()
     branches = schema.get("oneOf") or schema.get("anyOf") or schema.get("allOf")
     if isinstance(branches, list):
+        active = set() if _seen is None else set(_seen)
+        signature = json.dumps(schema, sort_keys=True, default=str)
+        if signature in active:
+            return ""
+        active.add(signature)
         descriptions: list[str] = []
         for branch in branches:
             # A branch without its own prose must not synthesize a generic
             # description here. The containing row owns the final path-aware
             # fallback after every branch has had a chance to contribute real
             # schema documentation.
-            description = format_description(reader.resolve(branch), reader)
+            description = format_description(reader.resolve(branch), reader, _seen=active)
             if description and description not in descriptions:
                 descriptions.append(description)
         # A referenced union can appear inside another union (for example a

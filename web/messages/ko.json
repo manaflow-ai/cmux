@@ -1008,6 +1008,16 @@
           "globalFontMagnification": "cmux가 소유한 터미널, 탭 제목, 사이드바, 설정, 오버레이, 앱 chrome을 이 비율로 확대/축소합니다. 렌더링된 브라우저 페이지 콘텐츠는 제외됩니다."
         },
         "terminal": {
+          "newSurfaceWorkingDirectory": {
+            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
+            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
+            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+          },
+          "shellStartup": {
+            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
+            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
+            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+          },
           "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",
           "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
