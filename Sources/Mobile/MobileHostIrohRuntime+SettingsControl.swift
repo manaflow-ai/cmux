@@ -524,7 +524,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         now: Date
     ) -> Date {
         if let retryAt {
-            return min(retryAt, policyExpiresAt ?? retryAt)
+            // Once the cached authority is already expired, it is no longer
+            // an earlier refresh deadline. Keep the armed retry backoff; using
+            // the stale expiry here would turn every failed restore into an
+            // immediate retry loop.
+            guard let policyExpiresAt, policyExpiresAt > now else { return retryAt }
+            return min(retryAt, policyExpiresAt)
         }
         if let policyExpiresAt {
             return policyExpiresAt.addingTimeInterval(-60)

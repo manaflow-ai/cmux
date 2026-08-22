@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Sentry
 
 /// Filters high-volume operational transport events at the Sentry boundary.
@@ -27,7 +28,12 @@ public struct TransportSentryEventNoiseFilter: Sendable {
         }
         if let transportContext = event.context?["cmux.transport"],
            let reachable = transportContext["reachable"] as? Bool,
-           !reachable {
+           !reachable,
+           let failureName = event.tags?["transport.failure"],
+           let failure = DiagnosticFailureKind.allCases.first(where: {
+               String(describing: $0) == failureName
+           }),
+           TransportIncidentPolicy.environmentalFailureKinds.contains(failure) {
             return nil
         }
         return event

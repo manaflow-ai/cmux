@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import Foundation
+import Network
 import Testing
 
 #if canImport(cmux_DEV)
@@ -125,9 +126,9 @@ import Testing
     }
 
     @Test func pathStatusMapsToReachabilityForTransportTelemetry() {
-        #expect(MobileHostNetworkPathMonitor.isOnline(statusDescription: "satisfied"))
-        #expect(!MobileHostNetworkPathMonitor.isOnline(statusDescription: "unsatisfied"))
-        #expect(!MobileHostNetworkPathMonitor.isOnline(statusDescription: "requiresConnection"))
+        #expect(MobileHostNetworkPathMonitor.isOnline(status: .satisfied))
+        #expect(!MobileHostNetworkPathMonitor.isOnline(status: .unsatisfied))
+        #expect(!MobileHostNetworkPathMonitor.isOnline(status: .requiresConnection))
     }
 
     @Test func relayPolicyRetryParksOnlyForOfflineEvidence() {
@@ -161,6 +162,24 @@ import Testing
             now: now
         )
         #expect(attempt.timeIntervalSince(now) == 60)
+    }
+
+    @Test func armedRetryWinsWhenCachedPolicyExpiryIsAlreadyPast() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let retryAt = now.addingTimeInterval(60)
+        let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: now.addingTimeInterval(-1),
+            retryAt: retryAt,
+            now: now
+        )
+
+        #expect(attempt == retryAt)
+    }
+
+    @Test func activationWaitsForAnAuthoritativeReachabilitySample() {
+        #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
+        #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: false))
+        #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: true))
     }
 
     // MARK: - Resolver cache invalidation

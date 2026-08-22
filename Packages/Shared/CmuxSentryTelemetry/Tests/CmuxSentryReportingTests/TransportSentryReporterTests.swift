@@ -377,6 +377,32 @@ import os
         #expect(filter.filter(actionable) != nil)
     }
 
+    @Test func staleOfflineSnapshotDoesNotDropActionableProtocolFailures() {
+        let actionable = Event(level: .warning)
+        actionable.logger = "cmux.transport"
+        actionable.tags = [
+            "transport.failure": "identityMismatch",
+            "transport.incident": "failure",
+        ]
+        actionable.context = [
+            "cmux.transport": ["reachable": false],
+        ]
+
+        #expect(filter.filter(actionable) != nil)
+
+        let environmental = Event(level: .warning)
+        environmental.logger = "cmux.transport"
+        environmental.tags = [
+            "transport.failure": "endpointUnavailable",
+            "transport.incident": "failure",
+        ]
+        environmental.context = [
+            "cmux.transport": ["reachable": false],
+        ]
+
+        #expect(filter.filter(environmental) == nil)
+    }
+
     @Test func filtersListenerMessagesBeforeLoggerCheck() {
         let event = Event(level: .error)
         event.logger = "cmux.app"

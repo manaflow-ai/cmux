@@ -224,6 +224,9 @@ class TerminalController {
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
+    // lint:allow lock - this nonisolated socket callback is synchronous and
+    // must atomically admit/update its timestamp before returning; an actor
+    // hop would reorder duplicate callbacks and cannot preserve that contract.
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {

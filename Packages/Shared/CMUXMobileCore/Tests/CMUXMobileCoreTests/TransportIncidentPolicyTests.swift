@@ -132,34 +132,45 @@ import Testing
     }
 
     @Test func fractionalFailureSamplingIsDeterministicAndBounded() {
-        var policy = TransportIncidentPolicy(
-            configuration: .init(
-                signatureCooldown: 0,
-                hourlyCaptureLimit: 2_000,
-                outageFailureThreshold: 10_000,
-                outageMinimumDuration: 10_000,
-                outageRearmInterval: 3_600,
-                failureSampleRate: 0.05,
-                outageSampleRate: 0.25
-            ),
+        let configuration = TransportIncidentPolicy.Configuration(
+            signatureCooldown: 0,
+            hourlyCaptureLimit: 2_000,
+            outageFailureThreshold: 10_000,
+            outageMinimumDuration: 10_000,
+            outageRearmInterval: 3_600,
+            failureSampleRate: 0.05,
+            outageSampleRate: 0.25
+        )
+        var firstPolicy = TransportIncidentPolicy(
+            configuration: configuration,
             locale: englishLocale
         )
-        var captures = 0
+        var secondPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var firstCapturedPositions: [Int] = []
+        var secondCapturedPositions: [Int] = []
         for index in 0 ..< 1_000 {
-            if policy.decide(dialFailed(
+            let event = dialFailed(
                 at: UInt64(index + 1),
                 attempt: index
-            )) != nil {
-                captures += 1
+            )
+            if firstPolicy.decide(event) != nil {
+                firstCapturedPositions.append(index)
+            }
+            if secondPolicy.decide(event) != nil {
+                secondCapturedPositions.append(index)
             }
         }
 
+        #expect(firstCapturedPositions == secondCapturedPositions)
         // The deterministic hash should retain roughly 5% of ordinary
         // failures; keep the assertion broad enough to be stable across
         // compiler/platform implementations while still catching a disabled
         // or unbounded sampler.
-        #expect(captures > 10)
-        #expect(captures < 120)
+        #expect(firstCapturedPositions.count > 10)
+        #expect(firstCapturedPositions.count < 120)
     }
 
     @Test func idleTimeoutSuppressedInBackground() {

@@ -301,11 +301,12 @@ public struct TransportIncidentPolicy: Sendable {
         }
     }
 
-    /// Failure categories that are expected when the local network path is
-    /// absent. Definitive identity and protocol failures stay reportable even
-    /// while a stale reachability snapshot says offline; authorization errors
-    /// are included because an offline token refresh cannot prove auth state.
-    private static let environmentalFailureKinds: [DiagnosticFailureKind] = [
+    /// Failure categories attributable to an absent local network path.
+    ///
+    /// Definitive identity and protocol failures stay reportable even while a
+    /// stale reachability snapshot says offline; authorization errors are
+    /// included because an offline token refresh cannot prove auth state.
+    public static let environmentalFailureKinds: Set<DiagnosticFailureKind> = [
         .timedOut,
         .connectionRefused,
         .hostUnreachable,

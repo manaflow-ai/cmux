@@ -59,14 +59,12 @@ final class MobileHostNetworkPathMonitor {
     func start(queue: DispatchQueue) {
         monitor.pathUpdateHandler = { [weak self, localIPv4Addresses] path in
             let signature = Self.signature(
-                status: String(describing: path.status),
+                status: Self.statusName(path.status),
                 interfaceNames: path.availableInterfaces.map(\.name),
                 gateways: path.gateways.map { String(describing: $0) },
                 localAddresses: localIPv4Addresses()
             )
-            let isOnline = Self.isOnline(
-                statusDescription: String(describing: path.status)
-            )
+            let isOnline = Self.isOnline(status: path.status)
             Task { @MainActor [weak self] in
                 self?.handleObservation(signature: signature, isOnline: isOnline)
             }
@@ -90,10 +88,25 @@ final class MobileHostNetworkPathMonitor {
         onPathChange()
     }
 
-    /// Converts the platform path description into the binary reachability
+    /// Converts the typed platform path status into the binary reachability
     /// value used by the privacy-safe diagnostic taxonomy.
-    nonisolated static func isOnline(statusDescription: String) -> Bool {
-        statusDescription == "satisfied"
+    nonisolated static func isOnline(status: NWPath.Status) -> Bool {
+        status == .satisfied
+    }
+
+    /// Produces the stable status component used in path signatures without
+    /// depending on Foundation's textual description of ``NWPath.Status``.
+    private nonisolated static func statusName(_ status: NWPath.Status) -> String {
+        switch status {
+        case .satisfied:
+            return "satisfied"
+        case .unsatisfied:
+            return "unsatisfied"
+        case .requiresConnection:
+            return "requiresConnection"
+        @unknown default:
+            return "unknown"
+        }
     }
 
     /// Stable identity of a network path for change detection. Order-insensitive

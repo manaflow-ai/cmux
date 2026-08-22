@@ -1222,8 +1222,8 @@ final class MobileHostService {
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
-        MobileHostIrohRuntime.shared.setDesiredActive(true)
         startNetworkPathMonitorIfNeeded()
+        MobileHostIrohRuntime.shared.setDesiredActive(true)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
