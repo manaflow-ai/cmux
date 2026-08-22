@@ -990,6 +990,13 @@
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "Oturum tanımlayıcısını çıkarmak için kullanılan strateji: bir argv seçeneğinden veya bir Pi oturum dosyasından."
+        },
+        "customSidebars": {
+          "description": "Kullanıcı ve aracı tarafından yazılan özel kenar çubukları için oluşturma ilkesi.",
+          "renderer": "Yerel fareyle üzerine gelme, odaklanma ve klavye girişi için işlem içi SwiftUI oluşturucuyu veya kilitlenmeyi önlemek için izole edilmiş uzaktan oluşturucuyu seçin."
+        },
         "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
         "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz."
         },
         "app": {
+          "devWindowDisplay": "Yalnızca DEBUG derlemeleri: yeni oluşturulan pencereler için tercih edilen yerelleştirilmiş ad görüntüleme. Sistem varsayılanını kullanmak için boş bırakın.",
+          "workspaceInheritWorkingDirectory": "Eski uyumluluk geri dönüşü yalnızca terminal.newSurfaceWorkingDirectory.policy olmadığında kullanılır. Yeni konfigürasyonlarda üç yollu terminal politikasını tercih edin.",
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "Kayıt formatı sürümü. Sürüm 1 şu anda desteklenmektedir.",
+            "id": "Bu imzalı özgeçmiş onayı için kararlı tanımlayıcı.",
+            "name": "Bu özgeçmiş onayı için kullanıcıya yönelik isteğe bağlı etiket.",
+            "environmentKeys": "İmzalı devam ettirme komutu eşleşmesinde yer alan ortam değişkenlerinin adları.",
+            "source": "Bu onayın nerede oluşturulduğunu açıklayan isteğe bağlı kaynak etiketi.",
+            "policy": "Cmux onayı nasıl kullanabilir: manuel olarak, sorulduktan sonra veya otomatik olarak.",
+            "createdAt": "Unix çağından bu yana geçen saniye cinsinden oluşturma süresi.",
+            "updatedAt": "Unix döneminden bu yana geçen saniye cinsinden son değişiklik süresi.",
+            "lastUsedAt": "Mümkün olduğunda, Unix döneminden bu yana saniye cinsinden en son kullanım süresi."
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Sıradan yeni yerel bölmeler, sekmeler, bölmeler ve çalışma alanları için çalışma dizini varsayılanları. Açık çalışma dizinleri, uzak komutlar ve geri yüklenen yüzeyler her zaman önceliklidir.",
             "policy": "Yeni yerel yüzeylerin etkin bölme dizinini mi devralacağını, çalışma alanı oluşturulduğunda yakalanan dizini mi yoksa yapılandırılmış sabit yolu mu kullanacağını seçin.",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Denetim listesi öğeleri ekleme ve çalışma alanı yapılacaklar durumunu değiştirme denetimlerini etkinleştirin.",
+                "enabled": "Denetim listesi öğeleri eklemeye ve çalışma alanı yapılacaklar durumunu değiştirmeye ilişkin denetimleri gösterin."
+              }
+            }
+          },
+          "stackBranchDirectory": "Etkinleştirildiğinde git dalını ve çalışma dizinini kompakt kenar çubuğu düzenlerinde ayrı satırlarda işleyin.",
+          "pathLastSegmentOnly": "Etkinleştirildiğinde, baştaki bileşenlerini kısaltarak, takip eden çalışma dizini yolunun uygun olduğu kadarını gösterin.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "Bir kullanıcı arayüzü bağlamına karşılık gelen kısayolun kapsamını belirleyen Boolean ifadesi.",
           "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
         }

@@ -990,6 +990,13 @@
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "Strategy used to extract the session identifier: from an argv option or a Pi session file. (de)"
+        },
+        "customSidebars": {
+          "description": "Rendering policy for user- and agent-authored custom sidebars. (de)",
+          "renderer": "Choose the in-process SwiftUI renderer for native hover, focus, and keyboard input, or the isolated remote renderer for crash containment. (de)"
+        },
         "paneBorderColor": "Überschreibt die Farbe des cmux-Fensterteilers in geteilten Workspaces. Dies betrifft cmux-Fenstergrenzen, nicht interne Ghostty-Aufteilungen.",
         "activePaneBorderColor": "Optionale Rahmenfarbe, die in geteilten Workspaces um das fokussierte cmux-Fenster gezeichnet wird.",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "Welcher Agent für jede Sitzung automatische Namen erzeugt. „auto“ (Standard) benennt jede Sitzung mit ihrem eigenen Agenten; ein beliebiger Agent-Slug (claude, codex, grok, opencode, pi, omp, …) überschreibt die Benennung für alle Sitzungen, auch für die anderer Agenten. Nicht ansteuerbare oder nicht installierte Agenten greifen auf den eigenen Agenten der Sitzung zurück, sodass die Benennung nie fehlschlägt."
         },
         "app": {
+          "devWindowDisplay": "DEBUG builds only: preferred display localized name for newly-created windows. Leave empty to use the system default. (de)",
+          "workspaceInheritWorkingDirectory": "Legacy compatibility fallback used only when terminal.newSurfaceWorkingDirectory.policy is absent. Prefer the three-way terminal policy for new configurations. (de)",
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "Record format version. Version 1 is currently supported. (de)",
+            "id": "Stable identifier for this signed resume approval. (de)",
+            "name": "Optional user-facing label for this resume approval. (de)",
+            "environmentKeys": "Names of environment variables included in the signed resume-command match. (de)",
+            "source": "Optional provenance label describing where this approval was created. (de)",
+            "policy": "How cmux may use the approval: manually, after prompting, or automatically. (de)",
+            "createdAt": "Creation time as seconds since the Unix epoch. (de)",
+            "updatedAt": "Last modification time as seconds since the Unix epoch. (de)",
+            "lastUsedAt": "Most recent use time as seconds since the Unix epoch, when available. (de)"
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Arbeitsverzeichnis-Standardeinstellungen für normale neue lokale Bereiche, Registerkarten, Teilungen und Arbeitsbereiche. Explizite Arbeitsverzeichnisse, Remote-Befehle und wiederhergestellte Oberflächen haben immer Vorrang.",
             "policy": "Wählen Sie, ob neue lokale Oberflächen das Verzeichnis des aktiven Bereichs erben, das beim Erstellen des Arbeitsbereichs erfasste Verzeichnis oder den konfigurierten festen Pfad verwenden möchten.",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Enable controls for adding checklist items and changing workspace todo status. (de)",
+                "enabled": "Show controls for adding checklist items and changing workspace todo status. (de)"
+              }
+            }
+          },
+          "stackBranchDirectory": "When enabled, render the git branch and working directory on separate rows in compact sidebar layouts. (de)",
+          "pathLastSegmentOnly": "When enabled, show as much of the trailing working-directory path as fits, abbreviating its leading components. (de)",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "Boolean expression that scopes the corresponding shortcut to a UI context. (de)",
           "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         }

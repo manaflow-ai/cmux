@@ -990,6 +990,13 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "Strategi som brukes til å trekke ut sesjonsidentifikatoren: fra et argv-alternativ eller en Pi-sesjonsfil."
+        },
+        "customSidebars": {
+          "description": "Gjengivelsespolicy for bruker- og agentforfattede tilpassede sidefelt.",
+          "renderer": "Velg SwiftUI-gjengivelsen i prosessen for innebygd sveve-, fokus- og tastaturinndata, eller den isolerte eksterne gjengivelsen for krasjinneslutning."
+        },
         "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
         "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
         },
         "app": {
+          "devWindowDisplay": "Kun DEBUG-bygg: foretrukket visningslokalisert navn for nyopprettede vinduer. La stå tomt for å bruke systemstandarden.",
+          "workspaceInheritWorkingDirectory": "Eldre kompatibilitetsreserve brukes bare når terminal.newSurfaceWorkingDirectory.policy er fraværende. Foretrekk treveis terminalpolicy for nye konfigurasjoner.",
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "Record format versjon. Versjon 1 støttes for øyeblikket.",
+            "id": "Stabil identifikator for denne signerte CV-godkjenningen.",
+            "name": "Valgfri brukervendt etikett for denne CV-godkjenningen.",
+            "environmentKeys": "Navn på miljøvariabler inkludert i det signerte CV-kommando-samsvaret.",
+            "source": "Valgfri herkomstetikett som beskriver hvor denne godkjenningen ble opprettet.",
+            "policy": "Hvordan cmux kan bruke godkjenningen: manuelt, etter spørsmål eller automatisk.",
+            "createdAt": "Skapelsestid som sekunder siden Unix-epoken.",
+            "updatedAt": "Siste endringstid i sekunder siden Unix-epoken.",
+            "lastUsedAt": "Siste brukstid som sekunder siden Unix-epoken, når tilgjengelig."
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Arbeidskatalogstandarder for vanlige nye lokale ruter, faner, deler og arbeidsområder. Eksplisitte arbeidskataloger, eksterne kommandoer og gjenopprettede overflater har alltid forrang.",
             "policy": "Velg om nye lokale overflater skal arve den aktive rutekatalogen, bruke katalogen som ble registrert da arbeidsområdet ble opprettet, eller bruke den konfigurerte faste banen.",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Aktiver kontroller for å legge til sjekklisteelementer og endre arbeidsområdets gjøremålsstatus.",
+                "enabled": "Vis kontroller for å legge til sjekklisteelementer og endre arbeidsområdets gjøremålsstatus."
+              }
+            }
+          },
+          "stackBranchDirectory": "Når aktivert, gjengi git-grenen og arbeidskatalogen på separate rader i kompakte sidefeltoppsett.",
+          "pathLastSegmentOnly": "Når aktivert, vis så mye av den etterfølgende arbeidskatalogbanen som det passer, og forkorte dens ledende komponenter.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "Boolsk uttrykk som omfatter den tilsvarende snarveien til en UI-kontekst.",
           "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
           "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
         }

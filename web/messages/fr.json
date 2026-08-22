@@ -990,6 +990,13 @@
       "exampleConfig": "Exemple de configuration",
       "metaTitle": "Configuration",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "Stratégie utilisée pour extraire l'identifiant de session : depuis une option argv ou un fichier de session Pi."
+        },
+        "customSidebars": {
+          "description": "Politique de rendu pour les barres latérales personnalisées créées par les utilisateurs et les agents.",
+          "renderer": "Choisissez le moteur de rendu SwiftUI en cours pour le survol natif, le focus et la saisie au clavier, ou le moteur de rendu distant isolé pour le confinement des pannes."
+        },
         "paneBorderColor": "Remplace la couleur du séparateur de volets cmux dans les espaces de travail divisés. Cela affecte les limites des volets cmux, pas les divisions internes de Ghostty.",
         "activePaneBorderColor": "Couleur de bordure facultative dessinée autour du volet cmux focalisé dans les espaces de travail divisés.",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais."
         },
         "app": {
+          "devWindowDisplay": "Versions DEBUG uniquement : nom localisé d’affichage préféré pour les fenêtres nouvellement créées. Laissez vide pour utiliser la valeur par défaut du système.",
+          "workspaceInheritWorkingDirectory": "Remplacement de compatibilité hérité utilisé uniquement lorsque terminal.newSurfaceWorkingDirectory.policy est absent. Préférez la politique du terminal à trois voies pour les nouvelles configurations.",
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
           "windowTitleTemplate": "Modèle facultatif pour le titre NSWindow. Vide, il conserve le comportement de titre par défaut existant de cmux, y compris le repli sur le répertoire courant. Espaces réservés pris en charge : '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "Met à l'échelle, selon ce pourcentage, les terminaux, titres d'onglets, barres latérales, réglages, superpositions et chrome d'app appartenant à cmux. Le contenu rendu des pages du navigateur est exclu."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "Version au format d'enregistrement. La version 1 est actuellement prise en charge.",
+            "id": "Identifiant stable pour cette approbation de CV signé.",
+            "name": "Étiquette facultative destinée à l'utilisateur pour cette approbation de CV.",
+            "environmentKeys": "Noms des variables d'environnement incluses dans la correspondance de commande de reprise signée.",
+            "source": "Étiquette de provenance facultative décrivant où cette approbation a été créée.",
+            "policy": "Comment cmux peut utiliser l'approbation : manuellement, après y avoir été invité ou automatiquement.",
+            "createdAt": "Temps de création en secondes depuis l'époque Unix.",
+            "updatedAt": "Heure de la dernière modification en secondes depuis l'époque Unix.",
+            "lastUsedAt": "Durée d'utilisation la plus récente en secondes depuis l'époque Unix, lorsqu'elle est disponible."
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Valeurs par défaut du répertoire de travail pour les nouveaux volets, onglets, divisions et espaces de travail locaux ordinaires. Les répertoires de travail explicites, les commandes à distance et les surfaces restaurées sont toujours prioritaires.",
             "policy": "Choisissez si les nouvelles surfaces locales héritent du répertoire du volet actif, utilisent le répertoire capturé lors de la création de l'espace de travail ou utilisent le chemin fixe configuré.",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Activez les contrôles pour ajouter des éléments de liste de contrôle et modifier le statut des tâches de l'espace de travail.",
+                "enabled": "Afficher les commandes permettant d'ajouter des éléments de liste de contrôle et de modifier le statut des tâches à effectuer dans l'espace de travail."
+              }
+            }
+          },
+          "stackBranchDirectory": "Lorsqu'il est activé, affichez la branche git et le répertoire de travail sur des lignes séparées dans des dispositions compactes de barre latérale.",
+          "pathLastSegmentOnly": "Lorsque cette option est activée, affiche autant de chemin de fin du répertoire de travail que possible, en abrégeant ses principaux composants.",
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
           "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "Expression booléenne qui étend le raccourci correspondant à un contexte d'interface utilisateur.",
           "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
           "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
         }

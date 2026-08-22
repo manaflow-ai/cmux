@@ -990,6 +990,13 @@
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "យុទ្ធសាស្ត្រប្រើដើម្បីស្រង់ចេញនូវការកំណត់អត្តសញ្ញាណសម័យ៖ ពីជម្រើស argv ឬឯកសារសម័យ Pi ។"
+        },
+        "customSidebars": {
+          "description": "គោលការណ៍បង្ហាញសម្រាប់របារចំហៀងផ្ទាល់ខ្លួនដែលបង្កើតឡើងដោយអ្នកប្រើប្រាស់ និងភ្នាក់ងារ។",
+          "renderer": "ជ្រើសរើសកម្មវិធីបង្ហាញ SwiftUI ដែលកំពុងដំណើរការសម្រាប់ការដាក់លើដើម ការផ្តោតអារម្មណ៍ និងការបញ្ចូលក្តារចុច ឬឧបករណ៍បង្ហាញពីចម្ងាយដាច់ដោយឡែកសម្រាប់ការទប់ស្កាត់ការគាំង។"
+        },
         "paneBorderColor": "ប្ដូរពណ៌ខ្សែបំបែក pane របស់ cmux នៅក្នុង workspace ដែលបានបំបែក។ វាប៉ះពាល់ដល់ព្រំដែន pane របស់ cmux មិនមែនការបំបែកខាងក្នុងរបស់ Ghostty ទេ។",
         "activePaneBorderColor": "ពណ៌ស៊ុមជាជម្រើស ដែលគូរជុំវិញ pane របស់ cmux ដែលកំពុងផ្តោត នៅក្នុង workspace ដែលបានបំបែក។",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។"
         },
         "app": {
+          "devWindowDisplay": "DEBUG បង្កើតតែប៉ុណ្ណោះ៖ បង្ហាញឈ្មោះដែលបានធ្វើមូលដ្ឋានីយកម្មដែលពេញចិត្តសម្រាប់វីនដូដែលបានបង្កើតថ្មី។ ទុកឲ្យទទេ ដើម្បីប្រើលំនាំដើមរបស់ប្រព័ន្ធ។",
+          "workspaceInheritWorkingDirectory": "ភាពត្រូវគ្នានឹងកេរ្តិ៍ដំណែលត្រលប់មកវិញបានប្រើតែនៅពេលដែលអវត្តមាន terminal.newSurfaceWorkingDirectory.policy ។ ចូលចិត្តគោលការណ៍ស្ថានីយបីផ្លូវសម្រាប់ការកំណត់រចនាសម្ព័ន្ធថ្មី។",
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
           "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "កំណែទម្រង់នៃការកត់ត្រា។ កំណែ 1 បច្ចុប្បន្នត្រូវបានគាំទ្រ។",
+            "id": "ការកំណត់អត្តសញ្ញាណស្ថិរភាពសម្រាប់ការយល់ព្រមបន្តដែលបានចុះហត្ថលេខានេះ។",
+            "name": "ស្លាកដែលប្រឈមមុខនឹងអ្នកប្រើប្រាស់ជាជម្រើសសម្រាប់ការអនុម័តបន្តនេះ។",
+            "environmentKeys": "ឈ្មោះនៃអថេរបរិស្ថានរួមបញ្ចូលនៅក្នុងការផ្គូផ្គងពាក្យបញ្ជាបន្តដែលបានចុះហត្ថលេខា។",
+            "source": "ស្លាកបញ្ជាក់ជាជម្រើសដែលពិពណ៌នាអំពីកន្លែងដែលការយល់ព្រមនេះត្រូវបានបង្កើតឡើង។",
+            "policy": "របៀបដែល cmux អាចប្រើការយល់ព្រម៖ ដោយដៃ បន្ទាប់ពីការជម្រុញ ឬដោយស្វ័យប្រវត្តិ។",
+            "createdAt": "ពេលវេលាបង្កើតជាវិនាទីចាប់តាំងពីសម័យយូនីក។",
+            "updatedAt": "ពេលវេលាកែប្រែចុងក្រោយជាវិនាទីចាប់តាំងពីសម័យយូនីក។",
+            "lastUsedAt": "ពេលវេលាប្រើប្រាស់ចុងក្រោយបំផុតជាវិនាទីចាប់តាំងពីសម័យយូនីក នៅពេលដែលមាន។"
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Working-directory defaults for local new panes, tab, splits, and workspaces. ថតការងារច្បាស់លាស់ ពាក្យបញ្ជាពីចម្ងាយ និងផ្ទៃដែលបានស្ដារឡើងវិញតែងតែមានអាទិភាព។",
             "policy": "ជ្រើសរើសថាតើផ្ទៃមូលដ្ឋានថ្មីទទួលមរតកថតផ្ទាំងសកម្ម ប្រើថតដែលបានថតនៅពេលដែលកន្លែងធ្វើការត្រូវបានបង្កើត ឬប្រើផ្លូវថេរដែលបានកំណត់រចនាសម្ព័ន្ធ។",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "បើកការគ្រប់គ្រងសម្រាប់ការបន្ថែមធាតុបញ្ជីត្រួតពិនិត្យ និងផ្លាស់ប្តូរស្ថានភាពការងារត្រូវធ្វើ។",
+                "enabled": "បង្ហាញការគ្រប់គ្រងសម្រាប់ការបន្ថែមធាតុបញ្ជីត្រួតពិនិត្យ និងផ្លាស់ប្តូរស្ថានភាពការងារត្រូវធ្វើ។"
+              }
+            }
+          },
+          "stackBranchDirectory": "នៅពេលបើកដំណើរការ បង្ហាញសាខា git និងថតការងារនៅលើជួរដេកដាច់ដោយឡែកនៅក្នុងប្លង់របារចំហៀងបង្រួម។",
+          "pathLastSegmentOnly": "នៅពេលបើកដំណើរការ បង្ហាញផ្លូវថតការងារដែលនៅពីក្រោយជាច្រើនតាមដែលសម ដោយសង្ខេបសមាសធាតុនាំមុខរបស់វា។",
           "notificationMessageLineLimit": "ចំនួនបន្ទាត់អតិបរមាដែលបង្ហាញសម្រាប់ការជូនដំណឹងចុងក្រោយនៅខាងក្រោមចំណងជើងកន្លែងធ្វើការនីមួយៗ។",
           "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "កន្សោមប៊ូលីនដែលវិសាលភាពផ្លូវកាត់ដែលត្រូវគ្នាទៅនឹងបរិបទ UI ។",
           "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         }

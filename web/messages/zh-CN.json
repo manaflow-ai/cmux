@@ -990,6 +990,13 @@
       "exampleConfig": "配置示例",
       "metaTitle": "配置",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "用于提取会话标识符的策略：从 argv 选项或 Pi 会话文件中。"
+        },
+        "customSidebars": {
+          "description": "用户和代理创作的自定义侧边栏的呈现策略。",
+          "renderer": "选择用于本机悬停、焦点和键盘输入的进程内 SwiftUI 渲染器，或用于遏制崩溃的隔离远程渲染器。"
+        },
         "paneBorderColor": "覆盖拆分工作区中的 cmux 窗格分隔线颜色。此设置影响 cmux 窗格边界，而不是 Ghostty 的内部分屏。",
         "activePaneBorderColor": "在拆分工作区中围绕当前聚焦的 cmux 窗格绘制的可选边框颜色。",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。"
         },
         "app": {
+          "devWindowDisplay": "仅 DEBUG 构建：新创建的窗口的首选显示本地化名称。留空以使用系统默认值。",
+          "workspaceInheritWorkingDirectory": "仅当terminal.newSurfaceWorkingDirectory.policy 不存在时才使用旧版兼容性回退。对于新配置，首选三路终端策略。",
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "记录格式版本。目前支持版本 1。",
+            "id": "此已签名简历批准的稳定标识符。",
+            "name": "用于此简历审批的可选面向用户的标签。",
+            "environmentKeys": "签名的恢复命令匹配中包含的环境变量的名称。",
+            "source": "可选来源标签，描述此批准的创建位置。",
+            "policy": "cmux 如何使用批准：手动、提示后或自动。",
+            "createdAt": "自 Unix 纪元以来的创建时间（以秒为单位）。",
+            "updatedAt": "上次修改时间（自 Unix 纪元以来的秒数）。",
+            "lastUsedAt": "自 Unix 纪元以来的最近使用时间（如果可用）以秒为单位。"
+          },
           "newSurfaceWorkingDirectory": {
             "description": "普通新本地窗格、选项卡、拆分和工作区的工作目录默认值。显式工作目录、远程命令和恢复的表面始终优先。",
             "policy": "选择新的本地曲面是继承活动窗格目录、使用创建工作区时捕获的目录还是使用配置的固定路径。",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "启用用于添加清单项目和更改工作区待办事项状态的控件。",
+                "enabled": "显示用于添加清单项目和更改工作区待办事项状态的控件。"
+              }
+            }
+          },
+          "stackBranchDirectory": "启用后，在紧凑的侧边栏布局中将 git 分支和工作目录呈现在单独的行上。",
+          "pathLastSegmentOnly": "启用后，显示尽可能多的尾随工作目录路径，缩写其主要组件。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "将相应快捷方式的范围限定为 UI 上下文的布尔表达式。",
           "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
