@@ -1475,16 +1475,17 @@ struct BrowserPanelView: View {
         Menu {
             Button(action: handleBrowserFocusModeButtonAction) {
                 Label(
-                    panel.isBrowserFocusModeActive
-                        ? String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
-                        : String(localized: "browser.focusMode.enter", defaultValue: "Enter Focus Mode"),
+                    String(localized: "browser.focusMode.active", defaultValue: "Focus Mode"),
                     systemImage: "keyboard"
                 )
             }
             .disabled(!panel.canToggleBrowserFocusMode)
             .accessibilityIdentifier("BrowserOverflowFocusModeButton")
             Button(action: handleScreenshotPageButtonAction) {
-                Text(String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"))
+                Label(
+                    String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot Page"),
+                    systemImage: "camera"
+                )
             }
             .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
             .accessibilityIdentifier("BrowserScreenshotPageButton")
