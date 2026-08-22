@@ -36249,25 +36249,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "نصوص إكمال الأوامر لـ zsh وbash وfish."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Skripte za automatsko dovršavanje za zsh, bash i fish."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Completion-scripts til zsh, bash og fish."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Shell-Completion-Skripte für zsh, bash und fish."
           }
         },
         "en": {
@@ -36279,91 +36279,91 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Scripts de autocompletado de shell para zsh, bash y fish."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Scripts de complétion shell pour zsh, bash et fish."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Script di completamento della shell per zsh, bash e fish."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "zsh、bash、fish 用のシェル補完スクリプト。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "ស្គ្រីបបំពេញបញ្ជីពាក្យបញ្ជាសម្រាប់ zsh, bash, និង fish។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "zsh, bash, fish용 셸 자동 완성 스크립트."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Skallfullføringsskript for zsh, bash og fish."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Skrypty uzupełniania powłoki dla zsh, bash i fish."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Scripts de autocompletar do shell para zsh, bash e fish."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Скрипты автодополнения оболочки для zsh, bash и fish."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "สคริปต์เติมคำสั่งอัตโนมัติสำหรับ zsh, bash และ fish"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "zsh, bash ve fish için kabuk tamamlama betikleri."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "Скрипти автодоповнення оболонки для zsh, bash і fish."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "适用于 zsh、bash 和 fish 的 shell 补全脚本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell completion scripts for zsh, bash, and fish."
+            "value": "適用於 zsh、bash 和 fish 的 shell 補全指令碼。"
           }
         }
       }
@@ -36374,25 +36374,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "الاستخدام: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Upotreba: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Brug: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Verwendung: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "en": {
@@ -36404,91 +36404,216 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Utilisation : cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Utilizzo: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "使用法: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "របៀបប្រើ: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "사용법: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Bruk: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Użycie: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Использование: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "การใช้งาน: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Kullanım: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "Використання: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        }
+      }
+    },
+    "cli.docs.completion.cliContractLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عقد CLI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ugovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Vertrag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI contract"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato de la CLI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrat de la CLI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contratto della CLI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិច្ចសន្យា CLI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 계약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrakt CLI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato da CLI"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อตกลง CLI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI sözleşmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契约"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
           }
         }
       }
