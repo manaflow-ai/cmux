@@ -1191,6 +1191,23 @@
         }
       }
     },
+    "mobile.simulatorStream.disabledDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator panes are disabled on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacでSimulatorペインが無効になっています。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.home": {
       "extractionState": "manual",
       "localizations": {
@@ -1310,6 +1327,23 @@
         }
       }
     },
+    "mobile.simulatorStream.panelClosedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator pane was closed on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacでSimulatorペインが閉じられました。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.sendText": {
       "extractionState": "manual",
       "localizations": {
@@ -1374,6 +1408,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "映像フィードが停止しました。ストリームを復元しています。"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.supersededDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device took over this Simulator stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のデバイスがこのSimulatorストリームを引き継ぎました。"
           }
         }
       }

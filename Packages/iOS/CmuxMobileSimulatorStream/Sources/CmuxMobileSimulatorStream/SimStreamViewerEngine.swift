@@ -15,6 +15,15 @@ public protocol SimStreamFramePresenting: Sendable {
     func reset() async
 }
 
+public enum SimStreamViewerEngineError: Error, Equatable, Sendable {
+    /// The host sent a viewer-to-host message type.
+    case peerSentViewerMessage
+    /// A frame arrived before any config.
+    case frameBeforeConfig
+    /// Six consecutive frames failed to display even after a keyframe request.
+    case displayRejectedFrames
+}
+
 public enum SimStreamViewerEvent: Sendable {
     case configured(SimStreamConfig)
     case framePresented(sequence: UInt64)
@@ -120,14 +129,14 @@ public actor SimStreamViewerEngine {
         case .start, .ack, .input, .keyframeRequest, .stop:
             // Viewer-to-host messages arriving at the viewer mean the peer
             // is confused; fail closed and let the lifecycle rebuild.
-            throw SimStreamWireError.unknownMessageType(0xFF)
+            throw SimStreamViewerEngineError.peerSentViewerMessage
         }
     }
 
     private func present(_ frame: SimStreamFrame) async throws {
         guard let sampleBufferFactory else {
             // Frames before config violate the protocol ordering.
-            throw SimStreamWireError.unknownMessageType(0xFE)
+            throw SimStreamViewerEngineError.frameBeforeConfig
         }
         let isKeyframe = frame.flags.contains(.keyframe)
         var presented = false
@@ -159,7 +168,7 @@ public actor SimStreamViewerEngine {
         // wedged so the lifecycle machine rebuilds from scratch. Never ack a
         // frame that did not display.
         if presentFailureRun >= 6 {
-            throw SimStreamWireError.unknownMessageType(0xFD)
+            throw SimStreamViewerEngineError.displayRejectedFrames
         }
         if presentFailureRun >= 3, !requestedRecoveryKeyframe, let lane {
             requestedRecoveryKeyframe = true

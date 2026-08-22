@@ -141,13 +141,18 @@ public final class SimulatorStreamV2Store {
             return
         }
         epoch += 1
+        // Events are scoped to the engine that produced them: a superseded
+        // engine's teardown (`ended`, late presenter noise) must never be
+        // read as the CURRENT attempt failing, or retries would kill their
+        // own replacements.
+        let engineEpoch = epoch
         let engine = SimStreamViewerEngine(
             presenter: presenter,
             maximumLongSidePixels: maximumLongSidePixels,
-            epoch: epoch,
+            epoch: engineEpoch,
             onEvent: { [weak self] event in
                 Task { @MainActor in
-                    self?.handleEngineEvent(event)
+                    self?.handleEngineEvent(event, engineEpoch: engineEpoch)
                 }
             }
         )
@@ -226,7 +231,8 @@ public final class SimulatorStreamV2Store {
 
     // MARK: - Engine events
 
-    private func handleEngineEvent(_ event: SimStreamViewerEvent) {
+    private func handleEngineEvent(_ event: SimStreamViewerEvent, engineEpoch: UInt64) {
+        guard engineEpoch == epoch else { return }
         switch event {
         case .configured:
             apply(lifecycle.handle(.startSucceeded))

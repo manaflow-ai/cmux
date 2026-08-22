@@ -9,10 +9,6 @@ extension MobileShellComposite {
     /// operation chain, so a foreground restart cannot overlap a still-running
     /// background stop against the Mac's single-controller ownership.
     public func startMobileSimulatorStream(panelID: String, workspaceID: String) async {
-        // Simulator streaming v2 runs the panel over its own dedicated lane,
-        // owned entirely by the pane view; starting the v1 image-event stream
-        // alongside it would double-stream and contend for input ownership.
-        guard !supportsSimulatorStreamV2 else { return }
         await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
             await self?.performMobileSimulatorStreamStart(panelID: panelID, workspaceID: workspaceID)
         }.value
@@ -54,6 +50,12 @@ extension MobileShellComposite {
     }
 
     private func performMobileSimulatorStreamStart(panelID: String, workspaceID: String) async {
+        // Simulator streaming v2 runs the panel over its own dedicated lane,
+        // owned entirely by the pane view; starting the v1 image-event stream
+        // alongside it would double-stream and contend for input ownership.
+        // Guarded here, the single choke point, so stall recovery and
+        // reconnect restarts cannot resurrect v1 either.
+        guard !supportsSimulatorStreamV2 else { return }
         recordSimulatorStream(
             panelID: panelID,
             state: .startRequested,

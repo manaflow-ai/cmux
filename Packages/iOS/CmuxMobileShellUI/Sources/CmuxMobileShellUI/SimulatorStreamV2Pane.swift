@@ -94,16 +94,36 @@ struct SimulatorStreamV2Pane: View {
             statusOverlay(
                 title: L10n.string(
                     "mobile.simulatorStream.unavailable", defaultValue: "Simulator Unavailable"),
-                detail: detail.isEmpty
-                    ? L10n.string(
-                        "mobile.simulatorStream.unavailableDetail",
-                        defaultValue: "The Mac closed this Simulator stream.")
-                    : detail,
+                detail: Self.unavailableDetailText(detail),
                 symbol: "iphone.slash"
             )
             .accessibilityIdentifier("SimulatorStreamV2UnavailableOverlay")
         case .streaming, .stopped:
             EmptyView()
+        }
+    }
+
+    /// Host detail strings are protocol tokens, never user-facing prose:
+    /// known tokens map to localized copy and anything else falls back to
+    /// the generic message, so raw host text is never rendered.
+    private static func unavailableDetailText(_ detail: String) -> String {
+        switch detail {
+        case "superseded":
+            return L10n.string(
+                "mobile.simulatorStream.supersededDetail",
+                defaultValue: "Another device took over this Simulator stream.")
+        case "panel_closed", "panel_not_found":
+            return L10n.string(
+                "mobile.simulatorStream.panelClosedDetail",
+                defaultValue: "The Simulator pane was closed on the Mac.")
+        case "simulator_disabled":
+            return L10n.string(
+                "mobile.simulatorStream.disabledDetail",
+                defaultValue: "Simulator panes are disabled on the Mac.")
+        default:
+            return L10n.string(
+                "mobile.simulatorStream.unavailableDetail",
+                defaultValue: "The Mac closed this Simulator stream.")
         }
     }
 

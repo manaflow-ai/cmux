@@ -103,14 +103,8 @@
         }
 
         private func clampedNormalizedPoint(for touch: UITouch) -> CGPoint {
-            let rect = SimStreamTouchMapping.videoRect(
-                pixelSize: configPixelSize, in: bounds)
-            guard rect.width > 0, rect.height > 0 else { return .zero }
-            let location = touch.location(in: self)
-            return CGPoint(
-                x: min(max((location.x - rect.minX) / rect.width, 0), 1),
-                y: min(max((location.y - rect.minY) / rect.height, 0), 1)
-            )
+            SimStreamTouchMapping.clampedNormalizedPoint(
+                touch.location(in: self), pixelSize: configPixelSize, in: bounds) ?? .zero
         }
 
         private func emit(_ phase: SimStreamTouchPhase, _ point: CGPoint, _ touch: UITouch) {

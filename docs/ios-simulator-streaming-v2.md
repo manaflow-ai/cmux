@@ -6,7 +6,10 @@ with a dedicated low-latency video pipeline. The design goal is that
 interaction feels immediate (touch-to-photon bounded by one encode + one
 network round trip + one decode) and that every failure an operator can cause
 (transport flap, app background, simulator reboot, device switch, slow link)
-recovers without user action and without cross-connection state.
+recovers without user action and without cross-connection state. The one
+deliberate exception: a panel that no longer exists (closed on the Mac, or
+its device removed without a replacement selection) ends the stream
+terminally with a `closed` state instead of retrying forever.
 
 ## Why a rebuild
 
@@ -67,9 +70,11 @@ display.
 ## Input path
 
 Touches on the phone are forwarded raw (down/move/up, normalized 0–1
-coordinates in the simulator's displayed orientation, multi-touch capable)
-and injected through the existing worker HID path, the same one the Mac pane
-uses. The simulator's own UIKit performs scrolling physics, so scroll fidelity
+coordinates in the simulator's displayed orientation, mapped into raw HID
+space on the host) and injected through the existing worker HID path, the
+same one the Mac pane uses. The wire format carries pointer IDs, but the
+viewer and host currently forward a single pointer; multi-touch (pinch) is a
+planned follow-up on the same messages. The simulator's own UIKit performs scrolling physics, so scroll fidelity
 is native by construction; nothing synthesizes wheel events. Hardware keys,
 Home, lock, and rotate reuse the existing simulator control RPCs.
 

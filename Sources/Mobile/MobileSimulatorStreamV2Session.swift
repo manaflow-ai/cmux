@@ -291,13 +291,18 @@ final class MobileSimulatorStreamV2Session {
         guard inputSequenceGuard.shouldApply(batch), !isEnded,
             let paneCoordinator = panel?.coordinator
         else { return }
+        // Viewer coordinates are normalized to the displayed (rotated) frame;
+        // the worker HID digitizer expects raw portrait space, the same
+        // mapping the Mac pane and CLI gesture paths apply.
+        let geometry = paneCoordinator.display.map(SimulatorOrientationGeometry.init(display:))
         for event in batch.events {
             switch event {
             case .touch(let phase, let pointerID, let x, let y, _):
                 // Single-pointer injection matches the worker HID surface the
                 // Mac pane uses; additional pointers are dropped, not queued.
                 guard pointerID == 0 else { continue }
-                let point = SimulatorPoint(x: Double(x), y: Double(y))
+                let displayed = SimulatorPoint(x: Double(x), y: Double(y))
+                let point = geometry?.rawPoint(for: displayed) ?? displayed
                 switch phase {
                 case .began:
                     paneCoordinator.beginTouch(at: point)

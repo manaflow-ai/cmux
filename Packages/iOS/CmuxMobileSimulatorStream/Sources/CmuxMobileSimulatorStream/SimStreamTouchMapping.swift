@@ -35,4 +35,18 @@ public enum SimStreamTouchMapping {
             y: (point.y - rect.minY) / rect.height
         )
     }
+
+    /// Like `normalizedPoint` but clamps outside points to the nearest video
+    /// edge, so a drag that leaves the letterbox tracks the edge instead of
+    /// freezing. Returns nil only for degenerate geometry.
+    public static func clampedNormalizedPoint(
+        _ point: CGPoint, pixelSize: CGSize, in bounds: CGRect
+    ) -> CGPoint? {
+        let rect = videoRect(pixelSize: pixelSize, in: bounds)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return CGPoint(
+            x: min(max((point.x - rect.minX) / rect.width, 0), 1),
+            y: min(max((point.y - rect.minY) / rect.height, 0), 1)
+        )
+    }
 }
