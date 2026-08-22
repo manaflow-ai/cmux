@@ -405,11 +405,12 @@ final class MobileHostIrohRuntime {
         serverSignalRefreshRevision = revision
         serverSignalRefreshTask = Task { @MainActor [weak self] in
             defer {
-                guard let self,
-                      self.serverSignalRefreshTaskID == taskID else { return }
-                self.serverSignalRefreshTask = nil
-                self.serverSignalRefreshTaskID = nil
-                self.serverSignalRefreshRevision = nil
+                if let self,
+                   self.serverSignalRefreshTaskID == taskID {
+                    self.serverSignalRefreshTask = nil
+                    self.serverSignalRefreshTaskID = nil
+                    self.serverSignalRefreshRevision = nil
+                }
             }
             guard let self,
                   self.serverSignalRefreshTaskID == taskID,
@@ -426,8 +427,7 @@ final class MobileHostIrohRuntime {
                 return
             }
             _ = await signalRuntime.reconcileConnectivityRevision(revision)
-            guard let self,
-                  self.serverSignalRefreshTaskID == taskID else { return }
+            guard self.serverSignalRefreshTaskID == taskID else { return }
             let replayRevision = self.serverSignalPendingRevision
             self.serverSignalPendingRevision = nil
             guard !Task.isCancelled,
