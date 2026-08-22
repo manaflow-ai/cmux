@@ -693,6 +693,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "PopupNavigationDelegate.navigationAction"
+        ).closure
+
         if let url = navigationAction.request.url,
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {
@@ -785,7 +791,11 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView) { policy in
+            guard let controller else {
+                decisionHandler(.cancel)
+                return
+            }
+            controller.presentInsecureHTTPAlert(for: url, in: webView) { policy in
                 if policy == .allow,
                    self.restartNavigationForUserAgentPolicyIfNeeded(
                        navigationAction,
@@ -895,6 +905,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationResponsePolicy.cancel,
+            label: "PopupNavigationDelegate.navigationResponse"
+        ).closure
+
         if let url = navigationResponse.response.url,
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             decisionHandler(.cancel)

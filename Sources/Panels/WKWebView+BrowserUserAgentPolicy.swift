@@ -47,9 +47,29 @@ extension WKWebView {
         willRestart: () -> Void = {},
         startReplacement: (URLRequest) -> Void
     ) -> Bool {
+        restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            request: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            decisionHandler: decisionHandler,
+            willRestart: willRestart,
+            startReplacement: startReplacement
+        )
+    }
+
+    /// Testable policy seam for the WebKit adapter; callers pass the action's
+    /// request and frame identity after extracting those values from WebKit.
+    @MainActor
+    @discardableResult
+    func restartNavigationForBrowserUserAgentPolicyIfNeeded(
+        request: URLRequest,
+        targetFrameIsMainFrame: Bool?,
+        decisionHandler: (WKNavigationActionPolicy) -> Void,
+        willRestart: () -> Void = {},
+        startReplacement: (URLRequest) -> Void
+    ) -> Bool {
         guard let restartRequest = browserUserAgentPolicyRestartRequest(
-            for: navigationAction.request,
-            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            for: request,
+            targetFrameIsMainFrame: targetFrameIsMainFrame
         ) else {
             return false
         }
