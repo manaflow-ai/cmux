@@ -15,8 +15,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-
-SOCKET_PATH = "/tmp/cmux-facade-behavior-parity-absent.sock"
+import tempfile
 
 # (args, description). Every case runs against a socket that does not exist,
 # so both parsers fail before touching the daemon; what's compared is how
@@ -38,6 +37,11 @@ CASES: list[tuple[list[str], str]] = [
     (["events", "--limit", "x"], "typed option must not preempt the runner's own validation"),
     (["diff", "--font-size", "abc"], "typed option must not preempt the runner's own validation"),
     (["set-progress", "abc"], "typed argument must not preempt the runner's own validation"),
+    (["browser", "wait", "--timeout", "abc"], "browser wait --timeout must stay legacy-validated"),
+    (["browser", "wait", "--timeout-ms", "abc"], "browser wait --timeout-ms must stay legacy-validated"),
+    (["browser", "download", "wait", "--timeout", "abc"], "browser download --timeout must stay legacy-validated"),
+    (["browser", "download", "wait", "--timeout-ms", "abc"], "browser download --timeout-ms must stay legacy-validated"),
+    (["browser", "cookies", "set", "--expires", "abc"], "browser cookies --expires must stay legacy-validated"),
 ]
 
 # `completion` is facade-native; the legacy parser has no equivalent command
@@ -46,9 +50,21 @@ FACADE_ONLY_CASES: list[tuple[list[str], int, str]] = [
     (["completion", "tcsh"], 2, "facade-native CLIError must keep its declared exit code"),
 ]
 
+# Cases where facade/legacy stderr is known and expected to diverge even
+# though the exit code matches. `dismiss-notification` validates its
+# --id/--all-read selector in FacadeValidationError before ever touching the
+# socket; the legacy runner connects to the socket first for every command in
+# its dispatch group, so it reports the (absent) socket instead of the
+# selector requirement. Fixing the legacy connect-then-validate ordering is a
+# larger, separate change, so this divergence is pinned here rather than
+# weakening the stderr check for every case.
+KNOWN_STDERR_DIVERGENCES: set[tuple[str, ...]] = {
+    ("dismiss-notification",),
+}
 
-def run(cli: str, args: list[str], legacy: bool) -> subprocess.CompletedProcess:
-    env = {**os.environ, "CMUX_SOCKET_PATH": SOCKET_PATH}
+
+def run(cli: str, args: list[str], legacy: bool, socket_path: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "CMUX_SOCKET_PATH": socket_path}
     if legacy:
         env["CMUX_CLI_LEGACY_PARSER"] = "1"
     else:
@@ -65,25 +81,31 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
-    for args, description in CASES:
-        facade = run(cli, args, legacy=False)
-        legacy = run(cli, args, legacy=True)
-        if facade.returncode != legacy.returncode:
-            failures.append(
-                f"cmux {' '.join(args)} ({description}): "
-                f"facade exit {facade.returncode} != legacy exit {legacy.returncode}\n"
-                f"  facade stderr: {facade.stderr.strip()!r}\n"
-                f"  legacy stderr: {legacy.stderr.strip()!r}"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        socket_path = os.path.join(tmpdir, "cmux-facade-behavior-parity-absent.sock")
+        for args, description in CASES:
+            facade = run(cli, args, legacy=False, socket_path=socket_path)
+            legacy = run(cli, args, legacy=True, socket_path=socket_path)
+            stderr_diverges = (
+                facade.stderr != legacy.stderr
+                and tuple(args) not in KNOWN_STDERR_DIVERGENCES
             )
+            if facade.returncode != legacy.returncode or stderr_diverges:
+                failures.append(
+                    f"cmux {' '.join(args)} ({description}): "
+                    f"facade exit {facade.returncode} != legacy exit {legacy.returncode}\n"
+                    f"  facade stderr: {facade.stderr.strip()!r}\n"
+                    f"  legacy stderr: {legacy.stderr.strip()!r}"
+                )
 
-    for args, expected_exit_code, description in FACADE_ONLY_CASES:
-        facade = run(cli, args, legacy=False)
-        if facade.returncode != expected_exit_code:
-            failures.append(
-                f"cmux {' '.join(args)} ({description}): "
-                f"facade exit {facade.returncode} != expected {expected_exit_code}\n"
-                f"  facade stderr: {facade.stderr.strip()!r}"
-            )
+        for args, expected_exit_code, description in FACADE_ONLY_CASES:
+            facade = run(cli, args, legacy=False, socket_path=socket_path)
+            if facade.returncode != expected_exit_code:
+                failures.append(
+                    f"cmux {' '.join(args)} ({description}): "
+                    f"facade exit {facade.returncode} != expected {expected_exit_code}\n"
+                    f"  facade stderr: {facade.stderr.strip()!r}"
+                )
 
     if failures:
         print("FAIL: facade/legacy behavior diverged:")
