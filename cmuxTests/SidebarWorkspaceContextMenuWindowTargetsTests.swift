@@ -58,8 +58,17 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
     @Test
     @MainActor
     func transientDropSessionStateDoesNotInvalidateWorkspaceRowSnapshot() throws {
-        let idleSnapshot = try Self.rowSnapshot(isBonsplitWorkspaceDropActive: false)
-        let activeSnapshot = try Self.rowSnapshot(isBonsplitWorkspaceDropActive: true)
+        let idleSnapshot = try Self.rowSnapshot()
+        let activeSnapshot = try Self.rowSnapshot()
+        let planner = SidebarDropPlanner()
+
+        #expect(!planner.shouldCollectWorkspaceDropTargets(draggedTabId: nil))
+        #expect(
+            planner.shouldCollectWorkspaceDropTargets(
+                draggedTabId: nil,
+                isBonsplitWorkspaceDropActive: true
+            )
+        )
 
         #expect(
             idleSnapshot == activeSnapshot,
@@ -68,9 +77,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
     }
 
     @MainActor
-    private static func rowSnapshot(
-        isBonsplitWorkspaceDropActive: Bool = false
-    ) throws -> SidebarWorkspaceRowSnapshot {
+    private static func rowSnapshot() throws -> SidebarWorkspaceRowSnapshot {
         let suiteName = "SidebarWorkspaceContextMenuWindowTargetsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -98,7 +105,6 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropActive,
             settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -173,10 +179,6 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 openAttachments: { _, _ in }
             ),
             onDragStart: { NSItemProvider() },
-            bonsplitSourceWorkspaceId: { _ in nil },
-            moveBonsplitTabToWorkspace: { _, _ in false },
-            syncAfterBonsplitDrop: {},
-            selectAfterBonsplitDrop: {},
             onToggleChecklistExpansion: {},
             onConsumeChecklistAddFieldActivation: {},
             onChecklistPopoverPresentedChange: { _ in },
