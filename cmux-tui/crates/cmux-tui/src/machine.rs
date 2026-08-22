@@ -13,7 +13,7 @@ use std::thread::JoinHandle;
 
 use crate::session::Session;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MachineKey(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,10 +418,25 @@ pub(crate) enum ManagedWorkspaceSessionMutation {
 /// A fully opened replacement session. Controllers construct this before
 /// changing their active connection so a failed open leaves the current
 /// session usable.
+/// What the connect interstitial renders for the machine being opened: its
+/// name, transport phase, last known provider status, and the provider's
+/// latest connect-time progress message when one arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineTransitionView<'a> {
+    pub name: &'a str,
+    pub phase: MachineConnectionPhase,
+    pub status: MachineStatus,
+    pub progress: Option<&'a str>,
+}
+
 pub(crate) struct MachineSession {
     pub session: Session,
     pub label: String,
     pub machine: Option<MachineKey>,
+    /// True when the session came from the warm connection pool: it was fully
+    /// prepared when first opened, so per-switch preparation round-trips
+    /// (managed-workspace guard, default colors) can be skipped.
+    pub reused: bool,
 }
 
 /// The result of one machine-side action. Most actions only update the rail;
@@ -449,11 +464,19 @@ impl MachineActionResult {
         let machine = ui.snapshot.active;
         Self {
             ui,
-            replacement: Some(MachineSession { session, label, machine }),
+            replacement: Some(MachineSession { session, label, machine, reused: false }),
             restart_updates: false,
             session_mutation: None,
             session_label: None,
         }
+    }
+
+    /// Mark the replacement session as reused from the warm pool.
+    pub(crate) fn with_reused_session(mut self, reused: bool) -> Self {
+        if let Some(replacement) = self.replacement.as_mut() {
+            replacement.reused = reused;
+        }
+        self
     }
 
     pub(crate) fn with_session_mutation(
@@ -558,6 +581,9 @@ pub struct MachineUiState {
     pub creation_sources: Vec<MachineCreationSource>,
     pub connection_targets: Vec<MachineConnectionTarget>,
     connection_phases: HashMap<MachineKey, MachineConnectionPhase>,
+    /// Latest provider-pushed progress message per opening machine
+    /// (connection-progress-v1), rendered by the connect interstitial.
+    connection_progress: HashMap<MachineKey, String>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
@@ -588,6 +614,17 @@ pub struct DurableProviderNotice {
 pub enum MachineUpdate {
     Ui(Box<MachineUiState>),
     DurableNotice(DurableProviderNotice),
+    /// Provider-pushed connect-time step for one machine, forwarded without a
+    /// snapshot reload so it renders while the provider's serialized control
+    /// loop is still busy opening that machine. The message rides a shared
+    /// latest-value cell: a chatty provider overwrites the pending message
+    /// instead of queueing another update, so at most one progress update per
+    /// machine is ever in flight and the consumer always reads the newest
+    /// stage.
+    ConnectionProgress {
+        machine_id: String,
+        latest: Arc<std::sync::Mutex<Option<String>>>,
+    },
 }
 
 /// A cancelable stream of provider-owned presentation snapshots.
@@ -658,6 +695,7 @@ impl MachineUiState {
             creation_sources: Vec::new(),
             connection_targets: Vec::new(),
             connection_phases,
+            connection_progress: HashMap::new(),
             workspace_creation: HashMap::new(),
             client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
@@ -690,6 +728,29 @@ impl MachineUiState {
                 self.connection_phases.entry(*machine).or_insert(*phase);
             }
         }
+        // Progress is transient connect-time state; a snapshot rebuild
+        // mid-connect must not blank the interstitial's live message - but a
+        // machine no longer Connecting (settled, failed, or disconnected via
+        // this very snapshot) must not keep narrating a finished open.
+        for (machine, message) in &previous.connection_progress {
+            if visible.contains(machine)
+                && self.connection_phase(*machine) == MachineConnectionPhase::Connecting
+            {
+                self.connection_progress.entry(*machine).or_insert_with(|| message.clone());
+            }
+        }
+    }
+
+    pub fn connection_progress(&self, machine: MachineKey) -> Option<&str> {
+        self.connection_progress.get(&machine).map(String::as_str)
+    }
+
+    pub fn set_connection_progress(&mut self, machine: MachineKey, message: String) {
+        self.connection_progress.insert(machine, message);
+    }
+
+    pub fn clear_connection_progress(&mut self, machine: MachineKey) {
+        self.connection_progress.remove(&machine);
     }
 
     pub fn selected(&self) -> Option<&MachineDescriptor> {

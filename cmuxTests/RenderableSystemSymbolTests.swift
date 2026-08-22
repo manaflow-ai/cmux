@@ -56,6 +56,21 @@ struct RenderableSystemSymbolTests {
         #expect(image.size == clampedImage.size)
     }
 
+    @Test @MainActor func configuredAppKitImageIsEagerlyMaterializedForLayout() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "folder.fill",
+            pointSize: 14,
+            weight: .regular
+        ))
+
+        #expect(image.isTemplate)
+        #expect(image.representations.count == 1)
+        #expect(image.representations.first is NSBitmapImageRep)
+        #expect(image.tiffRepresentation != nil)
+    }
+
     @Test @MainActor func configuredAppKitImagePreservesConfiguredSizeForNonSquareSymbols() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let baseImage = try #require(NSImage(systemSymbolName: "arrow.left.and.right", accessibilityDescription: nil))

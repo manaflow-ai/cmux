@@ -80,7 +80,12 @@ public actor MobileIrohRouteCatalog {
         var replacement: [String: [String: [CmxAttachRoute]]] = [:]
         replacement.reserveCapacity(grouped.count)
         for (deviceID, bindings) in grouped {
-            let bindingsByTag = Dictionary(grouping: bindings, by: \.tag)
+            let bindingsByTag = Dictionary(grouping: bindings) { binding in
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: deviceID,
+                    instanceTag: binding.tag
+                ).instanceTag ?? ""
+            }
             var routesByTag: [String: [CmxAttachRoute]] = [:]
             for (tag, taggedBindings) in bindingsByTag {
                 let ordered = taggedBindings.sorted {
@@ -121,15 +126,14 @@ public actor MobileIrohRouteCatalog {
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
         ).mapValues(\.count)
-        struct DeviceTag: Hashable {
-            let deviceID: String
-            let tag: String
-        }
         let unambiguousEndpoints = pairableMacs.filter {
             endpointCounts[$0.endpointID] == 1
         }
         let bindingsByDeviceTag = Dictionary(grouping: unambiguousEndpoints) {
-            DeviceTag(deviceID: cmxCanonicalDeviceID($0.deviceID), tag: $0.tag)
+            CmxMacAppInstanceIdentity(
+                macDeviceID: $0.deviceID,
+                instanceTag: $0.tag
+            )
         }
         let selectedBindingIDs = Set(
             bindingsByDeviceTag.values.compactMap { candidates in
@@ -160,10 +164,14 @@ public actor MobileIrohRouteCatalog {
                       endpoint: .peer(identity: binding.endpointID, pathHints: []),
                       priority: preferredRoutePriority
                   ) else { return nil }
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: binding.deviceID,
+                instanceTag: binding.tag
+            )
             return MobileDiscoveredIrohMac(
-                deviceID: cmxCanonicalDeviceID(binding.deviceID),
+                deviceID: identity.macDeviceID,
                 displayName: binding.displayName,
-                instanceTag: binding.tag,
+                instanceTag: identity.instanceTag ?? "",
                 routes: [route],
                 lastSeenAt: timestampParser.parse(binding.lastSeenAt),
                 capabilities: binding.capabilities
@@ -216,7 +224,11 @@ public actor MobileIrohRouteCatalog {
             return []
         }
         if let instanceTag {
-            return routesByTag[instanceTag] ?? []
+            let canonicalTag = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).instanceTag ?? ""
+            return routesByTag[canonicalTag] ?? []
         }
         guard routesByTag.count == 1 else { return [] }
         return routesByTag.values.first ?? []

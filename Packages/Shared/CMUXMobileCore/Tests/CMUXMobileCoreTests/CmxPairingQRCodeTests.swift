@@ -91,7 +91,7 @@ import Testing
         #expect(decoded.routes.map(\.priority) == [10, 20])
     }
 
-    @Test func roundTripsUserIDAndBuildMetadataWithoutExposingEmail() throws {
+    @Test func encodesOnlyAccountBindingAndCompatibilityLevelFromMetadata() throws {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
@@ -110,20 +110,37 @@ import Testing
         )
 
         let url = try #require(encodeLegacy(ticket))
+        // `ub` survives (the account preflight's wrong-account fast-fail) and
+        // `pc` survives (fielded decoders default a missing `pc` to 0, which
+        // would spuriously fire the cross-version pairing warning). Email is
+        // never written, and app version/build only ever decorated that
+        // warning's message, so they are no longer written either.
         #expect(url.contains("ub=user_mac_123"))
+        #expect(url.contains("pc=1"))
         #expect(!url.contains("Lawrence@Example.com"))
         #expect(!url.lowercased().contains("lawrence@example.com"))
-        #expect(url.contains("pc=1"))
-        #expect(url.contains("av=0.64.15"))
-        #expect(url.contains("ab=42"))
+        #expect(!url.contains("av="))
+        #expect(!url.contains("ab="))
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.macUserEmail == nil)
         #expect(decoded.macUserID == "user_mac_123")
         #expect(decoded.macPairingCompatibilityVersion == 1)
+        #expect(decoded.macAppVersion == nil)
+        #expect(decoded.macAppBuild == nil)
+        #expect(decoded.routes == ticket.routes)
+    }
+
+    @Test func decodeStillReadsBuildMetadataFromOlderMacsCodes() throws {
+        // Macs that predate the av/ab removal still stamp both fields; the
+        // decoder keeps reading them so the cross-version warning can name
+        // the older Mac's version.
+        let url = "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=100.64.0.5:58465"
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
-        #expect(decoded.routes == ticket.routes)
     }
 
     @Test func roundTripsIPv6LiteralThroughRealURLParsing() throws {

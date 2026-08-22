@@ -275,6 +275,27 @@ extension TerminalController {
                     defaultValue: "That file is no longer available on the Mac.",
                     path: v2RawString(params, "path")
                 )
+            case .permissionDenied:
+                return mobilePanelArtifactFileError(
+                    code: "permission_denied",
+                    key: "mobile.chat.artifact.error.permissionDenied",
+                    defaultValue: "cmux does not have permission to read that file.",
+                    path: v2RawString(params, "path")
+                )
+            case .notRegularFile:
+                return mobilePanelArtifactFileError(
+                    code: "not_regular_file",
+                    key: "mobile.chat.artifact.error.notRegularFile",
+                    defaultValue: "That path is not a regular file.",
+                    path: v2RawString(params, "path")
+                )
+            case .readFailed:
+                return mobilePanelArtifactFileError(
+                    code: "read_failed",
+                    key: "mobile.chat.artifact.error.readFailed",
+                    defaultValue: "The Mac found that file but could not read it.",
+                    path: v2RawString(params, "path")
+                )
             case .unavailable:
                 return mobilePanelArtifactFileError(
                     code: "unavailable",
@@ -282,12 +303,6 @@ extension TerminalController {
                     defaultValue: "Artifact transfer is temporarily unavailable.",
                     path: nil
                 )
-            case .permissionDenied:
-                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
-            case .notRegularFile:
-                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
-            case .readFailed:
-                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(
