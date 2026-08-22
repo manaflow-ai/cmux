@@ -66,6 +66,15 @@ extension CMUXCLI {
                 agentName,
                 event
             )
+        case .journalAppend:
+            failureDescription = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.agentHook.error.journalAppend",
+                    defaultValue: "Agent hook journal append failed for %@ %@."
+                ),
+                agentName,
+                event
+            )
         }
         let userInfo: [String: Any] = [
             NSLocalizedDescriptionKey: failureDescription,
