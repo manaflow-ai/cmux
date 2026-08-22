@@ -576,7 +576,41 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
     }))
 }
 
-pub(crate) fn utf16_units(text: &str) -> usize {
+pub(crate) fn run_delete(scope: &Scope, op: &wire::FsDeleteOp) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let path = scope.resolve(&op.path, false).map_err(|refusal| {
+        if refusal.code == wire::WorkspaceErrorCode::NotFound {
+            Refusal::not_found(format!("{} does not exist", op.path))
+        } else {
+            refusal
+        }
+    })?;
+    let meta = std::fs::symlink_metadata(&path)
+        .map_err(|_| Refusal::not_found(format!("{} does not exist", op.path)))?;
+    if meta.is_dir() {
+        let populated = std::fs::read_dir(&path)
+            .map_err(|error| Refusal::failed(format!("could not read {}: {error}", op.path)))?
+            .next()
+            .is_some();
+        if populated && op.recursive != Some(true) {
+            return Err(Refusal::new(
+                wire::WorkspaceErrorCode::DirectoryNotEmpty,
+                format!("{} is a non-empty directory (pass recursive)", op.path),
+            ));
+        }
+        std::fs::remove_dir_all(&path)
+            .map_err(|error| Refusal::failed(format!("could not delete {}: {error}", op.path)))?;
+    } else {
+        // The canonical path (symlinks were resolved and re-scoped by
+        // resolve(), like every other workspace op).
+        std::fs::remove_file(&path)
+            .map_err(|error| Refusal::failed(format!("could not delete {}: {error}", op.path)))?;
+    }
+    Ok(wire::WorkspaceResultBody::FsDelete(wire::FsDeleteResult {
+        op: wire::TagFsDelete::FsDelete,
+    }))
+}
+
+fn utf16_units(text: &str) -> usize {
     text.chars().map(char::len_utf16).sum()
 }
 
@@ -874,6 +908,7 @@ fn is_mutating(op: &wire::WorkspaceOp) -> bool {
     match op {
         wire::WorkspaceOp::FsWrite(_)
         | wire::WorkspaceOp::FsRename(_)
+        | wire::WorkspaceOp::FsDelete(_)
         | wire::WorkspaceOp::PreviewOpen(_) => true,
         wire::WorkspaceOp::FsTree(_)
         | wire::WorkspaceOp::FsRead(_)
@@ -1039,6 +1074,7 @@ async fn run_op(
         wire::WorkspaceOp::FsRead(op) => blocking(move || run_read(&scope, &op)).await,
         wire::WorkspaceOp::FsWrite(op) => blocking(move || run_write(&scope, &op)).await,
         wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op)).await,
+        wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op)).await,
         wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op)).await,
         wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
         wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
@@ -1388,6 +1424,38 @@ mod tests {
     }
 
     #[test]
+    fn delete_removes_files_and_refuses_typed() {
+        let root = scratch("delete");
+        write(&root, "gone.txt", "x");
+        write(&root, "dir/child.txt", "y");
+        write(&root, "empty-dir/.keep", "");
+        std::fs::remove_file(root.join("empty-dir/.keep")).expect("mk empty dir");
+        let scope = scope_for(&root);
+        let delete = |path: &str, recursive: Option<bool>| {
+            run_delete(
+                &scope,
+                &wire::FsDeleteOp {
+                    op: wire::TagFsDelete::FsDelete,
+                    path: path.to_owned(),
+                    recursive,
+                },
+            )
+        };
+        assert!(delete("gone.txt", None).is_ok());
+        assert!(!root.join("gone.txt").exists());
+        let missing = delete("gone.txt", None).expect_err("double delete");
+        assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
+        let populated = delete("dir", None).expect_err("populated dir");
+        assert_eq!(populated.code, wire::WorkspaceErrorCode::DirectoryNotEmpty);
+        assert!(root.join("dir/child.txt").exists(), "refusal deleted nothing");
+        assert!(delete("empty-dir", None).is_ok(), "empty dir needs no recursive");
+        assert!(delete("dir", Some(true)).is_ok(), "recursive removes the tree");
+        assert!(!root.join("dir").exists());
+        let escape = delete("../outside", None).expect_err("scoped");
+        assert_eq!(escape.code, wire::WorkspaceErrorCode::PathForbidden);
+    }
+
+    #[test]
     fn search_finds_spans_in_utf16_units_and_caps() {
         let root = scratch("search");
         write(&root, "src/app.ts", "const NEEDLE = 1\n\u{1F600} NEEDLE again NEEDLE\n");
@@ -1549,6 +1617,9 @@ mod tests {
         assert_eq!(refused["code"], "trust_refused");
         let preview_op = serde_json::json!({"op": "preview_open", "targetPort": 5173});
         let refused = dispatch(&root, request_json(preview_op, "observe")).await;
+        assert_eq!(refused["code"], "trust_refused");
+        let delete_op = serde_json::json!({"op": "fs_delete", "path": "file.txt"});
+        let refused = dispatch(&root, request_json(delete_op, "observe")).await;
         assert_eq!(refused["code"], "trust_refused");
         assert!(root.join("file.txt").exists());
     }

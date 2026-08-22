@@ -90,7 +90,7 @@ The generated file is VENDORED here as `src/relay_wire.rs` (chatmux
 `packages/protocol/generated/rust/relay_wire.rs`, copied verbatim — never
 edited, only re-vendored; `#[rustfmt::skip]` on the module declaration
 keeps the generated layout as the diff baseline). Vendored from chatmux
-commit `VENDORED_CHATMUX_SHA` (10 workspace ops). To re-vendor after a
+commit `271c6efc445fd083165519d20588c2fcbf0eb765` (10 workspace ops). To re-vendor after a
 chatmux protocol change:
 
 1. In chatmux: `cd packages/protocol && bun run generate`.

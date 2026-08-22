@@ -102,6 +102,14 @@ pub enum TagError {
     Error,
 }
 
+/// The literal string "fs_delete" (a frame/field discriminant).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TagFsDelete {
+    #[default]
+    #[serde(rename = "fs_delete")]
+    FsDelete,
+}
+
 /// The literal string "fs_read" (a frame/field discriminant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TagFsRead {
@@ -389,6 +397,22 @@ pub enum FsContentEncoding {
     Utf8,
     #[serde(rename = "base64")]
     Base64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsDeleteOp {
+    #[serde(rename = "op")]
+    pub op: TagFsDelete,
+    #[serde(rename = "path")]
+    pub path: WorkspacePath,
+    #[serde(rename = "recursive", default, skip_serializing_if = "Option::is_none")]
+    pub recursive: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsDeleteResult {
+    #[serde(rename = "op")]
+    pub op: TagFsDelete,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1396,6 +1420,8 @@ pub enum WorkspaceErrorCode {
     WriteConflict,
     #[serde(rename = "destination_exists")]
     DestinationExists,
+    #[serde(rename = "directory_not_empty")]
+    DirectoryNotEmpty,
     #[serde(rename = "not_a_repository")]
     NotARepository,
     #[serde(rename = "watch_limit")]
@@ -1419,6 +1445,7 @@ pub enum WorkspaceOp {
     FsRead(FsReadOp),
     FsWrite(FsWriteOp),
     FsRename(FsRenameOp),
+    FsDelete(FsDeleteOp),
     FsSearch(FsSearchOp),
     GitStatus(GitStatusOp),
     GitDiff(GitDiffOp),
@@ -1440,6 +1467,7 @@ pub enum WorkspaceResultBody {
     FsRead(FsReadResult),
     FsWrite(FsWriteResult),
     FsRename(FsRenameResult),
+    FsDelete(FsDeleteResult),
     FsSearch(FsSearchResult),
     GitStatus(GitStatusResult),
     GitDiff(GitDiffResult),
