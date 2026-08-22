@@ -7166,6 +7166,53 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding)
     }
 
+    func testPlainSSHProcessDetectedBindingFallsBackToPaneTTYWhenScopeIsMissing() throws {
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let panelID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let process = CmuxTopProcessInfo(
+            pid: 4242,
+            parentPID: 1,
+            name: "ssh",
+            path: "/usr/bin/ssh",
+            ttyDevice: 9876,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 4242,
+            terminalProcessGroupID: 4242,
+            cpuPercent: 0,
+            residentBytes: 1,
+            virtualBytes: 1,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 1_777_777_777),
+            includesProcessDetails: true
+        )
+        let key = SurfaceResumeBindingIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let detected = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: .default,
+            processSnapshot: snapshot,
+            capturedAt: 1_777_777_777,
+            ttyDeviceBindings: [key: 9876],
+            processArgumentsProvider: { _ in
+                CmuxTopProcessArguments(
+                    arguments: ["/usr/bin/ssh", "tinybox"],
+                    environment: [:]
+                )
+            }
+        )
+
+        let binding = try XCTUnwrap(detected[key]?.binding)
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' 'tinybox'")
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
