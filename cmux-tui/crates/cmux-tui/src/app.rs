@@ -10762,6 +10762,14 @@ impl App {
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             prepared;
                         let target = session.machine;
+                        crate::client_log::info(
+                            "machine",
+                            &format!(
+                                "replacement settled: present={present} target={:?} ui_active={:?}",
+                                target.map(|k| k.0),
+                                ui.snapshot.active.map(|k| k.0),
+                            ),
+                        );
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
                             if let Some(machine) = self.machine_presented
@@ -10793,6 +10801,7 @@ impl App {
                         self.complete_connection_transaction(request.as_ref(), connection_attempt);
                     }
                     Ok(false) => {
+                        crate::client_log::info("machine", "replacement settled: not committed");
                         drop(pending);
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
