@@ -1415,7 +1415,7 @@ struct BrowserPanelView: View {
         case .focus:
             handleBrowserFocusModeButtonAction()
         case .design:
-            panel.toggleDesignModeFromToolbar()
+            _ = panel.toggleDesignModeFromBrowserChrome(reason: "toolbar")
         case nil:
             break
         }
@@ -1496,7 +1496,7 @@ struct BrowserPanelView: View {
             .accessibilityIdentifier("BrowserScreenshotPageButton")
             BrowserDesignModeOverflowMenuButton(
                 controller: panel.designModeController,
-                onToggle: { await panel.toggleDesignMode(reason: "overflowMenu") }
+                onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
             )
             .accessibilityIdentifier("BrowserOverflowDesignModeButton")
             Button {

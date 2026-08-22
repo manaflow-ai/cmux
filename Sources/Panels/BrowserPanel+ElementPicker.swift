@@ -1,18 +1,20 @@
 import Foundation
 
 extension BrowserPanel {
-    /// Starts the toolbar's Design Mode transition on the panel-owned task.
-    /// Keeping the operation here lets lifecycle teardown cancel it without
-    /// leaving an unstructured task attached to a transient SwiftUI view.
-    func toggleDesignModeFromToolbar() {
-        guard designModeToolbarToggleTask == nil else { return }
+    /// Starts a browser-chrome Design Mode transition on the panel-owned task.
+    /// Keeping the operation here lets lifecycle teardown cancel either the
+    /// active chip or overflow-menu action without separate unstructured tasks.
+    @discardableResult
+    func toggleDesignModeFromBrowserChrome(reason: String) -> Bool {
+        guard designModeToolbarToggleTask == nil else { return false }
         designModeToolbarToggleTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.toggleDesignMode(reason: "toolbar")
+            _ = await self.toggleDesignMode(reason: reason)
             if !Task.isCancelled {
                 self.designModeToolbarToggleTask = nil
             }
         }
+        return true
     }
 
     /// Cancels a toolbar-triggered Design Mode transition during view teardown.
