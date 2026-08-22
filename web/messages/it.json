@@ -1031,7 +1031,7 @@
           "newSurfaceWorkingDirectory": {
             "description": "Impostazioni predefinite della directory di lavoro per nuovi riquadri locali, schede, suddivisioni e aree di lavoro ordinarie. Le directory di lavoro esplicite, i comandi remoti e le superfici ripristinate hanno sempre la precedenza.",
             "policy": "Scegli se le nuove superfici locali ereditano la directory del riquadro attivo, utilizzano la directory acquisita al momento della creazione dell'area di lavoro o utilizzano il percorso fisso configurato.",
-            "path": "Percorso utilizzato da FixedPath. Utilizzare un percorso assoluto o uno che inizi con una tilde. Se il percorso manca o non è una directory, cmux torna in modo sicuro alla radice dell'area di lavoro."
+            "path": "Percorso utilizzato da fixedPath. Utilizzare un percorso assoluto o uno che inizi con una tilde. Se il percorso manca o non è una directory, cmux torna in modo sicuro alla radice dell'area di lavoro."
           },
           "shellStartup": {
             "description": "Comportamento predefinito di avvio della shell per le nuove superfici locali ordinarie. I comandi e gli input espliciti, le sessioni remote, le superfici ripristinate e i mirror tmux manuali non vengono modificati.",

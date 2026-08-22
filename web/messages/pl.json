@@ -1032,7 +1032,7 @@
           "newSurfaceWorkingDirectory": {
             "description": "Domyślne ustawienia katalogu roboczego dla zwykłych nowych lokalnych paneli, kart, podziałów i obszarów roboczych. Jawne katalogi robocze, polecenia zdalne i przywrócone powierzchnie zawsze mają pierwszeństwo.",
             "policy": "Wybierz, czy nowe powierzchnie lokalne mają dziedziczyć aktywny katalog panelu, używać katalogu przechwyconego podczas tworzenia obszaru roboczego, czy też używać skonfigurowanej stałej ścieżki.",
-            "path": "Ścieżka używana przez fixPath. Użyj ścieżki bezwzględnej lub zaczynającej się od tyldy. Jeśli brakuje ścieżki lub nie jest to katalog, cmux bezpiecznie powraca do katalogu głównego obszaru roboczego."
+            "path": "Ścieżka używana przez fixedPath. Użyj ścieżki bezwzględnej lub zaczynającej się od tyldy. Jeśli brakuje ścieżki lub nie jest to katalog, cmux bezpiecznie powraca do katalogu głównego obszaru roboczego."
           },
           "shellStartup": {
             "description": "Domyślne zachowanie uruchamiania powłoki dla zwykłych nowych powierzchni lokalnych. Jawne polecenia i dane wejściowe, sesje zdalne, przywrócone powierzchnie i ręczne kopie lustrzane tmux nie ulegają zmianie.",

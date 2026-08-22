@@ -1036,7 +1036,7 @@
           "shellStartup": {
             "description": "Standardmäßiges Shell-Startverhalten für normale neue lokale Oberflächen. Explizite Befehle und Eingaben, Remote-Sitzungen, wiederhergestellte Oberflächen und manuelle tmux-Spiegelungen werden nicht geändert.",
             "mode": "Starten Sie die Shell des Benutzers als interaktive Anmelde-Shell oder als interaktive Nicht-Anmelde-Shell.",
-            "command": "Optionaler Befehl, der als Starteingabe gesendet wird, nachdem eine normale neue lokale Shell gestartet wird. Es wird nicht angewendet, wenn eine Oberfläche bereits über explizite Startarbeiten verfügt."
+            "command": "Optionaler Befehl, der als Starteingabe gesendet wird, nachdem eine normale neue lokale Shell gestartet wird. Er wird nicht angewendet, wenn eine Oberfläche bereits einen expliziten Startbefehl oder eine explizite Starteingabe hat."
           },
           "sessionContentMaxWidth": "Optionale maximale Breite in Punkten für Terminalinhalte und den integrierten Agentenchat. Mit false wird die gesamte Breite des Bereichs verwendet.",
           "sessionContentAlignment": "Horizontale Position von Terminalinhalten und integriertem Agentenchat, wenn sessionContentMaxWidth aktiviert ist.",

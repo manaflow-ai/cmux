@@ -1030,7 +1030,7 @@
           },
           "newSurfaceWorkingDirectory": {
             "description": "Padrões do diretório de trabalho para novos painéis, guias, divisões e áreas de trabalho locais comuns. Diretórios de trabalho explícitos, comandos remotos e superfícies restauradas sempre têm precedência.",
-            "policy": "Escolha se as novas superfícies locais herdam o diretório do painel ativo, usam o diretório capturado quando o espaço de trabalho foi criado ou usam o caminho fixo configurado.",
+            "policy": "Escolha se as novas superfícies locais herdam o diretório do painel ativo, usam a raiz do espaço de trabalho capturada no momento da criação ou usam o caminho fixo configurado.",
             "path": "Caminho usado por FixedPath. Use um caminho absoluto ou começando com um til. Se o caminho estiver faltando ou não for um diretório, o cmux retornará com segurança à raiz do espaço de trabalho."
           },
           "shellStartup": {

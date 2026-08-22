@@ -631,7 +631,7 @@
               "type": "string",
               "enum": ["inheritActivePane", "workspaceRoot", "fixedPath"],
               "default": "inheritActivePane",
-              "description": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
+              "description": "Choose whether new local surfaces inherit the active pane directory, use the workspace root captured when the workspace was created, or use the configured fixed path.",
               "descriptionKey": "schemaDescriptions.terminal.newSurfaceWorkingDirectory.policy"
             },
             "path": {
