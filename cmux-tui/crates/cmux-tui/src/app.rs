@@ -10772,6 +10772,14 @@ impl App {
                         );
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
+                            // A runtime-driven replacement (deleting the open
+                            // machine) presents without a Switch dispatch, so
+                            // the aim never moved; align it, or every later
+                            // keystroke fails the intent==presented gate and
+                            // input goes nowhere.
+                            if let Some(machine) = self.machine_presented {
+                                self.select_machine_intent(machine);
+                            }
                             if let Some(machine) = self.machine_presented
                                 && let Some(machine_ui) = self.machine_ui.as_mut()
                             {
@@ -10782,6 +10790,14 @@ impl App {
                                 self.session_label = label;
                             }
                             action = action.merge(self.apply_machine_ui_update(ui));
+                            // The rail follows the machine that now presents,
+                            // not whatever row reconciliation kept (the
+                            // deleted machine's recoverable ghost, usually).
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.select_rail_target(MachineRailTarget::Machine(machine));
+                            }
                             // Provider notices apply before local mirror errors so they cannot mask them.
                             if let Some(mutation) = session_mutation {
                                 self.apply_managed_workspace_session_mutation(mutation);
