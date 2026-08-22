@@ -88,6 +88,15 @@ while true; do
   sleep "$INTERVAL"
 done
 `;
+// Background provisioning for every machine: coding agents plus the dev essentials a person
+// expects on "their computer". The .bashrc seed only writes when absent so user edits stick.
+const CMUX_PROVISION_COMMAND = [
+  "{ command -v apk >/dev/null 2>&1 && apk add --no-cache curl tmux vim ripgrep jq openssh-client;",
+  "command -v npm >/dev/null 2>&1 && npm install -g @anthropic-ai/claude-code @openai/codex;",
+  "[ -f /root/.bashrc ] || printf '%s\\n' \"export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]# '\" \"alias ll='ls -la'\" > /root/.bashrc;",
+  "} >/tmp/cmux/provision.log 2>&1 || true",
+].join(" ");
+
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
@@ -340,12 +349,17 @@ export class BlaxelProvider implements VMProvider {
     }
     await this.startDaemonProcess(sandboxUrl);
     await this.startWatcherProcess(sandboxUrl);
-    // Agents come with the machine, exe.dev-style: install coding agents in the background so
-    // `claude` and `codex` work by the time the user needs them, without delaying attach.
-    // Guarded on npm so images without node (e.g. the xfce desktop) skip quietly.
+    // The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. Runtime
+    // state, so it re-applies on resurrection too (this method runs on both paths).
+    await this.sandboxExec(
+      sandboxUrl,
+      `hostname ${shellQuote(name)} 2>/dev/null; echo ${shellQuote(name)} > /etc/hostname || true`,
+    ).catch(() => undefined);
+    // Agents and dev essentials come with the machine, installed in the background so attach
+    // is never delayed. The .bashrc seed is write-once: /root persists, and a user's edits win.
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-      name: "cmux-agents-install",
-      command: "command -v npm >/dev/null 2>&1 && npm install -g @anthropic-ai/claude-code @openai/codex >/tmp/cmux/agents-install.log 2>&1 || true",
+      name: "cmux-provision",
+      command: CMUX_PROVISION_COMMAND,
       waitForCompletion: false,
     }).catch(() => undefined);
   }
