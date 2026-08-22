@@ -14,14 +14,12 @@ struct TerminalViewportSnapshot {
     let viewportNegotiationUnsettled: Bool
 
     func renderViewportRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
-        let targetHeight = layoutViewportRect.height
-        let liveHeight = liveViewportRect.height
-        let height = clampsStaleLiveViewport ? min(liveHeight, targetHeight) : liveHeight
-        return CGRect(
-            x: layoutViewportRect.minX,
-            y: layoutViewportRect.minY,
-            width: layoutViewportRect.width,
-            height: max(1, height)
+        TerminalRenderViewportGeometry(
+            layoutViewportRect: layoutViewportRect,
+            liveViewportRect: liveViewportRect
+        ).viewportRect(
+            forRenderSize: renderSize,
+            clampsStaleLiveViewport: clampsStaleLiveViewport
         )
     }
 
@@ -63,4 +61,3 @@ struct TerminalViewportSnapshot {
     }
 }
 #endif
-
