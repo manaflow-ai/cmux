@@ -97,3 +97,39 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.customUserAgent?.isEmpty != false)
     }
 }
+
+@MainActor
+@Suite
+struct BrowserNavigationDecisionHandlerTests {
+    @Test
+    func navigationDecisionHandlerInvokesUnderlyingHandlerAtMostOnce() {
+        var policies: [WKNavigationActionPolicy] = []
+        let decisionHandler = BrowserNavigationDecisionHandler(
+            { policies.append($0) },
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "test.double-call"
+        )
+
+        decisionHandler(.allow)
+        decisionHandler(.download)
+
+        #expect(policies.count == 1)
+        #expect(policies.first == .allow)
+    }
+
+    @Test
+    func navigationDecisionHandlerCancelsWhenConsumedPathDropsHandler() {
+        var policies: [WKNavigationActionPolicy] = []
+        var droppedHandler: ((WKNavigationActionPolicy) -> Void)? =
+            BrowserNavigationDecisionHandler(
+                { policies.append($0) },
+                fallbackPolicy: .cancel,
+                label: "test.dropped-consumed-path"
+            ).closure
+
+        droppedHandler = nil
+
+        #expect(policies.count == 1)
+        #expect(policies.first == .cancel)
+    }
+}
