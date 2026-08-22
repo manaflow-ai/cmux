@@ -9,18 +9,18 @@ extension BrowserPanel {
         guard designModeToolbarToggleTask == nil else { return false }
         designModeToolbarToggleTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.designModeToolbarToggleTask = nil }
+            guard !Task.isCancelled else { return }
             _ = await self.toggleDesignMode(reason: reason)
-            if !Task.isCancelled {
-                self.designModeToolbarToggleTask = nil
-            }
         }
         return true
     }
 
     /// Cancels a toolbar-triggered Design Mode transition during view teardown.
     func cancelDesignModeToolbarToggle() {
+        // Keep the handle until the task's defer runs so cancellation cannot
+        // overlap a still-unwinding transition with a later toolbar action.
         designModeToolbarToggleTask?.cancel()
-        designModeToolbarToggleTask = nil
     }
 
     @discardableResult
