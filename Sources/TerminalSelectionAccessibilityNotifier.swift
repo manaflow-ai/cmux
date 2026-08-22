@@ -6,6 +6,9 @@ import AppKit
 final class TerminalSelectionAccessibilitySignal: Sendable {
     let events: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
+    private let forcedLock = NSLock()
+    // SAFETY: guarded by `forcedLock`.
+    nonisolated(unsafe) private var forcedPending = false
 
     nonisolated init() {
         let (events, continuation) = AsyncStream.makeStream(
@@ -28,6 +31,29 @@ final class TerminalSelectionAccessibilitySignal: Sendable {
         @unknown default:
             return false
         }
+    }
+
+    /// Requests a post that skips the host's change check.
+    ///
+    /// Used by Ghostty's selection-changed action, which is authoritative for
+    /// selection state. The host's check covers the caret cell only, on purpose:
+    /// reading the selection range there would copy the whole selected text on
+    /// every rendered frame.
+    @discardableResult
+    nonisolated func requestForcingPost() -> Bool {
+        forcedLock.lock()
+        forcedPending = true
+        forcedLock.unlock()
+        return request()
+    }
+
+    /// Reads and clears the forced-post flag.
+    nonisolated func consumeForcedPost() -> Bool {
+        forcedLock.lock()
+        defer { forcedLock.unlock() }
+        let pending = forcedPending
+        forcedPending = false
+        return pending
     }
 
     nonisolated func finish() {

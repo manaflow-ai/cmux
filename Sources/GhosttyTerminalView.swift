@@ -3123,7 +3123,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
-            surfaceView.selectionAccessibilitySignal.request()
+            surfaceView.selectionAccessibilitySignal.requestForcingPost()
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split
@@ -3772,11 +3772,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    /// Starts or stops the rendered-frame lease that drives caret tracking.
+    private var caretAccessibilityTrackingIsActive: Bool { caretAccessibilityRenderDemandRelease != nil }
+
+    /// Records that an accessibility client is reading caret geometry, which is
+    /// what starts the rendered-frame pulse.
     ///
-    /// The lease is taken lazily, the first time an accessibility client asks a
-    /// caret question, so terminals nobody is inspecting keep the renderer's
-    /// frame delivery switched off.
+    /// Only the accessibility overrides call this. The internal snapshot read
+    /// deliberately does not, so cmux's own change detection cannot keep the
+    /// lease alive by itself, and a terminal nobody is inspecting never starts
+    /// paying for frame delivery.
+    private func noteAccessibilityCaretInterest() {
+        setCaretAccessibilityTrackingActive(true)
+    }
+
+    /// Starts or stops the rendered-frame lease that drives caret tracking.
     private func setCaretAccessibilityTrackingActive(_ active: Bool) {
         if active {
             guard caretAccessibilityRenderDemandRelease == nil else { return }
@@ -3932,7 +3941,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(
             element: self,
             events: selectionAccessibilitySignal.events,
-            shouldNotify: { [weak self] in self?.consumeAccessibilityCaretChange() ?? false }
+            shouldNotify: { [weak self] in
+                guard let self else { return false }
+                // Consume both every time: the caret token must stay current
+                // even on a post the selection action forced.
+                let caretMoved = self.consumeAccessibilityCaretChange()
+                let forced = self.selectionAccessibilitySignal.consumeForcedPost()
+                return caretMoved || forced
+            }
         )
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
@@ -5242,6 +5258,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
+        noteAccessibilityCaretInterest()
         let inputRange = selectedRange()
 
         // A live selection or an in-progress IME composition already carries a
@@ -5260,32 +5277,43 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilityNumberOfCharacters() -> Int {
-        caretAccessibilitySnapshot()?.grid.characterCount ?? 0
+        noteAccessibilityCaretInterest()
+        return caretAccessibilitySnapshot()?.grid.characterCount ?? 0
     }
 
+    /// The caret's row, or `-1` when there is no caret to report. Returning `0`
+    /// would name the first row, which is a real place the caret is not.
     override func accessibilityInsertionPointLineNumber() -> Int {
-        guard let snapshot = caretAccessibilitySnapshot(), snapshot.cursorInViewport else { return 0 }
+        noteAccessibilityCaretInterest()
+        guard let snapshot = caretAccessibilitySnapshot(), snapshot.cursorInViewport else { return -1 }
         return snapshot.cursorRow
     }
 
     override func accessibilityRange(forLine line: Int) -> NSRange {
-        caretAccessibilitySnapshot()?.grid.range(forLine: line) ?? NSRange(location: 0, length: 0)
+        noteAccessibilityCaretInterest()
+        return caretAccessibilitySnapshot()?.grid.range(forLine: line) ?? NSRange(location: 0, length: 0)
     }
 
     /// The whole grid: everything a terminal viewport addresses is on screen.
     /// Clients that bound their caret queries to the visible range need this or
     /// they treat the surface as having nothing to track.
     override func accessibilityVisibleCharacterRange() -> NSRange {
+        noteAccessibilityCaretInterest()
         guard let snapshot = caretAccessibilitySnapshot() else { return NSRange(location: 0, length: 0) }
         return NSRange(location: 0, length: snapshot.grid.characterCount)
     }
 
+    /// The row containing `index`, or `-1` when the offset is not addressable.
     override func accessibilityLine(for index: Int) -> Int {
-        guard let snapshot = caretAccessibilitySnapshot() else { return 0 }
+        noteAccessibilityCaretInterest()
+        guard let snapshot = caretAccessibilitySnapshot(),
+              index >= 0,
+              index < snapshot.grid.characterCount else { return -1 }
         return snapshot.grid.cell(forIndex: index).row
     }
 
     override func accessibilityRange(for index: Int) -> NSRange {
+        noteAccessibilityCaretInterest()
         guard let snapshot = caretAccessibilitySnapshot(),
               index >= 0,
               index < snapshot.grid.characterCount else { return NSRange(location: 0, length: 0) }
@@ -5297,6 +5325,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Falling back to the surface frame keeps the previous pane-level
     /// behaviour rather than reporting a bogus origin.
     override func accessibilityFrame(for range: NSRange) -> NSRect {
+        noteAccessibilityCaretInterest()
         guard let snapshot = caretAccessibilitySnapshot() else { return accessibilityFrame() }
         var span = snapshot.grid.span(for: range)
 
@@ -5328,9 +5357,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func caretAccessibilitySnapshot() -> CaretAccessibilitySnapshot? {
-        // Any caret query means something is tracking us, which is the cue to
-        // start the rendered-frame pulse that keeps the caret up to date.
-        setCaretAccessibilityTrackingActive(true)
         guard let surface else { return nil }
 
         var native = ghostty_surface_grid_metrics_s()
@@ -5360,16 +5386,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    /// Identity of everything an AX client would re-read after a
-    /// `selectedTextChanged` post.
+    /// Identity of the caret position, used to spot real movement.
+    ///
+    /// Selection state is deliberately absent: reading it would copy the whole
+    /// selected text on every rendered frame. Selection changes come through
+    /// `requestForcingPost()` from Ghostty's own selection-changed action.
     private struct CaretAccessibilityToken: Equatable {
         let row: Int
         let column: Int
         let inViewport: Bool
-        let selection: NSRange
     }
 
-    /// True when the caret cell or the selection moved since the last post.
+    /// True when the caret cell moved since the last post.
     ///
     /// Ghostty requests a render for cursor blinks as well as real movement, so
     /// posting on every request would spam AX clients and make Zoom jitter.
@@ -5378,8 +5406,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let token = CaretAccessibilityToken(
             row: snapshot?.cursorRow ?? -1,
             column: snapshot?.cursorColumn ?? -1,
-            inViewport: snapshot?.cursorInViewport ?? false,
-            selection: selectedRange()
+            inViewport: snapshot?.cursorInViewport ?? false
         )
         guard token != lastAnnouncedCaretAccessibilityToken else { return false }
         lastAnnouncedCaretAccessibilityToken = token
@@ -5808,8 +5835,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.didReceiveExplicitInput()
         // Belt and braces for caret tracking: the render pulse is the primary
         // trigger, but keystrokes are the case that matters most and the
-        // notifier's debounce outlasts the round trip through the pty.
-        selectionAccessibilitySignal.request()
+        // notifier's debounce outlasts the round trip through the pty. Gated on
+        // tracking already running, so a keystroke can never start the lease.
+        if caretAccessibilityTrackingIsActive {
+            selectionAccessibilitySignal.request()
+        }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
