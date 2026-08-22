@@ -572,35 +572,23 @@ struct TerminalComposerView: View {
 
     /// The attach control offers the same sources as the task composer's
     /// menu: Photo Library, Choose Files (when the paired Mac supports file
-    /// uploads), and Paste. On iOS 26 the control is a system GLASS button —
-    /// not a custom glass background — because that is what lets the system
-    /// morph the button into the presented menu; earlier OSes keep the shared
-    /// material circle with a plain menu presentation.
-    @ViewBuilder
+    /// uploads), and Paste. Built exactly like the task composer's "+"
+    /// button — a plain Menu whose label is a flat circle, NOT a
+    /// glass-effect view — because that is the shape iOS 26 morphs into the
+    /// presented menu; a glassEffect label is composited separately and the
+    /// system falls back to a detached overlay.
     private var attachMenuButton: some View {
-        if #available(iOS 26.0, *) {
-            attachMenu {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    )
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-        } else {
-            attachMenu {
-                MobileComposerIconLabel(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    ),
-                    size: controlHeight
+        attachMenu {
+            Image(systemName: "paperclip")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(
+                    store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
                 )
-            }
-            .buttonStyle(.plain)
+                .frame(width: controlHeight, height: controlHeight)
+                .background(Color.primary.opacity(0.07), in: Circle())
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
     }
 
     private func attachMenu(
