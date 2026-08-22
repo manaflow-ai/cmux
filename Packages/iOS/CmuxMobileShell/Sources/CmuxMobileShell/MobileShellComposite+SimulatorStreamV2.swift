@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 public import CmuxMobileRPC
 import Foundation
 
