@@ -2,13 +2,7 @@ import ArgumentParser
 import Foundation
 
 /// Routes auth facade declarations back through the established CLI implementation.
-private protocol LegacyAuthCommand: ParsableCommand {}
-
-extension LegacyAuthCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
-    }
-}
+private protocol LegacyAuthCommand: SharedLegacyFacadeCommand {}
 
 struct AuthCommand: LegacyAuthCommand {
     // No catch-all argument here: ArgumentParser already generates a rest-argument

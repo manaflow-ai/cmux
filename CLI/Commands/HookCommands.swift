@@ -2,13 +2,7 @@ import ArgumentParser
 import Foundation
 
 /// Routes hook and managed-agent launcher declarations through the established CLI implementation.
-private protocol LegacyHookCommand: ParsableCommand {}
-
-extension LegacyHookCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
-    }
-}
+private protocol LegacyHookCommand: SharedLegacyFacadeCommand {}
 
 /// Preserves every argument after an agent-launching command for its downstream executable.
 private protocol AgentLauncherCommand: LegacyHookCommand {}
