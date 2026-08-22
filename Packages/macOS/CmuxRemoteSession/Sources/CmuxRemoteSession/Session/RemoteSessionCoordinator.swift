@@ -468,7 +468,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
             publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
-            failPendingPTYBridgeStartsLocked("remote daemon is not ready")
+            // Keep wait-for-ready PTY requests parked across a transient
+            // transport bounce.  The remote PTY is persistent; failing the
+            // local bridge here forces a noisy shell retry even though the
+            // supervisor is already reconnecting the daemon/proxy.
             guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
 
             releaseProxyLeaseLocked()
