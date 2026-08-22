@@ -47,12 +47,22 @@ cutover — pre-launch, no legacy.
    YOLO receipt, managed enrollment (0600 check, shred after read,
    `managedSessionToken` kept in memory), `--allow-root` persistence,
    `--status`.
-2. **PTY bridge** — port `bin/pty.mjs` incl. the 0.0.10 MULTI-VIEWER
-   fan-out (any number of attachments per session/surface; `session_limit`
-   only for the process-wide PTY cap). `packages/relay/test/pty.test.mjs`
-   pins the behavior. Raise the advertised dialect to 4.
-3. **Exec verbs + trust gates** — port `bin/actions.mjs` (path scoping,
-   caps, timeouts). Raise the advertised dialect to 5.
+2. **PTY bridge (DONE)** — `pty.rs` ports `bin/pty.mjs`: the shell
+   fallback with a bounded scrollback ring and the 0.0.10 MULTI-VIEWER
+   fan-out (any number of attachments per session; `session_limit` only
+   for the process-wide `MAX_PTYS` cap), the cmux-tui whole-session viewer
+   path, the W86 raw single-terminal control-socket path, `surface_list`,
+   the buffered-output cap, and the no-empty-frame rule.
+   `packages/relay/test/pty.test.mjs` behaviors are mirrored in
+   `pty.rs::tests`. Real PTY allocation is `pty_deps.rs` (cmux-pty +
+   pipe-mode degradation); the control socket is `control.rs`.
+3. **Exec verbs + trust gates (DONE)** — `actions.rs` ports
+   `bin/actions.mjs`: exec/read/write/ls/grep/find with the 60k output
+   bound, 2 MB read cap, `--allow-root` + server-echoed path scoping,
+   lexical + canonical (realpath) double pass, O_NOFOLLOW opens, scrubbed
+   env, hard process-group timeouts, the v5 process-credential runtime,
+   and the reconciled-trust gate (observe = read-only verbs only).
+   Both slices raised the advertised dialect to **5**.
 4. **Wire-v6 pane verbs + preview proxy** — fs/git/watch verbs and the
    chobitsu-injecting preview proxy (chatmux pane-primitives program;
    these verbs have NO JS implementation — Rust-first by decision).
@@ -60,18 +70,20 @@ cutover — pre-launch, no legacy.
    `--uninstall`), replacing the npm runtime-install machinery with the
    platform binary path.
 
-### Intentional slice-1 divergences from the JS relay
+### Intentional divergences from the JS relay (still open)
 
-- The advertised relay protocol is **v2** (`wire::ADVERTISED_PROTOCOL_VERSION`)
-  until the verb slices land, so the Worker's designed old-relay degrade
-  applies instead of half-implemented verbs. The JS relay advertises v5.
-  If a verb frame arrives anyway (test override), the relay answers a
-  typed refusal instead of running it.
+- The advertised relay protocol is **v5** now that PTY + exec land. The
+  pane data-plane verbs (wire v6) and the journal forwarder are later
+  slices; the Worker's forward tolerance covers the gap.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).
 - `--autostart` / `--uninstall` exit 1 with a pointer to the npm build
   (slice 5).
+- PTY frame dispatch is serialized on one task per connection, so a slow
+  `pty_open` (daemon spawn, up to 5s) delays a following frame for a
+  DIFFERENT pty. Acceptable for typical one-open-at-a-time use; revisit
+  if concurrent opens become common.
 
 ## Wire contract and the vendored protocol
 
@@ -85,8 +97,9 @@ is clearly marked for replacement. Once `packages/protocol/generated/rust/`
 exists in chatmux:
 
 1. In chatmux: `cd packages/protocol && bun run generate`.
-2. Copy `packages/protocol/generated/rust/relay.rs` (generated, do not
-   edit) into this crate as `src/protocol_generated.rs`.
+2. Copy `packages/protocol/generated/rust/relay_wire.rs` (generated,
+   do not edit; landed by chatmux PR #313) into this crate as
+   `src/protocol_generated.rs`.
 3. Replace the hand-modeled structs in `src/wire.rs` with re-exports from
    the vendored module; keep only the tolerant-parse helpers.
 4. Record the chatmux commit sha of the vendored file in the copy header.

@@ -1,19 +1,35 @@
 //! Connected state: hello negotiation, heartbeats, trust sync, reconnect
-//! with jittered exponential backoff. Behavior port of `stayOnline` /
-//! `relaySession` in `packages/relay/bin/cmux-relay.mjs`.
+//! with jittered exponential backoff, and the exec/PTY frame dispatch.
+//! Behavior port of `stayOnline` / `relaySession` in
+//! `packages/relay/bin/cmux-relay.mjs`.
+//!
+//! Slices 2/3: `action_request` runs the exec verbs (`actions`); the
+//! `pty_*` family drives the PtyManager (`pty`). Both re-check the machine's
+//! own reconciled trust locally. The PtyManager is a per-process singleton
+//! held across reconnects (sessions persist; only attachments detach on a
+//! socket drop). Output from spawned exec/PTY tasks rides an outbound
+//! channel so the socket stays single-writer; `pending_bytes` approximates
+//! the server-directed backpressure the JS relay read from `ws.bufferedAmount`.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubbed_env};
 use crate::config::{Config, save_config};
 use crate::error::RelayError;
 use crate::pairing::websocket_url;
+use crate::pty::{FrameContext, PtyManager};
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
@@ -27,6 +43,49 @@ pub struct SessionState {
     pub first_connect: bool,
     pub first_run: bool,
     pub managed: bool,
+}
+
+/// The machine-side authority read at each exec/PTY dispatch: reconciled
+/// trust, allowed roots, and the paired owner. Updated on hello_accepted and
+/// trust_ack; never the frame's echo alone.
+#[derive(Clone, Default)]
+struct AuthSnapshot {
+    trust: String,
+    roots: Option<Vec<String>>,
+    owner: Option<String>,
+}
+
+/// Process-lifetime state shared across reconnects. The PtyManager singleton
+/// keeps sessions alive while attachments detach with each socket.
+pub struct SessionRuntime {
+    home: PathBuf,
+    base_env: HashMap<String, String>,
+    #[cfg(unix)]
+    pty: Arc<PtyManager>,
+}
+
+impl SessionRuntime {
+    pub fn new() -> SessionRuntime {
+        let base_env = process_env_snapshot();
+        let home = base_env.get("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        #[cfg(unix)]
+        let pty = {
+            let deps = Arc::new(crate::pty_deps::RealPtyDeps::new(base_env.clone()));
+            Arc::new(PtyManager::new(deps, home.clone(), base_env.clone()))
+        };
+        SessionRuntime {
+            home,
+            base_env,
+            #[cfg(unix)]
+            pty,
+        }
+    }
+}
+
+impl Default for SessionRuntime {
+    fn default() -> SessionRuntime {
+        SessionRuntime::new()
+    }
 }
 
 fn now_ms() -> i64 {
@@ -43,12 +102,12 @@ fn jitter() -> f64 {
 }
 
 /// Keep the machine online forever. Fatal errors end the process; anything
-/// else rides a jittered exponential backoff with a 30s ceiling, riding out
-/// Worker deploys and network loss without user action.
+/// else rides a jittered exponential backoff with a 30s ceiling.
 pub async fn stay_online(mut config: Config, config_path: &Path, mut state: SessionState) -> ! {
+    let runtime = SessionRuntime::new();
     let mut attempt: u32 = 0;
     loop {
-        match relay_session(&mut config, config_path, &mut state).await {
+        match relay_session(&mut config, config_path, &mut state, &runtime).await {
             Ok(was_connected) => {
                 if was_connected {
                     attempt = 0;
@@ -75,10 +134,33 @@ fn save(config: &Config, config_path: &Path) {
     }
 }
 
+/// Build a per-frame FrameContext reading the current reconciled auth.
+fn make_context(
+    out: &mpsc::UnboundedSender<Value>,
+    pending: &Arc<AtomicU64>,
+    auth: &AuthSnapshot,
+) -> FrameContext {
+    let sender = out.clone();
+    let pending_send = Arc::clone(pending);
+    let pending_probe = Arc::clone(pending);
+    FrameContext {
+        send: Arc::new(move |frame: Value| {
+            let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
+            pending_send.fetch_add(size, Ordering::SeqCst);
+            let _ = sender.send(frame);
+        }),
+        buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
+        trust: auth.trust.clone(),
+        local_roots: auth.roots.clone(),
+        owner_user_id: auth.owner.clone(),
+    }
+}
+
 async fn relay_session(
     config: &mut Config,
     config_path: &Path,
     state: &mut SessionState,
+    runtime: &SessionRuntime,
 ) -> Result<bool, RelayError> {
     if config.backend.is_empty() {
         return Err(RelayError::fatal(
@@ -87,9 +169,10 @@ async fn relay_session(
     }
     let socket_url =
         websocket_url(&format!("{}/v2/relays/{}/socket", config.backend, config.device_id));
-    let (mut socket, _response) = connect_async(socket_url.as_str())
+    let (socket, _response) = connect_async(socket_url.as_str())
         .await
         .map_err(|error| RelayError::transient(error.to_string()))?;
+    let socket = Arc::new(AsyncMutex::new(socket));
 
     let local_roots = config.allowed_roots.clone().filter(|roots| !roots.is_empty());
     let hello = HelloFrame {
@@ -105,244 +188,339 @@ async fn relay_session(
     let hello_text =
         serde_json::to_string(&hello).map_err(|error| RelayError::transient(error.to_string()))?;
     socket
+        .lock()
+        .await
         .send(Message::Text(hello_text.into()))
         .await
         .map_err(|error| RelayError::transient(error.to_string()))?;
+
+    // Outbound frame channel (exec/PTY tasks -> socket) + backpressure gauge.
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Value>();
+    let pending = Arc::new(AtomicU64::new(0));
+    let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
+
+    // Ordered PTY frame dispatch on its own task so a slow open (daemon
+    // spawn) never stalls heartbeats or other frames.
+    #[cfg(unix)]
+    let pty_tx = {
+        let (pty_tx, mut pty_rx) = mpsc::unbounded_channel::<Value>();
+        let manager = Arc::clone(&runtime.pty);
+        let out = out_tx.clone();
+        let pending = Arc::clone(&pending);
+        let auth = Arc::clone(&auth);
+        tokio::spawn(async move {
+            while let Some(frame) = pty_rx.recv().await {
+                let snapshot = auth.lock().expect("auth lock").clone();
+                let context = make_context(&out, &pending, &snapshot);
+                manager.handle_frame(&frame, &context).await;
+            }
+        });
+        pty_tx
+    };
 
     let mut connected = false;
     let mut negotiated_version: u64 = 0;
     let mut unknown_types: HashSet<String> = HashSet::new();
     let mut heartbeat: Option<tokio::time::Interval> = None;
 
-    loop {
-        let incoming = tokio::select! {
-            _ = async {
-                match heartbeat.as_mut() {
-                    Some(interval) => interval.tick().await,
-                    None => std::future::pending().await,
-                }
-            }, if heartbeat.is_some() => {
+    let result = loop {
+        enum Wake {
+            Heartbeat,
+            Outbound(Option<Value>),
+            Incoming(Option<Result<Message, tokio_tungstenite::tungstenite::Error>>),
+        }
+        let wake = {
+            let mut guard = socket.lock().await;
+            tokio::select! {
+                _ = async {
+                    match heartbeat.as_mut() {
+                        Some(interval) => interval.tick().await,
+                        None => std::future::pending().await,
+                    }
+                }, if heartbeat.is_some() => Wake::Heartbeat,
+                frame = out_rx.recv() => Wake::Outbound(frame),
+                incoming = guard.next() => Wake::Incoming(incoming),
+            }
+        };
+        match wake {
+            Wake::Heartbeat => {
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if socket.send(Message::Text(frame.into())).await.is_err() {
-                    return Ok(connected);
+                if socket.lock().await.send(Message::Text(frame.into())).await.is_err() {
+                    break Ok(connected);
                 }
-                continue;
             }
-            incoming = socket.next() => incoming,
-        };
-        let message = match incoming {
-            Some(Ok(message)) => message,
-            Some(Err(error)) => return Err(RelayError::transient(error.to_string())),
-            None => return Ok(connected),
-        };
-        let text = match message {
-            Message::Text(text) => text,
-            Message::Ping(payload) => {
-                let _ = socket.send(Message::Pong(payload)).await;
-                continue;
+            Wake::Outbound(Some(frame)) => {
+                let text = frame.to_string();
+                let size = text.len() as u64;
+                let sent = socket.lock().await.send(Message::Text(text.into())).await;
+                pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
+                if sent.is_err() {
+                    break Ok(connected);
+                }
             }
-            Message::Close(_) => return Ok(connected),
-            _ => continue,
-        };
-        // Unreadable frames are ignored; the socket stays open.
-        let Some(frame) = parse_server_frame(&text) else { continue };
-        match frame {
-            ServerFrame::HelloAccepted(hello) => {
-                connected = true;
-                negotiated_version = hello.relay_protocol_version;
-                clear_invalid_yolo_confirmation(config);
-                let configured =
-                    relay_trust(config.pending_trust.as_deref().or(config.trust.as_deref()));
-                let local_trust =
-                    if state.managed { DEFAULT_RELAY_TRUST } else { effective_local_trust(config) };
-                if !state.managed && configured != local_trust {
-                    config.pending_trust = Some(local_trust.as_str().to_owned());
-                    save(config, config_path);
-                }
-                // v4+ servers name the paired owner so PTY opens can be
-                // re-checked locally. Persisted for --status.
-                if let Some(owner) = hello.owner_user_id {
-                    config.owner_user_id = Some(owner);
-                }
-                if state.managed {
-                    match hello.managed_session_token.as_deref().filter(|token| token.len() >= 32) {
-                        Some(token) => {
-                            // Runtime memory only. The enrollment file was
-                            // already shredded; managed mode never saves.
-                            config.token = token.to_owned();
+            Wake::Outbound(None) => {}
+            Wake::Incoming(incoming) => {
+                let message = match incoming {
+                    Some(Ok(message)) => message,
+                    Some(Err(error)) => break Err(RelayError::transient(error.to_string())),
+                    None => break Ok(connected),
+                };
+                let text = match message {
+                    Message::Text(text) => text,
+                    Message::Ping(payload) => {
+                        let _ = socket.lock().await.send(Message::Pong(payload)).await;
+                        continue;
+                    }
+                    Message::Close(_) => break Ok(connected),
+                    _ => continue,
+                };
+                // Unreadable frames are ignored; the socket stays open.
+                let Some(frame) = parse_server_frame(&text) else { continue };
+                match frame {
+                    ServerFrame::HelloAccepted(hello) => {
+                        connected = true;
+                        negotiated_version = hello.relay_protocol_version;
+                        clear_invalid_yolo_confirmation(config);
+                        let configured = relay_trust(
+                            config.pending_trust.as_deref().or(config.trust.as_deref()),
+                        );
+                        let local_trust = if state.managed {
+                            DEFAULT_RELAY_TRUST
+                        } else {
+                            effective_local_trust(config)
+                        };
+                        if !state.managed && configured != local_trust {
+                            config.pending_trust = Some(local_trust.as_str().to_owned());
+                            save(config, config_path);
                         }
-                        None => {
-                            if !config.enrollment_claimed {
-                                return Err(RelayError::fatal(
-                                    "Managed enrollment was not accepted.",
-                                ));
+                        if let Some(owner) = hello.owner_user_id {
+                            config.owner_user_id = Some(owner);
+                        }
+                        if state.managed {
+                            match hello
+                                .managed_session_token
+                                .as_deref()
+                                .filter(|token| token.len() >= 32)
+                            {
+                                Some(token) => config.token = token.to_owned(),
+                                None => {
+                                    if !config.enrollment_claimed {
+                                        break Err(RelayError::fatal(
+                                            "Managed enrollment was not accepted.",
+                                        ));
+                                    }
+                                }
+                            }
+                            config.enrollment_claimed = true;
+                        }
+                        let display_name = if hello.machine_name.is_empty() {
+                            config.name.clone().unwrap_or_default()
+                        } else {
+                            hello.machine_name.clone()
+                        };
+                        let shown_trust = if state.managed {
+                            hello.trust.clone()
+                        } else {
+                            local_trust.as_str().to_owned()
+                        };
+                        println!(
+                            "Connected as {display_name} (protocol v{}, trust {shown_trust}, scope {}).",
+                            hello.relay_protocol_version, hello.scope,
+                        );
+                        if state.first_connect {
+                            state.first_connect = false;
+                            println!(
+                                "{}",
+                                if state.first_run {
+                                    "Leave this terminal running, or rely on autostart to keep \
+                                     this machine reachable."
+                                } else {
+                                    "Leave this running; chatmux can now reach this machine."
+                                }
+                            );
+                        }
+                        if !state.managed
+                            && (local_trust.as_str() != hello.trust
+                                || local_trust == Trust::Autonomous)
+                        {
+                            let frame = set_trust_frame(local_trust.as_str()).to_string();
+                            if socket.lock().await.send(Message::Text(frame.into())).await.is_err()
+                            {
+                                break Ok(connected);
+                            }
+                        } else if !state.managed {
+                            config.trust = Some(local_trust.as_str().to_owned());
+                            config.pending_trust = None;
+                            save(config, config_path);
+                        } else {
+                            config.trust = Some(hello.trust.clone());
+                        }
+                        // Publish the reconciled auth for exec/PTY dispatch.
+                        {
+                            let effective_trust = if state.managed {
+                                hello.trust.clone()
+                            } else {
+                                local_trust.as_str().to_owned()
+                            };
+                            let mut snapshot = auth.lock().expect("auth lock");
+                            snapshot.trust = effective_trust;
+                            snapshot.roots = local_roots.clone();
+                            snapshot.owner = config.owner_user_id.clone();
+                        }
+                        let mut interval = tokio::time::interval(Duration::from_millis(
+                            hello.heartbeat_interval_ms,
+                        ));
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                        interval.reset();
+                        heartbeat = Some(interval);
+                    }
+                    ServerFrame::UpgradeRequired { min_version, message } => {
+                        let advertised = advertised_protocol();
+                        break Err(RelayError::fatal(format!(
+                            "This cmux-relay speaks relay protocol v{advertised}, but the server \
+                             requires v{min_version} or newer.\n{message}\n\nUpgrade:\n  npx \
+                             cmux-relay@latest        # npx fetches the latest release each run\n  \
+                             npm i -g cmux-relay@latest   # if you installed it globally"
+                        )));
+                    }
+                    ServerFrame::HeartbeatAck => {}
+                    ServerFrame::TrustAck { trust } => {
+                        let Some(ack) = Trust::parse(&trust) else { continue };
+                        if ack == Trust::Autonomous && !has_yolo_confirmation(config) {
+                            config.trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
+                            config.pending_trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
+                            clear_invalid_yolo_confirmation(config);
+                            if !state.managed {
+                                save(config, config_path);
+                            }
+                            let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
+                            let _ = socket.lock().await.send(Message::Text(frame.into())).await;
+                            eprintln!(
+                                "Refused an autonomous trust acknowledgement without this \
+                                 machine's local YOLO receipt."
+                            );
+                            continue;
+                        }
+                        config.trust = Some(ack.as_str().to_owned());
+                        config.pending_trust = None;
+                        if ack != Trust::Autonomous {
+                            config.yolo_confirmed_at = None;
+                        }
+                        if !state.managed {
+                            save(config, config_path);
+                        }
+                        auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        println!("Trust level set to {ack}.");
+                    }
+                    ServerFrame::ActionRequest { action_id, verb, raw } => {
+                        // Managed sandbox relays serve terminals, not verbs;
+                        // below the exec dialect the server never sends these.
+                        if negotiated_version < EXEC_PROTOCOL_VERSION || state.managed {
+                            continue;
+                        }
+                        let snapshot = auth.lock().expect("auth lock").clone();
+                        let action = ActionContext {
+                            trust: snapshot.trust,
+                            local_roots: snapshot.roots,
+                            home: runtime.home.clone(),
+                            env: scrubbed_env(&runtime.base_env),
+                        };
+                        let out = out_tx.clone();
+                        let pending = Arc::clone(&pending);
+                        let actor = raw
+                            .get("actorId")
+                            .and_then(Value::as_str)
+                            .unwrap_or("chatmux")
+                            .to_owned();
+                        tokio::spawn(async move {
+                            let result = perform_action(&raw, &action).await;
+                            let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                            if ok {
+                                println!(
+                                    "Ran {verb} for {actor} (action {}).",
+                                    &action_id[..action_id.len().min(8)]
+                                );
+                            } else {
+                                let code =
+                                    result.get("code").and_then(Value::as_str).unwrap_or("failed");
+                                println!("Refused {verb} ({code}) for {actor}.");
+                            }
+                            let size = serde_json::to_string(&result)
+                                .map(|text| text.len() as u64)
+                                .unwrap_or(0);
+                            pending.fetch_add(size, Ordering::SeqCst);
+                            let _ = out.send(result);
+                        });
+                    }
+                    ServerFrame::Pty { frame_type, raw } => {
+                        if negotiated_version < PTY_PROTOCOL_VERSION {
+                            continue;
+                        }
+                        if frame_type == "pty_open" {
+                            let session = raw.get("session").and_then(Value::as_str).unwrap_or("?");
+                            let actor =
+                                raw.get("actorId").and_then(Value::as_str).unwrap_or("chatmux");
+                            println!("Terminal attach to session \"{session}\" for {actor}.");
+                        }
+                        #[cfg(unix)]
+                        {
+                            let _ = pty_tx.send(raw);
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            // Non-Unix relays cannot allocate PTYs; answer typed.
+                            let reply = match frame_type.as_str() {
+                                "pty_open" => raw.get("ptyId").and_then(Value::as_str).map(|id| {
+                                    serde_json::json!({
+                                        "version": PTY_PROTOCOL_VERSION,
+                                        "type": "pty_error",
+                                        "ptyId": id,
+                                        "code": "failed",
+                                        "message": "terminals are not available on this relay platform",
+                                    })
+                                }),
+                                "surface_list" => {
+                                    raw.get("requestId").and_then(Value::as_str).map(|id| {
+                                        serde_json::json!({
+                                            "version": PTY_PROTOCOL_VERSION,
+                                            "type": "surface_list_result",
+                                            "requestId": id,
+                                            "surfaces": [],
+                                        })
+                                    })
+                                }
+                                _ => None,
+                            };
+                            if let Some(reply) = reply {
+                                let _ = out_tx.send(reply);
                             }
                         }
                     }
-                    config.enrollment_claimed = true;
-                }
-                let display_name = if hello.machine_name.is_empty() {
-                    config.name.clone().unwrap_or_default()
-                } else {
-                    hello.machine_name.clone()
-                };
-                let shown_trust = if state.managed {
-                    hello.trust.clone()
-                } else {
-                    local_trust.as_str().to_owned()
-                };
-                println!(
-                    "Connected as {display_name} (protocol v{}, trust {shown_trust}, scope {}).",
-                    hello.relay_protocol_version, hello.scope,
-                );
-                if state.first_connect {
-                    state.first_connect = false;
-                    println!(
-                        "{}",
-                        if state.first_run {
-                            "Leave this terminal running, or rely on autostart to keep this \
-                             machine reachable."
-                        } else {
-                            "Leave this running; chatmux can now reach this machine."
+                    ServerFrame::Error { code, message } => {
+                        if code == "unauthorized" || code == "machine_mismatch" {
+                            break Err(RelayError::fatal(format!(
+                                "The server refused this machine's credential ({code}). The \
+                                 pairing may have been replaced or revoked. Re-pair with: npx \
+                                 cmux-relay --pair"
+                            )));
                         }
-                    );
-                }
-                // The relay's local config is the owner-at-the-keyboard
-                // authority. A phone approval can never raise trust by
-                // itself: when the server row is more permissive than this
-                // local setting, send the local value back through the
-                // authenticated set_trust frame. Older or missing config
-                // defaults to supervised, so reconnects fail closed.
-                if !state.managed
-                    && (local_trust.as_str() != hello.trust || local_trust == Trust::Autonomous)
-                {
-                    let frame = set_trust_frame(local_trust.as_str()).to_string();
-                    if socket.send(Message::Text(frame.into())).await.is_err() {
-                        return Ok(connected);
+                        let suffix = message.map(|text| format!(" — {text}")).unwrap_or_default();
+                        eprintln!("Server error: {code}{suffix}");
                     }
-                } else if !state.managed {
-                    config.trust = Some(local_trust.as_str().to_owned());
-                    config.pending_trust = None;
-                    save(config, config_path);
-                } else {
-                    config.trust = Some(hello.trust.clone());
-                }
-                let mut interval =
-                    tokio::time::interval(Duration::from_millis(hello.heartbeat_interval_ms));
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                // The first tick of a tokio interval fires immediately;
-                // consume it so heartbeats start one interval from now,
-                // like the JS setInterval.
-                interval.reset();
-                heartbeat = Some(interval);
-            }
-            ServerFrame::UpgradeRequired { min_version, message } => {
-                let advertised = advertised_protocol();
-                return Err(RelayError::fatal(format!(
-                    "This cmux-relay speaks relay protocol v{advertised}, but the server \
-                     requires v{min_version} or newer.\n{message}\n\nUpgrade:\n  npx \
-                     cmux-relay@latest        # npx fetches the latest release each run\n  npm \
-                     i -g cmux-relay@latest   # if you installed it globally"
-                )));
-            }
-            ServerFrame::HeartbeatAck => {}
-            ServerFrame::TrustAck { trust } => {
-                let Some(ack) = Trust::parse(&trust) else { continue };
-                if ack == Trust::Autonomous && !has_yolo_confirmation(config) {
-                    config.trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
-                    config.pending_trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
-                    clear_invalid_yolo_confirmation(config);
-                    if !state.managed {
-                        save(config, config_path);
+                    ServerFrame::Unknown { frame_type } => {
+                        if unknown_types.insert(frame_type.clone()) {
+                            eprintln!(
+                                "Ignoring unknown server frame type \"{frame_type}\" (a newer server?)."
+                            );
+                        }
                     }
-                    let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
-                    let _ = socket.send(Message::Text(frame.into())).await;
-                    eprintln!(
-                        "Refused an autonomous trust acknowledgement without this machine's \
-                         local YOLO receipt."
-                    );
-                    continue;
-                }
-                config.trust = Some(ack.as_str().to_owned());
-                config.pending_trust = None;
-                if ack != Trust::Autonomous {
-                    config.yolo_confirmed_at = None;
-                }
-                if !state.managed {
-                    save(config, config_path);
-                }
-                println!("Trust level set to {ack}.");
-            }
-            ServerFrame::ActionRequest { action_id, verb } => {
-                // Remote execution verbs land in a later slice
-                // (README: port plan). Below the exec dialect the server
-                // never sends these; a typed refusal keeps callers unblocked
-                // if one arrives anyway.
-                if negotiated_version < EXEC_PROTOCOL_VERSION || state.managed {
-                    continue;
-                }
-                let refusal = serde_json::json!({
-                    "version": FRAME_VERSION,
-                    "type": "action_result",
-                    "actionId": action_id,
-                    "ok": false,
-                    "code": "unsupported_verb",
-                    "message": "This relay build does not run verbs yet (Rust port slice 1).",
-                });
-                println!("Refused {verb} (unsupported_verb) for chatmux.");
-                if socket.send(Message::Text(refusal.to_string().into())).await.is_err() {
-                    return Ok(connected);
-                }
-            }
-            ServerFrame::Pty { frame_type, pty_id, request_id } => {
-                // PTY attach lands in a later slice (README: port plan).
-                if negotiated_version < PTY_PROTOCOL_VERSION {
-                    continue;
-                }
-                let reply: Option<Value> = match frame_type.as_str() {
-                    "pty_open" => pty_id.map(|pty_id| {
-                        serde_json::json!({
-                            "version": FRAME_VERSION,
-                            "type": "pty_error",
-                            "ptyId": pty_id,
-                            "code": "failed",
-                            "message":
-                                "This relay build does not attach terminals yet (Rust port slice 1).",
-                        })
-                    }),
-                    "surface_list" => request_id.map(|request_id| {
-                        serde_json::json!({
-                            "version": FRAME_VERSION,
-                            "type": "surface_list_result",
-                            "requestId": request_id,
-                            "surfaces": [],
-                        })
-                    }),
-                    _ => None,
-                };
-                if let Some(reply) = reply
-                    && socket.send(Message::Text(reply.to_string().into())).await.is_err()
-                {
-                    return Ok(connected);
-                }
-            }
-            ServerFrame::Error { code, message } => {
-                if code == "unauthorized" || code == "machine_mismatch" {
-                    return Err(RelayError::fatal(format!(
-                        "The server refused this machine's credential ({code}). The pairing \
-                         may have been replaced or revoked. Re-pair with: npx cmux-relay --pair"
-                    )));
-                }
-                let suffix = message.map(|text| format!(" — {text}")).unwrap_or_default();
-                eprintln!("Server error: {code}{suffix}");
-            }
-            ServerFrame::Unknown { frame_type } => {
-                if unknown_types.insert(frame_type.clone()) {
-                    eprintln!(
-                        "Ignoring unknown server frame type \"{frame_type}\" (a newer server?)."
-                    );
                 }
             }
         }
-    }
+    };
+
+    // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
+    #[cfg(unix)]
+    runtime.pty.detach_all();
+    result
 }

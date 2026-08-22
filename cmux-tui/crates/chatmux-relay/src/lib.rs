@@ -4,13 +4,18 @@
 //! name stays `cmux-relay`. See README.md for the port plan and the
 //! vendored-protocol regeneration step.
 
+pub mod actions;
 pub mod cli;
 pub mod config;
+pub mod control;
 pub mod enrollment;
 pub mod error;
 pub mod fingerprint;
 pub mod pairing;
 pub mod prompt;
+pub mod pty;
+#[cfg(unix)]
+pub mod pty_deps;
 pub mod session;
 pub mod trust;
 pub mod wire;
