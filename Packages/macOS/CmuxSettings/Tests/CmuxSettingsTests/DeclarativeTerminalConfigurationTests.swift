@@ -122,6 +122,7 @@ struct DeclarativeTerminalConfigurationTests {
             fileURL: file
         )
         #expect(cache.snapshot(fileURL: file).shellStartupMode == .login)
+        #expect(cache.snapshot().shellStartupMode == .login)
 
         try Data(
             #"{"terminal":{"shellStartup":{"mode":"nonLogin","command":"echo startup"}}}"#.utf8

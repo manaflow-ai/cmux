@@ -27,6 +27,8 @@ public enum ShellStartupMode: String, CaseIterable, Sendable, SettingCodable {
 @MainActor
 public final class DeclarativeTerminalConfigurationCache {
     private var snapshots: [String: DeclarativeTerminalConfiguration.Snapshot] = [:]
+    /// The configuration URL used when callers omit an explicit URL.
+    public let fileURL: URL
 
     /// Creates a cache, optionally primed with a snapshot read before app wiring.
     ///
@@ -41,8 +43,9 @@ public final class DeclarativeTerminalConfigurationCache {
         initialSnapshot: DeclarativeTerminalConfiguration.Snapshot? = nil,
         fileURL: URL = CmuxConfigLocation().userConfigFile
     ) {
+        self.fileURL = fileURL.standardizedFileURL
         if let initialSnapshot {
-            snapshots[fileURL.standardizedFileURL.path] = initialSnapshot
+            snapshots[self.fileURL.path] = initialSnapshot
         }
     }
 
@@ -54,17 +57,19 @@ public final class DeclarativeTerminalConfigurationCache {
     /// Runtime configuration updates arrive through ``replace(_:fileURL:)``
     /// from the app-lifetime JSON observation owner.
     public func snapshot(
-        fileURL: URL = CmuxConfigLocation().userConfigFile
+        fileURL: URL? = nil
     ) -> DeclarativeTerminalConfiguration.Snapshot {
-        snapshots[fileURL.standardizedFileURL.path] ?? .init()
+        let key = (fileURL ?? self.fileURL).standardizedFileURL.path
+        return snapshots[key] ?? .init()
     }
 
     /// Publishes an authoritative value delivered by the actor-backed JSON store.
     public func replace(
         _ value: DeclarativeTerminalConfiguration.Snapshot,
-        fileURL: URL = CmuxConfigLocation().userConfigFile
+        fileURL: URL? = nil
     ) {
-        snapshots[fileURL.standardizedFileURL.path] = value
+        let key = (fileURL ?? self.fileURL).standardizedFileURL.path
+        snapshots[key] = value
     }
 
     /// Drops every memoized file snapshot.

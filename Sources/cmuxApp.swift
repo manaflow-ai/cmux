@@ -79,7 +79,9 @@ struct cmuxApp: App {
         // it owns localized search-index text for the process lifetime.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
-        let declarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
+        let declarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(
+            fileURL: configFileURL
+        )
         // Relocate a pre-existing socket password out of the legacy
         // Application Support directory before any store reads it. The CLI reads
         // this file on every agent hook, and a cross-identity reach into

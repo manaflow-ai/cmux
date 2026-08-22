@@ -522,7 +522,10 @@ class TabManager: ObservableObject {
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
         self.declarativeTerminalConfigurationCache =
-            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
+            declarativeTerminalConfigurationCache
+                ?? DeclarativeTerminalConfigurationCache(
+                    fileURL: declarativeTerminalConfigurationFileURL
+                )
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs

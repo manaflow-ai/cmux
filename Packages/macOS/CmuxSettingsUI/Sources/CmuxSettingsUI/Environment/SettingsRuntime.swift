@@ -55,12 +55,14 @@ public struct SettingsRuntime: @unchecked Sendable {
         accountFlow: AccountFlow? = nil,
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
         searchIndex: SettingsSearchIndex? = nil,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil
     ) {
         self.catalog = catalog
         self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
+        let declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
+            ?? DeclarativeTerminalConfigurationCache(fileURL: jsonStore.fileURL)
         self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.secretStore = secretStore
         self.errorLog = errorLog
