@@ -155,8 +155,12 @@ import Testing
     }
 
     private static func descriptor() -> MobileSimulatorPanelDescriptor {
+        descriptor(panelID: "sim-1")
+    }
+
+    private static func descriptor(panelID: String) -> MobileSimulatorPanelDescriptor {
         MobileSimulatorPanelDescriptor(
-            panelID: "sim-1",
+            panelID: panelID,
             workspaceID: "workspace-1",
             title: "Simulator",
             selectedDeviceName: "iPhone 17",

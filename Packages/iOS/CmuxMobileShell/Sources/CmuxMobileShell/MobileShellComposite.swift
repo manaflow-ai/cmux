@@ -1712,7 +1712,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.activeRoute = nil
         self.activeMacInstanceTag = nil
         self.selectedWorkspaceID = workspaces.first?.id
-        self.selectedTerminalID = workspaces.first?.terminals.first?.id
+        // Let the final synchronizer apply the same focus-aware priority used
+        // when a workspace changes after initialization.
+        self.selectedTerminalID = nil
         self.remoteClient = nil
         self.terminalEventListenerTask = nil
         self.terminalEventListenerID = nil
@@ -1804,6 +1806,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
         startObservingConnectionMethodChanges()
+        selectedTerminalID = nil
+        selectedMacSurfaceID = nil
         syncSelectedTerminalForWorkspace()
     }
 
@@ -10833,6 +10837,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
+        if selectedMacSurfaceID == nil,
+           selectedWorkspace.focusedNonTerminalSurface != nil {
+            syncDefaultSurfaceForWorkspace()
+            let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
+            if selectedMacSurfaceID != nil
+                || simulatorStreamStore?.activeState(in: workspaceID) != nil
+                || (browserStreamEvents as? BrowserStreamStore)?.activeState(in: workspaceID) != nil {
+                return
+            }
+        }
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
         if selectedTerminalID == nil {
             syncDefaultSurfaceForWorkspace()
@@ -10841,15 +10855,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Re-evaluates the default surface after the workspace's panel lists
     /// finish loading. Panel discovery can arrive after the workspace is
-    /// already selected, so this lets the shell promote the first available
-    /// non-terminal once it exists.
+    /// already selected, so this lets the shell promote the Mac-focused
+    /// non-terminal, then fall back to the first available one.
     public func refreshWorkspaceSelection() {
         syncSelectedTerminalForWorkspace()
     }
 
-    /// Promotes the first available non-terminal surface when the workspace has
-    /// no terminal to show. Keeps the default-open workspace from landing on an
-    /// empty terminal frame when only Mac surfaces or streamed panels exist.
+    /// Promotes the Mac-focused non-terminal surface when no explicit terminal
+    /// selection is active. Keeps the default-open workspace from landing on
+    /// an empty terminal frame when only Mac surfaces or streamed panels exist.
     private func syncDefaultSurfaceForWorkspace() {
         guard let selectedWorkspace else { return }
         let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
@@ -10864,22 +10878,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            browserStore.activeState(in: workspaceID) != nil {
             return
         }
-        if let selectedMacSurfaceID {
+
+        func activateStream(for surfaceID: MobileSurfacePreview.ID) -> Bool {
             if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID)
-                .first(where: { $0.panelID == selectedMacSurfaceID.rawValue })?.panelID {
+                .first(where: { $0.panelID == surfaceID.rawValue })?.panelID {
                 _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
-                return
+                return true
             }
             if let browserStore = browserStreamEvents as? BrowserStreamStore,
                let browserPanelID = browserStore.panels(in: workspaceID)
-                .first(where: { $0.panelID == selectedMacSurfaceID.rawValue })?.panelID {
+                .first(where: { $0.panelID == surfaceID.rawValue })?.panelID {
                 _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
+                return true
+            }
+            return false
+        }
+
+        if let selectedMacSurfaceID {
+            if activateStream(for: selectedMacSurfaceID) {
                 return
             }
             if selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
                 return
             }
         }
+
+        if let selectedSurface = selectedWorkspace.focusedNonTerminalSurface
+            ?? selectedWorkspace.selectedMacSurface(id: nil) {
+            if activateStream(for: selectedSurface.id) {
+                return
+            }
+            selectedMacSurfaceID = selectedSurface.id
+            return
+        }
+
         if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID).first?.panelID {
             _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
             return
@@ -10888,9 +10920,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let browserPanelID = browserStore.panels(in: workspaceID).first?.panelID {
             _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
             return
-        }
-        if let selectedSurface = selectedWorkspace.selectedMacSurface(id: nil) {
-            selectedMacSurfaceID = selectedSurface.id
         }
     }
 
