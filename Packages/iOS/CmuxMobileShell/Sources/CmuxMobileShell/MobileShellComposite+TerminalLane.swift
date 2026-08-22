@@ -13,11 +13,18 @@ extension MobileShellComposite {
               let activeTicket else {
             return
         }
+        // A lane request can redial the peer session, so it must carry the
+        // same Direct allowlist as the control dial or a Direct Computer's
+        // lane reconnect could ride relay or discovered paths.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
-            sessionPurpose: .featureLane
+            sessionPurpose: .featureLane,
+            irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates(
+                forMacDeviceID: activeTicket.macDeviceID,
+                instanceTag: activeMacInstanceTag
+            )
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID

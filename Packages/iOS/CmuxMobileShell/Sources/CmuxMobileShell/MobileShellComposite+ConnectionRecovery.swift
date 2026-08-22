@@ -682,11 +682,28 @@ extension MobileShellComposite {
             "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(resolvedMethod.rawValue) knownPairing=\(knownPairing != nil) routes=\(routes.count)"
         )
         // The Direct method rides the Iroh lane below: identity-checked and
-        // encrypted, with the Computer's private addresses joined as path
-        // hints by the transport. Raw host/port dialing cannot carry the
-        // account credential (plaintext TCP), so no separate lane exists.
+        // encrypted. Its user-enabled addresses are the COMPLETE per-dial
+        // path allowlist (no relay, no advertised or discovered paths), so
+        // resolve them from the caller's fresh row first for the same
+        // startup-restore reason as the method above, and fail closed when
+        // nothing is enabled. Raw host/port dialing cannot carry the account
+        // credential (plaintext TCP), so no separate lane exists.
+        let directOnlyCandidates = resolvedMethod == .direct
+            ? irohDirectOnlyDialCandidates(
+                forMacDeviceID: pairedMacDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag,
+                knownPairing: knownPairing
+            ) ?? []
+            : nil
+        if let directOnlyCandidates, directOnlyCandidates.isEmpty {
+            // Temporary Direct-lane diagnostics for dogfood; remove before merge.
+            MobileDebugLog.anchormux(
+                "direct.dial fail-closed mac=\(pairedMacDeviceID) reason=no-enabled-addresses"
+            )
+            return .failed(.unsupportedRoute)
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let pinnedRoutes = Self.storedReconnectRoutes(
+        var pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
@@ -697,6 +714,11 @@ extension MobileShellComposite {
                 )
                 : nil
         )
+        if directOnlyCandidates != nil {
+            // Direct never rides the dev loopback or any host/port lane: the
+            // allowlist constrains the Iroh dial exclusively.
+            pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
+        }
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
@@ -718,6 +740,7 @@ extension MobileShellComposite {
                 let noThrowFailure = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
+                    directOnlyDialCandidates: directOnlyCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent

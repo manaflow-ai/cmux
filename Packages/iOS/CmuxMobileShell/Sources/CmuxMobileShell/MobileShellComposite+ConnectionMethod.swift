@@ -88,6 +88,32 @@ extension MobileShellComposite {
         }
     }
 
+    /// The user-pinned Direct dial allowlist for one pairing, or `nil` when
+    /// the pairing's effective method is not Direct. An empty array means
+    /// Direct is selected with nothing enabled: callers must fail closed and
+    /// never substitute another path. Entries with an out-of-range explicit
+    /// port are carried port-less (the store's editor validates the range).
+    func irohDirectOnlyDialCandidates(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?,
+        knownPairing: MobilePairedMac? = nil
+    ) -> [CmxIrohDirectDialCandidate]? {
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        let pairing = knownPairing ?? pairedMacs.first {
+            $0.macDeviceID == canonical
+                && (instanceTag == nil || $0.instanceTag == instanceTag)
+        } ?? pairedMacs.first { $0.macDeviceID == canonical }
+        guard let pairing, connectionMethod(for: pairing) == .direct else {
+            return nil
+        }
+        return pairing.directAddresses.filter(\.enabled).map { entry in
+            CmxIrohDirectDialCandidate(
+                address: entry.address,
+                port: entry.port.flatMap { UInt16(exactly: $0) }
+            )
+        }
+    }
+
     /// Zero-touch discovery yields Iroh candidates only. It is pointless only
     /// when the app default is Tailscale AND no stored pairing opted back into
     /// the automatic method — a per-Computer Iroh choice keeps discovery alive.

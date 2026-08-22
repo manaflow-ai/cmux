@@ -280,20 +280,24 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        // Direct rides the Iroh lane: the strict iroh(+dev loopback) filter
-        // below applies, and the transport joins the Computer's private
-        // addresses as encrypted path hints at dial time.
-        return Self.storedReconnectRoutes(
+        let method = connectionMethod(for: mac)
+        let routes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: connectionMethod(for: mac) == .tailscale
+            tailscaleRequirement: method == .tailscale
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
                 )
                 : nil
         )
+        // Direct rides the Iroh lane EXCLUSIVELY: the transport dials only
+        // the Computer's user-enabled addresses, and no dev-loopback or
+        // host/port lane may substitute when they are unreachable.
+        return method == .direct
+            ? routes.filter { $0.kind == .iroh }
+            : routes
     }
 
     /// Refresh the active row only while its account, device, and authenticated

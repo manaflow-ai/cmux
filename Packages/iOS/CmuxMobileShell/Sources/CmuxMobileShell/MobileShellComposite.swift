@@ -4706,6 +4706,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
+        // Background control obeys the per-Computer Direct allowlist exactly
+        // like the foreground dial: enabled addresses only, fail closed.
+        let directOnlyCandidates = irohDirectOnlyDialCandidates(
+            forMacDeviceID: mac.macDeviceID,
+            instanceTag: mac.instanceTag,
+            knownPairing: mac
+        )
+        if let directOnlyCandidates, directOnlyCandidates.isEmpty {
+            return .permanentFailure
+        }
         let pinnedRoutes = orderedReconnectRoutes(
             for: mac,
             supportedKinds: supportedKinds
@@ -4807,6 +4817,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: ticket,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
+            irohDirectOnlyDialCandidates: directOnlyCandidates,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -8810,6 +8821,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsStackAuthFallback: Bool? = nil,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
@@ -8846,13 +8858,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        // Per-Computer Direct enforcement: stored-Mac reconnects resolve the
+        // allowlist from their freshly loaded row and pass it in; ticket
+        // dials resolve it here from the published pairing list. `nil` means
+        // the target's method is not Direct.
+        let directOnlyDialCandidates = directOnlyDialCandidates
+            ?? irohDirectOnlyDialCandidates(
+                forMacDeviceID: ticket.macDeviceID,
+                instanceTag: nil
+            )
+        if let directOnlyDialCandidates {
+            // Temporary Direct-lane diagnostics for dogfood; remove before merge.
+            MobileDebugLog.anchormux(
+                "direct.dial connect mac=\(ticket.macDeviceID) allowlist=["
+                    + directOnlyDialCandidates
+                        .map { "\($0.address):\($0.port.map(String.init) ?? "broker-udp")" }
+                        .joined(separator: ",")
+                    + "] relay=disabled discovery=disabled joins=disabled"
+            )
+        }
         let supportedRoutes = supportedRoutes(
             for: ticket,
             supportedKinds: supportedKinds,
             legacyTailscaleRoutes: legacyTailscaleRoutes,
-            userTailscalePairingAuthorizations: userTailscalePairingAuthorizations
+            userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
+            directOnly: directOnlyDialCandidates != nil
         )
-        guard let firstRoute = supportedRoutes.first else {
+        guard directOnlyDialCandidates?.isEmpty != true,
+              let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
@@ -9134,6 +9167,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
                 userTailscalePairingAuthorization: userTailscalePairingAuthorization,
+                irohDirectOnlyDialCandidates: directOnlyDialCandidates,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -9578,7 +9612,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind],
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
-        userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = []
+        userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
+        directOnly: Bool = false
     ) -> [CmxAttachRoute] {
         let orderedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
             to: ticket.routes,
@@ -9598,9 +9633,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // disconnected instead of silently switching to Iroh. The method is
         // the dialed Computer's own choice, falling back to the app default.
         let ticketMethod = connectionMethod(forMacDeviceID: ticket.macDeviceID, instanceTag: nil)
-        // Direct rides the Iroh lane (identity-checked, encrypted; private
-        // addresses join as path hints in the transport), so it shares the
-        // strict iroh(+dev loopback) filter below with the Iroh method.
+        // Direct rides the Iroh lane EXCLUSIVELY (identity-checked,
+        // encrypted; the transport dials only the user-enabled addresses):
+        // no dev loopback and no host/port lane, so an unusable allowlist
+        // fails closed instead of switching paths.
+        if directOnly || ticketMethod == .direct {
+            return supportedRoutes.filter { $0.kind == .iroh }
+        }
         if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
