@@ -181,6 +181,15 @@ export async function POST(request: Request): Promise<Response> {
         if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
           return invalidTeamIdResponse();
         }
+        if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`persistentHome` must be a boolean when provided.",
+            action: "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
+            details: { field: "persistentHome" },
+          });
+        }
         if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
           return invalidTeamIdResponse();
         }
@@ -311,6 +320,7 @@ export async function POST(request: Request): Promise<Response> {
             provider,
             idempotencyKey,
             bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
+            persistentHome: candidate.persistentHome === true,
             timing,
           }));
         } catch (err) {

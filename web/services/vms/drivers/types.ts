@@ -19,6 +19,12 @@ export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
   bakedFreestyleSignedAdmin?: boolean;
+  /**
+   * Name of a persistent volume to mount as the machine's home directory. Providers that
+   * support it create the volume if missing and record it in providerMetadata so attach can
+   * resurrect a dead sandbox around the same home. Providers without volume support ignore it.
+   */
+  homeVolume?: string;
 };
 
 export type SSHEndpoint = {

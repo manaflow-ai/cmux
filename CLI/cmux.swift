@@ -4501,6 +4501,11 @@ struct CMUXCLI {
                 // CMUX_VM_DEFAULT_PROVIDER decides, so prod keeps Freestyle while a dev stack
                 // exporting CMUX_VM_DEFAULT_PROVIDER=blaxel gets Blaxel from a bare
                 // `cmux vm new` instead of a hardcoded Freestyle create that ignores it.
+                if usesPersistentDefaultCloud {
+                    // "Your computer": the default machine mounts a per-user persistent volume
+                    // as its home, so the sandbox is disposable compute around durable data.
+                    params["persistent_home"] = true
+                }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOpt,

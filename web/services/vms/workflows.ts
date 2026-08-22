@@ -187,6 +187,12 @@ export function reconcileVmProviderStatuses(input: {
   });
 }
 
+/** Stable per-user home volume name; the volume, not the sandbox, is the durable machine. */
+export function homeVolumeNameForUser(userId: string): string {
+  const digest = createHash("sha256").update(userId).digest("hex").slice(0, 12);
+  return `cmux-home-${digest}`;
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -198,6 +204,12 @@ export function createVm(input: {
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
   readonly bakedFreestyleSignedAdmin?: boolean;
+  /**
+   * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
+   * the sandbox is disposable compute around durable data. The volume name is derived from
+   * the user id, so recreating the machine (TTL expiry, provider loss) finds the same home.
+   */
+  readonly persistentHome?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -235,6 +247,7 @@ export function createVm(input: {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        homeVolume: input.persistentHome ? homeVolumeNameForUser(input.userId) : undefined,
       }),
     ).pipe(
       Effect.tapError((err) =>

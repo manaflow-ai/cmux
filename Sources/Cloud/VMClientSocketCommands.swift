@@ -26,8 +26,9 @@ extension TerminalController {
                     message: "vm.create requires `idempotency_key`. Use `cmux vm new` instead of calling the socket method directly."
                 )
             }
+            let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, provider: provider, persistentHome: persistentHome, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":

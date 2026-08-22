@@ -96,6 +96,10 @@ const HEALTH_RETRY_ATTEMPTS = 12;
 const HEALTH_RETRY_INTERVAL_MS = 1_000;
 const CONTROL_PLANE_BASE = "https://api.blaxel.ai/v0";
 const DEFAULT_MEMORY_MB = 4096;
+// The persistent-home volume mounts over root's home so dotfiles, repos, and agent state
+// survive sandbox destruction. The sandbox is disposable compute; the volume is the machine.
+const HOME_VOLUME_MOUNT_PATH = "/root";
+const DEFAULT_HOME_VOLUME_MB = 5120;
 
 type BlaxelSandbox = {
   metadata?: { name?: string; url?: string; createdAt?: string };
@@ -254,6 +258,10 @@ export class BlaxelProvider implements VMProvider {
       async (span) => {
         try {
           const memoryMb = positiveIntEnv("CMUX_VM_BLAXEL_MEMORY_MB", DEFAULT_MEMORY_MB);
+          const homeVolume = options.homeVolume?.trim() || undefined;
+          if (homeVolume) {
+            await this.ensureHomeVolume(homeVolume);
+          }
           let name = friendlyVmName();
           let created: BlaxelSandbox | null = null;
           for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
@@ -267,6 +275,7 @@ export class BlaxelProvider implements VMProvider {
                     envs: [{ name: "LANG", value: "C.UTF-8" }],
                     ports: [{ name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT }],
                   },
+                  ...(homeVolume ? { volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }] } : {}),
                 },
               });
             } catch (err) {
@@ -296,7 +305,9 @@ export class BlaxelProvider implements VMProvider {
             status: "running",
             image,
             createdAt: Date.now(),
-            providerMetadata: { sandboxUrl, previewUrl },
+            providerMetadata: homeVolume
+              ? { sandboxUrl, previewUrl, homeVolume, image }
+              : { sandboxUrl, previewUrl },
           };
         } catch (err) {
           throw err instanceof ProviderError ? err : new ProviderError("blaxel", `create(${image}) failed`, err);
@@ -464,8 +475,26 @@ export class BlaxelProvider implements VMProvider {
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "open_websocket_pty", "cmux.vm.id": vmId },
       async (span) => {
         try {
-          // The status read doubles as the wake request for a sandbox in standby.
-          const sandbox = await this.getSandbox(vmId);
+          // The status read doubles as the wake request for a sandbox in standby. A
+          // persistent-home machine whose sandbox is gone gets resurrected around its volume.
+          // "Gone" is either a 404 or a still-listed TERMINATED/DELETING record — Blaxel
+          // deletion is asynchronous, so both shapes mean the compute is dead.
+          let sandbox: BlaxelSandbox | null = null;
+          try {
+            const fetched = await this.getSandbox(vmId);
+            sandbox = mapStatus(fetched) === "destroyed" ? null : fetched;
+          } catch (err) {
+            const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+            if (!gone) throw err;
+          }
+          if (!sandbox) {
+            sandbox = options?.providerMetadata
+              ? await this.resurrectSandbox(vmId, options.providerMetadata)
+              : null;
+            if (!sandbox) {
+              throw new ProviderError("blaxel", `sandbox ${vmId} is gone and has no persistent home to resurrect from`);
+            }
+          }
           const sandboxUrl = sandbox.metadata?.url;
           if (!sandboxUrl) {
             throw new Error("sandbox is missing metadata.url");
@@ -544,6 +573,55 @@ export class BlaxelProvider implements VMProvider {
 
   private async getSandbox(vmId: string): Promise<BlaxelSandbox> {
     return blaxelFetch<BlaxelSandbox>("GET", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`);
+  }
+
+  private async ensureHomeVolume(name: string): Promise<void> {
+    const sizeMb = positiveIntEnv("CMUX_VM_BLAXEL_HOME_VOLUME_MB", DEFAULT_HOME_VOLUME_MB);
+    try {
+      await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/volumes`, {
+        metadata: { name },
+        spec: { size: sizeMb },
+      });
+    } catch (err) {
+      // An existing volume is the expected steady state; anything else is fatal.
+      const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
+      if (!conflict) throw err;
+    }
+  }
+
+  /**
+   * Resurrection: a persistent-home machine whose sandbox is gone (TTL expiry, provider loss)
+   * is recreated around the same volume and re-bootstrapped, so from the user's side the
+   * machine never died — its compute was just asleep somewhere deeper. Only possible when the
+   * VM row's providerMetadata carries homeVolume + image from the original create.
+   */
+  private async resurrectSandbox(
+    vmId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<BlaxelSandbox | null> {
+    const homeVolume = typeof metadata.homeVolume === "string" ? metadata.homeVolume : null;
+    const image = typeof metadata.image === "string" ? metadata.image : null;
+    if (!homeVolume || !image) return null;
+    await this.ensureHomeVolume(homeVolume);
+    const memoryMb = positiveIntEnv("CMUX_VM_BLAXEL_MEMORY_MB", DEFAULT_MEMORY_MB);
+    const created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
+      metadata: { name: vmId },
+      spec: {
+        runtime: {
+          image,
+          memory: memoryMb,
+          envs: [{ name: "LANG", value: "C.UTF-8" }],
+          ports: [{ name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT }],
+        },
+        volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }],
+      },
+    });
+    const sandboxUrl = created.metadata?.url;
+    if (!sandboxUrl) {
+      throw new ProviderError("blaxel", `resurrect(${vmId}) returned no sandbox url`);
+    }
+    await this.bootstrapDaemon(vmId, sandboxUrl);
+    return created;
   }
 
   private async sandboxApiUrl(vmId: string): Promise<string> {
