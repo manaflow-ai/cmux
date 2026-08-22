@@ -5,6 +5,78 @@ import Testing
 @testable import CmuxRemoteSession
 
 extension RemoteDaemonUploadTests {
+    @Test("Background upload reader consumes the SSH stdin stream")
+    func backgroundUploadReaderConsumesSSHStdin() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-stdin-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let remoteDirectory = root.appendingPathComponent("remote", isDirectory: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let localBinary = root.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        let payload = Data(repeating: 0x5A, count: 128 * 1024)
+        try payload.write(to: localBinary)
+
+        let runner = RecordingProcessRunner { request in
+            // The upload request is the only request with file-backed stdin.
+            // Keep the fake endpoint focused on capturing the generated remote
+            // command; the command itself is executed below with real stdin.
+            if request.stdinFile != nil {
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            }
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .finalize:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .cleanup, .upload, .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: "remote/cmuxd-remote",
+            absolutePath: remoteDirectory.appendingPathComponent("cmuxd-remote").path
+        )
+
+        try coordinator.queue.sync {
+            try coordinator.uploadRemoteDaemonBinaryLocked(
+                localBinary: localBinary,
+                location: location
+            )
+        }
+
+        let uploadRequest = try #require(
+            runner.requests.first { $0.stdinFile == localBinary }
+        )
+        let uploadCommand = try #require(uploadRequest.arguments.last)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", uploadCommand]
+        let inputHandle = try FileHandle(forReadingFrom: localBinary)
+        process.standardInput = inputHandle
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        try? inputHandle.close()
+
+        #expect(process.terminationStatus == 0)
+        let temporaryFiles = try fileManager.contentsOfDirectory(
+            at: remoteDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.contains(".tmp-") }
+        let temporaryFile = try #require(temporaryFiles.first)
+        #expect(temporaryFiles.count == 1)
+        #expect(try Data(contentsOf: temporaryFile) == payload)
+        #expect(
+            !fileManager.fileExists(atPath: "\(temporaryFile.path).pid"),
+            "The upload writer marker must be removed after the stream closes"
+        )
+    }
+
     @Test("Finalize script promotes only a byte-and-hash-matching payload")
     func finalizeScriptIsFailClosed() throws {
         let fileManager = FileManager.default
