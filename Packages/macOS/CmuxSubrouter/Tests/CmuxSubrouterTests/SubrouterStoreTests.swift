@@ -405,4 +405,44 @@ import Testing
         #expect(snapshot.attentionCount == 1)
         #expect(snapshot.sessions(forAccountID: "a").count == 1)
     }
+
+    @Test func snapshotProviderListsHideProvidersWithoutAccountManagementUI() {
+        let snapshot = SubrouterSnapshot(
+            daemonState: .healthy,
+            usageStatuses: [
+                SubrouterAccountUsageStatus(
+                    id: "kimi:main",
+                    provider: SubrouterProvider(rawValue: "kimi"),
+                    authMode: .apiKey,
+                    planType: "kimi api key"
+                ),
+                SubrouterAccountUsageStatus(
+                    id: "codex@example.com",
+                    provider: .codex,
+                    authChecked: true,
+                    authValid: true,
+                    isActive: true
+                ),
+                SubrouterAccountUsageStatus(
+                    id: "zai:main",
+                    provider: SubrouterProvider(rawValue: "zai"),
+                    authMode: .apiKey,
+                    planType: "zai api key"
+                ),
+                SubrouterAccountUsageStatus(
+                    id: "work",
+                    provider: .claude,
+                    authChecked: true,
+                    authValid: true
+                ),
+            ]
+        )
+
+        // Both the full panel and the footer popover derive their provider
+        // sections from this snapshot. Unknown daemon providers are raw data,
+        // not account types this UI can manage, so neither surface should
+        // expose them as polished sections.
+        #expect(snapshot.providers == [.codex, .claude])
+        #expect(snapshot.sectionProviders == [.codex, .claude])
+    }
 }
