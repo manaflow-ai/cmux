@@ -306,6 +306,8 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 
         let expectedInlineIdentifiers = [
             "BrowserOverflowMenu",
+            "BrowserDesignModeButton",
+            "BrowserToggleDevToolsButton",
             "BrowserProfileButton",
             "BrowserThemeModeButton",
         ]
@@ -316,16 +318,14 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             )
         }
 
-        let inlinePlainActionIdentifiers = [
+        let inlineOverflowActionIdentifiers = [
             "BrowserFocusModeButton",
-            "BrowserDesignModeButton",
             "BrowserScreenshotPageButton",
-            "BrowserToggleDevToolsButton",
         ]
-        for identifier in inlinePlainActionIdentifiers {
+        for identifier in inlineOverflowActionIdentifiers {
             XCTAssertFalse(
                 toolbarElement(app, identifier: identifier).exists,
-                "The inactive plain action \(identifier) should not be inline at any width"
+                "The low-frequency action \(identifier) should remain in the overflow menu"
             )
         }
 
@@ -334,10 +334,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 
         let overflowActionIdentifiers = [
             "BrowserOverflowFocusModeButton",
-            "BrowserOverflowDesignModeButton",
             "BrowserScreenshotPageButton",
-            "BrowserOverflowReactGrabButton",
-            "BrowserToggleDevToolsButton",
         ]
         for identifier in overflowActionIdentifiers {
             XCTAssertTrue(
@@ -345,6 +342,18 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
                 "Expected inactive action \(identifier) to remain available in BrowserOverflowMenu"
             )
         }
+        XCTAssertFalse(
+            app.menuItems.matching(identifier: "BrowserOverflowDesignModeButton").firstMatch.exists,
+            "Design Mode should remain directly available in the browser toolbar"
+        )
+        XCTAssertFalse(
+            app.menuItems.matching(identifier: "BrowserOverflowReactGrabButton").firstMatch.exists,
+            "React Grab should not be exposed in the browser chrome menu"
+        )
+        XCTAssertFalse(
+            app.menuItems.matching(identifier: "BrowserToggleDevToolsButton").firstMatch.exists,
+            "Developer Tools should remain directly available in the browser toolbar"
+        )
     }
 
     func testBrowserDesignModeUsesTheSharedActiveModeChip() {
@@ -379,6 +388,10 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         XCTAssertFalse(
             toolbarElement(app, identifier: "BrowserScreenshotPageButton").exists,
             "Screenshot should remain in the overflow menu while Design Mode is active"
+        )
+        XCTAssertFalse(
+            toolbarElement(app, identifier: "BrowserDesignModeButton").exists,
+            "The inactive Design Mode icon should be replaced by the shared active chip"
         )
 
         app.typeKey("d", modifierFlags: [.command, .option, .control])
