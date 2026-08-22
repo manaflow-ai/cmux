@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,9 +19,30 @@ SHELL_PARSE_COMMANDS = {
 }
 
 # Representative tokens that must survive generation: a top-level leaf
-# command, a nested subcommand family, and an option shared across commands.
-# A script that parses but omits all of these has silently dropped commands.
-REQUIRED_TOKENS = ["list-workspaces", "browser", "--json"]
+# command and an option shared across commands. A script that parses but
+# omits either has silently dropped commands.
+REQUIRED_TOKENS = ["list-workspaces", "--json"]
+
+
+def has_structural_browser_command(shell: str, script: str) -> bool:
+    """Checks that the generated script offers `browser` as its own top-level
+    command candidate, not merely as a substring of `open-browser` or as a
+    `--type browser` option value.
+    """
+    if shell == "zsh":
+        # zsh's `_describe` candidates are emitted as 'name:abstract'.
+        return "'browser:" in script
+    if shell == "fish":
+        # fish command candidates are emitted as `-fa 'name'`.
+        return "-fa 'browser'" in script
+    if shell == "bash":
+        # bash lists all sibling command names as whitespace-separated words
+        # inside a single `compgen -W '...'` string.
+        return any(
+            "browser" in match.group(1).split()
+            for match in re.finditer(r"compgen -W '([^']*)'", script)
+        )
+    raise ValueError(f"unhandled shell: {shell}")
 
 
 def resolve_cmux_cli() -> str:
@@ -119,6 +141,12 @@ def main() -> int:
         if missing_tokens:
             failures.append(
                 f"cmux completion {shell}: generated script is missing expected tokens {missing_tokens}"
+            )
+            continue
+
+        if not has_structural_browser_command(shell, completion.stdout):
+            failures.append(
+                f"cmux completion {shell}: generated script is missing the 'browser' command candidate"
             )
             continue
 
