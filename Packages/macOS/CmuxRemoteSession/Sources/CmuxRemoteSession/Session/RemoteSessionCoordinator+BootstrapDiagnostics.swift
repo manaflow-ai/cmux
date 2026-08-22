@@ -92,6 +92,7 @@ extension RemoteSessionCoordinator {
         """
     }
 
+    /// Adds the resolved remote path and bounded diagnostics to a bootstrap error.
     static func annotatedRemoteDaemonBootstrapError(
         _ error: any Error,
         remotePath: String,
@@ -114,6 +115,7 @@ extension RemoteSessionCoordinator {
         return NSError(domain: nsError.domain, code: nsError.code, userInfo: userInfo)
     }
 
+    /// Emits hello-retry diagnostics through the release-visible bootstrap logger.
     static func logHelloRetry(remotePath: String, error: any Error, diagnostic: String?) {
         let diagnosticText = diagnostic?.replacingOccurrences(of: "\n", with: "\\n") ?? "none"
         remoteBootstrapLogger.error(
