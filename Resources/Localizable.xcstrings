@@ -195831,13 +195831,13 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory path Fiksni imenik Workspace Root [bs]"
+            "value": "terminal.newSurfaceWorkingDirectory path Fiksni imenik Korijen radnog prostora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory path Fast mappe Workspace Root [da]"
+            "value": "terminal.newSurfaceWorkingDirectory path Fast mappe Arbejdsområdets rod"
           }
         },
         "de": {
@@ -195950,25 +195950,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory ar"
+            "value": "terminal.newSurfaceWorkingDirectory policy دليل عمل السطح الجديد جذر مساحة العمل وراثة الجزء النشط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory bs"
+            "value": "terminal.newSurfaceWorkingDirectory policy Novi direktorij površinskog rada Korijen radnog prostora Naslijediti aktivno okno"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory da"
+            "value": "terminal.newSurfaceWorkingDirectory policy Ny Surface Working Directory Arbejdsområdets rod Nedarv den aktive rude"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory de"
+            "value": "terminal.newSurfaceWorkingDirectory policy Neues Surface-Arbeitsverzeichnis Arbeitsbereichsstamm Aktiven Bereich übernehmen"
           }
         },
         "en": {
@@ -195980,19 +195980,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory es"
+            "value": "terminal.newSurfaceWorkingDirectory policy Nuevo directorio de trabajo en superficie Raíz del espacio de trabajo Heredar panel activo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory fr"
+            "value": "terminal.newSurfaceWorkingDirectory policy Nouveau répertoire de travail de surface Racine de l'espace de travail Hériter du volet actif"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory it"
+            "value": "terminal.newSurfaceWorkingDirectory policy Nuova directory di lavoro di Surface Radice dell'area di lavoro Eredita riquadro attivo"
           }
         },
         "ja": {
@@ -196004,67 +196004,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory km"
+            "value": "terminal.newSurfaceWorkingDirectory policy បញ្ជីការងារផ្ទៃថ្មី។ កន្លែងធ្វើការ Root ទទួល​ផ្ទាំង​សកម្ម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory ko"
+            "value": "terminal.newSurfaceWorkingDirectory policy 새로운 표면 작업 디렉토리 작업공간 루트 활성 창 상속"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory nb"
+            "value": "terminal.newSurfaceWorkingDirectory policy Ny Surface Working Directory Arbeidsområderot Arv aktiv rute"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory pl"
+            "value": "terminal.newSurfaceWorkingDirectory policy Nowy katalog roboczy Surface Korzeń obszaru roboczego Dziedzicz aktywne okienko"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory pt-BR"
+            "value": "terminal.newSurfaceWorkingDirectory policy Novo diretório de trabalho de superfície Raiz do espaço de trabalho Herdar painel ativo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory ru"
+            "value": "terminal.newSurfaceWorkingDirectory policy Новый рабочий каталог поверхности Корень рабочей области Наследовать активную панель"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory th"
+            "value": "terminal.newSurfaceWorkingDirectory policy ไดเร็กทอรีการทำงานของ Surface ใหม่ รากของพื้นที่ทำงาน สืบทอดบานหน้าต่างที่ใช้งานอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory tr"
+            "value": "terminal.newSurfaceWorkingDirectory policy Yeni Yüzey Çalışma Dizini Çalışma Alanı Kökü Etkin Bölmeyi Devral"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory uk"
+            "value": "terminal.newSurfaceWorkingDirectory policy Новий робочий каталог поверхні Корінь робочої області Успадкувати активну панель"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory zh-Hans"
+            "value": "terminal.newSurfaceWorkingDirectory policy 新的表面工作目录 工作空间根目录 继承活动窗格"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.newSurfaceWorkingDirectory zh-Hant"
+            "value": "terminal.newSurfaceWorkingDirectory policy 新的表面工作目錄 工作空間根目錄 繼承活動窗格"
           }
         }
       }
@@ -196092,25 +196092,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup ar"
+            "value": "terminal.shellStartup command أمر بدء التشغيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup bs"
+            "value": "terminal.shellStartup command Naredba pri pokretanju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup da"
+            "value": "terminal.shellStartup command Startkommando"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup de"
+            "value": "terminal.shellStartup command Startbefehl"
           }
         },
         "en": {
@@ -196122,19 +196122,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup es"
+            "value": "terminal.shellStartup command Comando de inicio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup fr"
+            "value": "terminal.shellStartup command Commande de démarrage"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup it"
+            "value": "terminal.shellStartup command Comando di avvio"
           }
         },
         "ja": {
@@ -196146,67 +196146,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup km"
+            "value": "terminal.shellStartup command ពាក្យបញ្ជាចាប់ផ្តើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup ko"
+            "value": "terminal.shellStartup command 시작 명령"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup nb"
+            "value": "terminal.shellStartup command Oppstartskommando"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup pl"
+            "value": "terminal.shellStartup command Polecenie uruchomienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup pt-BR"
+            "value": "terminal.shellStartup command Comando de inicialização"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup ru"
+            "value": "terminal.shellStartup command Команда запуска"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup th"
+            "value": "terminal.shellStartup command คำสั่งเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup tr"
+            "value": "terminal.shellStartup command Başlangıç komutu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup uk"
+            "value": "terminal.shellStartup command Команда запуску"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup zh-Hans"
+            "value": "terminal.shellStartup command 启动命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup zh-Hant"
+            "value": "terminal.shellStartup command 啟動命令"
           }
         }
       }
@@ -196217,25 +196217,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup ar"
+            "value": "terminal.shellStartup mode وضع بدء تشغيل شل تسجيل الدخول عدم تسجيل الدخول"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup bs"
+            "value": "terminal.shellStartup mode Način pokretanja ljuske Prijava Neprijava"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup da"
+            "value": "terminal.shellStartup mode Shell-starttilstand Log ind Ikke-login"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup de"
+            "value": "terminal.shellStartup mode Shell-Startmodus Anmeldung Nicht angemeldet"
           }
         },
         "en": {
@@ -196247,19 +196247,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup es"
+            "value": "terminal.shellStartup mode Modo de inicio del shell Acceso Sin iniciar sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup fr"
+            "value": "terminal.shellStartup mode Mode de démarrage du shell Se connecter Non-connexion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup it"
+            "value": "terminal.shellStartup mode Modalità di avvio della shell Accesso Mancato accesso"
           }
         },
         "ja": {
@@ -196271,67 +196271,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup km"
+            "value": "terminal.shellStartup mode របៀបចាប់ផ្តើមសែល ចូល មិនចូល"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup ko"
+            "value": "terminal.shellStartup mode 쉘 시작 모드 로그인 비로그인"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup nb"
+            "value": "terminal.shellStartup mode Skalloppstartsmodus Logg inn Ikke-pålogging"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup pl"
+            "value": "terminal.shellStartup mode Tryb uruchamiania powłoki Logowanie Brak logowania"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup pt-BR"
+            "value": "terminal.shellStartup mode Modo de inicialização do shell Conecte-se Sem login"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup ru"
+            "value": "terminal.shellStartup mode Режим запуска оболочки Авторизоваться Без входа в систему"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup th"
+            "value": "terminal.shellStartup mode โหมดการเริ่มต้นของเชลล์ เข้าสู่ระบบ ไม่ใช่การเข้าสู่ระบบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup tr"
+            "value": "terminal.shellStartup mode Kabuk Başlangıç ​​Modu Giriş yapmak Giriş yapılmadı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup uk"
+            "value": "terminal.shellStartup mode Режим запуску оболонки Логін Без входу"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup zh-Hans"
+            "value": "terminal.shellStartup mode 外壳启动模式 登录 未登录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.shellStartup zh-Hant"
+            "value": "terminal.shellStartup mode 外殼啟動模式 登入 未登入"
           }
         }
       }
@@ -203038,26 +203038,26 @@
     "settings.terminal.newSurfaceWorkingDirectory.path.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [ar]" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [bs]" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "المسار الثابت فقط. تستخدم المسارات المفقودة جذر مساحة العمل." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Samo fiksna putanja. Staze koje nedostaju koriste korijen radnog prostora." } },
         "da": { "stringUnit": { "state": "translated", "value": "Bruges kun med Fixed Path. Indtast en absolut sti eller en, der begynder med ~; en manglende eller ikke-mappesti falder tilbage til arbejdsområdets rod." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [de]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nur fester Pfad. Fehlende Pfade verwenden das Arbeitsbereichsstammverzeichnis." } },
         "en": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [es]" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [fr]" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [it]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Sólo camino fijo. Las rutas que faltan utilizan la raíz del espacio de trabajo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Chemin fixe uniquement. Les chemins manquants utilisent la racine de l'espace de travail." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Solo percorso fisso. I percorsi mancanti utilizzano la radice dell'area di lavoro." } },
         "ja": { "stringUnit": { "state": "translated", "value": "固定パスの場合のみ使用します。絶対パスまたは ~ で始まるパスを入力してください。存在しないパスやディレクトリでないパスはワークスペースルートにフォールバックします。" } },
         "km": { "stringUnit": { "state": "translated", "value": "ប្រើតែជាមួយផ្លូវថេរ។ បញ្ចូលផ្លូវដាច់ខាត ឬចាប់ផ្តើមដោយ ~; ផ្លូវដែលបាត់ ឬមិនមែនថតត្រឡប់ទៅឫសកន្លែងធ្វើការវិញ។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [ko]" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [nb]" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [pl]" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [pt-BR]" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [ru]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "고정 경로만. 누락된 경로는 작업공간 루트를 사용합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kun fast bane. Manglende baner bruker arbeidsområderoten." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Tylko stała ścieżka. Brakujące ścieżki korzystają z katalogu głównego obszaru roboczego." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Apenas caminho fixo. Caminhos ausentes usam a raiz do espaço de trabalho." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Только фиксированный путь. Отсутствующие пути используют корень рабочей области." } },
         "th": { "stringUnit": { "state": "translated", "value": "ใช้กับเส้นทางคงที่เท่านั้น ป้อนเส้นทางที่แน่นอนหรือเริ่มต้นด้วย ~; เส้นทางที่หายไปหรือไม่ใช่ไดเร็กทอรีจะกลับไปที่รูทของเวิร์กสเปซ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [tr]" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [uk]" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [zh-Hans]" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Used only with Fixed Path. Enter an absolute path or one beginning with ~; a missing or non-directory path falls back to the workspace root. [zh-Hant]" } }
+        "tr": { "stringUnit": { "state": "translated", "value": "Yalnızca sabit yol. Eksik yollar çalışma alanı kökünü kullanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Лише фіксований шлях. Відсутні шляхи використовують корінь робочої області." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "仅固定路径。缺少的路径使用工作区根目录。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "僅固定路徑。缺少的路徑使用工作區根目錄。" } }
       }
     },
     "settings.terminal.newSurfaceWorkingDirectory.policy": {
@@ -203088,7 +203088,7 @@
     "settings.terminal.newSurfaceWorkingDirectory.policy.fixedPath": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "Fixed Path [ar]" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "مسار ثابت" } },
         "bs": { "stringUnit": { "state": "translated", "value": "Fiksna staza" } },
         "da": { "stringUnit": { "state": "translated", "value": "Fast sti" } },
         "de": { "stringUnit": { "state": "translated", "value": "Fester Pfad" } },
@@ -203107,7 +203107,7 @@
         "tr": { "stringUnit": { "state": "translated", "value": "Sabit Yol" } },
         "uk": { "stringUnit": { "state": "translated", "value": "Фіксований шлях" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "固定路径" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Fixed Path [zh-Hant]" } }
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "固定路徑" } }
       }
     },
     "settings.terminal.newSurfaceWorkingDirectory.policy.inheritActivePane": {
@@ -203164,8 +203164,8 @@
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "translated", "value": "جذر مساحة العمل" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Workspace Root [bs]" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Workspace Root [da]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Korijen radnog prostora" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Arbejdsområdets rod" } },
         "de": { "stringUnit": { "state": "translated", "value": "Arbeitsbereichsstamm" } },
         "en": { "stringUnit": { "state": "translated", "value": "Workspace Root" } },
         "es": { "stringUnit": { "state": "translated", "value": "Raíz del espacio de trabajo" } },
@@ -203189,23 +203189,23 @@
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "translated", "value": "أمر بدء التشغيل" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Startup Command [bs]" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Startup Command [da]" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Startup Command [de]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Naredba pri pokretanju" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Startkommando" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Startbefehl" } },
         "en": { "stringUnit": { "state": "translated", "value": "Startup Command" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Startup Command [es]" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Startup Command [fr]" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Startup Command [it]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Comando de inicio" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Commande de démarrage" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Comando di avvio" } },
         "ja": { "stringUnit": { "state": "translated", "value": "起動コマンド" } },
-        "km": { "stringUnit": { "state": "translated", "value": "Startup Command [km]" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ពាក្យបញ្ជាចាប់ផ្តើម" } },
         "ko": { "stringUnit": { "state": "translated", "value": "시작 명령" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Startup Command [nb]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Oppstartskommando" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Polecenie uruchomienia" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Startup Command [pt-BR]" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Startup Command [ru]" } },
-        "th": { "stringUnit": { "state": "translated", "value": "Startup Command [th]" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Startup Command [tr]" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Startup Command [uk]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Comando de inicialização" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Команда запуска" } },
+        "th": { "stringUnit": { "state": "translated", "value": "คำสั่งเริ่มต้น" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Başlangıç komutu" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Команда запуску" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "启动命令" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟動命令" } }
       }
@@ -203264,8 +203264,8 @@
       "extractionState": "manual",
       "localizations": {
         "ar": { "stringUnit": { "state": "translated", "value": "وضع بدء تشغيل شل" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Shell Startup Mode [bs]" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Shell Startup Mode [da]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Način pokretanja ljuske" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Shell-starttilstand" } },
         "de": { "stringUnit": { "state": "translated", "value": "Shell-Startmodus" } },
         "en": { "stringUnit": { "state": "translated", "value": "Shell Startup Mode" } },
         "es": { "stringUnit": { "state": "translated", "value": "Modo de inicio del shell" } },
@@ -203274,7 +203274,7 @@
         "ja": { "stringUnit": { "state": "translated", "value": "シェル起動モード" } },
         "km": { "stringUnit": { "state": "translated", "value": "របៀបចាប់ផ្តើមសែល" } },
         "ko": { "stringUnit": { "state": "translated", "value": "쉘 시작 모드" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Shell Startup Mode [nb]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skalloppstartsmodus" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Tryb uruchamiania powłoki" } },
         "pt-BR": { "stringUnit": { "state": "translated", "value": "Modo de inicialização do shell" } },
         "ru": { "stringUnit": { "state": "translated", "value": "Режим запуска оболочки" } },
@@ -203291,16 +203291,16 @@
         "ar": { "stringUnit": { "state": "translated", "value": "تسجيل الدخول" } },
         "bs": { "stringUnit": { "state": "translated", "value": "Prijava" } },
         "da": { "stringUnit": { "state": "translated", "value": "Log ind" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Login [de]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Anmeldung" } },
         "en": { "stringUnit": { "state": "translated", "value": "Login" } },
         "es": { "stringUnit": { "state": "translated", "value": "Acceso" } },
         "fr": { "stringUnit": { "state": "translated", "value": "Se connecter" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Login [it]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Accesso" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ログイン" } },
         "km": { "stringUnit": { "state": "translated", "value": "ចូល" } },
         "ko": { "stringUnit": { "state": "translated", "value": "로그인" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Logg inn" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Login [pl]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Logowanie" } },
         "pt-BR": { "stringUnit": { "state": "translated", "value": "Conecte-se" } },
         "ru": { "stringUnit": { "state": "translated", "value": "Авторизоваться" } },
         "th": { "stringUnit": { "state": "translated", "value": "เข้าสู่ระบบ" } },
