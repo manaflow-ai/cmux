@@ -298,6 +298,10 @@ command  browser-reload  aliases=-
   arg  arguments  kind=argument  completion=-
 command  browser-status  aliases=-
   arg  arguments  kind=argument  completion=-
+command  canvas  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  capabilities  aliases=-
   arg  arguments  kind=argument  completion=-
 command  capture-pane  aliases=-
@@ -449,6 +453,8 @@ command  focus-window  aliases=-
   arg  arguments  kind=argument  completion=-
 command  get-url  aliases=-
   arg  arguments  kind=argument  completion=-
+command  help  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
   arg  arguments  kind=argument  completion=-
 command  identify  aliases=-
@@ -480,6 +486,9 @@ command  last-pane  aliases=-
   arg  arguments  kind=argument  completion=-
 command  last-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  layout  aliases=-
+  arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  list-buffers  aliases=-
 command  list-log  aliases=-
@@ -1054,6 +1063,9 @@ command  wait-for  aliases=-
   arg  --timeout  kind=option  completion=-
   arg  name  kind=argument  completion=-
 command  welcome  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  window  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  workspace  aliases=-
   arg  arguments  kind=argument  completion=-
