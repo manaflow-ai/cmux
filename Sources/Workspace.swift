@@ -339,6 +339,14 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        // Record the identity remap for the agent journal: events journaled
+        // against the previous run's runtime workspace/panel UUIDs re-attach
+        // to the restored panels during replay through these aliases.
+        AgentJournalLifecycleCenter.shared.noteRestoredIdentityAliases(
+            oldWorkspaceId: snapshot.workspaceId,
+            newWorkspaceId: id,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
         syncUnreadBadgeStateForAllPanels()
         if startupRestoreCommitOwner == .workspaceTopology {
             terminalStartupRestoreCoordinator.commitPendingRestores()
@@ -2928,6 +2936,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         true
     }
 
+    /// Identifies the Bonsplit host whose general background is being resolved.
+    ///
+    /// A workspace Bonsplit tree sits directly under the window backdrop and
+    /// keeps its semantic chrome color for native tab treatment. A mounted Dock
+    /// has a separate root hosting boundary, so its general background must be
+    /// clear when the shared terminal backdrop owns the surface.
+    enum BonsplitChromeHost: Equatable, Sendable {
+        case workspace
+        case dock
+    }
+
     /// Resolves a terminal surface color against the rendered-backdrop
     /// authority. Opaque themes keep the terminal scheme; translucent themes
     /// composite over the window base the ambient appearance paints, so the
@@ -2992,13 +3011,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return false
     }
 
+    /// Resolves Bonsplit colors while keeping terminal backdrop ownership explicit.
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
         paneBorderColorHex: String? = nil,
-        chromeBackgroundColor: NSColor? = nil
+        chromeBackgroundColor: NSColor? = nil,
+        chromeHost: BonsplitChromeHost = .workspace
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
@@ -3020,9 +3041,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             fallback: defaultBorderHex
         )
 
+        // Keep this decision on the same owner plan used by terminal surfaces.
+        // The Dock is the only Bonsplit host with an extra root fill between
+        // clear panes and the window backdrop; its pre-snapshot configuration
+        // remains opaque until a mounted snapshot can provide that backdrop.
+        let terminalFillOwner = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: renderingMode,
+            surfaceBackgroundColor: nil,
+            defaultBackgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            sharesWindowBackdrop: sharesWindowBackdrop,
+            usesBonsplitPaneBackdrop: usesBonsplitPaneTerminalBackdrop(
+                renderingMode: renderingMode,
+                sharesWindowBackdrop: sharesWindowBackdrop
+            )
+        ).owner
+        let clearsDockGeneralBackground = chromeHost == .dock &&
+            terminalFillOwner == .sharedWindowBackdrop
+        let generalBackgroundHex = clearsDockGeneralBackground
+            ? "#00000000"
+            : surfaceHex
+
         if sharesWindowBackdrop {
             return .init(
-                backgroundHex: surfaceHex,
+                backgroundHex: generalBackgroundHex,
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
@@ -3037,7 +3079,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ? surfaceHex
             : "#00000000"
         return .init(
-            backgroundHex: surfaceHex,
+            backgroundHex: generalBackgroundHex,
             tabBarBackgroundHex: surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
@@ -11765,7 +11807,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: !isRemoteFork
+                  allowLauncherScript: !isRemoteFork,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: isRemoteFork ? .remoteHost : .loginShell
               ) else {
             return nil
         }
@@ -11798,7 +11842,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
+                  allowLauncherScript: remoteStartupCommand == nil,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }
@@ -11865,7 +11911,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
+                  allowLauncherScript: remoteStartupCommand == nil,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }

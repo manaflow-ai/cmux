@@ -60,13 +60,14 @@ use crate::config::{
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
-    MachineConnectionPhase, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdate,
-    MachineUpdateStream, ManagedMachineDescriptor, ManagedMachineStatus,
-    ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
-    ProviderActionContext, ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode,
-    WorkspaceCreationPolicy, validate_machine_session,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+    MachineConnectRoute, MachineConnectionPhase, MachineController, MachineKey,
+    MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession, MachineSnapshot,
+    MachineTransitionView, MachineUiState, MachineUpdate, MachineUpdateStream,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionContext,
+    ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    validate_machine_session,
 };
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
@@ -2012,6 +2013,19 @@ impl OrderedSession {
 
     fn tree(&self) -> TreeView {
         self.inner.tree()
+    }
+
+    fn report_focus(
+        &self,
+        previous: Option<crate::session::ClientFocus>,
+        focus: crate::session::ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        self.inner.report_focus(previous, focus, client_id);
+    }
+
+    fn client_focus(&self, client_id: &str) -> Option<crate::session::ClientFocus> {
+        self.inner.client_focus(client_id)
     }
 
     fn agents(&self) -> Vec<AgentInfo> {
@@ -4124,15 +4138,32 @@ pub enum MenuAction {
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
-    TogglePaneZoom { pane: PaneId, zoomed: bool },
-    ToggleSidebar { visible: bool },
-    ToggleSidebarCompact { compact: bool },
+    TogglePaneZoom {
+        pane: PaneId,
+        zoomed: bool,
+    },
+    ToggleSidebar {
+        visible: bool,
+    },
+    ToggleSidebarCompact {
+        compact: bool,
+    },
     FocusSidebar,
     ActivateSidebarProfile(usize),
-    SetSidebarViewVisible { view: usize, visible: bool },
+    SetSidebarViewVisible {
+        view: usize,
+        visible: bool,
+    },
     ShowShortcuts,
-    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
-    UseClientSize { surface: SurfaceId, client: u64 },
+    SetClientSizing {
+        surface: SurfaceId,
+        client: u64,
+        enabled: bool,
+    },
+    UseClientSize {
+        surface: SurfaceId,
+        client: u64,
+    },
     RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
     SelectProviderScope(usize),
@@ -4140,12 +4171,23 @@ pub enum MenuAction {
     CreateMachineFrom(usize),
     ConnectMachineTarget(usize),
     ConnectOtherMachine,
+    /// A configured action from a customizable menu (for example a `+`
+    /// button's right-click menu), targeting an optional pane.
+    RunConfigured {
+        action: Action,
+        pane: Option<PaneId>,
+    },
 }
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
         let menu = &localization::catalog().menu;
         match self {
+            // Menus always wrap this variant in a labeled item; the catalog
+            // label is the keyboard-help fallback only.
+            MenuAction::RunConfigured { action, .. } => {
+                localization::catalog().action_label(*action)
+            }
             MenuAction::RenameClientMachine(_) | MenuAction::RenameManagedMachine(_) => {
                 localization::catalog().sidebar.rename_machine
             }
@@ -6660,6 +6702,12 @@ pub struct App {
     viewport_virtual_width: u64,
     viewport_offset: u64,
     pane_focus_history: PaneFocusHistory,
+    /// Last focus reported to the mux, None until a baseline is adopted from
+    /// the session's own tree so adoption never echoes back as a mutation.
+    reported_focus: Option<crate::session::ClientFocus>,
+    /// Durable identity for per-client focus memory on the mux
+    /// (client-focus-v1); None when no config directory is available.
+    client_focus_id: Option<String>,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -6744,6 +6792,12 @@ pub struct App {
     selection_generation: u64,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
+    /// The last status message written to the client log, so a message that
+    /// stays on screen across frames is recorded once.
+    logged_status_message: Option<String>,
+    /// The most recent informational provider notice routed through the
+    /// status line, so the client log records it as INFO, not ERROR.
+    status_notice_text: Option<String>,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -6807,6 +6861,35 @@ pub struct App {
 struct QueuedDurableNotice {
     notice: DurableProviderNotice,
     painted_at: Option<Instant>,
+}
+
+/// A durable random id naming this client install for per-client focus
+/// memory on the mux (client-focus-v1). Stored next to the TUI config;
+/// created on first use.
+fn client_focus_identity() -> Option<String> {
+    let path = crate::config::config_path().ok()?.parent()?.join("client-id");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let existing = existing.trim();
+        if !existing.is_empty()
+            && existing.len() <= 128
+            && existing.bytes().all(|byte| byte.is_ascii_graphic())
+        {
+            return Some(existing.to_string());
+        }
+    }
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    let mut id = String::with_capacity(39);
+    id.push_str("client-");
+    use std::fmt::Write as _;
+    for byte in bytes {
+        write!(&mut id, "{byte:02x}").ok()?;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, format!("{id}\n")).ok()?;
+    Some(id)
 }
 
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
@@ -8284,17 +8367,25 @@ fn prepare_machine_session(
     preparation: MachineSessionPreparation,
     app_events: SyncSender<AppEvent>,
 ) -> anyhow::Result<PreparedMachineSession> {
+    // The managed-workspace guard runs on every presentation, reused or
+    // not: a pooled session can change state while it is not presented, and
+    // the guard is the invariant that makes presenting it safe. Only the
+    // cosmetic default-colors round-trip is skipped for reused sessions.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = replacement
-        .session
-        .set_default_colors(preparation.default_colors)
-        .err()
-        .map(|error| error.to_string());
+    let color_error = if replacement.reused {
+        None
+    } else {
+        replacement
+            .session
+            .set_default_colors(preparation.default_colors)
+            .err()
+            .map(|error| error.to_string())
+    };
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -8601,7 +8692,14 @@ fn run_with_machine_updates_inner(
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
         .transpose()?;
 
+    // One line per launch, so every stretch of the log names the build that
+    // produced it. Sink initialization is asynchronous (writer thread), so
+    // this never blocks startup however slow the log target is.
+    crate::client_log::info("startup", &crate::version_string());
     enable_raw_mode()?;
+    // The TUI owns the terminal now: stray stderr writes (panics, libraries)
+    // would corrupt the raw-mode screen, so route fd 2 into the client log.
+    crate::client_log::redirect_stderr_into_log();
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
@@ -8812,6 +8910,8 @@ fn run_with_machine_updates_inner(
         viewport_virtual_width: 0,
         viewport_offset: 0,
         pane_focus_history: PaneFocusHistory::default(),
+        reported_focus: None,
+        client_focus_id: client_focus_identity(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -8877,6 +8977,8 @@ fn run_with_machine_updates_inner(
         selection_generation: 0,
         status_selection: None,
         rendered_status_message: None,
+        logged_status_message: None,
+        status_notice_text: None,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -9032,7 +9134,12 @@ impl TerminalRestoreGuard {
         if let Some(graphics_shutdown) = &self.graphics_shutdown {
             graphics_shutdown.cancel_and_wait();
         }
-        restore_terminal(Some(&self.stdout_lock), &self.host_keyboard_protocol)
+        let result = restore_terminal(Some(&self.stdout_lock), &self.host_keyboard_protocol);
+        // The terminal is the user's again; diagnostics from here on must
+        // reach it instead of the client log. Explicit restoration disarms
+        // the guard, so Drop will not do this (idempotent regardless).
+        crate::client_log::restore_stderr_from_log();
+        result
     }
 
     fn restore_after_error(&mut self, error: anyhow::Error) -> anyhow::Error {
@@ -9061,6 +9168,9 @@ impl Drop for TerminalRestoreGuard {
             with_panic_stdout_lock(&self.stdout_lock, || {
                 let _ = restore_terminal_unlocked(&self.host_keyboard_protocol);
             });
+            // The terminal is the user's again; exit-time diagnostics should
+            // reach it instead of the client log.
+            crate::client_log::restore_stderr_from_log();
         }
     }
 }
@@ -9332,15 +9442,81 @@ impl App {
         self.machine_selection_intent.or(self.machine_presented)
     }
 
-    pub(crate) fn machine_transition(&self) -> Option<(&str, MachineConnectionPhase)> {
+    pub(crate) fn machine_transition(&self) -> Option<MachineTransitionView<'_>> {
         let selected = self.machine_selection_intent?;
         let ui = self.machine_ui.as_ref()?;
         if self.machine_presented == Some(selected) && ui.session_available {
             return None;
         }
-        let name =
-            ui.snapshot.machines.iter().find(|machine| machine.key == selected)?.name.as_str();
-        Some((name, ui.connection_phase(selected)))
+        // Switching to a machine whose connection is already warm settles in
+        // one round-trip: keep painting the current machine instead of
+        // blanking the content with a "connecting" interstitial. Only while
+        // the current machine is actually paintable - if its session is gone
+        // (it paused; its stream died), "keep painting it" would show a dead
+        // screen with no sign a switch is running.
+        if self.machine_presented.is_some()
+            && self.machine_presented != Some(selected)
+            && ui.session_available
+            && ui.connection_phase(selected) == MachineConnectionPhase::Ready
+        {
+            return None;
+        }
+        let machine = ui.snapshot.machines.iter().find(|machine| machine.key == selected)?;
+        Some(MachineTransitionView {
+            name: machine.name.as_str(),
+            phase: ui.connection_phase(selected),
+            status: machine.status,
+            progress: ui.connection_progress(selected),
+        })
+    }
+
+    /// Latest provider progress for a machine that is opening. Presentation
+    /// only: dropped when the switch settles, fails, or is re-aimed.
+    fn apply_connection_progress(
+        &mut self,
+        machine_id: String,
+        latest: Arc<Mutex<Option<String>>>,
+    ) -> RenderAction {
+        // Latest-value cell: the pump overwrites it while this update sat in
+        // the queue, so this read is the newest stage; an emptied cell means
+        // a newer update for this machine already consumed it.
+        let Some(message) = latest.lock().unwrap_or_else(|p| p.into_inner()).take() else {
+            return RenderAction::None;
+        };
+        let Some(ui) = self.machine_ui.as_mut() else { return RenderAction::None };
+        let Some(key) = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == machine_id)
+            .map(|machine| machine.key)
+        else {
+            return RenderAction::None;
+        };
+        // Progress is only meaningful while an open for this machine is
+        // being shown. A late event queued before the open settled (failed,
+        // or presented) must not repopulate the stage the settle cleared.
+        match ui.connection_phase(key) {
+            MachineConnectionPhase::Connecting => {}
+            MachineConnectionPhase::Ready
+                if self.machine_selection_intent == Some(key)
+                    && self.machine_presented != Some(key) =>
+            {
+                // The aim believed this target was warm, but the provider is
+                // narrating an open: the pooled session was dead and a real
+                // (re)connect or wake is running. Flip to Connecting so the
+                // interstitial appears instead of silently showing the old
+                // machine for the whole reconnect.
+                ui.set_connection_phase(key, MachineConnectionPhase::Connecting);
+            }
+            _ => return RenderAction::None,
+        }
+        ui.set_connection_progress(key, message);
+        if self.machine_selection_intent == Some(key) {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
     }
 
     fn select_machine_intent(&mut self, machine: MachineKey) {
@@ -9349,9 +9525,24 @@ impl App {
             self.machine_selection_generation =
                 self.machine_selection_generation.wrapping_add(1).max(1);
             self.machine_selection_intent = Some(machine);
+            // A fresh aim starts with a fresh interstitial, not the last
+            // attempt's progress message.
+            if let Some(ui) = self.machine_ui.as_mut() {
+                ui.clear_connection_progress(machine);
+            }
         }
+        let presented_live = self.machine_presented == Some(machine)
+            && self.machine_ui.as_ref().is_some_and(|ui| ui.session_available);
         if let Some(ui) = self.machine_ui.as_mut() {
-            let phase = if self.machine_presented == Some(machine) {
+            let phase = if presented_live
+                || ui.connection_phase(machine) == MachineConnectionPhase::Ready
+            {
+                // A warm pooled connection stays Ready: the switch reuses it,
+                // so neither the rail badge nor the content interstitial
+                // should flash "connecting". A presented machine whose
+                // session is gone (it paused; the stream died) is NOT ready:
+                // reselecting it starts a real wake, and the interstitial
+                // must say so instead of briefly claiming Ready.
                 MachineConnectionPhase::Ready
             } else {
                 MachineConnectionPhase::Connecting
@@ -9528,15 +9719,21 @@ impl App {
         let messages = &localization::catalog().sidebar;
         spec.actions
             .iter()
-            .copied()
-            .flat_map(|action| {
+            .flat_map(|action_spec| {
+                let action = action_spec.action;
+                let label_override = action_spec.label.as_deref();
                 if action == Action::NewWorkspace {
                     return self
                         .workspace_creation_modes()
                         .into_iter()
                         .map(|mode| SidebarActionRow {
                             label: match mode {
-                                None => messages.new_workspace.to_string(),
+                                // A configured label renames the plain
+                                // button; the provider-specific isolated and
+                                // shared variants keep their catalog labels.
+                                None => {
+                                    label_override.unwrap_or(messages.new_workspace).to_string()
+                                }
                                 Some(WorkspaceCreationMode::Isolated) => {
                                     messages.new_isolated_workspace.to_string()
                                 }
@@ -9550,13 +9747,58 @@ impl App {
                 }
                 self.action_available(action)
                     .then(|| SidebarActionRow {
-                        label: localization::catalog().action_label(action).to_string(),
+                        label: label_override
+                            .map(str::to_string)
+                            .unwrap_or_else(|| self.action_display_label(action).to_string()),
                         target: SidebarActionTarget::Run(action),
                     })
                     .into_iter()
                     .collect()
             })
             .collect()
+    }
+
+    /// Menu items for a configurable `+` button's right-click menu.
+    fn plus_menu_items(
+        &self,
+        plus: &crate::config::PlusButton,
+        pane: Option<PaneId>,
+    ) -> Vec<MenuItem> {
+        plus.menu
+            .iter()
+            .filter(|spec| self.action_available(spec.action))
+            .map(|spec| MenuItem::LabeledAction {
+                label: spec
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| self.action_display_label(spec.action).to_string()),
+                action: MenuAction::RunConfigured { action: spec.action, pane },
+            })
+            .collect()
+    }
+
+    /// Where the workspace rail's pinned action buttons render.
+    pub(crate) fn workspace_actions_position(&self) -> crate::config::ActionsPosition {
+        self.view_index_for_rail(RailKind::Workspace)
+            .and_then(|index| self.config.sidebar.views.get(index))
+            .map(|spec| spec.actions_position)
+            .unwrap_or_default()
+    }
+
+    /// Expand the configured workspace row label template. The default
+    /// template borrows the name, so ordinary draws do not allocate.
+    pub(crate) fn workspace_button_label<'a>(
+        &self,
+        index: usize,
+        name: &'a str,
+    ) -> std::borrow::Cow<'a, str> {
+        let template = &self.config.sidebar.workspace_label;
+        if template == "{name}" {
+            return std::borrow::Cow::Borrowed(name);
+        }
+        std::borrow::Cow::Owned(
+            template.replace("{index}", &index.to_string()).replace("{name}", name),
+        )
     }
 
     pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {
@@ -10291,6 +10533,8 @@ impl App {
             && let Some(ui) = self.machine_ui.as_mut()
         {
             ui.set_connection_phase(*machine, MachineConnectionPhase::Failed);
+            // A stale progress message must not sit under "unavailable".
+            ui.clear_connection_progress(*machine);
         }
     }
 
@@ -10514,6 +10758,11 @@ impl App {
                         let target = session.machine;
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.clear_connection_progress(machine);
+                            }
                             self.install_prepared_machine_session(session, false);
                             if let Some(label) = session_label {
                                 self.session_label = label;
@@ -10679,6 +10928,7 @@ impl App {
         if let Some(error) = guard_error {
             self.status_message = Some(error);
         } else if let Some(notice) = notice {
+            self.status_notice_text = Some(notice.clone());
             self.status_message = Some(notice);
         }
         RenderAction::Draw
@@ -10706,6 +10956,12 @@ impl App {
             self.schedule_machine_provider_reconnect();
             return RenderAction::None;
         }
+        let level = match notice.level {
+            DurableNoticeLevel::Error => "ERROR",
+            DurableNoticeLevel::Warning => "WARN",
+            DurableNoticeLevel::Info => "INFO",
+        };
+        crate::client_log::log(level, "provider-notice", &notice.message);
         self.durable_notices.push_back(QueuedDurableNotice { notice, painted_at: None });
         RenderAction::Draw
     }
@@ -10879,6 +11135,10 @@ impl App {
         self.viewport_offset = 0;
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
+        // The adopted tree's focus is the server's own; report only what the
+        // user changes afterwards.
+        self.reported_focus = self.current_client_focus();
+        self.restore_client_focus_from_session();
         self.rendered_terminal_sizes.clear();
         self.rendered_terminal_pointer_semantics.clear();
         self.rendered_pane_content_generations.clear();
@@ -10941,6 +11201,28 @@ impl App {
 
     fn request_current_machine_session(&mut self) -> bool {
         let Some(machine) = self.machine_ui.as_mut() else { return false };
+        // A machine that is sleeping or stopped lost its stream BECAUSE it
+        // was paused; reconnecting would start it right back up and make
+        // pause impossible. Present it as asleep instead - the user's next
+        // input (or a rail click) wakes it through the normal switch path.
+        if let Some(active) = machine.snapshot.active
+            && machine.snapshot.machines.iter().any(|descriptor| {
+                descriptor.key == active
+                    && matches!(
+                        descriptor.status,
+                        crate::machine::MachineStatus::Sleeping
+                            | crate::machine::MachineStatus::Stopped
+                    )
+            })
+        {
+            machine.session_available = false;
+            machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+            // The previous open's narration is stale now; a later wake
+            // reuses the same selection intent, so select_machine_intent
+            // will not clear it.
+            machine.clear_connection_progress(active);
+            return true;
+        }
         if machine.request.is_none() {
             machine.request = Some(
                 machine
@@ -10948,6 +11230,35 @@ impl App {
                     .active
                     .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch),
             );
+        }
+        true
+    }
+
+    /// The user typed at a machine whose session is gone (it paused or the
+    /// stream died while they were away). Queue a switch back to it: the
+    /// provider resumes the VM and the interstitial shows the live loading
+    /// states. Returns false when there is nothing sensible to wake.
+    fn wake_presented_machine(&mut self) -> bool {
+        let Some(presented) = self.machine_presented else { return false };
+        // While a switch to a DIFFERENT machine is in flight the key must
+        // not re-aim back at the old machine (that could resume a machine
+        // the user deliberately left paused). Consume it; the transition
+        // interstitial is visible and the switch will settle.
+        if self.machine_selection_intent.is_some_and(|intent| intent != presented) {
+            return true;
+        }
+        {
+            let Some(machine) = self.machine_ui.as_mut() else { return false };
+            if machine.request.is_some() {
+                return true;
+            }
+            machine.request = Some(MachineRequest::Switch(presented));
+        }
+        self.select_machine_intent(presented);
+        if let Some(ui) = self.machine_ui.as_mut() {
+            // select_machine_intent keeps the presented machine's phase; the
+            // wake is a real reconnect, so the interstitial must show it.
+            ui.set_connection_phase(presented, MachineConnectionPhase::Connecting);
         }
         true
     }
@@ -12041,6 +12352,14 @@ impl App {
             .get(self.sidebar_workspace_selection)
             .map(|workspace| workspace.id);
         preserve_client_view(&self.tree, &mut tree);
+        let first_adoption = self.reported_focus.is_none();
+        if first_adoption {
+            // First adopted tree: its focus is the server's own baseline.
+            self.reported_focus = tree
+                .active_screen()
+                .and_then(|screen| screen.panes.iter().find(|pane| pane.id == screen.active_pane))
+                .map(|pane| crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab });
+        }
         if let Some(surface) = self.surface_only
             && !tree.select_surface(surface)
         {
@@ -12090,6 +12409,9 @@ impl App {
             && let Some(active) = self.active_pane()
         {
             self.pane_focus_history.record(active);
+        }
+        if first_adoption {
+            self.restore_client_focus_from_session();
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
@@ -13978,6 +14300,9 @@ impl App {
                 Ok(match *update {
                     MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
                     MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
+                    MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                        self.apply_connection_progress(machine_id, latest)
+                    }
                 })
             }
             AppEvent::MachineControllerCompleted(completion) => {
@@ -15256,7 +15581,64 @@ impl App {
         self.tree.active_surface()
     }
 
+    /// Adopt this client's own remembered focus from the mux (or the
+    /// session's last reported focus when this client has none), when the
+    /// server has one whose pane still exists in the adopted tree; otherwise
+    /// the tree's own focus stays. Sets the report baseline either way.
+    fn restore_client_focus_from_session(&mut self) {
+        let Some(client_id) = self.client_focus_id.clone() else { return };
+        let Some(focus) = self.session.client_focus(&client_id) else { return };
+        let mut location = None;
+        for (workspace_index, workspace) in self.tree.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                if let Some(pane) = screen.panes.iter().find(|pane| pane.id == focus.pane) {
+                    let tab = focus.tab.min(pane.tabs.len().saturating_sub(1));
+                    location = Some((workspace_index, screen_index, pane.id, tab));
+                }
+            }
+        }
+        let Some((workspace_index, screen_index, pane_id, tab_index)) = location else { return };
+        self.tree.active_workspace = workspace_index;
+        if let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) {
+            workspace.active_screen = screen_index;
+            if let Some(screen) = workspace.screens.get_mut(screen_index) {
+                screen.active_pane = pane_id;
+                if let Some(pane) = screen.panes.iter_mut().find(|pane| pane.id == pane_id) {
+                    pane.active_tab = tab_index;
+                }
+            }
+        }
+        self.sidebar_workspace_selection =
+            workspace_index.min(self.tree.workspaces.len().saturating_sub(1));
+        self.pane_focus_history.record(pane_id);
+        self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
+    }
+
+    /// Report the client's focus (pane and tab; the server derives workspace
+    /// and screen at restore time) to the server's focus memory. The first
+    /// observation after adopting a tree is recorded as the baseline without
+    /// sending, so attaching never mutates the server; only later user
+    /// navigation does.
+    fn current_client_focus(&self) -> Option<crate::session::ClientFocus> {
+        let screen = self.tree.active_screen()?;
+        let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
+        Some(crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab })
+    }
+
+    fn report_client_focus(&mut self) {
+        let Some(focus) = self.current_client_focus() else { return };
+        match self.reported_focus {
+            None => self.reported_focus = Some(focus),
+            Some(previous) if previous == focus => {}
+            Some(previous) => {
+                self.session.report_focus(Some(previous), focus, self.client_focus_id.as_deref());
+                self.reported_focus = Some(focus);
+            }
+        }
+    }
+
     fn claim_active_terminal_geometry(&mut self, force: bool) {
+        self.report_client_focus();
         let terminal = self.tree.active_screen().and_then(|screen| {
             let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
             let tab = pane.tabs.get(pane.active_tab)?;
@@ -15588,6 +15970,10 @@ impl App {
     }
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
+        // Per-frame render reset. `logged_status_message` deliberately
+        // survives it: a message that stays visible across redraws is one
+        // event, not one per frame. Dismissal (`hide_status_message`) clears
+        // it, so a message that reappears later logs again.
         self.rendered_status_message = None;
     }
 
@@ -15598,11 +15984,27 @@ impl App {
                 self.drag = None;
             }
         }
+        // Every visible status message passes through here; persist each new
+        // one so warnings survive the session in the client log. Provider
+        // notices ("VM created") share the status line but are not errors.
+        if self.logged_status_message.as_deref() != Some(text.as_str()) {
+            if self.status_notice_text.as_deref() == Some(text.as_str()) {
+                crate::client_log::info("status", &text);
+            } else {
+                crate::client_log::error("status", &text);
+            }
+            self.logged_status_message = Some(text.clone());
+        }
         self.rendered_status_message = Some(RenderedStatusMessage { rect, text });
     }
 
     pub(crate) fn hide_status_message(&mut self) {
         self.rendered_status_message = None;
+        self.logged_status_message = None;
+        // The notice marker only describes the currently shown message; a
+        // later status with the same text is a fresh event and must be
+        // classified on its own.
+        self.status_notice_text = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
             self.drag = None;
@@ -18390,6 +18792,9 @@ impl App {
                     self.begin_machine_connection(target, MachineConnectRoute::Local);
                 }
             }
+            MenuAction::RunConfigured { action, pane } => {
+                self.run_action_for_pane(action, pane.or_else(|| self.active_pane()))?;
+            }
             MenuAction::ConnectOtherMachine => {
                 let prompt = self.connect_machine_prompt();
                 self.prompt = Some(prompt);
@@ -18597,6 +19002,11 @@ impl App {
 
     fn forward_key(&mut self, input: keys::KeyboardInput) {
         if !self.session_available() {
+            // Coming back to a machine that paused or lost its stream: the
+            // first keystroke wakes it instead of bouncing off a dead pane.
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -18607,6 +19017,9 @@ impl App {
 
     fn forward_key_to_surface(&mut self, input: keys::KeyboardInput, surface_id: SurfaceId) {
         if !self.session_available() {
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -18647,6 +19060,9 @@ impl App {
             return;
         }
         if !self.session_available() {
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -20471,7 +20887,12 @@ impl App {
                 Hit::CopyStatusMessage => self.copy_status_message(),
                 Hit::NewScreen => {
                     self.focus = FocusTarget::Pane;
-                    self.new_screen(None)?;
+                    if let Some(action) = self.config.status_bar.screens_plus.action {
+                        let pane = self.active_pane();
+                        self.run_action_for_pane(action, pane)?;
+                    } else {
+                        self.new_screen(None)?;
+                    }
                 }
                 Hit::Tab { pane, index } => {
                     if let Some(surface) = self
@@ -20485,7 +20906,9 @@ impl App {
                 }
                 Hit::NewTab { pane } => {
                     self.focus_pane_after_input(pane);
-                    if self.prepare_pty_input_before_mutation() {
+                    if let Some(action) = self.config.tabs.plus.action {
+                        self.run_action_for_pane(action, Some(pane))?;
+                    } else if self.prepare_pty_input_before_mutation() {
                         self.session
                             .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
@@ -20924,6 +21347,7 @@ impl App {
     }
 
     fn show_toast(&mut self, text: String) {
+        crate::client_log::info("toast", &text);
         self.toast = Some(Toast { text, deadline: Instant::now() + Duration::from_millis(1500) });
     }
 
@@ -21539,6 +21963,25 @@ impl App {
                 vec![self.menu_group([MenuAction::CopyStatusMessage]), self.global_menu_items()],
             ));
             return;
+        }
+        // Configurable `+` buttons: a right click opens their configured
+        // menu when one exists; without one the generic paths below apply.
+        if let Some(Hit::NewTab { pane }) = hit {
+            let items = self.plus_menu_items(&self.config.tabs.plus, Some(pane));
+            if !items.is_empty() {
+                self.menu =
+                    Some(ContextMenu::with_groups(x, y, vec![items, self.global_menu_items()]));
+                return;
+            }
+        }
+        if matches!(hit, Some(Hit::NewScreen)) {
+            let items =
+                self.plus_menu_items(&self.config.status_bar.screens_plus, self.active_pane());
+            if !items.is_empty() {
+                self.menu =
+                    Some(ContextMenu::with_groups(x, y, vec![items, self.global_menu_items()]));
+                return;
+            }
         }
         if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
             let mut groups = Vec::new();
@@ -22487,9 +22930,9 @@ mod tests {
     use crate::localization;
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-        MachineCapabilities, MachineConnectionTarget, MachineController, MachineCreationSource,
-        MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
-        MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
+        MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineController,
+        MachineCreationSource, MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest,
+        MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
         ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
         ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
         ProviderActionContext, ProviderActionDescriptor, ProviderActionFieldDescriptor,
@@ -24826,7 +25269,8 @@ mod tests {
         let focused = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 30,
             max_width: 0,
             collapse_priority: 30,
@@ -25068,7 +25512,10 @@ mod tests {
             app.handle(event).unwrap();
         }
         assert_eq!(app.active_pane(), Some(bottom_right));
+        // Focus reports only write the session's focus memory for later
+        // attaches; the live shared focus never follows client navigation.
         assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
@@ -26169,7 +26616,11 @@ mod tests {
         app.session.remote = true;
         app.select_screen_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        // Client navigation is optimistic and client-local; it records the
+        // session's focus memory for later attaches without moving the live
+        // shared focus.
         assert_eq!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
@@ -26200,12 +26651,87 @@ mod tests {
         app.session.remote = true;
         app.select_workspace_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        // Client navigation is optimistic and client-local; it records the
+        // session's focus memory for later attaches without moving the live
+        // shared focus.
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn client_navigation_records_the_session_focus_without_moving_the_mux() {
+        let mux = Mux::new("client-focus-report-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        // Adopting a tree records the baseline without reporting.
+        assert_eq!(mux.session_focus(), None);
+
+        app.select_workspace_for_client(Some(1), None);
+        // The report records the session's last focus for later attaches and
+        // leaves the live shared focus alone, so attached clients stay put.
+        let second_pane = app.tree.workspaces[1].screens[0].active_pane;
+        assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        assert_eq!(mux.session_focus(), Some((second_pane, Some(0))));
+
+        // A client with no memory of its own adopts the session's last
+        // reported focus on first attach.
+        let mut second = test_app(Session::Local(mux.clone()));
+        second.sidebar_visible = false;
+        second.client_focus_id = Some("bob".to_string());
+        second.replace_tree(second.session.tree());
+        assert_eq!(second.tree.active_workspace, 1);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn reconnecting_client_restores_its_own_focus() {
+        let mux = Mux::new("client-focus-reconnect-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+
+        let mut first = test_app(Session::Local(mux.clone()));
+        first.sidebar_visible = false;
+        first.client_focus_id = Some("alice".to_string());
+        first.replace_tree(first.session.tree());
+        first.select_workspace_for_client(Some(1), None);
+        drop(first);
+
+        // Another client later reports focus elsewhere, moving the session's
+        // last reported focus (the cross-client adoption default).
+        let mut other = test_app(Session::Local(mux.clone()));
+        other.sidebar_visible = false;
+        other.client_focus_id = Some("bob".to_string());
+        other.replace_tree(other.session.tree());
+        other.select_workspace_for_client(Some(0), None);
+        drop(other);
+
+        let mut second = test_app(Session::Local(mux.clone()));
+        second.sidebar_visible = false;
+        second.client_focus_id = Some("alice".to_string());
+        second.replace_tree(second.session.tree());
+        // Reconnection restores this client's own remembered focus, not the
+        // session focus another client reported afterwards.
+        assert_eq!(second.tree.active_workspace, 1);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -36261,6 +36787,245 @@ mod tests {
     }
 
     #[test]
+    fn machine_transition_shows_progress_then_status_aware_default() {
+        let mux = Mux::new("machine-transition-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(7),
+                id: "vm-7".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.set_connection_phase(MachineKey(7), MachineConnectionPhase::Connecting);
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(7));
+
+        // Status-aware default: a sleeping machine renders as waking, which
+        // the interstitial derives from status when no progress arrived.
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, None);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+
+        // A provider connection_progress event renders live while the switch
+        // is still in flight.
+        let action = app.apply_connection_progress(
+            "vm-7".into(),
+            Arc::new(Mutex::new(Some("resuming the machine".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, Some("resuming the machine"));
+
+        // A failed switch drops the stale message under "unavailable".
+        app.fail_machine_action(Some(&MachineRequest::Switch(MachineKey(7))));
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Failed);
+        assert_eq!(view.progress, None);
+    }
+
+    #[test]
+    fn paused_machine_is_not_auto_resumed_and_wakes_on_input() {
+        let mux = Mux::new("machine-sleep-wake-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+
+        // Stream death for a machine that is asleep: no auto-resume switch;
+        // it presents as sleeping instead, so pause stays paused.
+        assert!(app.request_current_machine_session());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "a paused machine must not auto-resume");
+        assert!(!ui.session_available);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Disconnected);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+
+        // The first keystroke wakes it through the normal switch path with
+        // the connecting interstitial.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn reselecting_a_sleeping_presented_machine_queues_a_wake_switch() {
+        let mux = Mux::new("machine-sleep-reselect-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+        assert!(app.request_current_machine_session());
+
+        // Rail click on the same, now-asleep machine: the switch is queued
+        // (session_available is false) and the interstitial must not claim
+        // Ready while the wake is in flight.
+        app.activate_machine(MachineKey(9));
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+    }
+
+    #[test]
+    fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
+        let mux = Mux::new("machine-dead-switch-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle · paused".into(),
+                    status: MachineStatus::Sleeping,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = false;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        // The presented machine is dead, so the warm-target shortcut must
+        // not hide that a switch is running.
+        assert!(app.machine_transition().is_some(), "interstitial must render");
+
+        // A keystroke mid-switch must not re-aim (and wake) the old paused
+        // machine.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "no wake switch back to the old machine");
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn keystrokes_never_reach_the_old_machine_during_a_warm_switch() {
+        // While a warm switch is in flight the OLD machine is still live and
+        // on screen (session_available field true), but the aim mismatch must
+        // gate input away from it: session_available() requires
+        // selection_intent == presented, and the wake gate consumes the key
+        // instead of forwarding or re-aiming.
+        let mux = Mux::new("machine-warm-switch-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        assert!(!app.session_available(), "aim mismatch must gate the old session");
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "the key must not queue any machine request");
+        assert!(app.status_message.is_none(), "the key is consumed silently mid-switch");
+    }
+
+    #[test]
+    fn progress_for_a_stale_ready_target_reveals_the_reconnect() {
+        let mux = Mux::new("machine-stale-ready-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        // The aim trusted a warm connection, but the pooled session was dead:
+        // the provider starts narrating a real open.
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+        assert!(app.machine_transition().is_none(), "warm shortcut hides the interstitial");
+
+        let action = app.apply_connection_progress(
+            "vm-10".into(),
+            Arc::new(Mutex::new(Some("waiting for sshd".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().expect("reconnect must surface");
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+        assert_eq!(view.progress, Some("waiting for sshd"));
+    }
+
+    #[test]
     fn machine_keyboard_switch_returns_focus_to_pane() {
         let mux = Mux::new("machine-keyboard-switch-focus-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -38512,6 +39277,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38589,6 +39355,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38623,6 +39390,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38660,6 +39428,7 @@ mod tests {
             id: "agents".into(),
             levels: vec![SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38809,7 +39578,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -38908,7 +39678,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -40747,6 +41518,8 @@ mod tests {
             viewport_virtual_width: 0,
             viewport_offset: 0,
             pane_focus_history: PaneFocusHistory::default(),
+            reported_focus: None,
+            client_focus_id: None,
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
@@ -40812,6 +41585,8 @@ mod tests {
             selection_generation: 0,
             status_selection: None,
             rendered_status_message: None,
+            logged_status_message: None,
+            status_notice_text: None,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),
