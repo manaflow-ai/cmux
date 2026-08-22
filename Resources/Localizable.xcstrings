@@ -26735,8 +26735,15 @@
     "browser.error.urlAllowlist.message": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by your organization’s embedded-browser policy." } },
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by your organization's embedded-browser policy." } },
         "ja": { "stringUnit": { "state": "translated", "value": "このURLは組織の内蔵ブラウザポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.userMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by the embedded-browser URL policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは内蔵ブラウザのURLポリシーで許可されていません。" } }
       }
     },
     "browser.error.urlAllowlist.title": {
@@ -26744,6 +26751,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's policy" } },
         "ja": { "stringUnit": { "state": "translated", "value": "組織のポリシーによりブロックされました" } }
+      }
+    },
+    "browser.error.urlAllowlist.userTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
       }
     },
     "browser.error.insecure.message": {
@@ -35164,6 +35178,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's browser policy" } },
         "ja": { "stringUnit": { "state": "translated", "value": "組織のブラウザポリシーによりブロックされました" } }
+      }
+    },
+    "cli.browser.error.urlBlockedByUserPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
       }
     },
     "cli.browser.error.operationFailed": {
@@ -172063,8 +172084,8 @@
     "settings.browser.urlAllowlist.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or clear the list to allow all web origins. Internal cmux documents remain available." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、リストを空にするとすべてのWebオリジンを許可します。cmux内部ドキュメントは引き続き利用できます。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Internal cmux documents remain available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、管理ポリシーがない場合にリストを空にするとすべてのWebオリジンを許可します。cmux内部ドキュメントは引き続き利用できます。" } }
       }
     },
     "settings.browser.urlAllowlist.hint": {

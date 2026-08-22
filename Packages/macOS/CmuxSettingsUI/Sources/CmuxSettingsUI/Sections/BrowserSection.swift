@@ -53,10 +53,7 @@ public struct BrowserSection: View {
         .isBrowserDisableLocked(
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
         )
-    @State private var browserURLAllowlistManagedByPolicy = ManagedDevicePolicy()
-        .isBrowserURLAllowlistLocked(
-            userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
-        )
+    @State private var browserURLAllowlistManagedByPolicy = BrowserURLAllowlistPolicy().isManaged
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -112,9 +109,17 @@ public struct BrowserSection: View {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
                     browserDisabledUserDefaultsKey: catalog.browser.disabled.userDefaultsKey
                 )
-                browserURLAllowlistManagedByPolicy = ManagedDevicePolicy().isBrowserURLAllowlistLocked(
-                    userDefaultsKey: catalog.browser.urlAllowlist.userDefaultsKey
-                )
+                let policy = BrowserURLAllowlistPolicy()
+                let wasManaged = browserURLAllowlistManagedByPolicy
+                browserURLAllowlistManagedByPolicy = policy.isManaged
+                if policy.isManaged || wasManaged {
+                    urlAllowlistDraft = effectiveURLAllowlistText(
+                        for: urlAllowlist,
+                        policy: policy
+                    )
+                    urlAllowlistSyncedValue = urlAllowlistDraft
+                    urlAllowlistLoaded = true
+                }
             }
         }
     }
@@ -525,7 +530,7 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or clear the list to allow all web origins. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Internal cmux documents remain available."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $urlAllowlistDraft)
@@ -563,12 +568,17 @@ public struct BrowserSection: View {
         .padding(.vertical, 10)
         .task {
             if !urlAllowlistLoaded {
-                urlAllowlistDraft = model.current
-                urlAllowlistSyncedValue = model.current
+                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                urlAllowlistSyncedValue = urlAllowlistDraft
                 urlAllowlistLoaded = true
             }
         }
         .onChange(of: model.current) { _, newValue in
+            if browserURLAllowlistManagedByPolicy {
+                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                urlAllowlistSyncedValue = urlAllowlistDraft
+                return
+            }
             if !urlAllowlistLoaded {
                 urlAllowlistDraft = newValue
                 urlAllowlistSyncedValue = newValue
@@ -580,6 +590,14 @@ public struct BrowserSection: View {
             }
             urlAllowlistSyncedValue = newValue
         }
+    }
+
+    private func effectiveURLAllowlistText(
+        for model: DefaultsValueModel<String>,
+        policy: BrowserURLAllowlistPolicy = BrowserURLAllowlistPolicy()
+    ) -> String {
+        guard policy.isManaged else { return model.current }
+        return policy.patterns.map(\.rawValue).joined(separator: "\n")
     }
 
     private var urlAllowlistHint: some View {

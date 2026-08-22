@@ -6934,14 +6934,19 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserURLAllowlistFailure(for url: URL) -> V2CallResult? {
-        guard !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else { return nil }
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        guard !policy.allows(url) else { return nil }
         return .err(
             code: "browser_url_blocked",
             message: String(
-                localized: "cli.browser.error.urlBlockedByPolicy",
-                defaultValue: "Blocked by your organization's browser policy"
+                localized: policy.isManaged
+                    ? "cli.browser.error.urlBlockedByPolicy"
+                    : "cli.browser.error.urlBlockedByUserPolicy",
+                defaultValue: policy.isManaged
+                    ? "Blocked by your organization's browser policy"
+                    : "Blocked by the embedded-browser URL policy"
             ),
-            data: ["url": url.absoluteString]
+            data: nil
         )
     }
 
@@ -6962,6 +6967,14 @@ class TerminalController {
             return nil
         }
         return policy.allows(parsedURL) ? nil : parsedURL
+    }
+
+    /// Resolves the URL accepted by `browser.tab.new`, including host-like
+    /// inputs such as `localhost:3000` that Foundation otherwise parses as a
+    /// pseudo-scheme.
+    nonisolated static func browserAutomationURL(from rawInput: String) -> URL? {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolveBrowserNavigableURL(trimmed) ?? URL(string: trimmed)
     }
 
     private func v2BrowserOpenSplit(
@@ -10457,11 +10470,17 @@ class TerminalController {
         }
 
         let urlStr = v2String(params, "url")
-        let url = urlStr.flatMap(URL.init(string:))
+        let url = urlStr.flatMap(Self.browserAutomationURL(from:))
         guard BrowserAvailabilitySettings.isEnabled() else {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
-        if let url, let failure = v2BrowserURLAllowlistFailure(for: url) {
+        if let urlStr,
+           let blockedURL = Self.browserURLAllowlistBlockedURL(
+               rawInput: urlStr,
+               resolvedURL: url,
+               policy: BrowserURLAllowlistPolicy(defaults: .standard)
+           ),
+           let failure = v2BrowserURLAllowlistFailure(for: blockedURL) {
             return failure
         }
 

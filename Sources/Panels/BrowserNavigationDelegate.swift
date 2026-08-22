@@ -53,6 +53,7 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private var pendingMainFrameDownloadRestoreAttemptID: UUID?
+    private var trustedInternalNavigationURL: URL?
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
 
@@ -120,11 +121,13 @@ import WebKit
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView, navigation)
+        trustedInternalNavigationURL = nil
         clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinish?(webView)
+        trustedInternalNavigationURL = nil
         clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
             shouldPrintAfterCurrentNavigationFinishes = false
@@ -138,6 +141,7 @@ import WebKit
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
+        trustedInternalNavigationURL = nil
         clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
@@ -285,13 +289,18 @@ import WebKit
             return
         }
 
-        if let url = navigationAction.request.url,
-           navigationAction.targetFrame?.isMainFrame != false,
-           url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
-           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
-            decisionHandler(.cancel)
-            blockURLAllowlistNavigation(url, in: webView)
-            return
+        if let url = navigationAction.request.url {
+            let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
+            if !isTrustedInternal,
+               url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+               !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+                decisionHandler(.cancel)
+                if isMainFrame {
+                    blockURLAllowlistNavigation(url, in: webView)
+                }
+                return
+            }
         }
 
         if let url = navigationAction.request.url,
@@ -691,12 +700,19 @@ import WebKit
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if navigationResponse.isForMainFrame,
-           let url = navigationResponse.response.url,
-           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
-            decisionHandler(.cancel)
-            blockURLAllowlistNavigation(url, in: webView)
-            return
+        if let url = navigationResponse.response.url {
+            let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
+            if !isTrustedInternal,
+               !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+                decisionHandler(.cancel)
+                if navigationResponse.isForMainFrame {
+                    blockURLAllowlistNavigation(url, in: webView)
+                }
+                return
+            }
+            if isTrustedInternal {
+                trustedInternalNavigationURL = nil
+            }
         }
 
         let mime = navigationResponse.response.mimeType ?? "unknown"
@@ -793,8 +809,23 @@ import WebKit
         if let handleBlockedURLAllowlistNavigation {
             handleBlockedURLAllowlistNavigation(url, webView)
         } else {
-            BrowserURLAllowlistBlockedPage(blockedURL: url).load(in: webView)
+            BrowserURLAllowlistBlockedPage(
+                blockedURL: url,
+                isManaged: BrowserURLAllowlistPolicy(defaults: .standard).isManaged
+            ).load(in: webView)
         }
+    }
+
+    private func trustedInternalNavigation(for url: URL, in webView: WKWebView) -> Bool {
+        if trustedInternalNavigationURL?.absoluteString == url.absoluteString {
+            return true
+        }
+        guard let cmuxWebView = webView as? CmuxWebView,
+              cmuxWebView.consumeTrustedInternalNavigation(url) else {
+            return false
+        }
+        trustedInternalNavigationURL = url
+        return true
     }
 
     /// Applies a newly changed policy to the currently displayed document.

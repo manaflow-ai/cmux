@@ -205,11 +205,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             }
         }
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
-            let observedDisplayURL = navDel?.activePolicyBlockedURL?.absoluteString
+            let observedDisplayURL = navDel?.activePolicyBlockedURL
+                .map(BrowserURLAllowlistBlockedPage.safeDisplayOrigin)
                 ?? change.newValue??.absoluteString
                 ?? ""
             Task { @MainActor [weak self, weak navDel] in
-                self?.urlLabel.stringValue = navDel?.activePolicyBlockedURL?.absoluteString
+                self?.urlLabel.stringValue = navDel?.activePolicyBlockedURL
+                    .map(BrowserURLAllowlistBlockedPage.safeDisplayOrigin)
                     ?? navDel?.activeErrorPageDisplayURL?.absoluteString
                     ?? observedDisplayURL
             }
@@ -265,10 +267,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     }
 
     fileprivate func showBlockedURLAllowlist(_ url: URL) {
-        urlLabel.stringValue = url.absoluteString
+        urlLabel.stringValue = BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: url)
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
         panel.title = String(
-            localized: "browser.error.urlAllowlist.title",
-            defaultValue: "Blocked by your organization's policy"
+            localized: policy.isManaged
+                ? "browser.error.urlAllowlist.title"
+                : "browser.error.urlAllowlist.userTitle",
+            defaultValue: policy.isManaged
+                ? "Blocked by your organization's policy"
+                : "Blocked by the embedded-browser URL policy"
         )
     }
 
@@ -707,11 +714,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame != false,
-           url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
+        if url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             decisionHandler(.cancel)
-            blockURLAllowlistNavigation(url, in: webView)
+            if isMainFrame {
+                blockURLAllowlistNavigation(url, in: webView)
+            }
             return
         }
 
@@ -894,11 +903,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if navigationResponse.isForMainFrame,
-           let url = navigationResponse.response.url,
+        if let url = navigationResponse.response.url,
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             decisionHandler(.cancel)
-            blockURLAllowlistNavigation(url, in: webView)
+            if navigationResponse.isForMainFrame {
+                blockURLAllowlistNavigation(url, in: webView)
+            }
             return
         }
 
@@ -974,7 +984,10 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     func blockURLAllowlistNavigation(_ url: URL, in webView: WKWebView) {
         clearAttemptedRequest(discardPendingBypasses: true)
         activePolicyBlockedURL = url
-        BrowserURLAllowlistBlockedPage(blockedURL: url).load(in: webView)
+        BrowserURLAllowlistBlockedPage(
+            blockedURL: url,
+            isManaged: BrowserURLAllowlistPolicy(defaults: .standard).isManaged
+        ).load(in: webView)
         controller?.showBlockedURLAllowlist(url)
     }
 

@@ -30,7 +30,7 @@ domain wins over the release-domain fallback.
 | --- | --- | --- | --- |
 | `DisableEmbeddedBrowser` | Boolean | `false` | Disables every embedded-browser surface: browser panes and tabs, terminal-link interception, browser creation from automation/CLI, saved and `cmux.json` layouts, and session restore. Live browser panes are closed when the policy activates. Links open in the system default browser instead. WebKit-based local viewers that ride the same gate (the diff viewer, agent-chat pane, in-app upgrade pages) are also unavailable. The Mac stops advertising browser capabilities to the iOS app. |
 | `DisableRemoteControl` | Boolean | `false` | Disables the Mac acting as a remote view/control host for the cmux iOS companion app: the Iroh host runtime (including its local-network advertisement), the legacy TCP pairing listener, connection admission, and device pairing. Live phone connections are closed when the policy activates, and the app reports `pairingEnabled=false` to the pairing trust broker so the backend refuses to mint new pair grants. Outbound-only notification forwarding to an already-provisioned phone, Sparkle updates, the local automation Unix socket, and Mac-as-client SSH remain unaffected. |
-| `BrowserURLAllowlist` | Array of strings | unset (allow all web origins) | Restricts every embedded-browser top-level navigation to matching URL patterns. Address-bar loads, links, redirects, `window.open`, automation, deep links, and restored panes are checked. A forced empty array denies all external web origins while cmux-owned `about:blank`, file, data, and diff documents remain available. |
+| `BrowserURLAllowlist` | Array of strings | unset (allow all web origins) | Restricts every embedded-browser top-level navigation to matching URL patterns. Address-bar loads, links, redirects, `window.open`, automation, deep links, and restored panes are checked. A forced empty array denies all external web origins while cmux-owned internal documents (such as `about:blank` and diff pages) remain available. |
 
 Notes:
 
@@ -96,7 +96,9 @@ allowlist becomes effective without requiring a restart.
 
 Deploy via your MDM as a Custom Settings payload for `com.cmuxterm.app`,
 or install the profile below manually for testing (System Settings →
-General → Device Management).
+General → Device Management). This sample keeps the embedded browser enabled
+so the allowlist is exercised; use the `DisableEmbeddedBrowser` policy from the
+table above when a full browser disable is desired.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -126,8 +128,6 @@ General → Device Management).
                         <dict>
                             <key>mcx_preference_settings</key>
                             <dict>
-                                <key>DisableEmbeddedBrowser</key>
-                                <true/>
                                 <key>DisableRemoteControl</key>
                                 <true/>
                                 <key>BrowserURLAllowlist</key>

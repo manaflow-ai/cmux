@@ -44,12 +44,14 @@ public struct BrowserURLAllowlistPattern: Equatable, Hashable, Sendable {
         guard !candidate.contains("/") && !candidate.contains("?") && !candidate.contains("#") && !candidate.contains("@") else {
             return nil
         }
+        guard !candidate.hasSuffix(":") else { return nil }
 
         let wildcard = candidate.hasPrefix("*.")
         if wildcard {
             candidate = String(candidate.dropFirst(2))
         }
         guard !candidate.isEmpty, !candidate.contains("*") else { return nil }
+        candidate = candidate.lowercased()
 
         if !candidate.hasPrefix("["),
            candidate.filter({ $0 == ":" }).count == 1,
@@ -62,6 +64,7 @@ public struct BrowserURLAllowlistPattern: Equatable, Hashable, Sendable {
         guard let normalizedHost = RemoteLoopbackProxyAlias.normalizeHost(hostAndPort.host) else {
             return nil
         }
+        guard Self.isValidHost(normalizedHost) else { return nil }
         guard hostAndPort.port == nil || (1...65_535).contains(hostAndPort.port!) else {
             return nil
         }
@@ -154,6 +157,14 @@ public struct BrowserURLAllowlistPattern: Equatable, Hashable, Sendable {
         guard suffix.first == ":" else { return nil }
         return Int(suffix.dropFirst())
     }
+
+    private static func isValidHost(_ host: String) -> Bool {
+        guard !host.isEmpty, !host.contains(where: { $0.isWhitespace }) else { return false }
+        if host.contains(":") {
+            return URL(string: "https://[\(host)]")?.host == host
+        }
+        return URL(string: "https://\(host)")?.host?.lowercased() == host
+    }
 }
 
 /// Resolves the effective MDM or user URL allowlist for embedded browsing.
@@ -191,11 +202,18 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
         case managed
     }
 
-    /// Schemes used by cmux-owned documents. They do not represent external
-    /// network origins and remain available while a web-origin allowlist is on.
-    public static let internalSchemes: Set<String> = [
+    /// Schemes that app-owned loads may use without an origin rule. Page-
+    /// initiated navigations to these schemes still go through ``allows(_:)``
+    /// and are denied while a managed list is active.
+    public static let trustedInternalSchemes: Set<String> = [
         "about", "applewebdata", "blob", "cmux-browser-action", "cmux-diff-viewer",
         "data", "file", "javascript"
+    ]
+
+    /// Schemes for cmux-owned documents that WebKit may request while showing
+    /// a blocked/error document. These remain available to page-policy checks.
+    private static let alwaysAllowedDocumentSchemes: Set<String> = [
+        "about", "applewebdata", "cmux-browser-action", "cmux-diff-viewer"
     ]
 
     /// The effective source.
@@ -228,8 +246,9 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
         managedDevicePolicy: ManagedDevicePolicy? = nil
     ) {
         let resolver = managedDevicePolicy ?? ManagedDevicePolicy(defaults: defaults)
-        if let forced = resolver.forcedObject(forUserDefaultsKey: Self.managedDefaultsKey)
-            ?? resolver.forcedObject(forUserDefaultsKey: Self.userDefaultsKey) {
+        if let forced = resolver.forcedBrowserURLAllowlistObject(
+            userDefaultsKey: Self.userDefaultsKey
+        ) {
             self.source = .managed
             self.patterns = Self.patterns(from: Self.stringValues(from: forced))
             return
@@ -263,8 +282,20 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     public func allows(_ url: URL) -> Bool {
         guard isActive else { return true }
         guard let scheme = url.scheme?.lowercased() else { return false }
-        if Self.internalSchemes.contains(scheme) { return true }
+        if Self.alwaysAllowedDocumentSchemes.contains(scheme) { return true }
         return patterns.contains { $0.matches(url) }
+    }
+
+    /// Whether an app-owned load may use a local or generated document URL.
+    ///
+    /// Callers must use this only for a navigation they initiated themselves;
+    /// WebKit delegate callbacks use ``allows(_:)`` so page scripts cannot
+    /// turn `file:`, `data:`, `blob:`, or `javascript:` into an origin-policy
+    /// bypass.
+    public func allowsTrustedInternalURL(_ url: URL) -> Bool {
+        guard isActive else { return true }
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return Self.trustedInternalSchemes.contains(scheme) || allows(url)
     }
 
     private static func patterns(from values: [String]) -> [BrowserURLAllowlistPattern] {

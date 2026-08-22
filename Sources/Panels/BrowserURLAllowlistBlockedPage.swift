@@ -6,29 +6,50 @@ import WebKit
 @MainActor
 struct BrowserURLAllowlistBlockedPage {
     let blockedURL: URL
+    let isManaged: Bool
+
+    init(blockedURL: URL, isManaged: Bool) {
+        self.blockedURL = blockedURL
+        self.isManaged = isManaged
+    }
+
+    /// Returns an origin-only label with credentials, paths, queries, and
+    /// fragments removed before it reaches UI chrome.
+    nonisolated static func safeDisplayOrigin(for url: URL) -> String {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host else {
+            return ""
+        }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = url.port
+        return components.string ?? "\(scheme)://\(host)"
+    }
 
     /// Loads the localized policy message into `webView`.
     func load(in webView: WKWebView) {
-        webView.loadHTMLString(Self.html(for: blockedURL), baseURL: nil)
+        webView.loadHTMLString(Self.html(isManaged: isManaged), baseURL: nil)
     }
 
-    private static func html(for url: URL) -> String {
+    private static func html(isManaged: Bool) -> String {
         let title = String(
-            localized: "browser.error.urlAllowlist.title",
-            defaultValue: "Blocked by your organization's policy"
+            localized: isManaged
+                ? "browser.error.urlAllowlist.title"
+                : "browser.error.urlAllowlist.userTitle",
+            defaultValue: isManaged
+                ? "Blocked by your organization's policy"
+                : "Blocked by the embedded-browser URL policy"
         )
         let message = String(
-            localized: "browser.error.urlAllowlist.message",
-            defaultValue: "This URL is not allowed by your organization’s embedded-browser policy."
-        )
-        let attempted = String(
-            localized: "browser.error.urlAllowlist.attemptedURL",
-            defaultValue: "Attempted URL"
+            localized: isManaged
+                ? "browser.error.urlAllowlist.message"
+                : "browser.error.urlAllowlist.userMessage",
+            defaultValue: isManaged
+                ? "This URL is not allowed by your organization's embedded-browser policy."
+                : "This URL is not allowed by the embedded-browser URL policy."
         )
         let escapedTitle = escape(title)
         let escapedMessage = escape(message)
-        let escapedAttempted = escape(attempted)
-        let escapedURL = escape(url.absoluteString)
         return """
         <!doctype html>
         <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -42,10 +63,8 @@ struct BrowserURLAllowlistBlockedPage {
                  border-radius: 8px; background: rgba(127,127,127,.14); color: #555; }
           @media (prefers-color-scheme: dark) { h1 { color: #eee; } code { color: #ddd; } }
         </style></head><body><main>
-          <h1>(escapedTitle)</h1>
-          <p>(escapedMessage)</p>
-          <p>(escapedAttempted):</p>
-          <code>(escapedURL)</code>
+          <h1>\(escapedTitle)</h1>
+          <p>\(escapedMessage)</p>
         </main></body></html>
         """
     }

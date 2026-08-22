@@ -187,7 +187,13 @@ public struct ManagedDevicePolicy: Sendable {
     /// release-domain profile without creating a write loop in their private
     /// preference suite.
     public func isBrowserURLAllowlistLocked(userDefaultsKey: String) -> Bool {
-        forcedObject(forUserDefaultsKey: ManagedDevicePolicyKey.browserURLAllowlist.rawValue) != nil
-            || forcedObject(forUserDefaultsKey: userDefaultsKey) != nil
+        forcedBrowserURLAllowlistObject(userDefaultsKey: userDefaultsKey) != nil
+    }
+
+    /// Returns the forced value that owns the effective browser URL allowlist.
+    /// The dedicated policy key wins over a directly forced user key.
+    public func forcedBrowserURLAllowlistObject(userDefaultsKey: String) -> Any? {
+        forcedObject(forUserDefaultsKey: ManagedDevicePolicyKey.browserURLAllowlist.rawValue)
+            ?? forcedObject(forUserDefaultsKey: userDefaultsKey)
     }
 }

@@ -1468,6 +1468,7 @@
           "items": {
             "type": "string"
           },
+          "descriptionKey": "schemaDescriptions.browser.urlAllowlist",
           "default": [
             "localhost",
             "*.localhost",
@@ -1476,7 +1477,7 @@
             "0.0.0.0",
             "*.localtest.me"
           ],
-          "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it."
+          "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
         "showImportHintOnBlankTabs": {
           "type": "boolean",

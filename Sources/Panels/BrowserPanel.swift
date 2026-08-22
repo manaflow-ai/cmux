@@ -1001,8 +1001,22 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 
 @MainActor
 @discardableResult
-func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+func browserLoadRequest(
+    _ request: URLRequest,
+    in webView: WKWebView,
+    trustedInternalNavigation: Bool = false
+) -> WKNavigation? {
     guard let url = request.url else { return nil }
+    let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+    if trustedInternalNavigation {
+        guard policy.allowsTrustedInternalURL(url) else {
+            return nil
+        }
+        if let cmuxWebView = webView as? CmuxWebView,
+           BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(url.scheme?.lowercased() ?? "") {
+            cmuxWebView.markTrustedInternalNavigation(url)
+        }
+    }
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
@@ -3269,7 +3283,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func publishCommittedURL(from webView: WKWebView) {
         if let blockedURL = navigationDelegate?.activePolicyBlockedURL {
-            currentURL = Self.remoteProxyDisplayURL(for: blockedURL) ?? blockedURL
+            let safeURL = URL(string: BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: blockedURL))
+            currentURL = Self.remoteProxyDisplayURL(for: safeURL) ?? safeURL
             refreshBackgroundAppearance()
             GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             return
@@ -3540,14 +3555,23 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.handleBlockedURLAllowlistNavigation = { [weak self] url, webView in
             guard let self, self.isCurrentWebView(webView) else { return }
-            self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
+            let safeURL = URL(string: BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: url))
+            self.currentURL = Self.remoteProxyDisplayURL(for: safeURL) ?? safeURL
+            let policy = BrowserURLAllowlistPolicy(defaults: .standard)
             self.pageTitle = String(
-                localized: "browser.error.urlAllowlist.title",
-                defaultValue: "Blocked by your organization's policy"
+                localized: policy.isManaged
+                    ? "browser.error.urlAllowlist.title"
+                    : "browser.error.urlAllowlist.userTitle",
+                defaultValue: policy.isManaged
+                    ? "Blocked by your organization's policy"
+                    : "Blocked by the embedded-browser URL policy"
             )
             self.faviconPNGData = nil
             self.lastFaviconURLString = nil
-            BrowserURLAllowlistBlockedPage(blockedURL: url).load(in: webView)
+            BrowserURLAllowlistBlockedPage(
+                blockedURL: url,
+                isManaged: BrowserURLAllowlistPolicy(defaults: .standard).isManaged
+            ).load(in: webView)
             self.refreshBackgroundAppearance()
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
@@ -4983,7 +5007,10 @@ final class BrowserPanel: Panel, ObservableObject {
     func enforceURLAllowlistPolicy() {
         navigationDelegate?.enforceURLAllowlistPolicy(
             in: webView,
-            displayURL: currentURL ?? navigationDelegate?.lastAttemptedURL
+            displayURL: Self.remoteProxyDisplayURL(for: webView.url)
+                ?? webView.url
+                ?? currentURL
+                ?? navigationDelegate?.lastAttemptedURL
         )
         for popup in popupControllers {
             popup.enforceURLAllowlistPolicy()
@@ -5472,7 +5499,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
-        let startedNavigation = browserLoadRequest(effectiveRequest, in: webView)
+        let startedNavigation = browserLoadRequest(
+            effectiveRequest,
+            in: webView,
+            trustedInternalNavigation: BrowserURLAllowlistPolicy
+                .trustedInternalSchemes
+                .contains(originalURL.scheme?.lowercased() ?? "")
+        )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {

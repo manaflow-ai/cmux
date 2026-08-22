@@ -49,7 +49,7 @@ final class ManagedPolicyEnforcementObserver {
             MobileRemoteControlPolicy.isDisabled
         },
         enforceBrowserPolicy: @escaping () -> Void,
-        enforceBrowserURLAllowlistPolicy: @escaping () -> Void = {},
+        enforceBrowserURLAllowlistPolicy: @escaping () -> Void,
         enforceRemoteControlPolicy: @escaping () -> Void
     ) {
         self.notificationCenter = notificationCenter
