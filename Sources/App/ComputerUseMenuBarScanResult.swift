@@ -13,13 +13,13 @@ struct ComputerUseMenuBarScanResult: Sendable {
     func mostRecentlyActive(
         where isEligible: (
             ComputerUseMenuBarRow,
-            ComputerUseDriverState
+            ComputerUseCuaState
         ) -> Bool
-    ) -> (row: ComputerUseMenuBarRow, state: ComputerUseDriverState)? {
+    ) -> (row: ComputerUseMenuBarRow, state: ComputerUseCuaState)? {
         rows
             .compactMap { row -> (
                 row: ComputerUseMenuBarRow,
-                state: ComputerUseDriverState
+                state: ComputerUseCuaState
             )? in
                 guard
                     let state = scan.newestStateByScopeID[row.id],

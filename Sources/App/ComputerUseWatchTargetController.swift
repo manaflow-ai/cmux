@@ -104,7 +104,7 @@ struct ComputerUseWatchTargetFeed: Sendable {
         fileManager: FileManager = .default,
         isStateEligible: @Sendable (
             String,
-            ComputerUseDriverState
+            ComputerUseCuaState
         ) -> Bool = { _, _ in true }
     ) -> [ComputerUseWatchTargetActivity] {
         guard !driverSessionIDs.isEmpty,
@@ -164,7 +164,7 @@ struct ComputerUseWatchTargetFeed: Sendable {
                 let data = try? Data(contentsOf: candidate.url, options: [.mappedIfSafe]),
                 data.count == candidate.size,
                 data.count <= Self.maximumFileBytes,
-                let state = ComputerUseDriverState(
+                let state = ComputerUseCuaState(
                     data: data,
                     authenticationKey: authenticationKey
                 ),
@@ -415,7 +415,7 @@ final class ComputerUseWatchTargetController {
                 driverSessionID: driverSessionID,
                 logicalSessionID: logicalSessionID
             ),
-            ComputerUseDriverState.process(
+            ComputerUseCuaState.process(
                 stateWriterIdentity,
                 belongsToProcessTree: liveSession.rootProcessIdentities
             )
@@ -502,7 +502,7 @@ final class ComputerUseWatchTargetController {
                 driverSessionID: driverSessionID,
                 logicalSessionID: logicalSessionID
             ),
-            ComputerUseDriverState.process(
+            ComputerUseCuaState.process(
                 stateWriterIdentity,
                 belongsToProcessTree: liveSession.rootProcessIdentities
             ),
@@ -841,7 +841,7 @@ final class ComputerUseWatchTargetController {
     /// reject reused/stale pids. Returns `nil` when nothing is driving or the
     /// target fails validation. Runs on the main actor (touches `NSRunningApplication`).
     private func validatedTarget(
-        from state: ComputerUseDriverState?
+        from state: ComputerUseCuaState?
     ) -> (pid: Int, application: NSRunningApplication)? {
         guard
             let state,

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Optional smoke test for the bundled cmux Computer Use MCP client.
+Optional smoke test for the bundled cmux-cua MCP client.
 
-The test uses a real built driver binary when present and skips otherwise.
+The test uses a real built cmux-cua binary when present and skips otherwise.
 It performs only MCP initialize + tools/list, with no GUI actions.
 """
 
@@ -24,7 +24,7 @@ CORE_TOOLS = {"get_window_state", "click", "scroll", "zoom"}
 
 def candidate_binaries() -> list[Path]:
     candidates: list[Path] = []
-    for env_key in ("CMUX_CUA_DRIVER", "CMUX_CUA_DRIVER_BIN"):
+    for env_key in ("CMUX_CUA_BINARY",):
         value = os.environ.get(env_key)
         if value:
             candidates.append(Path(value))
@@ -34,17 +34,17 @@ def candidate_binaries() -> list[Path]:
     # it with the caller's credentials.
     candidates.extend(
         [
-            ROOT / "Resources" / "bin" / "cmux-computer-use-client",
-            ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-computer-use-client",
+            ROOT / "Resources" / "bin" / "cmux-cua",
+            ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua",
         ]
     )
     derived_data = os.environ.get("CMUX_DERIVED_DATA_PATH")
     if derived_data:
-        candidates.extend(Path(derived_data).glob("Build/Products/*/*.app/Contents/Resources/bin/cmux-computer-use-client"))
+        candidates.extend(Path(derived_data).glob("Build/Products/*/*.app/Contents/Resources/bin/cmux-cua"))
     return candidates
 
 
-def find_driver() -> Path | None:
+def find_cmux_cua() -> Path | None:
     for candidate in candidate_binaries():
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
@@ -58,12 +58,12 @@ def read_json_line(proc: subprocess.Popen[str], timeout: float = 15.0) -> dict:
     try:
         events = selector.select(timeout)
         if not events:
-            raise TimeoutError("timed out waiting for cua-driver MCP response")
+            raise TimeoutError("timed out waiting for cmux-cua MCP response")
         line = proc.stdout.readline()
     finally:
         selector.close()
     if not line:
-        raise RuntimeError("cua-driver exited before writing an MCP response")
+        raise RuntimeError("cmux-cua exited before writing an MCP response")
     return json.loads(line)
 
 
@@ -74,22 +74,22 @@ def send(proc: subprocess.Popen[str], payload: dict) -> None:
 
 
 def main() -> int:
-    driver = find_driver()
-    if driver is None:
-        print("SKIP: cmux Computer Use client not built; run scripts/build-cua-driver.sh first")
+    cmux_cua = find_cmux_cua()
+    if cmux_cua is None:
+        print("SKIP: cmux-cua binary not built; run scripts/build-cmux-cua.sh first")
         return 0
 
     env = os.environ.copy()
-    env["CUA_DRIVER_EMBEDDED"] = "1"
-    env["CUA_DRIVER_RS_TELEMETRY_ENABLED"] = "false"
-    # Keep the smoke test hermetic: without this the driver's startup update
-    # checker contacts GitHub and writes ~/.cua-driver-rs/version_check.json.
-    env["CUA_DRIVER_RS_UPDATE_CHECK"] = "false"
-    # Isolated HOME so nothing the driver writes lands in the real home.
+    env["CMUX_CUA_EMBEDDED"] = "1"
+    env["CMUX_CUA_TELEMETRY_ENABLED"] = "false"
+    # Keep the smoke test hermetic: without this cmux-cua's startup update
+    # checker contacts GitHub and writes ~/.cmux-cua-rs/version_check.json.
+    env["CMUX_CUA_UPDATE_CHECK"] = "false"
+    # Isolated HOME so nothing cmux-cua writes lands in the real home.
     home = tempfile.mkdtemp(prefix="cua-smoke-home-")
     env["HOME"] = home
     proc = subprocess.Popen(
-        [str(driver), "--embedded", "--no-overlay"],
+        [str(cmux_cua), "--embedded", "--no-overlay"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -113,7 +113,7 @@ def main() -> int:
         init_resp = read_json_line(proc)
         if init_resp.get("error"):
             raise AssertionError(f"initialize returned error: {init_resp}")
-        if init_resp.get("result", {}).get("serverInfo", {}).get("name") not in {"cua-driver", "cmux-computer-use"}:
+        if init_resp.get("result", {}).get("serverInfo", {}).get("name") not in {"cmux-cua"}:
             raise AssertionError(f"unexpected initialize serverInfo: {init_resp}")
 
         send(proc, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
@@ -142,7 +142,7 @@ def main() -> int:
                 pass
         shutil.rmtree(home, ignore_errors=True)
 
-    print(f"PASS: cua-driver MCP smoke ({driver})")
+    print(f"PASS: cmux-cua MCP smoke ({cmux_cua})")
     return 0
 
 

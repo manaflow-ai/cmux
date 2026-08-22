@@ -6,7 +6,7 @@ description: "Drive real macOS apps from a cmux agent session via the bundled co
 # cmux-cua
 
 cmux bundles a local computer-use engine (packaged as `cmux Computer Use` with
-the MCP proxy named `cmux-computer-use-client`, from a pinned build of
+the MCP proxy named `cmux-cua`, from a pinned build of
 the `manaflow-ai/cmux-cua` fork) and attaches it as an MCP tool server named
 `cmux-cua` to every agent session cmux launches (Claude Code, Codex).
 The agent can then perceive and operate real macOS apps: read the accessibility
@@ -19,7 +19,7 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
 ## How it attaches
 
-- The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject the driver as an
+- The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject `cmux-cua` as an
   MCP proxy using `mcp --socket <cmux-owned socket>` plus cursor-branding and
   state-dir env. Codex launches the exact tag-installed helper executable as
   its authenticated approval broker; Claude uses the bundled native-profile
@@ -29,11 +29,11 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   corresponding tool profile is there.
 - `ComputerUseRuntimeService` is the only helper lifecycle owner. It installs
   the nested helper under the tag-scoped
-  `~/Library/Application Support/cmux/computer-use/helper/<scope>/` directory
+  `~/Library/Application Support/cmux/cmux-cua/helper/<scope>/` directory
   and launches that explicit app URL through LaunchServices.
 - The native daemon uses the tag-scoped
-  `/tmp/cmux-cua-<uid>/<scope>/cua.sock`; the Codex compatibility daemon uses
-  `codex-cua.sock` beside it. Both fit Darwin's Unix-socket path limit and share
+  `/tmp/cmux-cua-<uid>/<scope>/cmux-cua.sock`; the Codex compatibility daemon uses
+  `cmux-cua-codex.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
 - The wrappers keep the signed, app-bundled skill discoverable in both agent
   pickers: each repairs the link in its agent's own root before launching —
@@ -54,7 +54,7 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   never fall back to in-process computer use. cmux owns the onboarding window
   and opens the permanent macOS permission panes directly; it does not ask the
   helper to raise an intermediate native prompt. The proxy keeps its
-  external-flow flag off so the first driving call waits for both helper grants
+  external-flow flag on so the first driving call waits for both helper grants
   before it is forwarded.
 - Kill switch: set `CMUX_COMPUTER_USE_MCP_DISABLED=1`, or toggle it off in
   Settings → Computer Use (persists to `~/.config/cmux/cmux.json` and is
@@ -90,17 +90,17 @@ The consent follows the helper's code signature, so every rebuilt (ad-hoc
 signed) dev helper re-triggers it: cmux invalidates its cached
 direct-capture-ready flag whenever it replaces the installed helper build,
 which re-presents onboarding so the alert always lands with its explanation.
-Do not invoke `check_permissions {prompt:true}` or any standalone driver while
+Do not invoke `check_permissions {prompt:true}` or any standalone helper while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
-executes the driver binary.
+executes the cmux-cua binary.
 
 A TCC prompt naming **Codex Computer Use** (`com.openai.sky.CUAService`) is
 not from cmux. The `codex` CLI ships its own computer-use helper; when codex
 runs inside a cmux terminal and pokes that helper with an Apple Event, macOS
 attributes the request to the responsible parent — the cmux app — so the
 dialog reads as cmux asking to control "Codex Computer Use". Nothing in cmux
-or its driver references that service; denying the prompt does not affect
+or the cmux-cua engine references that service; denying the prompt does not affect
 cmux computer use.
 
 If actions fail with a permission error, grant Accessibility to cmux Computer
@@ -126,8 +126,8 @@ Codex gets the exact ten-tool Computer Use roster, in order:
 Use it like the built-in Computer Use connector:
 
 1. Call `get_app_state` with the app name, full path, or unambiguous bundle id
-   once per turn before acting. It launches the app if needed and returns the
-   logical-size JPEG screenshot plus the compact accessibility tree.
+   before acting. It launches the app if needed and returns the logical-size
+   JPEG screenshot plus the compact accessibility tree.
 2. Prefer the current snapshot's string `element_index`; use screenshot-local
    x/y coordinates only as fallback.
 3. Use xdotool-style key strings such as `super+l` with `press_key`.
@@ -139,16 +139,15 @@ Use it like the built-in Computer Use connector:
    clicking on-screen controls. Only fall back to a single keyboard sequence
    when the user explicitly asks for speed over visibility or a control has no
    clickable element.
-5. Every successful action already returns a fresh app state and screenshot.
-   Use that returned state to verify the requested outcome and choose the next
-   action directly. Call `get_app_state` again only when an action reports that
-   its state refresh failed or when you intentionally switch to another app.
-6. Numeric `element_index` values belong only to the state that displayed
-   them. Never loop, batch, or issue multiple element-index actions without
-   examining each returned state; any action can renumber later controls
-   (Calculator's **All Clear** removes display nodes, for example). Issue one
-   element-index action, inspect its returned tree, then choose the next
-   current index.
+5. Actions return a compact dispatch acknowledgement, not a screenshot or
+   accessibility tree. After one or more actions, call `get_app_state` before
+   deciding what to do next. The returned screenshot/tree is the authoritative
+   verification surface, matching the built-in Computer Use connector.
+6. Numeric `element_index` values belong only to the state that displayed them.
+   Re-snapshot before using an index that may have been renumbered by a layout
+   change (Calculator's **All Clear** removes display nodes, for example).
+   Multiple coordinate actions against a stable layout may be issued in one
+   host turn; do not batch element-index actions across a state-changing step.
 
 Do not expect native cmux extensions such as `get_window_state`, tokens,
 `perform_actions`, cursor controls, diagnostics, recordings, or browser/CDP in
@@ -171,7 +170,7 @@ Perceive, act in logical groups, then verify:
    after any action that can invalidate those controls.
 4. Verify the completed group by re-snapshotting and reading the element
    `value` / screenshot — do not assume actions landed (clicks are never
-   driver-verified). Operate on-screen controls with visible pointer clicks by
+   helper-verified). Operate on-screen controls with visible pointer clicks by
    default — the gliding branded cursor is the product experience. Use
    `type_text` for entering text into text fields, and fall back to a pure
    keyboard sequence only when the user explicitly prefers speed over
@@ -185,7 +184,7 @@ Notes:
   launch and return spurious AX error codes (-25204) even when the action
   landed — re-snapshot and check the result rather than trusting the code.
 - Pixel input is obstruction-checked: if another window covers the target
-  point the driver refuses with `background_occluded` naming the occluder
+  point cmux-cua refuses with `background_occluded` naming the occluder
   instead of clicking the wrong window. Retry with `delivery_mode:"foreground"`
   or front the target.
 
@@ -194,13 +193,13 @@ Notes:
 The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
 cursor. It is configured by env the wrapper injects
-(`CUA_DRIVER_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
+(`CMUX_CUA_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
 the helper daemon is driving. It remains visible across normal reasoning gaps
 and is removed when the driving session ends or the proxy control connection
 closes. Each later action reasserts the cursor directly above the driven
 target. If no cursor appears during an action, confirm the MCP config uses the
-helper socket, has a stable `CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned
-driver build.
+helper socket, has a stable `CMUX_CUA_DEFAULT_SESSION`, and uses the pinned
+  cmux-cua build.
 
 ## Finding and focusing the driving session
 
@@ -219,8 +218,8 @@ target while allowing any app the user places in front of that target to cover
 the cursor naturally; presentation mode never promotes it to an always-on-top
 layer.
 
-The active target and session ordering come from the driver's per-session state
-files under `~/Library/Application Support/cmux/computer-use/runtime/<scope>/state/`.
+The active target and session ordering come from cmux-cua's per-session state
+files under `~/Library/Application Support/cmux/cmux-cua/runtime/<scope>/state/`.
 
 The item hides when there is no live or recent session. Toggle visibility in
 Settings → Computer Use.
@@ -233,31 +232,31 @@ Settings → Computer Use.
 - **Black/empty screenshots** — grant Screen Recording to cmux Computer Use;
   restart only the helper if its automatic refresh has not completed yet.
 - **No menu-bar icon** — needs a live/recent session; check the visibility toggle.
-- **Prompts name the main cmux app** — a non-cmux fallback executed the driver
+- **Prompts name the main cmux app** — a non-cmux fallback executed the helper
   directly. Stop there and report the failure; the bundled path must use the
-  tag-scoped socket with `CUA_DRIVER_RS_MCP_FORCE_PROXY=1`.
-- **Prompts name CuaDriver** — a stale `/Applications/CuaDriver.app` daemon or a
-  standalone driver launch is active. Stop it and reset/remove its TCC entry;
+  tag-scoped socket with `CMUX_CUA_MCP_FORCE_PROXY=1`.
+- **Prompts name CmuxCua** — a stale `/Applications/CmuxCua.app` daemon or a
+  standalone helper launch is active. Stop it and reset/remove its TCC entry;
   the bundled path never uses that identity.
 
 ## Development
 
-- Engine source: `manaflow-ai/cmux-cua` (`libs/cua-driver/rust`). cmux consumes
-  it via `CMUX_CUA_PINNED_SHA` in `scripts/build-cua-driver.sh`, which builds,
+- Engine source: `manaflow-ai/cmux-cua` (`libs/cmux-cua/rust`). cmux consumes
+  it via `CMUX_CUA_PINNED_SHA` in `scripts/build-cmux-cua.sh`, which builds,
   lipos, and codesigns the binary plus the nested helper into the app bundle.
-- The helper daemon's `CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=1` prevents
+- The helper daemon's `CMUX_CUA_EXTERNAL_PERMISSION_FLOW=1` prevents
   agent-supplied `check_permissions {prompt:true}` from bypassing cmux
-  onboarding. The wrappers set `CUA_DRIVER_RS_MCP_FORCE_PROXY=1` and preserve
+  onboarding. The wrappers set `CMUX_CUA_MCP_FORCE_PROXY=1` and preserve
   the external-flow contract in the proxy process so protected calls wait for
   cmux's post-verification readiness signal.
-  `CMUX_CUA_DRIVER` may replace only Claude's native-profile proxy executable
-  and never enables embedded mode. Codex ignores proxy-only overrides because
-  its approval broker must match the running installed helper executable.
-- If the cmux-owned daemon is unavailable, do **not** invoke `cua-driver`
+  There is no ambient executable override. Both profiles resolve the app-bundled
+  `cmux-cua` executable and the tag-scoped helper only; missing ownership fails
+  closed instead of running a user-supplied executable.
+- If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → Computer Use or restart the tagged cmux build, then retry the
   MCP tool after the helper runtime is healthy.
-- Never hand-edit `docs/.../cua-driver/mcp-tools.mdx` in the fork — it is
+- Never hand-edit `docs/.../cmux-cua/mcp-tools.mdx` in the fork — it is
   generated from the Rust tool descriptions.
 - cmux-side UX lives in `Sources/App/ComputerUse*.swift`,
   `Packages/macOS/CmuxSettingsUI/.../Sections/ComputerUseSection.swift`, and the

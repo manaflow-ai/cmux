@@ -8,7 +8,7 @@ struct ComputerUseTargetIdentity: Equatable, Sendable {
     let launchDate: Date
 
     init?(
-        state: ComputerUseDriverState,
+        state: ComputerUseCuaState,
         runningApplication: NSRunningApplication
     ) {
         guard !runningApplication.isTerminated,

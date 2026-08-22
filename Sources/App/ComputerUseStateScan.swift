@@ -4,6 +4,6 @@ import Foundation
 struct ComputerUseStateScan: Equatable, Sendable {
     static let empty = ComputerUseStateScan(newestStateByScopeID: [:], hasRecentStateFiles: false)
 
-    let newestStateByScopeID: [String: ComputerUseDriverState]
+    let newestStateByScopeID: [String: ComputerUseCuaState]
     let hasRecentStateFiles: Bool
 }

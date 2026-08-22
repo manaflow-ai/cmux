@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression checks for non-destructive cua-driver cache handling."""
+"""Regression checks for non-destructive cmux-cua cache handling."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_SCRIPT = ROOT / "scripts" / "build-cua-driver.sh"
+BUILD_SCRIPT = ROOT / "scripts" / "build-cmux-cua.sh"
 
 
 def pinned_sha() -> str:
@@ -41,8 +41,8 @@ def fake_tool_environment(root: Path, sha: str) -> dict[str, str]:
 set -eu
 if [[ "${{1:-}}" == "clone" ]]; then
   target="${{@: -1}}"
-  mkdir -p "$target/.git" "$target/libs/cua-driver/rust"
-  : > "$target/libs/cua-driver/rust/Cargo.toml"
+  mkdir -p "$target/.git" "$target/libs/cmux-cua/rust"
+  : > "$target/libs/cmux-cua/rust/Cargo.toml"
   : > "$target/LICENSE.md"
   exit 0
 fi
@@ -117,7 +117,7 @@ while (($#)); do
 done
 [[ -n "$target" ]]
 mkdir -p "$CARGO_TARGET_DIR/$target/release"
-cp /usr/bin/true "$CARGO_TARGET_DIR/$target/release/cua-driver"
+cp /usr/bin/true "$CARGO_TARGET_DIR/$target/release/cmux-cua"
 """,
     )
     environment["PRODUCT_BUNDLE_IDENTIFIER"] = "com.cmuxterm.app.debug.cua-safety-test"
@@ -164,15 +164,15 @@ def test_clean_legacy_source_is_adopted(sha: str) -> None:
         cache_dir = root / "cache"
         source_dir = cache_dir / f"src-{sha}"
         (source_dir / ".git").mkdir(parents=True)
-        (source_dir / "libs/cua-driver/rust").mkdir(parents=True)
-        (source_dir / "libs/cua-driver/rust/Cargo.toml").touch()
+        (source_dir / "libs/cmux-cua/rust").mkdir(parents=True)
+        (source_dir / "libs/cmux-cua/rust/Cargo.toml").touch()
         (source_dir / ".cmux-last-used").touch()
 
         result = run_until_compile(root, cache_dir, sha)
 
         assert result.returncode == 42, result.stderr
         owner = source_dir / ".cmux-cua-managed-source"
-        assert owner.read_text() == f"cmux-cua-driver-cache-v1 {sha}\n"
+        assert owner.read_text() == f"cmux-cua-cache-v2 {sha}\n"
 
 
 def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
@@ -180,7 +180,7 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
         root = Path(tmp)
         cache_dir = root / "cache"
         contents_dir = root / "cmux DEV.app" / "Contents"
-        output = contents_dir / "Resources" / "bin" / "cmux-computer-use"
+        output = contents_dir / "Resources" / "bin" / "cmux-cua"
         helper = contents_dir / "Library" / "cmux Computer Use.app"
         helper.mkdir(parents=True)
         sentinel = helper / "user-data.txt"
@@ -213,7 +213,7 @@ def main() -> int:
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
-    print("PASS: cua-driver builds preserve unmanaged cache contents")
+    print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 
 

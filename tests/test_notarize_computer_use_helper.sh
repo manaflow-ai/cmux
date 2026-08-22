@@ -16,7 +16,7 @@ HELPER="$APP/Contents/Library/cmux Computer Use.app"
 FAKE_BIN="$TMP_DIR/bin"
 LOG="$TMP_DIR/calls.log"
 mkdir -p "$HELPER/Contents/MacOS" "$FAKE_BIN"
-printf 'signed-helper-fixture\n' > "$HELPER/Contents/MacOS/cmux Computer Use"
+printf 'signed-helper-fixture\n' > "$HELPER/Contents/MacOS/cmux-cua"
 
 cat > "$FAKE_BIN/ditto" <<'EOF'
 #!/usr/bin/env bash

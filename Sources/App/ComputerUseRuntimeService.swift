@@ -19,7 +19,7 @@ enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
 @MainActor
 final class ComputerUseRuntimeService {
     static let helperAppName = "cmux Computer Use"
-    nonisolated private static let helperExecutableName = "cmux Computer Use"
+    nonisolated private static let helperExecutableName = "cmux-cua"
 
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 

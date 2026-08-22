@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_SCRIPT = ROOT / "scripts" / "build-cua-driver.sh"
+BUILD_SCRIPT = ROOT / "scripts" / "build-cmux-cua.sh"
 
 
 def helper_id(host_id: str) -> str:
@@ -24,9 +24,9 @@ def helper_id(host_id: str) -> str:
 def main() -> int:
     first_tag = helper_id("com.cmuxterm.app.debug.first-tag")
     second_tag = helper_id("com.cmuxterm.app.debug.second-tag")
-    assert first_tag == "com.cmuxterm.app.debug.computer-use"
+    assert first_tag == "com.cmuxterm.cua"
     assert second_tag == first_tag
-    assert helper_id("com.cmuxterm.app") == "com.cmuxterm.app.computer-use"
+    assert helper_id("com.cmuxterm.app") == first_tag
     print("PASS: tagged builds share one branded Computer Use helper identity")
     return 0
 

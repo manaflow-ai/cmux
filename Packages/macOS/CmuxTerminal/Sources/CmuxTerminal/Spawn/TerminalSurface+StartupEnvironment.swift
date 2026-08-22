@@ -28,7 +28,7 @@ extension TerminalSurface {
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("computer-use", isDirectory: true)
+            .appendingPathComponent("cmux-cua", isDirectory: true)
             .appendingPathComponent("enabled", isDirectory: false)
     }
 

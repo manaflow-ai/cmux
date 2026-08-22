@@ -56,7 +56,7 @@ SOFTWARE.
 
 ---
 
-## Cua Driver
+## cmux-cua engine
 
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2025 Cua AI, Inc.

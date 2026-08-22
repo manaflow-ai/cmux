@@ -9,7 +9,7 @@ import CmuxSettings
 final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     private struct ComputerUseMenuBarActivityScan: Sendable {
         let activeRow: ComputerUseMenuBarRow?
-        let activeState: ComputerUseDriverState?
+        let activeState: ComputerUseCuaState?
         let hasRecentStateFiles: Bool
     }
 

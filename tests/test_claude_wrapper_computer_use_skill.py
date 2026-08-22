@@ -156,7 +156,7 @@ def plugin_dir_arg(args: list[str]) -> str | None:
 
 def test_claude_skill_is_global_without_plugin_duplicate_by_default(failures: list[str]) -> None:
     dangling = Path(
-        "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
+        "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-cua"
     )
     result, link, bundled_skill, args = run_wrapper(
         ["hello"],

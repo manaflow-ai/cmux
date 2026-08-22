@@ -31,7 +31,7 @@ def write_helper_info(path: Path, bundle_identifier: str) -> None:
     with path.open("wb") as file:
         plistlib.dump(
             {
-                "CFBundleExecutable": "cmux Computer Use",
+                "CFBundleExecutable": "cmux-cua",
                 "CFBundleIdentifier": bundle_identifier,
                 "CFBundleName": "cmux Computer Use",
                 "CFBundlePackageType": "APPL",
@@ -62,20 +62,20 @@ def expect_scrubbed_mcp_env(
     *,
     helper_owned: bool,
 ) -> None:
-    embedded = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_EMBEDDED=")
-    daemon_app = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_DAEMON_APP=")
-    force_proxy = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_MCP_FORCE_PROXY=")
-    external_flow = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=")
-    auth_token = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=")
-    default_session = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_DEFAULT_SESSION=")
-    state_owner_pid = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_OWNER_PID=")
-    permissions_gate = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_PERMISSIONS_GATE=")
-    telemetry = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
-    update_check = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_UPDATE_CHECK=")
-    cursor_gradient = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_GRADIENT=")
-    cursor_bloom = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_BLOOM=")
-    cursor_label = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_LABEL=")
-    state_dir = arg_value(args, "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_DIR=")
+    embedded = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EMBEDDED=")
+    daemon_app = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DAEMON_APP=")
+    force_proxy = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_MCP_FORCE_PROXY=")
+    external_flow = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW=")
+    auth_token = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=")
+    default_session = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=")
+    state_owner_pid = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_OWNER_PID=")
+    permissions_gate = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_PERMISSIONS_GATE=")
+    telemetry = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_TELEMETRY_ENABLED=")
+    update_check = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_UPDATE_CHECK=")
+    cursor_gradient = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_GRADIENT=")
+    cursor_bloom = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_BLOOM=")
+    cursor_label = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_LABEL=")
+    state_dir = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_DIR=")
     node_options = arg_value(args, "mcp_servers.cmux-cua.env.NODE_OPTIONS=")
     bun_options = arg_value(args, "mcp_servers.cmux-cua.env.BUN_OPTIONS=")
     expect(embedded is None, f"{context}: computer use must never be embedded: {args}", failures)
@@ -84,7 +84,7 @@ def expect_scrubbed_mcp_env(
     expect(force_proxy is not None, f"{context}: missing forced proxy config in {args}", failures)
     expect(external_flow is not None, f"{context}: missing proxy permission-wait config in {args}", failures)
     expect(auth_token is not None, f"{context}: missing daemon authentication config in {args}", failures)
-    expect(default_session is not None, f"{context}: missing CUA_DRIVER_DEFAULT_SESSION config in {args}", failures)
+    expect(default_session is not None, f"{context}: missing CMUX_CUA_DEFAULT_SESSION config in {args}", failures)
     expect(state_owner_pid is not None, f"{context}: missing stable state owner PID in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
@@ -129,7 +129,7 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(cursor_label) == "cmux", f"{context}: unexpected cursor label {cursor_label}", failures)
     if state_dir is not None:
         expect(
-            json.loads(state_dir).endswith("/Library/Application Support/cmux/computer-use/runtime/default/state"),
+            json.loads(state_dir).endswith("/Library/Application Support/cmux/cmux-cua/runtime/default/state"),
             f"{context}: unexpected state dir {state_dir}",
             failures,
         )
@@ -216,7 +216,7 @@ exit 1
 """,
         )
         if bundled_driver:
-            make_executable(wrapper_dir / "cmux-computer-use-client", "#!/usr/bin/env bash\nexit 0\n")
+            make_executable(wrapper_dir / "cmux-cua", "#!/usr/bin/env bash\nexit 0\n")
             helper_driver = (
                 tmp
                 / "cmux.app"
@@ -225,7 +225,7 @@ exit 1
                 / "cmux Computer Use.app"
                 / "Contents"
                 / "MacOS"
-                / "cmux Computer Use"
+                / "cmux-cua"
             )
             helper_driver.parent.mkdir(parents=True)
             make_executable(
@@ -249,19 +249,19 @@ exit 1
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env["CMUX_SURFACE_ID"] = "surface:test"
             env["CMUX_SOCKET_PATH"] = str(socket_path)
-            env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "native-cua.sock")
-            env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "codex-cua.sock")
+            env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "cmux-cua.sock")
+            env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "cmux-cua-codex.sock")
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
             env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
             env.pop("CMUX_COMPUTER_USE_MCP_DISABLED", None)
-            env.pop("CMUX_CUA_DRIVER", None)
+            env.pop("CMUX_CUA_EXTERNAL_CLIENT", None)
             env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
             env.pop("CMUX_CUA_CLIENT_PATH", None)
             env.pop("CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL", None)
-            env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
+            env.pop("CMUX_CUA_SOCKET_AUTH_TOKEN", None)
             env["CMUX_COMPUTER_USE_APP_ENABLED"] = "1"
             skills_root = sandbox_home / ".agents" / "skills"
             if preexisting_legacy_link:
@@ -299,7 +299,7 @@ exit 1
                     / "cmux Computer Use.app"
                     / "Contents"
                     / "MacOS"
-                    / "cmux Computer Use"
+                    / "cmux-cua"
                 )
                 installed_helper.parent.mkdir(parents=True)
                 make_executable(installed_helper, "#!/usr/bin/env bash\nexit 0\n")
@@ -310,23 +310,23 @@ exit 1
                 token_file.chmod(0o600)
                 env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(token_file)
             elif auth_token:
-                env["CUA_DRIVER_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
+                env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
             if override_driver:
-                env["CMUX_CUA_DRIVER"] = "/bin/echo"
+                env["CMUX_CUA_EXTERNAL_CLIENT"] = "/bin/echo"
             if untrusted_override:
                 untrusted_dir = tmp / "world-writable"
                 untrusted_dir.mkdir()
                 untrusted_dir.chmod(0o777)
-                untrusted_driver = untrusted_dir / "cua-driver"
+                untrusted_driver = untrusted_dir / "cmux-cua"
                 make_executable(untrusted_driver, "#!/usr/bin/env bash\nexit 0\n")
-                env["CMUX_CUA_DRIVER"] = str(untrusted_driver)
+                env["CMUX_CUA_EXTERNAL_CLIENT"] = str(untrusted_driver)
             if group_writable_override:
                 override_dir = tmp / "override-bin"
                 override_dir.mkdir()
-                group_writable_driver = override_dir / "cua-driver"
+                group_writable_driver = override_dir / "cmux-cua"
                 make_executable(group_writable_driver, "#!/usr/bin/env bash\nexit 0\n")
                 group_writable_driver.chmod(0o775)
-                env["CMUX_CUA_DRIVER"] = str(group_writable_driver)
+                env["CMUX_CUA_EXTERNAL_CLIENT"] = str(group_writable_driver)
             if group_writable_ancestor:
                 # Group-writable (but not world-writable) parent dir with a
                 # correctly-permissioned driver file: rejection can only come
@@ -334,9 +334,9 @@ exit 1
                 ancestor_dir = tmp / "group-writable-dir"
                 ancestor_dir.mkdir()
                 ancestor_dir.chmod(0o775)
-                ancestor_driver = ancestor_dir / "cua-driver"
+                ancestor_driver = ancestor_dir / "cmux-cua"
                 make_executable(ancestor_driver, "#!/usr/bin/env bash\nexit 0\n")
-                env["CMUX_CUA_DRIVER"] = str(ancestor_driver)
+                env["CMUX_CUA_EXTERNAL_CLIENT"] = str(ancestor_driver)
             if disabled:
                 env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
             if hooks_disabled:
@@ -401,7 +401,7 @@ def configured_skill_path(args: list[str]) -> Path | None:
     return Path(json.loads(f'"{escaped_path}"'))
 
 
-def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
+def test_codex_gets_cmux_cua(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(["hello"])
     expect(code == 0, f"wrapper exited {code}: {stderr}", failures)
     expect("app-server" not in args, f"must not use codex app-server, got {args}", failures)
@@ -435,7 +435,7 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         command = json.loads(cmd)
         command_path = Path(command)
         expect(
-            command_path.name == "cmux Computer Use",
+            command_path.name == "cmux-cua",
             f"expected installed Computer Use broker command, got {cmd}",
             failures,
         )
@@ -444,7 +444,7 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
                 "cmux Computer Use.app",
                 "Contents",
                 "MacOS",
-                "cmux Computer Use",
+                "cmux-cua",
             ),
             f"expected installed cmux Computer Use broker command, got {command}",
             failures,
@@ -460,12 +460,12 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         )
         if len(mcp_args) >= 3:
             expect(
-                mcp_args[2].endswith("/codex-cua.sock")
-                and not mcp_args[2].endswith("/native-cua.sock"),
+                mcp_args[2].endswith("/cmux-cua-codex.sock")
+                and not mcp_args[2].endswith("/cmux-cua.sock"),
                 f"expected the isolated Codex daemon socket, got {mcp_args[2]!r}",
                 failures,
             )
-    expect_scrubbed_mcp_env(args, failures, "bundled cua-driver", helper_owned=True)
+    expect_scrubbed_mcp_env(args, failures, "bundled cmux-cua", helper_owned=True)
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -555,12 +555,12 @@ def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None
         failures,
     )
     expect(
-        "CUA_DRIVER_DAEMON_APP" not in source,
+        "CMUX_CUA_DAEMON_APP" not in source,
         "codex wrapper must not own helper daemon launch",
         failures,
     )
     expect(
-        "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
+        "CMUX_CUA_MCP_FORCE_PROXY" in source,
         "codex wrapper must force the shared daemon proxy path",
         failures,
     )
@@ -581,7 +581,7 @@ def test_codex_reads_private_daemon_credential_file(failures: list[str]) -> None
     expect_scrubbed_mcp_env(args, failures, "private daemon credential file", helper_owned=True)
 
 
-def test_codex_rejects_proxy_only_cua_driver_override(failures: list[str]) -> None:
+def test_codex_rejects_proxy_only_cmux_cua_override(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["hello"], bundled_driver=False, override_driver=True)
     expect(code == 0, f"override wrapper exited {code}: {stderr}", failures)
     cmd = command_config(args)
@@ -592,7 +592,7 @@ def test_codex_rejects_proxy_only_cua_driver_override(failures: list[str]) -> No
     )
 
 
-def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
+def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
     # `codex fork` starts a new interactive session from a previous one, so it
     # must receive hook injection and the computer-use MCP like exec/resume.
     code, args, stderr, _ = run_wrapper(["fork", "0e2f4bd8-2c34-4e6e-9d2b-000000000000"])
@@ -607,7 +607,7 @@ def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
     expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
     if cmd is not None:
         expect(
-            Path(json.loads(cmd)).name == "cmux Computer Use",
+            Path(json.loads(cmd)).name == "cmux-cua",
             f"expected installed Computer Use broker command for fork, got {cmd}",
             failures,
         )
@@ -620,7 +620,7 @@ def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
     )
 
 
-def test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures: list[str]) -> None:
+def test_codex_rejects_cmux_cua_override_under_world_writable_ancestor(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(
         ["hello"],
         bundled_driver=False,
@@ -721,7 +721,7 @@ def test_codex_fails_closed_for_computer_use_when_socket_dead(failures: list[str
     )
 
 
-def test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failures: list[str]) -> None:
+def test_codex_rejects_cmux_cua_override_under_group_writable_ancestor(failures: list[str]) -> None:
     # Write permission on a parent directory allows renaming the driver away
     # and dropping a replacement regardless of the file's own permissions, so
     # group-writable ancestors are as disqualifying as world-writable ones.
@@ -734,7 +734,7 @@ def test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failure
     expect(command_config(args) is None, f"expected group-writable ancestor rejection, got {args}", failures)
 
 
-def test_codex_rejects_group_writable_cua_driver_override(failures: list[str]) -> None:
+def test_codex_rejects_group_writable_cmux_cua_override(failures: list[str]) -> None:
     # A group-writable override binary could be swapped by another local user
     # and then run under cmux's TCC identity; the wrapper must reject it.
     code, args, stderr, _ = run_wrapper(
@@ -746,8 +746,8 @@ def test_codex_rejects_group_writable_cua_driver_override(failures: list[str]) -
     expect(command_config(args) is None, f"expected group-writable override rejection, got {args}", failures)
 
 
-def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) -> None:
-    # The bundled driver is local and independent of the cmux hook socket, so
+def test_codex_gets_cmux_cua_when_hook_injection_fails(failures: list[str]) -> None:
+    # The bundled cmux-cua client is local and independent of the cmux hook socket, so
     # a failed `hooks codex inject-args` emit must not drop computer use.
     code, args, stderr, _ = run_wrapper(["hello"], hooks_inject_fails=True)
     expect(code == 0, f"hook-failure wrapper exited {code}: {stderr}", failures)
@@ -762,7 +762,7 @@ def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) ->
     if cmd is not None:
         command = json.loads(cmd)
         expect(
-            Path(command).name == "cmux Computer Use",
+            Path(command).name == "cmux-cua",
             f"expected installed Computer Use broker command after hook failure, got {cmd}",
             failures,
         )
@@ -779,32 +779,32 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 
 def main() -> int:
     failures: list[str] = []
-    test_codex_gets_cmux_cua_driver(failures)
+    test_codex_gets_cmux_cua(failures)
     test_codex_skill_is_global_without_config_duplicate_by_default(failures)
     test_codex_migrates_legacy_computer_use_link(failures)
     test_codex_falls_back_to_config_for_user_owned_skill_path(failures)
     test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
-    test_codex_rejects_proxy_only_cua_driver_override(failures)
-    test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
+    test_codex_rejects_proxy_only_cmux_cua_override(failures)
+    test_codex_rejects_cmux_cua_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_installed_broker_is_unavailable(failures)
     test_codex_skips_when_disabled(failures)
     test_codex_skips_when_live_app_setting_is_disabled(failures)
     test_codex_skips_when_daemon_credential_is_missing(failures)
-    test_codex_fork_gets_hooks_and_cua_driver(failures)
+    test_codex_fork_gets_hooks_and_cmux_cua(failures)
     test_codex_hooks_disabled_is_fully_inert(failures)
     test_codex_fails_closed_for_computer_use_when_socket_dead(failures)
-    test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failures)
-    test_codex_rejects_group_writable_cua_driver_override(failures)
-    test_codex_gets_cua_driver_when_hook_injection_fails(failures)
+    test_codex_rejects_cmux_cua_override_under_group_writable_ancestor(failures)
+    test_codex_rejects_group_writable_cmux_cua_override(failures)
+    test_codex_gets_cmux_cua_when_hook_injection_fails(failures)
     test_codex_skips_for_strict_mcp_config(failures)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: codex wrapper injects cmux cua-driver MCP")
+    print("PASS: codex wrapper injects cmux-cua MCP")
     return 0
 
 

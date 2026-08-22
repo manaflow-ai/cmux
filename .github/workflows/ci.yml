@@ -1206,7 +1206,9 @@ jobs:
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_codex_wrapper_computer_use_mcp.py
-          python3 tests/test_cua_driver_mcp_smoke.py
+          python3 tests/test_cmux_cua_mcp_smoke.py
+          python3 tests/test_cmux_cua_build_cache_safety.py
+          python3 tests/test_cmux_cua_helper_identity.py
           python3 tests/test_hermes_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
@@ -2168,21 +2170,21 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          CUA_DRIVER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-computer-use-client"
+          CMUX_CUA_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cua"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
-          test -x "$CUA_DRIVER_BINARY"
+          test -x "$CMUX_CUA_BINARY"
           test -x "$DIFF_SIDECAR"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CUA_DRIVER_BINARY" "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CMUX_CUA_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
-          lipo "$CUA_DRIVER_BINARY" -verify_arch arm64 x86_64
-          codesign --verify --strict --verbose=4 "$CUA_DRIVER_BINARY"
+          lipo "$CMUX_CUA_BINARY" -verify_arch arm64 x86_64
+          codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 

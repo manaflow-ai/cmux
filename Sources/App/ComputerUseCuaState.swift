@@ -2,14 +2,18 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// A validated snapshot written by the local computer-use driver.
-struct ComputerUseDriverState: Equatable, Sendable {
+/// A validated snapshot written by the local cmux-cua runtime.
+struct ComputerUseCuaState: Equatable, Sendable {
     private static let fractionalISO8601 = Date.ISO8601FormatStyle(
         includingFractionalSeconds: true
     )
     private static let wholeSecondISO8601 = Date.ISO8601FormatStyle(
         includingFractionalSeconds: false
     )
+    // This prefix is part of the schema-4 wire contract shared with the
+    // cmux-cua Rust writer. Keep the historical bytes while renaming the
+    // Swift type; changing them would make every authenticated helper state
+    // unreadable by the host.
     private static let authenticationDomain = Data(
         "cmux-computer-use-state-v1\0".utf8
     )
@@ -18,7 +22,7 @@ struct ComputerUseDriverState: Equatable, Sendable {
     /// The kernel-authenticated proxy generation that issued this action.
     let writerProcessIdentity: AgentPIDProcessIdentity
     var writerPID: Int { Int(writerProcessIdentity.pid) }
-    /// The driver's own session id when one was declared; `null` in the file
+    /// The cmux-cua session id when one was declared; `null` in the file
     /// for cursor-less runs, and never equal to the cmux hook session id.
     let session: String?
     let targetApp: String
@@ -33,7 +37,8 @@ struct ComputerUseDriverState: Equatable, Sendable {
             let dictionary = object as? [String: Any],
             let schema = Self.positiveInt(dictionary["schema"]),
             schema == 4,
-            // The driver writes "driver_pid"; accept legacy "pid" only for
+            // The cmux-cua helper writes "driver_pid" for protocol stability;
+            // accept legacy "pid" only for
             // daemon display identity. Trusted state provenance is schema 4.
             let pid = Self.positiveInt(dictionary["driver_pid"] ?? dictionary["pid"]),
             let writerPID = Self.positiveInt(dictionary["writer_pid"]),

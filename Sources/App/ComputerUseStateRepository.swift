@@ -28,7 +28,7 @@ struct ComputerUseStateRepository: Sendable {
         fileManager: FileManager = .default,
         isStateEligible: @Sendable (
             ComputerUseSessionScope,
-            ComputerUseDriverState
+            ComputerUseCuaState
         ) -> Bool = { _, _ in true }
     ) -> ComputerUseStateScan {
         guard
@@ -89,7 +89,7 @@ struct ComputerUseStateRepository: Sendable {
             sessionsByScopeID[session.id] = session
         }
 
-        var newestStateByScopeID: [String: ComputerUseDriverState] = [:]
+        var newestStateByScopeID: [String: ComputerUseCuaState] = [:]
         var hasRecentStateFiles = false
         for candidate in candidates.prefix(Self.maximumCandidateFiles) {
             guard !Task.isCancelled else { return .empty }
@@ -99,7 +99,7 @@ struct ComputerUseStateRepository: Sendable {
                     options: [.mappedIfSafe]
                 ),
                 data.count == candidate.size,
-                let state = ComputerUseDriverState(
+                let state = ComputerUseCuaState(
                     data: data,
                     authenticationKey: authenticationKey
                 ),
@@ -141,7 +141,7 @@ struct ComputerUseStateRepository: Sendable {
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("computer-use", isDirectory: true)
+            .appendingPathComponent("cmux-cua", isDirectory: true)
             .appendingPathComponent("state", isDirectory: true)
     }
 

@@ -1,15 +1,15 @@
 import Darwin
 import Foundation
 
-/// Filesystem paths shared by the app-owned Computer Use runtime and agent wrappers.
+/// Filesystem paths shared by the app-owned cmux-cua runtime and agent wrappers.
 struct ComputerUseRuntimePaths: Sendable {
     static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"
     static let codexDaemonSocketEnvironmentKey = "CMUX_CUA_CODEX_SOCKET_PATH"
     static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
     static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
     static let clientExecutableEnvironmentKey = "CMUX_CUA_CLIENT_PATH"
-    static let authenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_AUTH_TOKEN"
-    static let hostAuthenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_HOST_AUTH_TOKEN"
+    static let authenticationTokenEnvironmentKey = "CMUX_CUA_SOCKET_AUTH_TOKEN"
+    static let hostAuthenticationTokenEnvironmentKey = "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"
     static let authenticationTokenFileEnvironmentKey = "CMUX_CUA_AUTH_TOKEN_FILE"
 
     let scope: String
@@ -59,12 +59,12 @@ struct ComputerUseRuntimePaths: Sendable {
             userIdentifier: userIdentifier
         )
         computerUseDirectoryURL = homeDirectoryURL
-            .appendingPathComponent("Library/Application Support/cmux/computer-use", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/cmux/cmux-cua", isDirectory: true)
         runtimeDirectoryURL = socketRootDirectoryURL
             .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)
-        daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cua.sock")
-        codexDaemonSocketURL = runtimeDirectoryURL.appendingPathComponent("codex-cua.sock")
+        daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cmux-cua.sock")
+        codexDaemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cmux-cua-codex.sock")
         authenticationTokenFileURL = runtimeDirectoryURL.appendingPathComponent("auth-token")
         self.authenticationToken = authenticationToken.flatMap(Self.nonEmptyToken)
             ?? Self.persistedAuthenticationToken(
@@ -89,7 +89,7 @@ struct ComputerUseRuntimePaths: Sendable {
         installedHelperAppURL = installedHelperDirectoryURL
             .appendingPathComponent("cmux Computer Use.app", isDirectory: true)
         installedHelperExecutableURL = installedHelperAppURL
-            .appendingPathComponent("Contents/MacOS/cmux Computer Use")
+            .appendingPathComponent("Contents/MacOS/cmux-cua")
     }
 
     private static func sanitizedScope(_ rawValue: String?) -> String {
@@ -116,7 +116,7 @@ struct ComputerUseRuntimePaths: Sendable {
     ) -> String {
         let socketParent = rootDirectoryURL
             .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
-        let longestSocketName = "/codex-cua.sock"
+        let longestSocketName = "/cmux-cua-codex.sock"
         let fixedByteCount =
             socketParent.path.utf8.count
                 + "/".utf8.count

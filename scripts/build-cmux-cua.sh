@@ -2,31 +2,23 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="602d635c761fdbe95798592edae8154bef49d3e0"
+CMUX_CUA_PINNED_SHA="a6add7bf00b03fb1726c7bdd847f5e67433bdd1d"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
-CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-driver-cache-v1 $CMUX_CUA_PINNED_SHA"
+CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
-CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-driver-helper-v1"
+CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
-CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cua-driver}"
+CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
 
 helper_bundle_id_for_host() {
-  local host_id="$1"
-  case "$host_id" in
-    com.cmuxterm.app.debug|com.cmuxterm.app.debug.*)
-      # Every tagged Debug build presents the same branded app to TCC. Runtime
-      # sockets and installed paths remain tag-scoped, while System Settings
-      # shows one "cmux Computer Use" row instead of one duplicate per tag.
-      echo "com.cmuxterm.app.debug.computer-use"
-      ;;
-    *)
-      echo "${host_id}.computer-use"
-      ;;
-  esac
+  # cmux-cua owns one stable TCC identity. Tag isolation comes from the
+  # installed path, socket, credential, and state scope—not from minting a new
+  # permission row for every host bundle.
+  echo "com.cmuxterm.cua"
 }
 
 validate_replaceable_helper_bundle() {
@@ -56,7 +48,15 @@ validate_replaceable_helper_bundle() {
   # at the computed output path.
   existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
   existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
-  if [[ "$existing_id" == "$expected_id" && "$existing_executable" == "$expected_executable" ]]; then
+  local legacy_id=false
+  case "$existing_id" in
+    com.cmuxterm.*.computer-use|com.cmuxterm.app.computer-use)
+      legacy_id=true
+      ;;
+  esac
+  if [[ ("$existing_id" == "$expected_id" || "$legacy_id" == true) \
+        && ("$existing_executable" == "$expected_executable" \
+            || "$existing_executable" == "cmux Computer Use") ]]; then
     return 0
   fi
 
@@ -67,11 +67,11 @@ validate_replaceable_helper_bundle() {
 
 usage() {
   cat <<'USAGE' >&2
-usage: scripts/build-cua-driver.sh --output <path> [options]
+usage: scripts/build-cmux-cua.sh --output <path> [options]
 
 Options:
   --archs "<archs>"     architectures to build (default: "arm64 x86_64")
-  --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cua-driver)
+  --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
   -h, --help            show this help
@@ -140,7 +140,7 @@ fi
 
 command -v git >/dev/null 2>&1 || { echo "error: git is required" >&2; exit 1; }
 command -v cargo >/dev/null 2>&1 || {
-  echo "error: cargo is required to build the bundled cua-driver" >&2
+  echo "error: cargo is required to build the bundled cmux-cua" >&2
   echo "  local dev: install Rust via rustup (https://rustup.rs or \`brew install rustup && rustup-init\`)" >&2
   echo "  CI: run scripts/install-rust-ci.sh" >&2
   exit 1
@@ -192,7 +192,7 @@ acquire_src_lock() {
       continue
     fi
     if (( waited >= 300 )); then
-      echo "error: timed out waiting for cua-driver source lock at $lock_dir" >&2
+      echo "error: timed out waiting for cmux-cua source lock at $lock_dir" >&2
       echo "  if no other build is running, remove it manually: rm -rf '$lock_dir'" >&2
       exit 1
     fi
@@ -215,19 +215,19 @@ validate_managed_source_cache() {
   local owner_value
 
   if [[ -L "$SRC_ROOT" ]]; then
-    echo "error: refusing symlinked cua-driver source cache: $SRC_ROOT" >&2
+    echo "error: refusing symlinked cmux-cua source cache: $SRC_ROOT" >&2
     exit 1
   fi
   resolved_cache="$(cd "$CACHE_DIR" && pwd -P)"
   resolved_source="$(cd "$SRC_ROOT" && pwd -P)"
   if [[ "$(dirname "$resolved_source")" != "$resolved_cache" || "$(basename "$resolved_source")" != "$expected_name" ]]; then
-    echo "error: refusing cua-driver source outside its exact cache slot: $SRC_ROOT" >&2
+    echo "error: refusing cmux-cua source outside its exact cache slot: $SRC_ROOT" >&2
     exit 1
   fi
 
   owner_value="$(cat "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE" 2>/dev/null || true)"
   if [[ "$owner_value" != "$CMUX_CUA_SOURCE_OWNER_VALUE" ]]; then
-    echo "error: refusing unmanaged cua-driver source cache: $SRC_ROOT" >&2
+    echo "error: refusing unmanaged cmux-cua source cache: $SRC_ROOT" >&2
     echo "  move it aside or remove it manually, then rerun the build" >&2
     exit 1
   fi
@@ -276,7 +276,7 @@ else
   acquire_src_lock "$SRC_ROOT.lock"
   if [[ ! -d "$SRC_ROOT/.git" ]]; then
     if [[ -e "$SRC_ROOT" || -L "$SRC_ROOT" ]]; then
-      echo "error: refusing to replace existing cua-driver cache path: $SRC_ROOT" >&2
+      echo "error: refusing to replace existing cmux-cua cache path: $SRC_ROOT" >&2
       echo "  move it aside or remove it manually, then rerun the build" >&2
       exit 1
     fi
@@ -287,7 +287,7 @@ else
     TMPDIR_CLONE=""
   elif [[ ! -f "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE" ]]; then
     adopt_legacy_source_cache || {
-      echo "error: refusing unmanaged cua-driver source cache: $SRC_ROOT" >&2
+      echo "error: refusing unmanaged cmux-cua source cache: $SRC_ROOT" >&2
       echo "  move it aside or remove it manually, then rerun the build" >&2
       exit 1
     }
@@ -322,13 +322,13 @@ if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
 fi
 release_src_lock
 
-CARGO_ROOT="$SRC_ROOT/libs/cua-driver/rust"
+CARGO_ROOT="$SRC_ROOT/libs/cmux-cua/rust"
 if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
-  echo "error: cua-driver Cargo workspace not found at $CARGO_ROOT" >&2
+  echo "error: cmux-cua Cargo workspace not found at $CARGO_ROOT" >&2
   exit 1
 fi
 
-TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-computer-use-build.XXXXXX")"
+TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
 mkdir -p "$(dirname "$OUTPUT")"
 
@@ -361,16 +361,16 @@ for arch in "${ARCHS[@]}"; do
   ensure_rust_target "$target"
   # The Cargo target dir lives INSIDE the per-revision source dir (excluded
   # from `git clean`), never in a slot shared across revisions or source
-  # paths: `$target/release/cua-driver` is a single uplift destination, and
+  # paths: `$target/release/cmux-cua` is a single uplift destination, and
   # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
   # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
   # by source dir prevents cross-revision reuse. Concurrent builds of one
   # revision serialize on Cargo's own lock.
   target_dir="$SRC_ROOT/.cmux-cargo-target"
   CARGO_TARGET_DIR="$target_dir" \
-    cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cua-driver --release --target "$target"
-  arch_output="$TMPDIR_BUILD/cmux-computer-use-$arch"
-  cp "$target_dir/$target/release/cua-driver" "$arch_output"
+    cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"
+  arch_output="$TMPDIR_BUILD/cmux-cua-$arch"
+  cp "$target_dir/$target/release/cmux-cua" "$arch_output"
   BUILT+=("$arch_output")
 done
 
@@ -381,7 +381,7 @@ else
 fi
 chmod 0755 "$OUTPUT"
 
-# Strip debug and local symbols before signing: the release cua-driver is
+# Strip debug and local symbols before signing: the release cmux-cua is
 # ~12MB with ~29k symbols unstripped, which otherwise ships in the DMG and
 # the installed app for no runtime benefit.
 /usr/bin/strip -Sx "$OUTPUT"
@@ -389,25 +389,25 @@ chmod 0755 "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
 
 # MIT compliance: the upstream license and copyright notice must accompany
-# every redistributed copy of the driver. Take it from the pinned checkout so
+# every redistributed copy of the cmux-cua engine. Take it from the pinned checkout so
 # the shipped notice always matches the code it covers, and fail loudly if it
 # ever disappears upstream rather than shipping unattributed.
 CUA_LICENSE_SRC="$SRC_ROOT/LICENSE.md"
 if [[ ! -f "$CUA_LICENSE_SRC" ]]; then
   echo "error: cmux-cua LICENSE.md not found at $CUA_LICENSE_SRC" >&2
-  echo "  the bundled cua-driver cannot ship without its MIT notice" >&2
+  echo "  the bundled cmux-cua cannot ship without its MIT notice" >&2
   exit 1
 fi
-cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-computer-use-client-LICENSE.md"
+cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-cua-LICENSE.md"
 
-# Package the driver into a branded helper with its own bundle identifier and
+# Package the cmux-cua engine into a branded helper with its own bundle identifier and
 # TCC identity. The helper is copied out of the host bundle before launch; that
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
 _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
 _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
 if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
   HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
-  HELPER_EXECUTABLE="cmux Computer Use"
+  HELPER_EXECUTABLE="cmux-cua"
   # This build phase runs before Xcode writes the processed host Info.plist.
   # Prefer exported build settings; reading a missing plist makes PlistBuddy
   # print "File Doesn't Exist, Will Create" on stdout and corrupts the helper
@@ -462,10 +462,10 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSEnvironment</key>
   <dict>
-    <key>CUA_DRIVER_RS_PERMISSIONS_GATE</key><string>0</string>
-    <key>CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW</key><string>1</string>
-    <key>CUA_DRIVER_RS_TELEMETRY_ENABLED</key><string>false</string>
-    <key>CUA_DRIVER_RS_UPDATE_CHECK</key><string>false</string>
+    <key>CMUX_CUA_PERMISSIONS_GATE</key><string>0</string>
+    <key>CMUX_CUA_EXTERNAL_PERMISSION_FLOW</key><string>1</string>
+    <key>CMUX_CUA_TELEMETRY_ENABLED</key><string>false</string>
+    <key>CMUX_CUA_UPDATE_CHECK</key><string>false</string>
   </dict>
   <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} controls apps only when you ask an agent to use Computer Use.</string>
   <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} sees app windows only when you ask an agent to use Computer Use.</string>
@@ -502,8 +502,8 @@ fi
 
 # Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS
 # platform probes are mutating (they `launchctl unload` + delete a legacy
-# LaunchAgent plist and remove the hard-coded /usr/local/bin/cua-driver-update,
+# LaunchAgent plist and remove the hard-coded /usr/local/bin/cmux-cua-update,
 # which a temporary HOME does not redirect), so running it here would let an
 # ordinary app build silently modify the developer's machine. Deeper MCP
-# verification lives in tests/test_cua_driver_mcp_smoke.py.
+# verification lives in tests/test_cmux_cua_mcp_smoke.py.
 "$OUTPUT" --version >/dev/null

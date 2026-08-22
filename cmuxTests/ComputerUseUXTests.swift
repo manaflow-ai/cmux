@@ -248,7 +248,7 @@ struct ComputerUseUXTests {
             sessionId: "session-1",
             hookEventName: .preToolUse,
             source: "claude",
-            toolName: "mcp__cmux-computer-use__start_session"
+            toolName: "mcp__cmux-cua__start_session"
         )
         #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(legacyInvocation))
 
@@ -285,7 +285,7 @@ struct ComputerUseUXTests {
         ))
     }
 
-    @Test func parsesRealDriverStateFileShape() throws {
+    @Test func parsesRealCuaStateFileShape() throws {
         // The helper daemon owns driver_pid while the kernel-authenticated MCP
         // proxy that issued the action is recorded independently as writer_pid.
         // This MAC is also asserted by the Rust driver test, making the
@@ -298,7 +298,7 @@ struct ComputerUseUXTests {
         "last_action_at":"2026-07-14T01:09:37.745752Z","schema":4,\
         "state_authentication_code":"dba2b7a606e510db5908f7c77bcdf2224c7a9764569fee7ad32aa3926928a460"}
         """
-        let state = try #require(ComputerUseDriverState(
+        let state = try #require(ComputerUseCuaState(
             data: Data(json.utf8),
             authenticationKey: Self.stateAuthenticationKey
         ))
@@ -331,7 +331,7 @@ struct ComputerUseUXTests {
         object["target_pid"] = 99
         let forged = try JSONSerialization.data(withJSONObject: object)
 
-        #expect(ComputerUseDriverState(
+        #expect(ComputerUseCuaState(
             data: forged,
             authenticationKey: Self.stateAuthenticationKey
         ) == nil)
@@ -352,7 +352,7 @@ struct ComputerUseUXTests {
             targetWindowID: 1,
             lastActionAt: "2026-07-14T01:09:37.745752Z"
         )
-        let state = try #require(ComputerUseDriverState(
+        let state = try #require(ComputerUseCuaState(
             data: data,
             authenticationKey: Self.stateAuthenticationKey
         ))
@@ -442,7 +442,7 @@ struct ComputerUseUXTests {
             targetWindowID: 1,
             lastActionAt: "2026-07-14T01:09:37.745752Z"
         )
-        let state = try #require(ComputerUseDriverState(
+        let state = try #require(ComputerUseCuaState(
             data: data,
             authenticationKey: Self.stateAuthenticationKey
         ))
@@ -467,7 +467,7 @@ struct ComputerUseUXTests {
             targetWindowID: 1,
             lastActionAt: "2026-07-14T01:09:37.745752Z"
         )
-        let state = try #require(ComputerUseDriverState(
+        let state = try #require(ComputerUseCuaState(
             data: data,
             authenticationKey: Self.stateAuthenticationKey
         ))
@@ -1510,25 +1510,25 @@ struct ComputerUseUXTests {
         )
 
         #expect(paths.scope == "permission-owner-v2-b557c76d99865947")
-        #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/\(paths.scope)/cua.sock")
+        #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/\(paths.scope)/cmux-cua.sock")
         #expect(
             paths.codexDaemonSocketURL.path
-                == "/tmp/cmux-cua-501/\(paths.scope)/codex-cua.sock"
+                == "/tmp/cmux-cua-501/\(paths.scope)/cmux-cua-codex.sock"
         )
         #expect(paths.stateDirectoryURL.path.hasSuffix(
-            "/Library/Application Support/cmux/computer-use/runtime/\(paths.scope)/state"
+            "/Library/Application Support/cmux/cmux-cua/runtime/\(paths.scope)/state"
         ))
         #expect(
             paths.permissionDatabaseDirectoryURL.path
                 == "/Users/tester/Library/Application Support/com.apple.TCC"
         )
         #expect(paths.installedHelperAppURL.path.hasSuffix(
-            "/Library/Application Support/cmux/computer-use/helper/\(paths.scope)/cmux Computer Use.app"
+            "/Library/Application Support/cmux/cmux-cua/helper/\(paths.scope)/cmux Computer Use.app"
         ))
         #expect(
             paths.installedHelperExecutableURL.path
                 == paths.installedHelperAppURL
-                    .appendingPathComponent("Contents/MacOS/cmux Computer Use")
+                    .appendingPathComponent("Contents/MacOS/cmux-cua")
                     .path
         )
     }
@@ -1653,9 +1653,9 @@ struct ComputerUseUXTests {
 
     @Test func helperTerminationRecoveryIgnoresIntentionalAndForeignExits() {
         let helperURL = URL(
-            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/computer-use/helper/tag/cmux Computer Use.app"
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/cmux-cua/helper/tag/cmux Computer Use.app"
         )
-        let helperBundleIdentifier = "com.cmuxterm.app.debug.tag.computer-use"
+        let helperBundleIdentifier = "com.cmuxterm.cua"
 
         #expect(ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
             desiredEnabled: true,
@@ -1688,8 +1688,8 @@ struct ComputerUseUXTests {
             desiredEnabled: true,
             acceptsNewLaunches: true,
             wasExpected: false,
-            terminatedBundleIdentifier: "com.trycua.driver",
-            terminatedBundleURL: URL(fileURLWithPath: "/Applications/CuaDriver.app"),
+            terminatedBundleIdentifier: "com.example.foreign.helper",
+            terminatedBundleURL: URL(fileURLWithPath: "/Applications/Other Helper.app"),
             helperBundleIdentifier: helperBundleIdentifier,
             helperBundleURL: helperURL
         ))
@@ -1697,7 +1697,7 @@ struct ComputerUseUXTests {
 
     @Test func trackedHelperTerminationRecoversWhenLaunchServicesDropsBundleMetadata() {
         let helperURL = URL(
-            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/computer-use/helper/tag/cmux Computer Use.app"
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/cmux-cua/helper/tag/cmux Computer Use.app"
         )
 
         #expect(ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
@@ -1707,7 +1707,7 @@ struct ComputerUseUXTests {
             isTrackedHelperProcess: true,
             terminatedBundleIdentifier: nil,
             terminatedBundleURL: nil,
-            helperBundleIdentifier: "com.cmuxterm.app.debug.tag.computer-use",
+            helperBundleIdentifier: "com.cmuxterm.cua",
             helperBundleURL: helperURL
         ))
     }
@@ -1815,7 +1815,7 @@ struct ComputerUseUXTests {
     @Test @MainActor func privateDaemonCredentialSurvivesHostRestart() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-restart-\(UUID().uuidString)",
+                "cmux-cua-restart-\(UUID().uuidString)",
                 isDirectory: true
             )
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1855,7 +1855,7 @@ struct ComputerUseUXTests {
     func unverifiedDaemonProbeDoesNotSendHostCapability() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-unverified-peer-\(UUID().uuidString)",
+                "cmux-cua-unverified-peer-\(UUID().uuidString)",
                 isDirectory: true
             )
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -1914,7 +1914,7 @@ struct ComputerUseUXTests {
     func nativePermissionRequestUsesBothCapabilitiesAndExactHelperPeer() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-host-permission-\(UUID().uuidString)",
+                "cmux-cua-host-permission-\(UUID().uuidString)",
                 isDirectory: true
             )
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -2006,7 +2006,7 @@ struct ComputerUseUXTests {
     func directCaptureVerificationUsesHostCapabilityAndExactHelperPeer() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-direct-capture-\(UUID().uuidString)",
+                "cmux-cua-direct-capture-\(UUID().uuidString)",
                 isDirectory: true
             )
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -2062,7 +2062,7 @@ struct ComputerUseUXTests {
     func directCaptureVerificationDistinguishesDenialFromHelperUnavailability() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-direct-capture-outcome-\(UUID().uuidString)",
+                "cmux-cua-direct-capture-outcome-\(UUID().uuidString)",
                 isDirectory: true
             )
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -2150,7 +2150,7 @@ struct ComputerUseUXTests {
     func nativePermissionRequestRejectsAReusedHelperProcessIdentity() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-stale-permission-\(UUID().uuidString)",
+                "cmux-cua-stale-permission-\(UUID().uuidString)",
                 isDirectory: true
             )
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -2211,7 +2211,7 @@ struct ComputerUseUXTests {
     func permissionRefreshSurvivesHelperSocketReplacement() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-permissions-\(UUID().uuidString)",
+                "cmux-cua-permissions-\(UUID().uuidString)",
                 isDirectory: true
             )
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -2303,22 +2303,22 @@ struct ComputerUseUXTests {
             "--cursor-speed",
             "1.75",
         ])
-        #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
-        #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
-        #expect(configuration.environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false")
-        #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
-        #expect(configuration.environment["CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED"] == "1")
-        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTH_TOKEN"] == "test-auth-token")
+        #expect(configuration.environment["CMUX_CUA_EXTERNAL_PERMISSION_FLOW"] == "1")
+        #expect(configuration.environment["CMUX_CUA_PERMISSIONS_GATE"] == "0")
+        #expect(configuration.environment["CMUX_CUA_TELEMETRY_ENABLED"] == "false")
+        #expect(configuration.environment["CMUX_CUA_UPDATE_CHECK"] == "false")
+        #expect(configuration.environment["CMUX_CUA_RESPONSIBILITY_DISCLAIMED"] == "1")
+        #expect(configuration.environment["CMUX_CUA_SOCKET_AUTH_TOKEN"] == "test-auth-token")
         let hostAuthority = try #require(
-            configuration.environment["CUA_DRIVER_SOCKET_HOST_AUTH_TOKEN"]
+            configuration.environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"]
         )
         #expect(hostAuthority.count == 64)
         #expect(hostAuthority != "test-auth-token")
-        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID"]
+        #expect(configuration.environment["CMUX_CUA_SOCKET_AUTHORIZED_ROOT_PID"]
             == "42")
-        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS"]
+        #expect(configuration.environment["CMUX_CUA_SOCKET_AUTHORIZED_ROOT_START_SECONDS"]
             == "1700000000")
-        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS"]
+        #expect(configuration.environment["CMUX_CUA_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS"]
             == "123456")
 
         let codexConfiguration = try #require(
@@ -2357,21 +2357,19 @@ struct ComputerUseUXTests {
                 .appendingPathComponent(wrapperName, isDirectory: false)
             let source = try String(contentsOf: wrapperURL, encoding: .utf8)
             let declaresExternalFlow = source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
+                #"CMUX_CUA_EXTERNAL_PERMISSION_FLOW="1""#
             ) || source.contains(
-                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1""#
+                #""CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1""#
             )
             #expect(declaresExternalFlow)
             #expect(!source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
+                #"CMUX_CUA_EXTERNAL_PERMISSION_FLOW="0""#
             ))
         }
     }
 
-    /// Every Codex compatibility action already returns a refreshed screenshot
-    /// and accessibility snapshot. Asking the agent to scan again doubled the
-    /// state captures and model/MCP round trips between Calculator clicks.
-    @Test func bundledCodexInstructionsUseVisiblePointerClicksAndReturnedState() throws {
+    /// Codex actions acknowledge dispatch and use an explicit state refresh.
+    @Test func bundledCodexInstructionsUseVisiblePointerClicksAndExplicitState() throws {
         let skillURL = try #require(Bundle.main.url(
             forResource: "SKILL",
             withExtension: "md",
@@ -2391,22 +2389,22 @@ struct ComputerUseUXTests {
             "Reserve `type_text` for entering text"
         ))
         #expect(skill.contains(
-            "Every successful action already returns a fresh app state and screenshot."
+            "Actions return a compact dispatch acknowledgement"
         ))
         #expect(skill.contains(
-            "Never loop, batch, or issue multiple element-index actions"
+            "call `get_app_state` before deciding what to do next"
         ))
         #expect(skill.contains(
             "Calculator's **All Clear** removes display nodes"
         ))
-        #expect(!skill.contains("Re-read the returned app state after each action"))
+        #expect(!skill.contains("Every successful action already returns a fresh app state"))
     }
 
     @Test(.timeLimit(.minutes(1)))
     func daemonReadinessUsesTheExactPIDFileSignal() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-readiness-\(UUID().uuidString)",
+                "cmux-cua-readiness-\(UUID().uuidString)",
                 isDirectory: true
             )
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2445,7 +2443,7 @@ struct ComputerUseUXTests {
     @MainActor
     @Test func menuStartPrimesAgentIndexWithoutPerStateReloads() {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-computer-use-menu-refresh-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-cua-menu-refresh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
@@ -2546,7 +2544,7 @@ struct ComputerUseUXTests {
 
     @Test func generatedAgentShimReadsComputerUseAuthorityOnEveryLaunch() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-computer-use-live-setting-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-cua-live-setting-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
         let shimRoot = root.appendingPathComponent("shims", isDirectory: true)
@@ -2660,7 +2658,7 @@ struct ComputerUseUXTests {
     func computerUseFilesystemCallbacksHopSafelyToMainActor() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-watcher-\(UUID().uuidString)",
+                "cmux-cua-watcher-\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createDirectory(
@@ -2754,7 +2752,7 @@ struct ComputerUseUXTests {
     func backgroundActivityCannotFrontItsTargetAndViewResumesIt() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-background-\(UUID().uuidString)",
+                "cmux-cua-background-\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createDirectory(
@@ -3317,7 +3315,7 @@ struct ComputerUseUXTests {
         #expect(ComputerUseWatchTargetDecision.activation(current: 300, lastActivated: 100) == 300)
     }
 
-    @Test func watchTargetFeedSelectsNewestFreshDriverState() throws {
+    @Test func watchTargetFeedSelectsNewestFreshCuaState() throws {
         try withStateDirectory { directory in
             let now = Date(timeIntervalSince1970: 2_000_000_000)
             try writeState(
@@ -3350,7 +3348,7 @@ struct ComputerUseUXTests {
         }
     }
 
-    @Test func watchTargetFeedRejectsStaleDriverState() throws {
+    @Test func watchTargetFeedRejectsStaleCuaState() throws {
         try withStateDirectory { directory in
             let now = Date(timeIntervalSince1970: 2_000_000_000)
             // Older than the freshness window -> the session is no longer driving.
@@ -3481,7 +3479,7 @@ struct ComputerUseUXTests {
     @Test @MainActor
     func helperBundleRegistrationUsesTheCurrentInstalledPath() {
         let path = URL(
-            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/computer-use/helper/tag/cmux Computer Use.app"
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/cmux-cua/helper/tag/cmux Computer Use.app"
         )
         var registeredURL: CFURL?
         let registered = ComputerUseRuntimeService.registerHelperBundle(
@@ -3603,7 +3601,7 @@ struct ComputerUseUXTests {
     @Test @MainActor func decorativeCursorOverlayStaysOutOfAccessibilityTree() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-computer-use-cursor-accessibility-\(UUID().uuidString)",
+                "cmux-cua-cursor-accessibility-\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createDirectory(
@@ -3675,7 +3673,7 @@ struct ComputerUseUXTests {
 
     private func withStateDirectory(_ body: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-computer-use-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-cua-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try body(directory)
@@ -3716,6 +3714,8 @@ struct ComputerUseUXTests {
         targetWindowID: Int,
         lastActionAt: String
     ) throws -> Data {
+        // Schema-4 keeps the historical wire prefix shared with the Rust
+        // cmux-cua writer; the Swift type name is the part that was renamed.
         var message = Data("cmux-computer-use-state-v1\0".utf8)
         appendInteger(driverPID, to: &message)
         appendInteger(writerPID, to: &message)

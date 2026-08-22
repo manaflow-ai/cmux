@@ -80,7 +80,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-HELPER_ZIP="$TMP_DIR/cmux-computer-use-notary.zip"
+HELPER_ZIP="$TMP_DIR/cmux-cua-notary.zip"
 STANDALONE_DIR="$TMP_DIR/standalone"
 STANDALONE_HELPER="$STANDALONE_DIR/cmux Computer Use.app"
 

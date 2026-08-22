@@ -1,6 +1,6 @@
 import Foundation
 
-/// LaunchServices arguments and environment for the standalone helper daemon.
+/// LaunchServices arguments and environment for the cmux-cua helper daemon.
 struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
     let arguments: [String]
     let environment: [String: String]
@@ -41,27 +41,27 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
         ])
         self.arguments = arguments
         environment = [
-            "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
-            "CUA_DRIVER_RS_PERMISSIONS_GATE": "0",
+            "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1",
+            "CMUX_CUA_PERMISSIONS_GATE": "0",
             // LaunchServices already establishes the helper as a separate GUI
-            // responsibility. The upstream binary only recognizes its original
-            // CuaDriver.app name, so the renamed cmux helper would otherwise
-            // re-exec itself and leave a second `serve` process waiting on it.
-            "CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED": "1",
-            "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
-            "CUA_DRIVER_RS_UPDATE_CHECK": "false",
-            "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
-            "CUA_DRIVER_CURSOR_BLOOM": "#2d8cff",
-            "CUA_DRIVER_CURSOR_LABEL": "cmux",
-            "CUA_DRIVER_STATE_DIR": paths.stateDirectoryURL.path,
+            // responsibility. The cmux-cua helper is already the canonical
+            // executable inside its branded bundle, so it must not re-exec or
+            // launch a second `serve` process.
+            "CMUX_CUA_RESPONSIBILITY_DISCLAIMED": "1",
+            "CMUX_CUA_TELEMETRY_ENABLED": "false",
+            "CMUX_CUA_UPDATE_CHECK": "false",
+            "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+            "CMUX_CUA_CURSOR_BLOOM": "#2d8cff",
+            "CMUX_CUA_CURSOR_LABEL": "cmux",
+            "CMUX_CUA_STATE_DIR": paths.stateDirectoryURL.path,
             ComputerUseRuntimePaths.authenticationTokenEnvironmentKey: paths.authenticationToken,
             ComputerUseRuntimePaths.hostAuthenticationTokenEnvironmentKey:
                 paths.hostAuthenticationToken,
-            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID":
+            "CMUX_CUA_SOCKET_AUTHORIZED_ROOT_PID":
                 String(rootProcessIdentity.pid),
-            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS":
+            "CMUX_CUA_SOCKET_AUTHORIZED_ROOT_START_SECONDS":
                 String(rootProcessIdentity.startSeconds),
-            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS":
+            "CMUX_CUA_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS":
                 String(rootProcessIdentity.startMicroseconds),
         ]
     }

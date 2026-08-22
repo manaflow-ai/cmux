@@ -132,7 +132,7 @@ final class ComputerUseLiveSessionProjection {
             let hookProcessID,
             let processID = pid_t(exactly: hookProcessID),
             let hookProcessIdentity = AgentPIDProcessIdentity(pid: processID),
-            ComputerUseDriverState.process(
+            ComputerUseCuaState.process(
                 hookProcessIdentity,
                 belongsToProcessTree: record.session.rootProcessIdentities
             )

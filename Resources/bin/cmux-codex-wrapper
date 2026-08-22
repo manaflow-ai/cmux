@@ -212,8 +212,8 @@ cmux_computer_use_resolve_client() {
     # Codex compatibility mode brokers per-app approval. The daemon verifies
     # that broker as the exact executable already serving the cmux-owned
     # socket, then verifies the broker's parent as signed OpenAI Codex. A
-    # separately signed Resources/bin client (or CMUX_CUA_DRIVER override)
-    # cannot satisfy that invariant even when its bytes are related.
+    # separately signed Resources/bin client cannot satisfy that invariant
+    # unless it is the exact app-installed cmux-cua helper selected by cmux.
     local installed_client client_real
     installed_client="${CMUX_CUA_CLIENT_PATH:-}"
     [[ -n "$installed_client" ]] || return 1
@@ -237,7 +237,7 @@ cmux_computer_use_auth_token() {
             fi
         fi
     fi
-    token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
+    token="${CMUX_CUA_SOCKET_AUTH_TOKEN:-}"
     [[ -n "$token" ]] || return 1
     printf '%s' "$token"
 }
@@ -325,7 +325,11 @@ cmux_codex_computer_use_app_enabled() {
     local enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
     local home="${HOME:-}"
     if [[ "$home" = /* ]]; then
-        local setting_file="$home/Library/Application Support/cmux/computer-use/enabled"
+        local setting_file="$home/Library/Application Support/cmux/cmux-cua/enabled"
+        local legacy_setting_file="$home/Library/Application Support/cmux/computer-use/enabled"
+        if [[ ! -r "$setting_file" && -r "$legacy_setting_file" ]]; then
+            setting_file="$legacy_setting_file"
+        fi
         if [[ -r "$setting_file" ]]; then
             IFS= read -r enabled < "$setting_file" || true
         fi
@@ -377,8 +381,8 @@ cmux_codex_emit_computer_use_args() {
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
     runtime_uid="$(/usr/bin/id -u)"
-    cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/codex-cua.sock}"
-    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
+    cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua-codex.sock}"
+    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
     # The helper owns external onboarding. Mark that contract explicitly so
     # protected calls also wait for cmux's post-verification readiness signal.
     printf '%s\0' \
@@ -387,27 +391,27 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         "mcp_servers.cmux-cua.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\",\"--codex-computer-use-compat\"]" \
         "-c" \
-        'mcp_servers.cmux-cua.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
+        'mcp_servers.cmux-cua.env.CMUX_CUA_MCP_FORCE_PROXY="1"' \
         "-c" \
-        'mcp_servers.cmux-cua.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1"' \
+        'mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_OWNER_PID=\"$(cmux_computer_use_json_escape "${CMUX_CODEX_PID:-$$}")\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_OWNER_PID=\"$(cmux_computer_use_json_escape "${CMUX_CODEX_PID:-$$}")\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=\"false\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_TELEMETRY_ENABLED=\"false\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_RS_UPDATE_CHECK=\"false\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_UPDATE_CHECK=\"false\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_GRADIENT=\"#12c7f5,#2d8cff,#6c5cff\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_GRADIENT=\"#12c7f5,#2d8cff,#6c5cff\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_BLOOM=\"#2d8cff\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_BLOOM=\"#2d8cff\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_CURSOR_LABEL=\"cmux\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_LABEL=\"cmux\"" \
         "-c" \
-        "mcp_servers.cmux-cua.env.CUA_DRIVER_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
         "-c" \
         "mcp_servers.cmux-cua.env.NODE_OPTIONS=\"\"" \
         "-c" \

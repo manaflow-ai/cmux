@@ -1,8 +1,7 @@
 # cmux Computer Use
 
-cmux bundles `cua-driver` from the `manaflow-ai/cmux-cua` fork of trycua/cua
-and exposes it as an MCP server named `cmux-cua` (sessions started by an older
-wrapper may still carry the previous `cmux-computer-use` name).
+cmux bundles `cmux-cua` from the `manaflow-ai/cmux-cua` fork of trycua/cua
+and exposes it as an MCP server named `cmux-cua`.
 
 Claude Code and Codex CLI sessions launched by cmux receive the server
 automatically at session start (injection is implemented in
@@ -15,7 +14,7 @@ annotations, app-oriented arguments, screenshot/tree result shape, and
 approval flow while still running on cmux's own engine. Other agents are not
 currently supported:
 the socket proxy requires the per-launch credential that cmux injects into its
-own terminal process tree. Do not configure the bundled driver with
+own terminal process tree. Do not configure the bundled cmux-cua engine with
 `--embedded`; that would grant Accessibility and Screen Recording to the main
 terminal host and bypass the separately permissioned **cmux Computer Use**
 helper.
@@ -41,7 +40,7 @@ While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
 "Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes
 that request to the enclosing terminal app, so a consent dialog naming the
 cmux build and "Codex Computer Use" can appear. It is not cmux's helper or
-driver sending anything (the same TCC entry appears for Ghostty and every
+cmux-cua engine sending anything (the same TCC entry appears for Ghostty and every
 terminal Codex has run in); allowing or denying it only affects Codex's own
 computer-use path.
 
@@ -50,7 +49,7 @@ cmux-launched agent then connects through the authenticated, variant-scoped
 socket and can perceive the desktop through screenshots and accessibility
 trees and act with click, type, scroll, hotkey, drag, app, window, cursor, and
 diagnostic tools.
-cmux's injection disables the upstream driver's telemetry and self-update
+cmux's injection disables the upstream cmux-cua engine's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
 The first real tool invocation opens cmux's onboarding. Its first **Allow**
@@ -64,12 +63,12 @@ over the System Settings pane mid-drag. On macOS Tahoe, turning Screen
 Recording on is followed by the system's separate direct-capture consent —
 an alert saying the helper "is attempting to bypass the system private window
 picker". This is expected; onboarding says so in place, and allowing it is
-required before setup can complete. Agents must not call a standalone driver's permission
+required before setup can complete. Agents must not call a standalone helper's permission
 prompt while onboarding is active, because that creates unrelated permission
 dialogs under the wrong process identity.
 
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
-their normal tool approval UI for actions, and `cua-driver` advertises the
+their normal tool approval UI for actions, and `cmux-cua` advertises the
 profile-specific annotations. Codex app approval is brokered through its
 negotiated MCP elicitation capability and authenticated to the signed Codex
 parent; a raw socket client cannot reuse that approval session. The retired
@@ -86,9 +85,10 @@ This profile intentionally has no cmux-only lifecycle, cursor, recording,
 diagnostic, browser/CDP, or `perform_actions` tools. `get_app_state` accepts an
 app name, path, or unambiguous bundle identifier and returns the Codex-shaped
 logical-window screenshot plus accessibility tree. Its string
-`element_index` values are valid only for the current app snapshot. Every
-action requires that fresh snapshot and automatically refreshes the app state
-after dispatch.
+`element_index` values are valid only for the current app snapshot. Mutating
+actions return a compact acknowledgement; perception is explicit through
+`get_app_state`, so one host turn can perform several safe actions and then
+take one authoritative screenshot/tree refresh.
 
 Claude Code continues to receive the broader native cmux contract. It uses
 pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
@@ -96,24 +96,21 @@ cursor and diagnostic controls, and proxy-only `perform_actions`. Keeping the
 profiles separate prevents a cmux extension from silently changing Codex's
 built-in Computer Use schema.
 
-`cmux-computer-use-client` is the bundled command-line executable the wrappers
-launch directly. MCP is its machine-readable stdio protocol—not a separate
-user-installed service—and no Node or Sky bridge is involved.
+`cmux-cua` is the one bundled command-line executable and MCP server. MCP is
+its machine-readable stdio protocol—not a separate user-installed service—and
+no Node, Sky, or legacy bridge is involved.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
-automatic computer-use MCP injection. Native-profile development builds may
-set `CMUX_CUA_DRIVER=/absolute/path/to/cua-driver`; the Claude wrapper only
-uses that override when the bundled driver is absent and the override path is
-executable with trusted ancestors. Codex compatibility mode intentionally
-ignores proxy-only overrides because its approval broker must be the exact
-installed helper executable serving the cmux-owned socket.
+automatic computer-use MCP injection. There is no ambient executable override:
+both wrappers fail closed unless the app-bundled `cmux-cua` client and the
+tag-scoped cmux helper are present.
 
-## Building the bundled driver
+## Building the bundled cmux-cua engine
 
-Every cmux app build runs `scripts/build-cua-driver.sh`, which compiles the
+Every cmux app build runs `scripts/build-cmux-cua.sh`, which compiles the
 pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-MCP proxy as `Contents/Resources/bin/cmux-computer-use-client`. The same
-engine is packaged as the `cmux Computer Use.app` executable so Activity
+MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
+engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
 Monitor and permission UI show the product name instead of an implementation
 name. This requires a Rust
 toolchain on the build machine:
@@ -123,7 +120,7 @@ toolchain on the build machine:
   `aarch64-apple-darwin`/`x86_64-apple-darwin` targets it needs
 - CI: `scripts/install-rust-ci.sh`
 
-The pinned source is cached under `~/Library/Caches/cmux/cua-driver`; after
+The pinned source is cached under `~/Library/Caches/cmux/cmux-cua`; after
 the first successful build no network access is needed until the pinned
 commit changes. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
 checkout (it must still be at the pinned commit).

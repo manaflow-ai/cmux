@@ -62,7 +62,7 @@ struct ComputerUseLiveDriverSession: Equatable, Sendable {
     /// Revalidates a scanned action against the current generation of the same
     /// logical agent session immediately before cmux fronts its target.
     func authorizes(
-        state: ComputerUseDriverState,
+        state: ComputerUseCuaState,
         currentSession: ComputerUseLiveDriverSession
     ) -> Bool {
         guard logicalSessionID == currentSession.logicalSessionID else {
