@@ -454,7 +454,7 @@ class GhosttyApp {
     /// to load; it performs no `ghostty_config_t` mutation itself.
     private static let configDiscovery = GhosttyConfigDiscovery()
     private static let fallbackAppearanceConfig = GhosttyConfig()
-    private static let initializationLogger = Logger(
+    static let initializationLogger = Logger(
         subsystem: releaseBundleIdentifier,
         category: "ghostty.initialization"
     )
@@ -488,8 +488,19 @@ class GhosttyApp {
         @MainActor () -> Void
     private let configurationReloadCoordinator =
         TerminalConfigurationReloadCoordinator()
-    private let terminalFontConfigurationReloadReconciler =
-        TerminalFontConfigurationReloadReconciler()
+    @MainActor
+    lazy var terminalConfigurationApplyScheduler =
+        TerminalConfigurationApplyScheduler<
+            ObjectIdentifier,
+            TerminalConfigurationApplySnapshot
+        >(
+            maximumImmediatePriorityCount: 1,
+            maximumVisitsPerDrain: 1
+        )
+    private var appliedConfigurationContentIdentity:
+        GhosttyConfigurationContentIdentity?
+    var terminalConfigurationPresentationMetrics:
+        TerminalConfigurationPresentationMetrics?
     private(set) var appliedGlobalFontMagnificationPercent =
         GlobalFontMagnification.storedPercent
     private(set) var terminalFontConfigurationGeneration: UInt64 = 0
@@ -552,13 +563,11 @@ class GhosttyApp {
     func deferRuntimeSurfaceCreationForConfigurationReload(
         _ action: @escaping @MainActor () -> Void
     ) -> Bool {
-        terminalFontConfigurationReloadReconciler
-            .enqueuePostConfigurationWork(
-                .init(attempt: {
-                    action()
-                    return true
-                })
-            )
+        _ = action
+        // App configuration commits before incremental surface application.
+        // A newly created surface therefore inherits the committed config and
+        // must not wait behind the traversal's fixed registry endpoint.
+        return false
     }
 
     static func retainTickNotifications() -> () -> Void {
@@ -1003,6 +1012,16 @@ class GhosttyApp {
             self.config = fallbackConfig
             Self.registerRuntimeApp(self, for: created)
         }
+
+        if let config {
+            appliedConfigurationContentIdentity =
+                GhosttyConfigurationContentIdentity(config)
+        }
+        terminalConfigurationPresentationMetrics =
+            TerminalConfigurationPresentationMetrics.capture(
+                magnificationPercent:
+                    appliedGlobalFontMagnificationPercent
+            )
 
         // Notify observers that a usable config is available (initial load).
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
@@ -1824,9 +1843,13 @@ class GhosttyApp {
             completion()
             return
         }
-        performConfigurationReload(request) { [weak self] in
-            guard let self else {
+        performConfigurationReload(
+            request,
+            didCommit: {
                 request.completions.forEach { $0() }
+            }
+        ) { [weak self] in
+            guard let self else {
                 completion()
                 return
             }
@@ -1834,7 +1857,6 @@ class GhosttyApp {
                 self.configurationReloadCoordinator
                     .finishReload()
             self.drainPendingAppearanceSynchronization()
-            request.completions.forEach { $0() }
             if shouldScheduleNext {
                 self.schedulePendingConfigurationReload()
             }
@@ -1845,6 +1867,7 @@ class GhosttyApp {
     @MainActor
     private func performConfigurationReload(
         _ request: TerminalPendingConfigurationReload,
+        didCommit: @escaping @MainActor () -> Void,
         completion: @escaping @MainActor () -> Void
     ) {
         let requestedSoft = request.soft
@@ -1878,6 +1901,7 @@ class GhosttyApp {
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
+            didCommit()
             completion()
             return
         }
@@ -1898,20 +1922,70 @@ class GhosttyApp {
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
-            let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
-            synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+            let effectiveReloadColorScheme =
+                effectiveTerminalColorSchemePreference
+            synchronizeGhosttyRuntimeColorScheme(
+                effectiveReloadColorScheme,
+                source:
+                    "reloadConfiguration:\(source):resolved"
+            )
             suppressGhosttyReloadActions {
-                ghostty_app_update_config(app, config)
+                ghostty_app_update_config_without_surface_propagation(
+                    app,
+                    config
+                )
             }
+            let terminalFontConfiguration =
+                terminalFontConfigurationSnapshot(
+                    config: config,
+                    magnificationPercent:
+                        reloadMagnificationPercent
+                )
+            AppDelegate.shared?
+                .workspaceTerminalFontSizeArbiter
+                .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+                    terminalFontConfiguration
+                )
+            configurationReloadCoordinator.beginReconciliation()
+            appliedGlobalFontMagnificationPercent =
+                reloadMagnificationPercent
+            terminalFontConfigurationGeneration &+= 1
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
-            NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-            refreshSurfacesAfterConfigurationReload(
-                source: source,
-                preferredColorScheme: effectiveReloadColorScheme
+            publishConfigurationPresentationMetrics(
+                magnificationPercent:
+                    reloadMagnificationPercent
             )
-            logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
-            completion()
+            NotificationCenter.default.post(
+                name: .ghosttyConfigDidReload,
+                object: nil
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "reload.config.commit source=\(source) mode=soft contentChanged=1"
+            )
+#endif
+            let snapshot = TerminalConfigurationApplySnapshot(
+                source: source,
+                preferredColorScheme:
+                    effectiveReloadColorScheme,
+                previousMagnificationPercent:
+                    fontTransaction
+                        .previousMagnificationPercent,
+                terminalFontConfiguration:
+                    terminalFontConfiguration,
+                appliesNativeConfiguration: true,
+                refreshesHostAppearance: true
+            )
+            scheduleConfigurationApply(
+                snapshot,
+                didCommit: didCommit
+            ) { [weak self] in
+                self?.logThemeAction(
+                    "reload end source=\(source) soft=\(soft) mode=soft"
+                )
+                completion()
+            }
             return
         }
 
@@ -1926,6 +2000,7 @@ class GhosttyApp {
                 )
             }
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
+            didCommit()
             completion()
             return
         }
@@ -1970,148 +2045,98 @@ class GhosttyApp {
             .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
                 terminalFontConfiguration
             )
-        let registryTraversal =
-            Self.terminalSurfaceRegistry
-                .makeIncrementalTraversal()
-        configurationReloadCoordinator
-            .beginReconciliation()
-        terminalFontConfigurationReloadReconciler
-            .reconcileIncrementally(
-                captureNextWork: {
-                    guard let visit =
-                            registryTraversal.nextVisit() else {
-                        return nil
-                    }
-                    guard let surface =
-                            visit.surface as? TerminalSurface else {
-                        return .init(attempt: { true })
-                    }
-                    let reloadState =
-                        surface
-                            .captureFontSizeConfigurationReloadState(
-                                magnificationPercent:
-                                    fontTransaction
-                                        .previousMagnificationPercent,
-                                targetConfiguredRuntimePoints:
-                                    terminalFontConfiguration
-                                        .configuredRuntimePoints,
-                                targetMagnificationPercent:
-                                    terminalFontConfiguration
-                                        .magnificationPercent
-                            )
-                    return .init(
-                        attempt: { [weak surface] in
-                            guard let surface else {
-                                return true
-                            }
-                            guard Self.terminalSurfaceRegistry
-                                    .isRegistered(surface) else {
-                                surface
-                                    .abandonFontSizeConfigurationReloadReconciliation(
-                                        from: reloadState,
-                                        magnificationPercent:
-                                            terminalFontConfiguration
-                                                .magnificationPercent
-                                    )
-                                return true
-                            }
-                            let outcome =
-                                surface
-                                    .reconcileFontSizeAfterConfigurationReload(
-                                        from: reloadState,
-                                        configuredRuntimePoints:
-                                            terminalFontConfiguration
-                                                .configuredRuntimePoints,
-                                        magnificationPercent:
-                                            terminalFontConfiguration
-                                                .magnificationPercent
-                                    )
-                            if outcome == .failed {
-                                Self.initializationLogger.error(
-                                    "Terminal font reconciliation attempt failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
-                                )
-                            }
-                            return outcome.didSucceed
-                        },
-                        abandon: { [weak surface] in
-                            guard let surface else { return }
-                            surface
-                                .abandonFontSizeConfigurationReloadReconciliation(
-                                    from: reloadState,
-                                    magnificationPercent:
-                                        terminalFontConfiguration
-                                            .magnificationPercent
-                                )
-                            Self.initializationLogger.error(
-                                "Terminal font reconciliation rolled back after retry exhaustion surface=\(surface.id.uuidString, privacy: .public)"
-                            )
-                        }
-                    )
-                },
-                applyConfiguration: {
-                    self.suppressGhosttyReloadActions {
-                        ghostty_app_update_config(
-                            app,
-                            newConfig
-                        )
-                    }
-                    self.appliedGlobalFontMagnificationPercent =
-                        reloadMagnificationPercent
-                    self.terminalFontConfigurationGeneration &+= 1
-                    if let oldConfig = self.config {
-                        ghostty_config_free(oldConfig)
-                    }
-                    self.config = newConfig
-                    let appearanceSource =
-                        "reloadConfiguration(source=\(source))"
-                    self.applyDefaultBackground(
-                        stagedBaselineAppearance,
-                        source: appearanceSource,
-                        scope: .unscoped,
-                        forceNotify:
-                            renderingModeChanged
-                    )
-                    self.applyDefaultBackground(
-                        stagedResolvedAppearance,
-                        source:
-                            "\(appearanceSource).resolvedGhosttyConfig",
-                        scope: .unscoped,
-                        forceNotify:
-                            renderingModeChanged
-                    )
-                    self.synchronizeGhosttyRuntimeColorScheme(
-                        effectiveReloadColorScheme,
-                        source:
-                            "reloadConfiguration:\(source):resolved"
-                    )
-                    Task { @MainActor [weak self] in
-                        self?.applyBackgroundToKeyWindow()
-                    }
-                }
-            ) { [weak self] in
-                guard let self else {
-                    completion()
-                    return
-                }
-                self.lastAppearanceColorScheme = reloadColorScheme
-                NotificationCenter.default.post(
-                    name: .ghosttyConfigDidReload,
-                    object: nil
+        let nextContentIdentity =
+            GhosttyConfigurationContentIdentity(newConfig)
+        let configurationChanged =
+            nextContentIdentity == nil
+            || nextContentIdentity
+                != appliedConfigurationContentIdentity
+
+        configurationReloadCoordinator.beginReconciliation()
+        if configurationChanged {
+            suppressGhosttyReloadActions {
+                ghostty_app_update_config_without_surface_propagation(
+                    app,
+                    newConfig
                 )
-                self.refreshSurfacesAfterConfigurationReload(
-                    source: source,
-                    preferredColorScheme:
-                        effectiveReloadColorScheme
-                )
-                self.logThemeAction(
-                    "reload end source=\(source) soft=\(soft) mode=full"
-                )
-                completion()
             }
+            let oldConfig = config
+            config = newConfig
+            appliedConfigurationContentIdentity =
+                nextContentIdentity
+            if let oldConfig {
+                ghostty_config_free(oldConfig)
+            }
+        } else {
+            ghostty_config_free(newConfig)
+        }
+        appliedGlobalFontMagnificationPercent =
+            reloadMagnificationPercent
+        terminalFontConfigurationGeneration &+= 1
+        let appearanceSource =
+            "reloadConfiguration(source=\(source))"
+        applyDefaultBackground(
+            stagedBaselineAppearance,
+            source: appearanceSource,
+            scope: .unscoped,
+            forceNotify: renderingModeChanged
+        )
+        applyDefaultBackground(
+            stagedResolvedAppearance,
+            source:
+                "\(appearanceSource).resolvedGhosttyConfig",
+            scope: .unscoped,
+            forceNotify: renderingModeChanged
+        )
+        synchronizeGhosttyRuntimeColorScheme(
+            effectiveReloadColorScheme,
+            source:
+                "reloadConfiguration:\(source):resolved"
+        )
+        lastAppearanceColorScheme = reloadColorScheme
+        publishConfigurationPresentationMetrics(
+            magnificationPercent:
+                reloadMagnificationPercent
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyConfigDidReload,
+            object: nil
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "reload.config.commit source=\(source) mode=full contentChanged=\(configurationChanged ? 1 : 0)"
+        )
+#endif
+        Task { @MainActor [weak self] in
+            self?.applyBackgroundToKeyWindow()
+        }
+
+        let snapshot = TerminalConfigurationApplySnapshot(
+            source: source,
+            preferredColorScheme:
+                effectiveReloadColorScheme,
+            previousMagnificationPercent:
+                fontTransaction.previousMagnificationPercent,
+            terminalFontConfiguration:
+                terminalFontConfiguration,
+            appliesNativeConfiguration:
+                configurationChanged,
+            refreshesHostAppearance:
+                configurationChanged
+        )
+        scheduleConfigurationApply(
+            snapshot,
+            didCommit: didCommit
+        ) { [weak self] in
+            self?.logThemeAction(
+                "reload end source=\(source) soft=\(soft) mode=full changed=\(configurationChanged)"
+            )
+            completion()
+        }
     }
 
     @MainActor
-    private func suppressGhosttyReloadActions<Result>(
+    func suppressGhosttyReloadActions<Result>(
         _ body: () -> Result
     ) -> Result {
         nativeReloadActionSuppressionDepth += 1
@@ -2119,17 +2144,6 @@ class GhosttyApp {
             nativeReloadActionSuppressionDepth -= 1
         }
         return body()
-    }
-
-    @MainActor
-    private func refreshSurfacesAfterConfigurationReload(
-        source: String,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
-    ) {
-        AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
-            source: source,
-            preferredColorScheme: preferredColorScheme
-        )
     }
 
     @MainActor

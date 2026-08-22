@@ -66,6 +66,16 @@ struct TerminalSurfaceRegistryTests {
         registry.register(surface)
         #expect(registry.surface(id: surface.id) === surface)
         #expect(
+            registry.surface(
+                identity: ObjectIdentifier(surface)
+            ) === surface
+        )
+        #expect(
+            registry.surface(
+                identity: ObjectIdentifier(FakeSurface())
+            ) == nil
+        )
+        #expect(
             registry.terminalLifecycleID(surfaceID: surface.id)
                 == surface.terminalLifecycleID
         )

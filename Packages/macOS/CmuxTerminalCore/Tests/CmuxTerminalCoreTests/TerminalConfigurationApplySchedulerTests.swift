@@ -23,6 +23,7 @@ struct TerminalConfigurationApplySchedulerTests {
             apply: { id, receivedSnapshot in
                 #expect(receivedSnapshot === snapshot)
                 applied.append(id)
+                return .complete
             },
             completion: {
                 didFinish = true
@@ -64,6 +65,7 @@ struct TerminalConfigurationApplySchedulerTests {
             nextID: { firstSource.next() },
             apply: { id, snapshot in
                 applied.append((id, snapshot.id))
+                return .complete
             },
             completion: {
                 completedSnapshotIDs.append(firstSnapshot.id)
@@ -75,6 +77,7 @@ struct TerminalConfigurationApplySchedulerTests {
             nextID: { secondSource.next() },
             apply: { id, snapshot in
                 applied.append((id, snapshot.id))
+                return .complete
             },
             completion: {
                 completedSnapshotIDs.append(secondSnapshot.id)
@@ -112,6 +115,7 @@ struct TerminalConfigurationApplySchedulerTests {
             nextID: { source.next() },
             apply: { _, receivedSnapshot in
                 receivedSnapshots.append(receivedSnapshot)
+                return .complete
             }
         )
         while manualScheduler.pendingCount > 0 {
@@ -121,6 +125,45 @@ struct TerminalConfigurationApplySchedulerTests {
         #expect(derivationCount == 1)
         #expect(receivedSnapshots.count == 3)
         #expect(receivedSnapshots.allSatisfy { $0 === snapshot })
+    }
+
+    @Test @MainActor
+    func retriesInLaterTurnsAndAbandonsAtTheConfiguredLimit() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumImmediatePriorityCount: 0,
+            maximumVisitsPerDrain: 1,
+            maximumAttemptsPerID: 2,
+            schedule: manualScheduler.schedule
+        )
+        let snapshot = Snapshot(id: 9)
+        var source = [1].makeIterator()
+        var attemptCount = 0
+        var abandonedIDs: [Int] = []
+        var didFinish = false
+
+        scheduler.replacePendingWork(
+            snapshot: snapshot,
+            prioritizedIDs: [],
+            nextID: { source.next() },
+            apply: { _, _ in
+                attemptCount += 1
+                return .retry
+            },
+            abandon: { id, _ in
+                abandonedIDs.append(id)
+            },
+            completion: {
+                didFinish = true
+            }
+        )
+        while manualScheduler.pendingCount > 0 {
+            manualScheduler.fireNext()
+        }
+
+        #expect(attemptCount == 2)
+        #expect(abandonedIDs == [1])
+        #expect(didFinish)
     }
 }
 

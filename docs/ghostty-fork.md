@@ -12,13 +12,40 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3da10da73`, the head of
-https://github.com/manaflow-ai/ghostty/pull/200. It reports a terminal outcome
-for every accepted tokened iOS render, rejects renderer-thread requests that
-iOS external-drain mode cannot consume, and exposes a nonblocking prompt reveal
-operation. The pin includes the prior fork changes below, including VT
-formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
-`9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
+The submodule pinned by this branch is `64b5767a6`, on the fork branch
+`issue-10557-reload-config-stall`. It lets an embedded host commit app-scoped
+configuration without synchronously propagating it to every surface. The pin
+includes the prior fork changes below, including the tokened iOS render work at
+`3da10da73`, VT formatter cursor restoration at `f76c132e5`, VT
+stream-boundary visibility at `9513174f2`, and Hangul canonical font resolution
+at `3fbdd078d`.
+
+### Incremental embedded configuration propagation
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `64b5767a6` (embedded: allow app-only config updates)
+- Files:
+  - `include/ghostty.h`
+  - `src/App.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_app_update_config_without_surface_propagation`, which applies
+    conditional app state and emits the app-scoped config-change action without
+    walking the native surface registry.
+  - Keeps `ghostty_app_update_config` behavior unchanged by factoring its
+    existing surface and app phases into separate internal methods.
+  - Lets cmux prioritize visible surfaces and spread offscreen derivation across
+    main-actor turns while sharing one finalized configuration pointer.
+- Conflict note:
+  - If upstream splits app configuration from surface propagation, replace this
+    fork API with the upstream seam. Until then, keep the legacy full-update API
+    propagating to surfaces and keep the app-only API explicitly host-managed.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - Exported symbol verified in macOS universal, iOS device, and iOS simulator
+    archives.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 

@@ -153,15 +153,6 @@ final class TmuxWorkspacePaneOverlayModel {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    private struct DeferredThemeRefresh {
-        let reason: String
-        let backgroundOverride: NSColor?
-        let backgroundEventId: UInt64?
-        let backgroundSource: String?
-        let notificationPayloadHex: String?
-        let forceInitialApply: Bool
-    }
-
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -182,7 +173,6 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-    @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -367,7 +357,10 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
+            refreshGhosttyAppearanceConfig(
+                reason: "workspaceBecameVisible",
+                forceInitialApply: true
+            )
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
             updateAgentHibernationPresentationVisibility()
@@ -389,9 +382,6 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
@@ -585,20 +575,6 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func flushDeferredThemeRefreshIfNeeded() {
-        guard isWorkspaceVisible,
-              let deferredRefresh = deferredThemeRefresh else { return }
-        deferredThemeRefresh = nil
-        refreshGhosttyAppearanceConfig(
-            reason: deferredRefresh.reason,
-            backgroundOverride: deferredRefresh.backgroundOverride,
-            backgroundEventId: deferredRefresh.backgroundEventId,
-            backgroundSource: deferredRefresh.backgroundSource,
-            notificationPayloadHex: deferredRefresh.notificationPayloadHex,
-            forceInitialApply: deferredRefresh.forceInitialApply
-        )
-    }
-
     private func updateAgentHibernationPresentationVisibility() {
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
@@ -611,21 +587,7 @@ struct WorkspaceContentView: View {
         notificationPayloadHex: String? = nil,
         forceInitialApply: Bool = false
     ) {
-        guard isWorkspaceVisible else {
-            let existing = deferredThemeRefresh
-            deferredThemeRefresh = DeferredThemeRefresh(
-                reason: reason,
-                backgroundOverride: backgroundOverride,
-                backgroundEventId: backgroundEventId,
-                backgroundSource: backgroundSource,
-                notificationPayloadHex: notificationPayloadHex,
-                forceInitialApply: forceInitialApply
-                    || reason == "onAppear"
-                    || existing?.forceInitialApply == true
-            )
-            return
-        }
-        deferredThemeRefresh = nil
+        guard isWorkspaceVisible else { return }
 
         let previousSignature = Self.ghosttyAppearanceSignature(
             config,

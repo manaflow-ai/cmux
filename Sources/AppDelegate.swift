@@ -5984,69 +5984,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func refreshTerminalSurfacesAfterGhosttyConfigReload(
-        source: String,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
-    ) {
-        var refreshedCount = 0
-        forEachTerminalPanel { terminalPanel in
-            let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
-                reason: "appDelegate.refreshAfterGhosttyConfigReload"
-            )
-            GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
-                to: liveSurface,
-                source: source,
-                reloadSurfaceConfiguration: { surface, soft, source in
-                    GhosttyApp.shared.reloadSurfaceConfiguration(
-                        surface,
-                        soft: soft,
-                        source: source,
-                        preferredColorScheme: preferredColorScheme
-                    )
-                },
-                applySurfaceColorScheme: {
-                    terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                        preferredColorScheme: preferredColorScheme
-                    )
-                },
-                refreshHostBackground: {
-                    terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-                },
-                forceRefresh: { reason in
-                    terminalPanel.surface.forceRefresh(reason: reason)
-                }
-            )
-            refreshedCount += 1
-        }
-#if DEBUG
-        cmuxDebugLog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
-#endif
-    }
-
-    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
-        var seenManagers: Set<ObjectIdentifier> = []
-        var seenTerminalIDs: Set<UUID> = []
-
-        func visitManager(_ manager: TabManager?) {
-            guard let manager else { return }
-            let managerId = ObjectIdentifier(manager)
-            guard seenManagers.insert(managerId).inserted else { return }
-            for workspace in manager.tabs {
-                for panelID in workspace.panels.keys {
-                    for terminalPanel in workspace.terminalPanels(projectedFromPanelID: panelID)
-                    where seenTerminalIDs.insert(terminalPanel.id).inserted {
-                        body(terminalPanel)
-                    }
-                }
-            }
-        }
-
-        visitManager(tabManager)
-        for context in mainWindowContexts.values {
-            visitManager(context.tabManager)
-        }
-    }
-
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)

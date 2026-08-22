@@ -193,6 +193,19 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return object
     }
 
+    /// Returns the registered surface with the exact object identity.
+    public func surface(
+        identity: ObjectIdentifier
+    ) -> (any TerminalSurfacing)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let node = incrementalTraversalNodes[identity],
+              node.isRegistered else {
+            return nil
+        }
+        return node.surface
+    }
+
     /// The current terminal process generation for a live surface identity.
     public func terminalLifecycleID(surfaceID: UUID) -> UUID? {
         lock.lock()
@@ -373,10 +386,12 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                 }
             }
             return TerminalSurfaceRegistryIncrementalVisit(
+                identity: node.identity,
                 surface: nil
             )
         }
         return TerminalSurfaceRegistryIncrementalVisit(
+            identity: node.identity,
             surface: surface
         )
     }
