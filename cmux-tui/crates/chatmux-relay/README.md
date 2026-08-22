@@ -47,12 +47,22 @@ cutover — pre-launch, no legacy.
    YOLO receipt, managed enrollment (0600 check, shred after read,
    `managedSessionToken` kept in memory), `--allow-root` persistence,
    `--status`.
-2. **PTY bridge** — port `bin/pty.mjs` incl. the 0.0.10 MULTI-VIEWER
-   fan-out (any number of attachments per session/surface; `session_limit`
-   only for the process-wide PTY cap). `packages/relay/test/pty.test.mjs`
-   pins the behavior. Raise the advertised dialect to 4.
-3. **Exec verbs + trust gates** — port `bin/actions.mjs` (path scoping,
-   caps, timeouts). Raise the advertised dialect to 5.
+2. **PTY bridge (DONE)** — `pty.rs` ports `bin/pty.mjs`: the shell
+   fallback with a bounded scrollback ring and the 0.0.10 MULTI-VIEWER
+   fan-out (any number of attachments per session; `session_limit` only
+   for the process-wide `MAX_PTYS` cap), the cmux-tui whole-session viewer
+   path, the W86 raw single-terminal control-socket path, `surface_list`,
+   the buffered-output cap, and the no-empty-frame rule.
+   `packages/relay/test/pty.test.mjs` behaviors are mirrored in
+   `pty.rs::tests`. Real PTY allocation is `pty_deps.rs` (cmux-pty +
+   pipe-mode degradation); the control socket is `control.rs`.
+3. **Exec verbs + trust gates (DONE)** — `actions.rs` ports
+   `bin/actions.mjs`: exec/read/write/ls/grep/find with the 60k output
+   bound, 2 MB read cap, `--allow-root` + server-echoed path scoping,
+   lexical + canonical (realpath) double pass, O_NOFOLLOW opens, scrubbed
+   env, hard process-group timeouts, the v5 process-credential runtime,
+   and the reconciled-trust gate (observe = read-only verbs only).
+   Both slices raised the advertised dialect to **5**.
 4. **Wire-v6 pane verbs + preview proxy** — fs/git/watch verbs and the
    chobitsu-injecting preview proxy (chatmux pane-primitives program;
    these verbs have NO JS implementation — Rust-first by decision).
@@ -60,24 +70,20 @@ cutover — pre-launch, no legacy.
    `--uninstall`), replacing the npm runtime-install machinery with the
    platform binary path.
 
-### Intentional slice-1 divergences from the JS relay
+### Intentional divergences from the JS relay (still open)
 
-- The advertised relay protocol is **v2** (`wire::ADVERTISED_PROTOCOL_VERSION`)
-  until the verb slices land, so the Worker's designed old-relay degrade
-  applies instead of half-implemented verbs. The JS relay advertises v5.
-  DIALECT: the workspace slice implements the full v6 verb set but does
-  NOT bump the advertised dialect — the PTY + exec slices (dialect 4/5)
-  land in parallel, and whichever slice merges LAST raises the advertised
-  dialect to 6 once e2e-relay + e2e-terminal-pty + e2e-workspace are all
-  green on the combined head. Harness runs meanwhile use the existing
-  `CHATMUX_RELAY_PROTOCOL=6` env override. Workspace frames that arrive
-  are always answered (typed refusal for unknown ops, never a socket
-  close); exec/PTY frames keep the slice-1 refusals.
+- The advertised relay protocol is **v5** now that PTY + exec land. The
+  pane data-plane verbs (wire v6) and the journal forwarder are later
+  slices; the Worker's forward tolerance covers the gap.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).
 - `--autostart` / `--uninstall` exit 1 with a pointer to the npm build
   (slice 5).
+- PTY frame dispatch is serialized on one task per connection, so a slow
+  `pty_open` (daemon spawn, up to 5s) delays a following frame for a
+  DIFFERENT pty. Acceptable for typical one-open-at-a-time use; revisit
+  if concurrent opens become common.
 
 ## Wire contract and the vendored protocol
 
@@ -86,35 +92,20 @@ The wire truth is chatmux `packages/protocol/src/relay.ts`, emitted to
 added to the chatmux protocol codegen (alongside the existing Swift and
 Kotlin targets) together with the wire-v6 pane verbs.
 
-The generated file is VENDORED here as `src/relay_wire.rs` (chatmux
-`packages/protocol/generated/rust/relay_wire.rs`, copied verbatim — never
-edited, only re-vendored; `#[rustfmt::skip]` on the module declaration
-keeps the generated layout as the diff baseline). Vendored from chatmux
-commit `271c6efc445fd083165519d20588c2fcbf0eb765` (10 workspace ops). To re-vendor after a
-chatmux protocol change:
+Until that lands, `src/wire.rs` hand-models exactly the slice-1 subset and
+is clearly marked for replacement. Once `packages/protocol/generated/rust/`
+exists in chatmux:
 
 1. In chatmux: `cd packages/protocol && bun run generate`.
-2. Copy `packages/protocol/generated/rust/relay_wire.rs` over
-   `src/relay_wire.rs` verbatim and update the sha recorded above.
-3. Run the chatmux conformance harness against the rebuilt binary
-   (`apps/backend/test/e2e-workspace.ts` with `CHATMUX_E2E_RELAY_BIN`).
+2. Copy `packages/protocol/generated/rust/relay_wire.rs` (generated,
+   do not edit; landed by chatmux PR #313) into this crate as
+   `src/protocol_generated.rs`.
+3. Replace the hand-modeled structs in `src/wire.rs` with re-exports from
+   the vendored module; keep only the tolerant-parse helpers.
+4. Record the chatmux commit sha of the vendored file in the copy header.
 
-`src/wire.rs` still hand-models the slice-1 core frames (hello,
-heartbeats, trust) with the tolerant parse; the v6 workspace frames decode
-through the vendored types (workspace.rs / watch.rs / preview_proxy.rs).
-The remaining hand-modeled structs migrate to the vendored file with the
-PTY/exec slices.
-
-## Preview proxy (slice 4, this crate)
-
-`preview_open` starts (or reuses) a reverse proxy of the target dev-server
-port per the pinned contract in chatmux pane-primitives-plan.md: chobitsu
-script-tag injection into text/html (skip on `x-chatmux-no-inject: 1`),
-`GET /__chatmux__/target.js` (vendored chobitsu 1.8.6 + connector, in
-`assets/`), `WS /__chatmux__/page` + `WS /__chatmux__/devtools` piping
-(latest page connection wins), `GET /__chatmux__/status` with credentialed
-CORS (ACAO=origin + ACAC=true), and a bounded console/network ring served
-by `preview_console_tail`.
+Regenerate + re-copy is part of any chatmux protocol change that touches
+the relay group (cross-repo step; documented in both repos).
 
 ## Conformance harness (chatmux repo)
 
@@ -124,10 +115,6 @@ The cross-language gate lives in chatmux `apps/backend`:
 - `test/e2e-pair-url.ts` — URL approval flow, deny path, rate limit.
 - `test/e2e-terminal-pty.ts`, `scripts/terminal-dev-server.ts` — PTY
   (slice 2 gate).
-- `test/e2e-workspace.ts` — wire-v6 workspace verbs + fs_watch + preview
-  shapes (this slice's gate; `CHATMUX_E2E_RELAY_BIN` points it at this
-  binary, with `CHATMUX_RELAY_PROTOCOL=6` until the dialect bump — see
-  DIALECT below).
 
 Point the harness at this binary with `CHATMUX_RELAY_BIN`:
 
