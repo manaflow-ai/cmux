@@ -271,6 +271,10 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+        if model.availableIOSAppTargets.count > 1 {
+            pairingTargetPicker
+        }
+
         // Manual entry sits above the QR so Copy IP / Copy Port are reachable
         // without scrolling (they used to sit below the steps, below the fold).
         manualFallback(ready)
@@ -318,6 +322,35 @@ struct MobilePairingView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+        }
+    }
+
+    private var pairingTargetPicker: some View {
+        HStack {
+            Text(String(
+                localized: "mobile.pairing.targetApp",
+                defaultValue: "Open with"
+            ))
+                .cmuxFont(.callout, weight: .medium)
+            Spacer()
+            Picker(
+                String(
+                    localized: "mobile.pairing.targetApp",
+                    defaultValue: "Open with"
+                ),
+                selection: Binding(
+                    get: { model.selectedIOSAppTarget },
+                    set: { target in
+                        Task { await model.selectIOSAppTarget(target) }
+                    }
+                )
+            ) {
+                ForEach(model.availableIOSAppTargets) { target in
+                    Text(target.displayName).tag(target)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
         }
     }
 

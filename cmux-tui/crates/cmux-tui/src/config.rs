@@ -178,10 +178,18 @@ struct RawConfig {
     machine_provider: RawMachineProvider,
     #[serde(default)]
     machines: Vec<RawMachine>,
+    /// User commands: named argv programs, each optionally bound to key
+    /// chords, opened as a new PTY tab in the active pane.
+    #[serde(default)]
+    commands: Vec<RawUserCommand>,
     #[serde(default)]
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
+    #[serde(default)]
+    pane: RawPane,
+    #[serde(default)]
+    status_bar: RawStatusBar,
     #[serde(default)]
     viewport: RawViewport,
     #[serde(default)]
@@ -199,6 +207,51 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPane {
+    /// Blank cells between the pane border and the terminal content.
+    padding: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusBar {
+    visible: Option<bool>,
+    show_screens: Option<bool>,
+    show_session: Option<bool>,
+    left: Option<Vec<RawStatusSegment>>,
+    right: Option<Vec<RawStatusSegment>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusSegment {
+    /// Literal text with `{variable}` interpolation.
+    text: Option<String>,
+    /// Argv run on an interval; the last stdout line replaces the segment.
+    run: Option<Vec<String>>,
+    /// Refresh interval in seconds for `run` segments.
+    interval: Option<u64>,
+    fg: Option<ColorValue>,
+    bg: Option<ColorValue>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawUserCommand {
+    id: Option<String>,
+    name: Option<String>,
+    /// Chord string, array of chord strings, or absent for an unbound
+    /// command. Alt- and Super-modified chords are modeless; other chords
+    /// run after the prefix.
+    keys: Option<Value>,
+    /// Argv executed directly, without a shell.
+    run: Option<Vec<String>>,
+    /// Working directory; defaults to the target pane's current directory.
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -238,6 +291,10 @@ struct RawTheme {
     notification_info: Option<ColorValue>,
     notification_warning: Option<ColorValue>,
     notification_error: Option<ColorValue>,
+    border_style: Option<BorderStyle>,
+    status_bg: Option<ColorValue>,
+    status_fg: Option<ColorValue>,
+    dim_inactive: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -686,6 +743,77 @@ impl ColorValue {
     }
 }
 
+/// Pane border line style. `None` keeps the border cells blank so panes
+/// separate by empty space; geometry is unchanged in every style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BorderStyle {
+    #[default]
+    Single,
+    Rounded,
+    Thick,
+    Double,
+    None,
+}
+
+/// The six glyphs a pane box is drawn with.
+#[derive(Debug, Clone, Copy)]
+pub struct BorderGlyphs {
+    pub horizontal: &'static str,
+    pub vertical: &'static str,
+    pub top_left: &'static str,
+    pub top_right: &'static str,
+    pub bottom_left: &'static str,
+    pub bottom_right: &'static str,
+}
+
+impl BorderStyle {
+    pub fn glyphs(self) -> BorderGlyphs {
+        match self {
+            BorderStyle::Single => BorderGlyphs {
+                horizontal: "─",
+                vertical: "│",
+                top_left: "┌",
+                top_right: "┐",
+                bottom_left: "└",
+                bottom_right: "┘",
+            },
+            BorderStyle::Rounded => BorderGlyphs {
+                horizontal: "─",
+                vertical: "│",
+                top_left: "╭",
+                top_right: "╮",
+                bottom_left: "╰",
+                bottom_right: "╯",
+            },
+            BorderStyle::Thick => BorderGlyphs {
+                horizontal: "━",
+                vertical: "┃",
+                top_left: "┏",
+                top_right: "┓",
+                bottom_left: "┗",
+                bottom_right: "┛",
+            },
+            BorderStyle::Double => BorderGlyphs {
+                horizontal: "═",
+                vertical: "║",
+                top_left: "╔",
+                top_right: "╗",
+                bottom_left: "╚",
+                bottom_right: "╝",
+            },
+            BorderStyle::None => BorderGlyphs {
+                horizontal: " ",
+                vertical: " ",
+                top_left: " ",
+                top_right: " ",
+                bottom_left: " ",
+                bottom_right: " ",
+            },
+        }
+    }
+}
+
 /// Resolved presentation colors used by the renderers.
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
@@ -703,6 +831,12 @@ pub struct Theme {
     pub notification_info: Color,
     pub notification_warning: Color,
     pub notification_error: Color,
+    pub border_style: BorderStyle,
+    /// Status bar background/foreground; `None` follows the chrome theme.
+    pub status_bg: Option<Color>,
+    pub status_fg: Option<Color>,
+    /// Render unfocused terminal panes with the DIM attribute.
+    pub dim_inactive: bool,
 }
 
 impl Default for Theme {
@@ -721,6 +855,10 @@ impl Default for Theme {
             notification_info: Color::Indexed(110),
             notification_warning: Color::Indexed(179),
             notification_error: Color::Indexed(167),
+            border_style: BorderStyle::Single,
+            status_bg: None,
+            status_fg: None,
+            dim_inactive: false,
         }
     }
 }
@@ -1199,6 +1337,28 @@ impl ActionIndex {
     }
 }
 
+/// The maximum number of configurable user commands. Chords bound past this
+/// limit are rejected at config load with a visible warning.
+pub const MAX_USER_COMMANDS: usize = 32;
+
+/// The maximum number of chords one command may bind.
+pub const MAX_USER_COMMAND_CHORDS: usize = 8;
+
+/// A validated zero-based index into the configured `commands` list. Its
+/// private field prevents unregistered command actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UserCommandIndex(u8);
+
+impl UserCommandIndex {
+    pub const fn new(value: usize) -> Option<Self> {
+        if value < MAX_USER_COMMANDS { Some(Self(value as u8)) } else { None }
+    }
+
+    pub const fn get(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -1250,6 +1410,9 @@ pub enum Action {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    /// A user-configured command from the top-level `commands` section,
+    /// opened as a new PTY tab through the mux `run` command.
+    UserCommand(UserCommandIndex),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1303,6 +1466,7 @@ pub(crate) enum ActionExecution {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    UserCommand(UserCommandIndex),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1728,6 +1892,17 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
     &DEFINITIONS
 }
 
+/// Fallback definition for `Action::UserCommand`. It is intentionally not in
+/// `action_definitions()`: user commands are named by the user's config, and
+/// presentation surfaces look the display name up there. The `action` field
+/// pins index 0 only because a definition must carry one concrete action.
+static USER_COMMAND_FALLBACK_DEFINITION: ActionDefinition = action_definition!(
+    Action::UserCommand(UserCommandIndex(0)),
+    "user-command",
+    "User command",
+    "ユーザーコマンド"
+);
+
 impl Action {
     /// Compiled source of truth for programmability classification and
     /// execution routing. The specification inventory checker reads this
@@ -2029,6 +2204,12 @@ impl Action {
                 "close frontend transport",
                 ActionExecution::Detach,
             ),
+            Action::UserCommand(index) => ActionMetadata::new(
+                "user-command-{index}",
+                ActionClassification::Composite,
+                "frontend command config + run",
+                ActionExecution::UserCommand(*index),
+            ),
         }
     }
 }
@@ -2084,6 +2265,11 @@ impl Action {
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
+            // One shared fallback: presentation surfaces resolve the
+            // configured display name through the command list instead of
+            // this static definition, which is deliberately outside the
+            // action catalog.
+            Action::UserCommand(_) => &USER_COMMAND_FALLBACK_DEFINITION,
         }
     }
 
@@ -2091,6 +2277,20 @@ impl Action {
         match ActionIndex::new(number) {
             Some(index) => Some(Self::SelectScreen(index)),
             None => None,
+        }
+    }
+
+    pub const fn user_command(number: usize) -> Option<Self> {
+        match UserCommandIndex::new(number) {
+            Some(index) => Some(Self::UserCommand(index)),
+            None => None,
+        }
+    }
+
+    pub fn user_command_index(&self) -> Option<usize> {
+        match self {
+            Action::UserCommand(index) => Some(index.get()),
+            _ => None,
         }
     }
 
@@ -2378,6 +2578,21 @@ impl Keys {
             .collect()
     }
 
+    /// Bind one user-command chord, stealing the chord from any action or
+    /// earlier command that held it. The prefix chord stays reserved.
+    /// Returns whether the chord was bound.
+    fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) -> bool {
+        if chord == self.prefix {
+            eprintln!(
+                "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
+            );
+            return false;
+        }
+        self.bindings.retain(|(existing, _)| existing != &chord);
+        self.bindings.push((chord, action));
+        true
+    }
+
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
@@ -2538,9 +2753,139 @@ pub struct Config {
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub pane: PaneOptions,
+    pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
+    pub commands: Vec<UserCommandConfig>,
+}
+
+/// The maximum configurable pane padding, in cells per side.
+pub const MAX_PANE_PADDING: u16 = 4;
+
+/// Pane presentation options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaneOptions {
+    /// Blank cells between the pane border and the terminal content,
+    /// applied on every side, clamped to `MAX_PANE_PADDING`.
+    pub padding: u16,
+}
+
+/// Bottom screens-bar options. A hidden bar gives its row back to the
+/// panes; transient status messages still overlay the last row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusBarOptions {
+    pub visible: bool,
+    /// Renders the clickable screens strip.
+    pub show_screens: bool,
+    /// Renders the right-aligned session label when no message is shown.
+    pub show_session: bool,
+    /// Segments before the screens strip.
+    pub left: Vec<StatusSegment>,
+    /// Segments right-aligned before the session label.
+    pub right: Vec<StatusSegment>,
+}
+
+impl Default for StatusBarOptions {
+    fn default() -> Self {
+        Self {
+            visible: true,
+            show_screens: true,
+            show_session: true,
+            left: Vec::new(),
+            right: Vec::new(),
+        }
+    }
+}
+
+impl StatusBarOptions {
+    /// Command segments in draw order: left side first, then right.
+    pub fn command_segments(&self) -> Vec<(usize, Vec<String>, Duration)> {
+        self.left
+            .iter()
+            .chain(self.right.iter())
+            .enumerate()
+            .filter_map(|(index, segment)| match &segment.content {
+                StatusSegmentContent::Command { argv, interval } => {
+                    Some((index, argv.clone(), *interval))
+                }
+                StatusSegmentContent::Text(_) => None,
+            })
+            .collect()
+    }
+}
+
+/// The maximum number of configured segments per status bar side.
+pub const MAX_STATUS_SEGMENTS: usize = 8;
+
+/// The maximum length of one literal status segment, in characters.
+pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
+
+/// One status bar segment: literal text with `{variable}` interpolation, or
+/// a command whose last stdout line becomes the segment text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusSegment {
+    pub content: StatusSegmentContent,
+    pub fg: Option<Color>,
+    pub bg: Option<Color>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusSegmentContent {
+    Text(String),
+    Command { argv: Vec<String>, interval: Duration },
+}
+
+fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<StatusSegment> {
+    let mut segments = Vec::new();
+    for segment in raw {
+        if segments.len() >= MAX_STATUS_SEGMENTS {
+            eprintln!(
+                "cmux-tui: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
+            );
+            break;
+        }
+        let content = match (segment.text, segment.run) {
+            (Some(_), Some(_)) | (None, None) => {
+                eprintln!(
+                    "cmux-tui: ignoring status_bar.{side} segment: exactly one of text or run is required"
+                );
+                continue;
+            }
+            (Some(text), None) => {
+                // Bound per-draw expansion work on the render path.
+                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+            }
+            (None, Some(run)) => {
+                if run.first().is_none_or(|program| program.is_empty()) {
+                    eprintln!("cmux-tui: ignoring status_bar.{side} segment without a run program");
+                    continue;
+                }
+                let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
+                StatusSegmentContent::Command { argv: run, interval: Duration::from_secs(interval) }
+            }
+        };
+        segments.push(StatusSegment {
+            content,
+            fg: segment.fg.as_ref().and_then(ColorValue::to_color),
+            bg: segment.bg.as_ref().and_then(ColorValue::to_color),
+        });
+    }
+    segments
+}
+
+/// One resolved user command from the top-level `commands` section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserCommandConfig {
+    /// Stable config identity, unique across the list.
+    pub id: String,
+    /// Display name for shortcut help; defaults to the id.
+    pub name: String,
+    /// Argv executed directly, without a shell.
+    pub run: Vec<String>,
+    /// Working directory; `None` follows the target pane's current directory.
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -2980,13 +3325,113 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    if let Some(style) = raw.theme.border_style {
+        config.theme.border_style = style;
+    }
+    if let Some(c) = raw.theme.status_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.status_bg = Some(c);
+    }
+    if let Some(c) = raw.theme.status_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.status_fg = Some(c);
+    }
+    if let Some(dim) = raw.theme.dim_inactive {
+        config.theme.dim_inactive = dim;
+    }
+    if let Some(padding) = raw.pane.padding {
+        config.pane.padding = padding.min(MAX_PANE_PADDING);
+    }
+    if let Some(visible) = raw.status_bar.visible {
+        config.status_bar.visible = visible;
+    }
+    if let Some(show_screens) = raw.status_bar.show_screens {
+        config.status_bar.show_screens = show_screens;
+    }
+    if let Some(show_session) = raw.status_bar.show_session {
+        config.status_bar.show_session = show_session;
+    }
+    if let Some(left) = raw.status_bar.left {
+        config.status_bar.left = resolve_status_segments(left, "left");
+    }
+    if let Some(right) = raw.status_bar.right {
+        config.status_bar.right = resolve_status_segments(right, "right");
+    }
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
+    config.commands = resolve_user_commands(raw.commands, &mut config.keys);
     config
+}
+
+/// Validate the raw `commands` section and bind each command's chords.
+/// Command chords are bound after `keys` overrides, so an explicit command
+/// chord replaces whatever action previously held that chord, matching the
+/// last-write-wins behavior of the `keys` section itself.
+fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserCommandConfig> {
+    let mut commands = Vec::new();
+    let mut ids = HashSet::new();
+    for command in raw {
+        let id = command.id.as_deref().unwrap_or("").trim().to_string();
+        if id.is_empty() {
+            eprintln!("cmux-tui: ignoring command with a missing or empty id");
+            continue;
+        }
+        if ids.contains(&id) {
+            eprintln!("cmux-tui: ignoring command with duplicate id {id:?}");
+            continue;
+        }
+        // Empty positional arguments stay: argv executes directly, and an
+        // empty argument is valid there. Only the program itself must exist.
+        let run = command.run.unwrap_or_default();
+        if run.first().is_none_or(|program| program.is_empty()) {
+            eprintln!("cmux-tui: ignoring command {id:?} without a run program");
+            continue;
+        }
+        let Some(action) = Action::user_command(commands.len()) else {
+            eprintln!(
+                "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
+            );
+            continue;
+        };
+        // The id is reserved only after validation, so an ignored invalid
+        // entry never blocks a later valid entry with the same id.
+        ids.insert(id.clone());
+        if let Some(value) = command.keys.as_ref() {
+            let mut bound = 0usize;
+            for raw_chord in key_values(value) {
+                if raw_chord.eq_ignore_ascii_case("none") {
+                    continue;
+                }
+                if bound >= MAX_USER_COMMAND_CHORDS {
+                    eprintln!(
+                        "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
+                    );
+                    break;
+                }
+                let Some(chord) = parse_chord(raw_chord) else {
+                    eprintln!(
+                        "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
+                    );
+                    continue;
+                };
+                // Only a successful bind consumes the limit; rejected
+                // chords leave room for the valid ones after them.
+                if keys.bind_user_command_chord(&id, action, chord) {
+                    bound += 1;
+                }
+            }
+        }
+        let name = command
+            .name
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| id.clone());
+        let cwd = command.cwd.map(|cwd| cwd.trim().to_string()).filter(|cwd| !cwd.is_empty());
+        commands.push(UserCommandConfig { id, name, run, cwd });
+    }
+    commands
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
@@ -6427,7 +6872,8 @@ mod tests {
                     "selection_background": "#101010",
                     "sidebar_rail": 42,
                     "sidebar_active_bg": "#202020",
-                    "tab_bg": 44
+                    "tab_bg": 44,
+                    "border_style": "rounded"
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {
@@ -6475,6 +6921,8 @@ mod tests {
                     }
                 ],
                 "scrollbar": {"position": "border"},
+                "pane": {"padding": 9},
+                "status_bar": {"visible": false},
                 "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
@@ -6570,6 +7018,9 @@ mod tests {
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert_eq!(config.theme.border_style, BorderStyle::Rounded);
+        assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");
+        assert!(!config.status_bar.visible);
         assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
@@ -7182,6 +7633,210 @@ mod tests {
             "the prefix chord must not remain advertised as a modeless action"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
+    }
+
+    #[test]
+    fn border_style_parses_every_name_and_defaults_to_single() {
+        assert_eq!(Theme::default().border_style, BorderStyle::Single);
+        for (name, style) in [
+            ("single", BorderStyle::Single),
+            ("rounded", BorderStyle::Rounded),
+            ("thick", BorderStyle::Thick),
+            ("double", BorderStyle::Double),
+            ("none", BorderStyle::None),
+        ] {
+            let raw: RawConfig =
+                serde_json::from_str(&format!(r#"{{"theme":{{"border_style":"{name}"}}}}"#))
+                    .unwrap();
+            assert_eq!(raw.theme.border_style, Some(style), "{name} did not parse");
+        }
+        let hidden = BorderStyle::None.glyphs();
+        for glyph in [
+            hidden.horizontal,
+            hidden.vertical,
+            hidden.top_left,
+            hidden.top_right,
+            hidden.bottom_left,
+            hidden.bottom_right,
+        ] {
+            assert_eq!(glyph, " ");
+        }
+    }
+
+    #[test]
+    fn status_bar_segments_parse_validate_and_cap() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "status_bar": {
+                "show_screens": false,
+                "show_session": false,
+                "left": [
+                    {"text": " {session} ", "fg": "#87d787", "bg": 236},
+                    {"text": "x", "run": ["true"]},
+                    {"run": []},
+                    {}
+                ],
+                "right": [
+                    {"run": ["date", "+%H:%M"], "interval": 0},
+                    {"text": "{workspace}"}
+                ]
+            }
+        }))
+        .unwrap();
+        let left = resolve_status_segments(raw.status_bar.left.unwrap(), "left");
+        assert_eq!(left.len(), 1, "text+run, empty run, and empty segments are rejected");
+        assert_eq!(left[0].content, StatusSegmentContent::Text(" {session} ".to_string()));
+        assert!(left[0].fg.is_some() && left[0].bg.is_some());
+        let right = resolve_status_segments(raw.status_bar.right.unwrap(), "right");
+        assert_eq!(right.len(), 2);
+        assert_eq!(
+            right[0].content,
+            StatusSegmentContent::Command {
+                argv: vec!["date".to_string(), "+%H:%M".to_string()],
+                interval: Duration::from_secs(1),
+            },
+            "interval clamps to at least one second"
+        );
+
+        let options = StatusBarOptions { left, right, ..StatusBarOptions::default() };
+        let commands = options.command_segments();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].0, 1, "command index counts left segments first");
+
+        let overflow: Vec<RawStatusSegment> = (0..MAX_STATUS_SEGMENTS + 3)
+            .map(|index| RawStatusSegment {
+                text: Some(format!("{index}")),
+                ..RawStatusSegment::default()
+            })
+            .collect();
+        assert_eq!(resolve_status_segments(overflow, "left").len(), MAX_STATUS_SEGMENTS);
+    }
+
+    #[test]
+    fn raw_config_accepts_commands_section() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "commands": [
+                {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
+                {"id": "scratch", "keys": ["alt+s"], "run": ["nvim", "/tmp/scratch.md"], "cwd": "/tmp"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(raw.commands.len(), 2);
+    }
+
+    #[test]
+    fn user_commands_bind_chords_and_resolve() {
+        let mut keys = Keys::default();
+        let raw = vec![
+            RawUserCommand {
+                id: Some("lazygit".to_string()),
+                name: Some("LazyGit".to_string()),
+                keys: Some(Value::String("g".to_string())),
+                run: Some(vec!["lazygit".to_string()]),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("scratch".to_string()),
+                name: None,
+                // The prefix chord is reserved, so only alt+s binds.
+                keys: Some(json!(["alt+s", "ctrl+b"])),
+                run: Some(vec!["nvim".to_string(), "/tmp/scratch.md".to_string()]),
+                cwd: Some("/tmp".to_string()),
+            },
+            RawUserCommand {
+                id: Some("lazygit".to_string()),
+                name: None,
+                keys: Some(Value::String("y".to_string())),
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("empty-run".to_string()),
+                name: None,
+                keys: Some(Value::String("e".to_string())),
+                run: Some(Vec::new()),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: None,
+                name: None,
+                keys: Some(Value::String("i".to_string())),
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            },
+        ];
+        let commands = resolve_user_commands(raw, &mut keys);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0].id, "lazygit");
+        // An ignored invalid entry does not reserve its id: a later valid
+        // entry with the same id is accepted.
+        let mut keys_retry = Keys::default();
+        let retry = vec![
+            RawUserCommand {
+                id: Some("retry".to_string()),
+                name: None,
+                keys: None,
+                run: Some(Vec::new()),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("retry".to_string()),
+                name: None,
+                keys: None,
+                run: Some(vec!["true".to_string()]),
+                cwd: Some("   ".to_string()),
+            },
+        ];
+        let retried = resolve_user_commands(retry, &mut keys_retry);
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].id, "retry");
+        assert_eq!(retried[0].cwd, None, "blank cwd is treated as absent");
+        assert_eq!(commands[0].name, "LazyGit");
+        assert_eq!(commands[0].run, ["lazygit"]);
+        assert_eq!(commands[1].name, "scratch");
+        assert_eq!(commands[1].cwd.as_deref(), Some("/tmp"));
+
+        let lazygit = Action::user_command(0).unwrap();
+        let scratch = Action::user_command(1).unwrap();
+        // An explicit command chord steals the default chord it collides with.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(lazygit)
+        );
+        assert_eq!(keys.shortcut_labels(Action::NewPaneRight), Vec::<String>::new());
+        // Alt chords are modeless, exactly like built-in Alt bindings.
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)),
+            Some(scratch)
+        );
+        // The prefix chord stays reserved for send-prefix.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::SendPrefix)
+        );
+        // Rejected chords do not bind: `y`, `e`, and `i` keep their defaults.
+        assert_ne!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            Some(Action::user_command(2).unwrap())
+        );
+        assert_eq!(keys.shortcut_labels(lazygit), ["Ctrl-b g"]);
+        assert_eq!(keys.shortcut_labels(scratch), ["Alt-s"]);
+    }
+
+    #[test]
+    fn user_commands_stop_at_the_command_limit() {
+        let mut keys = Keys::default();
+        let raw = (0..MAX_USER_COMMANDS + 2)
+            .map(|index| RawUserCommand {
+                id: Some(format!("command-{index}")),
+                name: None,
+                keys: None,
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            })
+            .collect();
+        let commands = resolve_user_commands(raw, &mut keys);
+        assert_eq!(commands.len(), MAX_USER_COMMANDS);
+        assert!(Action::user_command(MAX_USER_COMMANDS).is_none());
     }
 
     #[test]

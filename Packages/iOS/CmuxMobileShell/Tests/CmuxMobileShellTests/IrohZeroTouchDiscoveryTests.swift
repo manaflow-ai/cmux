@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -413,6 +414,38 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a", "iroh-mac-a"])
     }
 
+    /// Discovery hands back exclusively Iroh-route candidates, so the strict
+    /// Tailscale connection method must skip the broker lookup entirely: no
+    /// discovery request, no candidates, and therefore no Iroh dial downstream.
+    @Test func tailscaleOnlyMethodSkipsZeroTouchIrohDiscovery() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a",
+            connectionMethod: .tailscale
+        )
+        defer { fixture.cleanup() }
+        let scope = try #require(
+            await fixture.shell.currentScopeSnapshot(userID: "user-1")
+        )
+
+        let secondary = await fixture.shell.discoverSecondaryZeroTouchIrohCandidates(
+            scope: scope,
+            excluding: []
+        )
+        let launch = await fixture.shell.discoverZeroTouchIrohCandidates(
+            scope: scope,
+            generation: fixture.shell.storedMacReconnectGeneration,
+            excluding: []
+        )
+
+        #expect(secondary.isEmpty)
+        #expect(launch.isEmpty)
+        #expect(discovery.callCount() == 0)
+        #expect(fixture.factory.attemptedRouteIDs().isEmpty)
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,
@@ -429,7 +462,8 @@ struct IrohZeroTouchDiscoveryTests {
         discovery: any MobileIrohMacDiscovering,
         reportedDeviceID: String,
         failingRouteIDs: Set<String> = [],
-        rateLimitedRouteIDs: Set<String> = []
+        rateLimitedRouteIDs: Set<String> = [],
+        connectionMethod: MobileConnectionMethod? = nil
     ) async throws -> ZeroTouchFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -448,6 +482,16 @@ struct IrohZeroTouchDiscoveryTests {
             failingRouteIDs: failingRouteIDs,
             rateLimitedRouteIDs: rateLimitedRouteIDs
         )
+        let methodStore = connectionMethod.map { method in
+            let defaults = UserDefaults(
+                suiteName: "iroh-zero-touch-method-\(UUID().uuidString)"
+            )!
+            defaults.set(
+                method.rawValue,
+                forKey: MobileConnectionMethodStore.methodKey
+            )
+            return MobileConnectionMethodStore(defaults: defaults)
+        }
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -456,6 +500,7 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
+            connectionMethodStore: methodStore,
             personalIrohDiscovery: discovery,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
