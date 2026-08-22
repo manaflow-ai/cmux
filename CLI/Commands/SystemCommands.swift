@@ -323,3 +323,22 @@ struct ProjectCommand: SystemTargetCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "project", helpNames: [])
 }
+
+struct WindowNamespaceCommand: SystemTargetCommand {
+    @Option(name: .customLong("window"), completion: window) var windowID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "window", helpNames: [])
+}
+
+struct CanvasCommand: SystemTargetCommand {
+    @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
+    @Option(name: .customLong("window"), completion: window) var windowID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "canvas", helpNames: [])
+}
+
+struct LayoutCommand: SystemTargetCommand {
+    @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "layout", helpNames: [])
+}
