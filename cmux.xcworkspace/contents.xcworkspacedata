@@ -157,6 +157,9 @@
          location = "group:CmuxPanes">
       </FileRef>
       <FileRef
+         location = "group:CmuxPhonePush">
+      </FileRef>
+      <FileRef
          location = "group:CMUXProjectModel">
       </FileRef>
       <FileRef
