@@ -507,12 +507,13 @@ class TabManager: ObservableObject {
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
-        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
+        self.declarativeTerminalConfigurationCache =
+            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs

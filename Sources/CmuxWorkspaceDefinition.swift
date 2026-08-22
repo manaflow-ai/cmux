@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 
 struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
     var name: String?

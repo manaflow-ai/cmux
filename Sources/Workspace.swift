@@ -3264,7 +3264,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(),
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3282,7 +3282,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
-        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
+        self.declarativeTerminalConfigurationCache =
+            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder

@@ -311,7 +311,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(),
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
@@ -327,7 +327,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
-        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
+        self.declarativeTerminalConfigurationCache =
+            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,
