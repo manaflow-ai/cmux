@@ -2,13 +2,7 @@ import ArgumentParser
 import Foundation
 
 /// Routes VM and remote facade declarations through the established CLI implementation.
-private protocol LegacyVMCommand: ParsableCommand {}
-
-extension LegacyVMCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
-    }
-}
+private protocol LegacyVMCommand: SharedLegacyFacadeCommand {}
 
 private protocol VMIDCommand: LegacyVMCommand {}
 

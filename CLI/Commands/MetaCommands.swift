@@ -2,13 +2,7 @@ import ArgumentParser
 import Foundation
 
 /// Routes a facade declaration back through the established CLI implementation.
-private protocol LegacyFacadeCommand: ParsableCommand {}
-
-extension LegacyFacadeCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
-    }
-}
+private protocol LegacyFacadeCommand: SharedLegacyFacadeCommand {}
 
 private protocol LegacyMetaCommand: LegacyFacadeCommand {}
 
