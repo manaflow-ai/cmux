@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileCampaigns
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
 import CmuxMobileShell
@@ -46,6 +47,9 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     private let featureFlags: MobileFeatureFlags
+    /// The app-root campaign center, injected so the root view can mount the
+    /// remote banner and modal surfaces and Settings can list What's New.
+    private let campaignCenter: MobileCampaignCenter
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
@@ -93,6 +97,8 @@ public struct CMUXMobileRootScene: View {
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
     ///   - featureFlags: The live PostHog-backed mobile feature flags.
+    ///   - campaignCenter: The app-root remote campaign center, injected into
+    ///     the environment for the root campaign surfaces and Settings.
     ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
     ///     used by both connection routing and Settings.
     ///   - autoConnectMigrationStore: The versioned, one-time migration
@@ -119,6 +125,7 @@ public struct CMUXMobileRootScene: View {
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         featureFlags: MobileFeatureFlags,
+        campaignCenter: MobileCampaignCenter,
         connectionMethodStore: MobileConnectionMethodStore,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
@@ -137,6 +144,7 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.featureFlags = featureFlags
+        self.campaignCenter = campaignCenter
         self.connectionMethodStore = connectionMethodStore
         self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
@@ -374,6 +382,8 @@ public struct CMUXMobileRootScene: View {
             .environment(pushCoordinator)
             .environment(displaySettings)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
+            .environment(campaignCenter)
+            .campaignsEnabled(featureFlags.campaignsEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             #endif

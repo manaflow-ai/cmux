@@ -57,6 +57,11 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_push_tapped",
   "ios_push_deeplink_resolved",
   "ios_push_deeplink_failed",
+  // In-app campaigns
+  "ios_campaign_impression",
+  "ios_campaign_dismissed",
+  "ios_campaign_button_tapped",
+  "ios_whats_new_opened",
   "ios_crash",
 ]);
 

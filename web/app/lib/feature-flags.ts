@@ -40,4 +40,12 @@ export const FEATURE_FLAGS = {
     reviewBy: "2027-02-01",
     defaultWhenUnavailable: true,
   },
+  iosCampaigns: {
+    key: "ios-campaigns-enabled-release",
+    owner: "lawrencecchen",
+    description:
+      "Global kill switch for in-app campaigns fetched from /api/campaigns. Off hides every campaign surface immediately without a deploy.",
+    reviewBy: "2027-08-01",
+    defaultWhenUnavailable: true,
+  },
 } as const satisfies Record<string, FeatureFlagDefinition>;

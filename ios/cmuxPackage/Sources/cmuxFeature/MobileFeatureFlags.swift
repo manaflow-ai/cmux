@@ -14,16 +14,24 @@ public final class MobileFeatureFlags {
     /// The remote kill switch for the fully integrated terminal Files chip.
     public static let terminalFilesChipFlag =
         ClientConfigFlag<Bool>.iosArtifactChipEnabledRelease
+    /// The remote kill switch for in-app campaign surfaces.
+    public static let campaignsFlag =
+        ClientConfigFlag<Bool>.iosCampaignsEnabledRelease
 
     /// User-defaults key for the last successful remote value.
     private static var terminalFilesChipCacheKey: String {
         "cmux.mobile.flags.remote." + terminalFilesChipFlag.key
+    }
+    private static var campaignsCacheKey: String {
+        "cmux.mobile.flags.remote." + campaignsFlag.key
     }
     /// Delay between foreground refresh opportunities when the app remains active.
     private static let refreshInterval: Duration = .seconds(5 * 60)
 
     /// Whether the chip and its count-only artifact scan are enabled.
     public private(set) var terminalFilesChipEnabled: Bool
+    /// Whether remote in-app campaigns may render any surface.
+    public private(set) var campaignsEnabled: Bool
 
     /// Control-plane client used to fetch evaluated flags.
     @ObservationIgnored private let loader: any ClientConfigLoading
@@ -61,6 +69,10 @@ public final class MobileFeatureFlags {
             forKey: Self.terminalFilesChipCacheKey,
             defaults: defaults
         ) ?? Self.terminalFilesChipFlag.defaultValue
+        self.campaignsEnabled = Self.storedBool(
+            forKey: Self.campaignsCacheKey,
+            defaults: defaults
+        ) ?? Self.campaignsFlag.defaultValue
     }
 
     /// Starts an immediate refresh and a cancellation-aware five-minute scheduler.
@@ -151,6 +163,13 @@ public final class MobileFeatureFlags {
         }
         if Self.storedBool(forKey: Self.terminalFilesChipCacheKey, defaults: defaults) != enabled {
             defaults.set(enabled, forKey: Self.terminalFilesChipCacheKey)
+        }
+        let campaigns = config.value(Self.campaignsFlag)
+        if campaignsEnabled != campaigns {
+            campaignsEnabled = campaigns
+        }
+        if Self.storedBool(forKey: Self.campaignsCacheKey, defaults: defaults) != campaigns {
+            defaults.set(campaigns, forKey: Self.campaignsCacheKey)
         }
     }
 

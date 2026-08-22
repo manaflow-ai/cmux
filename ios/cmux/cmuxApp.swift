@@ -174,6 +174,7 @@ struct cmuxApp: App {
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             featureFlags: Self.root.featureFlags,
+            campaignCenter: Self.root.campaignCenter,
             connectionMethodStore: Self.root.connectionMethodStore,
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
