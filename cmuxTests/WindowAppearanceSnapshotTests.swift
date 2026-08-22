@@ -112,6 +112,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.usesTransparentWindow)
     }
 
+    /// Verifies a mounted Dock does not cover the shared window backdrop.
     @MainActor
     func testDockChromeLeavesSharedWindowBackdropUnpainted() {
         let snapshot = makeSnapshot(
@@ -127,11 +128,40 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             windowAppearance: snapshot
         )
 
+        XCTAssertTrue(appearance.usesSharedBackdrop)
         XCTAssertEqual(
             appearance.chromeColors.backgroundHex,
             "#00000000",
             "Dock chrome must leave the shared window backdrop visible behind terminal surfaces"
         )
+        XCTAssertEqual(appearance.chromeColors.paneBackgroundHex, "#00000000")
+    }
+
+    /// Verifies the controller's pre-mount appearance retains a concrete fallback.
+    @MainActor
+    func testDockChromeKeepsConcreteFallbackBeforeWindowBackdropMounts() {
+        let config = GhosttyConfig()
+        let appearance = DockSplitStore.makeAppearance(from: config)
+
+        XCTAssertNotEqual(
+            appearance.chromeColors.backgroundHex,
+            "#00000000",
+            "The pre-mount Dock configuration needs a concrete fallback"
+        )
+    }
+
+    /// Verifies renderer-owned surfaces keep their concrete Dock chrome color.
+    func testDockChromeKeepsConcreteColorWhenGhosttyOwnsTheSurface() {
+        let color = NSColor(hex: "#112233")!
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.8,
+            sharesWindowBackdrop: true,
+            renderingMode: .ghosttyRendererOwnedBackgroundImage,
+            chromeHost: .dock
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#112233CC")
     }
 
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
