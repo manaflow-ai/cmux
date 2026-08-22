@@ -2195,7 +2195,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
     let settings: any SettingsReading
+    let settingsCatalog = SettingCatalog()
     let declarativeTerminalConfigurationFileURL: URL
+    let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2231,6 +2233,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
@@ -3261,6 +3264,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3278,6 +3282,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
+        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -3436,7 +3441,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
                 ),
-                runtimeSpawnPolicy: effectiveInitialRuntimeSpawnPolicy
+                runtimeSpawnPolicy: effectiveInitialRuntimeSpawnPolicy,
+                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
             )
             configureNewTerminalPanel(
                 terminalPanel,
@@ -7842,7 +7848,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         configureNewTerminalPanel(
             newPanel,
@@ -8177,7 +8184,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         configureNewTerminalPanel(
             newPanel,
@@ -8276,7 +8284,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ioMode: .manualMirror,
             manualInputHandler: onInput,
             manualInputKeyNameResolver: keyNameResolver,
-            runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
+            runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults(),
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         let panel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(panel)
@@ -8316,7 +8325,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ioMode: .manualMirror,
                 manualInputHandler: onInput,
                 manualInputKeyNameResolver: keyNameResolver,
-                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
+                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults(),
+                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
             )
             if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
             let newPanel = TerminalPanel(workspaceId: id, surface: surface)
@@ -8445,7 +8455,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: trimmedCommand,
             tmuxStartCommand: trimmedCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
-            runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
+            runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults(),
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
         replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
@@ -8580,7 +8591,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
-            runtimeSpawnPolicy: .immediate.forRestoredSurface()
+            runtimeSpawnPolicy: .immediate.forRestoredSurface(),
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
         // Respawn replaces the panel object but keeps the logical tab identity.
@@ -10592,7 +10604,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
-            runtimeSpawnPolicy: runtimeSpawnPolicy
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -11741,7 +11754,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: startupCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -13248,7 +13262,8 @@ extension Workspace: BonsplitDelegate {
                         configTemplate: inheritedConfig,
                         workingDirectory: workingDirectory,
                         portOrdinal: portOrdinal,
-                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
+                        declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
                     )
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -13334,7 +13349,8 @@ extension Workspace: BonsplitDelegate {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

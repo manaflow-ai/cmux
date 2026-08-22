@@ -56,6 +56,46 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
         #expect(requestedDirectory != fallbackDirectory)
     }
 
+    @Test("unusable fixed-path policy falls back to the workspace root")
+    func unusableFixedPathFallsBackToWorkspaceRoot() throws {
+        let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(false, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
+
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-declarative-cwd-invalid-\(UUID().uuidString)", isDirectory: true)
+        let configurationFile = temporaryDirectory.appendingPathComponent("cmux.json")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let missingDirectory = temporaryDirectory.appendingPathComponent("deleted", isDirectory: true)
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"fixedPath","path":"\#(missingDirectory.path)"}}}"#.utf8
+        ).write(to: configurationFile)
+
+        let workspaceRoot = temporaryDirectory.appendingPathComponent("workspace-root").path
+        let manager = TabManager(
+            initialWorkingDirectory: workspaceRoot,
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            declarativeTerminalConfigurationFileURL: configurationFile,
+            defaultWorkspaceWorkingDirectoryProvider: { workspaceRoot }
+        )
+
+        let workspace = manager.addWorkspace(
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+        let requestedDirectory = try #require(
+            workspace.focusedTerminalPanel?.requestedWorkingDirectory
+        )
+
+        #expect(requestedDirectory == workspaceRoot)
+        #expect(requestedDirectory != missingDirectory.path)
+    }
+
     @Test("disabled inheritance passes Ghostty's home default to the first terminal")
     func disabledInheritancePassesGhosttyHomeDefaultToFirstTerminal() throws {
         let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"

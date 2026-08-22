@@ -408,7 +408,10 @@ class GhosttyApp {
     /// dissolves into composition-root injection when `GhosttyAppService`
     /// replaces this type).
     @MainActor
-    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
+    private static func makeTerminalSurfaceRuntimeDependencies(
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+    ) -> TerminalSurfaceRuntimeDependencies {
+        TerminalSurfaceRuntimeDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
         engine: GhosttyApp.shared,
         viewProvider: {
@@ -431,7 +434,9 @@ class GhosttyApp {
                 imageTransferPreparation: preparationService
             )
         }(),
-        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
+        spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+        ),
         byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
@@ -445,7 +450,43 @@ class GhosttyApp {
         globalFontMagnificationPercent: {
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
         }
+        )
+    }
+
+    /// Stable collaborators shared by app-only callers and surface clones.
+    @MainActor
+    static let terminalSurfaceRuntimeDependencies = makeTerminalSurfaceRuntimeDependencies(
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache()
     )
+
+    /// Returns the stable runtime bundle with the caller's scoped declarative
+    /// snapshot owner substituted into the spawn-policy bridge.
+    @MainActor
+    static func terminalSurfaceRuntimeDependencies(
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+    ) -> TerminalSurfaceRuntimeDependencies {
+        let base = terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: base.registry,
+            engine: base.engine,
+            viewProvider: base.viewProvider,
+            spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
+                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+            ),
+            byteTee: base.byteTee,
+            rendererRealization: base.rendererRealization,
+            hibernationRecorder: base.hibernationRecorder,
+            runtimeTeardown: base.runtimeTeardown,
+            restoreSpawnScheduler: base.restoreSpawnScheduler,
+            runtimeFilesystem: base.runtimeFilesystem,
+            agentCommandShimInstallDeadline: base.agentCommandShimInstallDeadline,
+            agentCommandShimInstallDeadlineClock: base.agentCommandShimInstallDeadlineClock,
+            sessionPortBase: base.sessionPortBase,
+            sessionPortRangeSize: base.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: base.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: base.globalFontMagnificationPercent
+        )
+    }
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     /// Shared config-file discovery seam. Resolves Ghostty config scan paths,

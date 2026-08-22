@@ -37,14 +37,16 @@ extension TerminalSurface {
             || !allowsDeclarativeStartupDefaults
             || requiresRestoreSpawnPacing
             || startupRestoreAdmissionPhase != .unrestricted
-        let allowsDeclarativeShellStartup = !hasExplicitSurfaceCommand
-            && !hasExplicitSurfaceInput
-            && !engine.hasUserGhosttyCommand
-            && !isRestoreSurface
-            && !ioMode.usesManualIO
-        let effectiveShellStartupMode = allowsDeclarativeShellStartup
-            ? spawnPolicy.shellStartupMode
-            : .login
+        let shellStartupResolution = TerminalShellStartupPolicy.resolve(
+            configuredMode: spawnPolicy.shellStartupMode,
+            hasExplicitCommand: hasExplicitSurfaceCommand,
+            hasExplicitInput: hasExplicitSurfaceInput,
+            hasGhosttyCommand: engine.hasUserGhosttyCommand,
+            isRestoreSurface: isRestoreSurface,
+            isManualSurface: ioMode.usesManualIO
+        )
+        let allowsDeclarativeShellStartup = shellStartupResolution.allowsDeclarativeShellStartup
+        let effectiveShellStartupMode = shellStartupResolution.mode
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
         surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(

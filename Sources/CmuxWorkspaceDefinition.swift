@@ -12,6 +12,18 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
     var setup: String?
     var layout: CmuxLayoutNode?
 
+    /// Spawn policy for the initial topology placeholder. A configured layout
+    /// or setup command owns that terminal's startup work, so ordinary
+    /// declarative new-surface defaults must not run before it is replaced or
+    /// populated.
+    var initialRuntimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy {
+        let hasConfiguredStartupWork = layout != nil
+            || setup?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        return hasConfiguredStartupWork
+            ? .immediate.withoutDeclarativeDefaults()
+            : .immediate
+    }
+
     init(
         name: String? = nil,
         cwd: String? = nil,

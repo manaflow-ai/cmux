@@ -48,6 +48,8 @@ struct DeclarativeTerminalConfigurationTests {
 
         let snapshot = DeclarativeTerminalConfiguration().snapshot(fileURL: file)
         #expect(snapshot.workingDirectoryPolicy == nil)
+        #expect(snapshot.effectiveWorkingDirectoryPolicy(legacyInheritanceEnabled: true) == .inheritActivePane)
+        #expect(snapshot.effectiveWorkingDirectoryPolicy(legacyInheritanceEnabled: false) == .workspaceRoot)
         #expect(snapshot.shellStartupMode == .login)
     }
 
@@ -73,6 +75,8 @@ struct DeclarativeTerminalConfigurationTests {
             .appendingPathComponent("cmux-missing-\(UUID().uuidString).json")
         let snapshot = DeclarativeTerminalConfiguration().snapshot(fileURL: file)
         #expect(snapshot.workingDirectoryPolicy == nil)
+        #expect(snapshot.effectiveWorkingDirectoryPolicy(legacyInheritanceEnabled: true) == .inheritActivePane)
+        #expect(snapshot.effectiveWorkingDirectoryPolicy(legacyInheritanceEnabled: false) == .workspaceRoot)
         #expect(snapshot.workingDirectoryPath.isEmpty)
         #expect(snapshot.shellStartupMode == .login)
         #expect(snapshot.shellStartupCommand.isEmpty)
@@ -113,13 +117,14 @@ struct DeclarativeTerminalConfigurationTests {
         ).write(to: file, options: [.atomic])
 
         let configuration = DeclarativeTerminalConfiguration()
-        #expect(configuration.cachedSnapshot(fileURL: file).shellStartupMode == .login)
+        let cache = DeclarativeTerminalConfigurationCache()
+        #expect(cache.snapshot(configuration: configuration, fileURL: file).shellStartupMode == .login)
 
         try Data(
             #"{"terminal":{"shellStartup":{"mode":"nonLogin","command":"echo startup"}}}"#.utf8
         ).write(to: file, options: [.atomic])
 
-        let refreshed = configuration.cachedSnapshot(fileURL: file)
+        let refreshed = cache.snapshot(configuration: configuration, fileURL: file)
         #expect(refreshed.shellStartupMode == .nonLogin)
         #expect(refreshed.shellStartupCommand == "echo startup")
     }

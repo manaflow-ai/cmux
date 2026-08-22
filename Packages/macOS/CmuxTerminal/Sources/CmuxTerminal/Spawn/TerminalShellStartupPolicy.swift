@@ -30,8 +30,55 @@ public struct TerminalShellStartupConfiguration: Equatable, Sendable {
 
 /// Pure launch decisions for the declarative shell-startup settings.
 public struct TerminalShellStartupPolicy: Sendable {
+    /// The resolved mode and eligibility for applying declarative startup
+    /// defaults to one newly-created surface.
+    public struct Resolution: Equatable, Sendable {
+        /// Whether the declarative shell mode and startup command may apply.
+        public let allowsDeclarativeShellStartup: Bool
+        /// Effective mode, falling back to login when another startup owner
+        /// already controls the surface.
+        public let mode: TerminalShellStartupMode
+
+        /// Creates a resolved startup decision.
+        public init(
+            allowsDeclarativeShellStartup: Bool,
+            mode: TerminalShellStartupMode
+        ) {
+            self.allowsDeclarativeShellStartup = allowsDeclarativeShellStartup
+            self.mode = mode
+        }
+    }
+
     /// Creates a shell-startup decision policy.
     public init() {}
+
+    /// Resolves whether declarative shell startup owns a surface.
+    ///
+    /// The decision is deliberately pure and shared by runtime surface
+    /// creation and unit tests. Explicit commands/inputs, Ghostty commands,
+    /// restore transactions, manual I/O, and managed shell integration all
+    /// retain ownership of their launch behavior. Suppressed surfaces use
+    /// login mode so a declarative non-login preference cannot leak through.
+    public static func resolve(
+        configuredMode: TerminalShellStartupMode,
+        hasExplicitCommand: Bool,
+        hasExplicitInput: Bool,
+        hasGhosttyCommand: Bool,
+        isRestoreSurface: Bool,
+        isManualSurface: Bool,
+        hasManagedShellIntegration: Bool = false
+    ) -> Resolution {
+        let allows = !hasExplicitCommand
+            && !hasExplicitInput
+            && !hasGhosttyCommand
+            && !isRestoreSurface
+            && !isManualSurface
+            && !hasManagedShellIntegration
+        return Resolution(
+            allowsDeclarativeShellStartup: allows,
+            mode: allows ? configuredMode : .login
+        )
+    }
 
     /// Returns a command override when the configured mode needs to replace
     /// Ghostty's default shell invocation. Login mode intentionally returns
@@ -63,13 +110,17 @@ public struct TerminalShellStartupPolicy: Sendable {
         isManualSurface: Bool,
         hasManagedShellIntegration: Bool = false
     ) -> String? {
-        guard !hasExplicitCommand,
-              !hasExplicitInput,
-              !hasGhosttyCommand,
-              !isRestoreSurface,
-              !isManualSurface,
-              !hasManagedShellIntegration,
-              configuration.mode == .nonLogin,
+        let resolution = Self.resolve(
+            configuredMode: configuration.mode,
+            hasExplicitCommand: hasExplicitCommand,
+            hasExplicitInput: hasExplicitInput,
+            hasGhosttyCommand: hasGhosttyCommand,
+            isRestoreSurface: isRestoreSurface,
+            isManualSurface: isManualSurface,
+            hasManagedShellIntegration: hasManagedShellIntegration
+        )
+        guard resolution.allowsDeclarativeShellStartup,
+              resolution.mode == .nonLogin,
               let normalizedShell = shell?.trimmingCharacters(in: .whitespacesAndNewlines),
               !normalizedShell.isEmpty else {
             return nil
@@ -101,19 +152,19 @@ public struct TerminalShellStartupPolicy: Sendable {
         isRestoreSurface: Bool,
         isManualSurface: Bool
     ) -> String? {
-        guard !hasExplicitCommand,
-              !hasExplicitInput,
-              !hasGhosttyCommand,
-              !isRestoreSurface,
-              !isManualSurface,
+        let resolution = Self.resolve(
+            configuredMode: configuration.mode,
+            hasExplicitCommand: hasExplicitCommand,
+            hasExplicitInput: hasExplicitInput,
+            hasGhosttyCommand: hasGhosttyCommand,
+            isRestoreSurface: isRestoreSurface,
+            isManualSurface: isManualSurface
+        )
+        guard resolution.allowsDeclarativeShellStartup,
               let command = configuration.command else {
             return nil
         }
         return command + "\n"
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     /// Builds a Darwin-safe non-login command for Ghostty's login wrapper.
@@ -124,6 +175,6 @@ public struct TerminalShellStartupPolicy: Sendable {
     /// which retains a non-login shell on Darwin while still letting Ghostty
     /// establish the terminal environment.
     static func nonLoginShellCommand(shell: String, arguments: String) -> String {
-        "/usr/bin/env \(shellSingleQuoted(shell)) \(arguments)"
+        "/usr/bin/env \(TerminalSurface.shellSingleQuoted(shell)) \(arguments)"
     }
 }

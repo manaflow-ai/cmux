@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxFoundation
 import SwiftUI
 
 /// Settings-card controls for the declarative defaults used by new local
@@ -26,6 +27,7 @@ public struct DeclarativeTerminalConfigurationCard: View {
 
     @State private var workingDirectoryPathDraft = ""
     @State private var shellStartupCommandDraft = ""
+    @State private var commitTasks = MainActorTaskStore<String>()
     /// `@LiveSetting` intentionally applies the JSON key's declared default
     /// when a path is absent. The working-directory policy still has a legacy
     /// UserDefaults fallback, so keep presence and the fallback separate from
@@ -310,14 +312,15 @@ public struct DeclarativeTerminalConfigurationCard: View {
             return
         }
         let key = SettingCatalog().terminal.newSurfaceWorkingDirectoryPath
-        Task { @MainActor in
+        commitTasks.replaceOnMainActor("workingDirectoryPath") {
             do {
                 try await runtime.jsonStore.set(draft, for: key)
             } catch {
-                runtime.errorLog.record(error, keyID: key.id)
+                runtime.errorLog.recordSaveFailure(keyID: key.id)
             }
+            guard !Task.isCancelled else { return }
             let committed = await runtime.jsonStore.value(for: key)
-            if focusedField != .workingDirectoryPath {
+            if !Task.isCancelled, focusedField != .workingDirectoryPath {
                 workingDirectoryPathDraft = committed
             }
         }
@@ -332,14 +335,15 @@ public struct DeclarativeTerminalConfigurationCard: View {
             return
         }
         let key = SettingCatalog().terminal.shellStartupCommand
-        Task { @MainActor in
+        commitTasks.replaceOnMainActor("shellStartupCommand") {
             do {
                 try await runtime.jsonStore.set(draft, for: key)
             } catch {
-                runtime.errorLog.record(error, keyID: key.id)
+                runtime.errorLog.recordSaveFailure(keyID: key.id)
             }
+            guard !Task.isCancelled else { return }
             let committed = await runtime.jsonStore.value(for: key)
-            if focusedField != .startupCommand {
+            if !Task.isCancelled, focusedField != .startupCommand {
                 shellStartupCommandDraft = committed
             }
         }

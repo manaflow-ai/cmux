@@ -14,13 +14,18 @@ extension DockSplitStore {
         sourcePanelId: UUID?,
         allowsDeclarativeDefaults: Bool = true
     ) -> String {
-        guard kind == .terminal else { return currentBaseDirectory() }
-        let baseDirectory = currentBaseDirectory()
+        let remoteOwner = terminalFontSizeOwningWorkspace.map {
+            $0.isRemoteWorkspace || $0.isRemoteTmuxMirror
+        } == true
+        let baseDirectory = remoteOwner
+            ? FileManager.default.homeDirectoryForCurrentUser.path
+            : currentBaseDirectory()
+        guard kind == .terminal else { return baseDirectory }
         if !allowsDeclarativeDefaults {
             if let requestedDirectory = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
                 return requestedDirectory
             }
-            if let sourcePanelId,
+            if !remoteOwner, let sourcePanelId,
                let inheritedDirectory = inheritedLocalTerminalWorkingDirectory(for: sourcePanelId),
                !inheritedDirectory.isEmpty {
                 return inheritedDirectory
@@ -31,13 +36,13 @@ extension DockSplitStore {
         let legacyInheritanceEnabled = settings.value(
             for: settingsCatalog.app.workspaceInheritWorkingDirectory
         )
-        let declarative = DeclarativeTerminalConfiguration().cachedSnapshot(
+        let declarative = declarativeTerminalConfigurationCache.snapshot(
             fileURL: declarativeTerminalConfigurationFileURL
         )
         let policy = declarative.effectiveWorkingDirectoryPolicy(
             legacyInheritanceEnabled: legacyInheritanceEnabled
         )
-        let inheritedDirectory = policy == .inheritActivePane
+        let inheritedDirectory = policy == .inheritActivePane && !remoteOwner
             ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
             : nil
         return WorkspaceCreationWorkingDirectoryPolicy(
@@ -47,8 +52,9 @@ extension DockSplitStore {
             explicitWorkingDirectory: requestedWorkingDirectory,
             inheritedWorkingDirectory: inheritedDirectory,
             defaultWorkingDirectory: baseDirectory,
-            workspaceRootWorkingDirectory:
-                terminalFontSizeOwningWorkspace?.workspaceRootDirectory ?? baseDirectory
+            workspaceRootWorkingDirectory: remoteOwner
+                ? nil
+                : terminalFontSizeOwningWorkspace?.workspaceRootDirectory ?? baseDirectory
         )
     }
 
