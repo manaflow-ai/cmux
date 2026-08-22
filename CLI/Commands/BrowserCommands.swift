@@ -2,13 +2,7 @@ import ArgumentParser
 import Foundation
 
 /// Routes browser facade declarations through the established browser command runner.
-private protocol LegacyBrowserCommand: ParsableCommand {}
-
-extension LegacyBrowserCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
-    }
-}
+private protocol LegacyBrowserCommand: SharedLegacyFacadeCommand {}
 
 private protocol BrowserLeafName {
     static var commandName: String { get }
