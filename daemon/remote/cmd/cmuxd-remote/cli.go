@@ -902,7 +902,7 @@ func applyNotifyCallerEnv(
 	hasExplicitSurface bool,
 	hasExplicitWindow bool,
 ) string {
-	if method != "notification.create" || hasExplicitSurface || hasExplicitWindow {
+	if method != "notification.create" || hasExplicitWorkspace || hasExplicitSurface || hasExplicitWindow {
 		return method
 	}
 	workspaceID, _ := params["workspace_id"].(string)
