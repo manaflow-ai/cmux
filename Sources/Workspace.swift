@@ -2979,11 +2979,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         backgroundColor: NSColor,
         backgroundOpacity: Double
     ) -> NSColor {
-        resolvedTerminalChromeBackgroundColor(
+        let terminalColorScheme: ColorScheme =
+            GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+        return resolvedTerminalChromeBackgroundColor(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
-            terminalColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light,
-            ambientColorScheme: AppearanceSettings.currentAmbientColorScheme()
+            terminalColorScheme: terminalColorScheme,
+            // Without a live ambient signal (pre-launch system mode), fail
+            // closed to the terminal authority instead of guessing a base.
+            ambientColorScheme: AppearanceSettings.currentAmbientColorScheme() ?? terminalColorScheme
         )
     }
 

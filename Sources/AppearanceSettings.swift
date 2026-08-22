@@ -149,14 +149,26 @@ enum AppearanceSettings {
     }
 
     /// The window-level light/dark appearance translucent chrome composites
-    /// against, resolved from the stored appearance mode and the app's live
-    /// effective appearance.
+    /// against. Explicit light/dark modes always answer; system mode answers
+    /// from the app's live effective appearance, and returns `nil` when that
+    /// signal is unavailable (before `applicationDidFinishLaunching`, or with
+    /// no `NSApp`) so consumers fail closed to the terminal authority instead
+    /// of compositing against a guessed light base.
     @MainActor
-    static func currentAmbientColorScheme(defaults: UserDefaults = .standard) -> ColorScheme {
-        effectiveColorScheme(
-            for: defaults.string(forKey: appearanceModeKey),
-            fallback: .light
-        )
+    static func currentAmbientColorScheme(
+        defaults: UserDefaults = .standard,
+        isApplicationFinishedLaunching: @MainActor () -> Bool = AppIconLaunchState.isApplicationFinishedLaunching,
+        effectivePrefersDark: @MainActor () -> Bool? = {
+            guard let app = NSApp else { return nil }
+            return app.effectiveAppearance.cmuxPrefersDark
+        }
+    ) -> ColorScheme? {
+        if let override = colorSchemeOverride(for: defaults.string(forKey: appearanceModeKey)) {
+            return override
+        }
+        guard isApplicationFinishedLaunching() else { return nil }
+        guard let prefersDark = effectivePrefersDark() else { return nil }
+        return prefersDark ? .dark : .light
     }
 
     /// Resolves the color scheme the chrome should render with. Explicit modes

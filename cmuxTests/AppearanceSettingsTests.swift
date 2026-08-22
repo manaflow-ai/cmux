@@ -579,4 +579,49 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 
+    /// The ambient scheme used to composite translucent chrome must never be
+    /// guessed: explicit modes answer, system mode answers only from the live
+    /// effective appearance, and an unavailable signal (pre-launch, no NSApp)
+    /// returns nil so chrome fails closed to the terminal authority.
+    func testCurrentAmbientColorSchemeFailsClosedWhenLiveAppearanceUnavailable() {
+        let defaults = UserDefaults(suiteName: "cmux.tests.ambient-prelaunch")!
+        defer { defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey) }
+
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertNil(
+            AppearanceSettings.currentAmbientColorScheme(
+                defaults: defaults,
+                isApplicationFinishedLaunching: { false },
+                effectivePrefersDark: { true }
+            ),
+            "System mode before launch has no reliable ambient signal"
+        )
+        XCTAssertNil(
+            AppearanceSettings.currentAmbientColorScheme(
+                defaults: defaults,
+                isApplicationFinishedLaunching: { true },
+                effectivePrefersDark: { nil }
+            ),
+            "System mode without a live effective appearance has no reliable ambient signal"
+        )
+        XCTAssertEqual(
+            AppearanceSettings.currentAmbientColorScheme(
+                defaults: defaults,
+                isApplicationFinishedLaunching: { true },
+                effectivePrefersDark: { true }
+            ),
+            .dark
+        )
+
+        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(
+            AppearanceSettings.currentAmbientColorScheme(
+                defaults: defaults,
+                isApplicationFinishedLaunching: { false },
+                effectivePrefersDark: { nil }
+            ),
+            .light,
+            "Explicit modes answer even before launch"
+        )
+    }
 }
