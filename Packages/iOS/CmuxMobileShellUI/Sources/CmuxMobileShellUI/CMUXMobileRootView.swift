@@ -477,6 +477,7 @@ struct CMUXMobileRootView: View {
             )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            presentCampaignModalIfPossible()
         }
         .onChange(of: store.isReconnectingStoredMac) { _, isReconnecting in
             if isReconnecting {
