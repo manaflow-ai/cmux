@@ -3,6 +3,7 @@ import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -29,15 +30,47 @@ extension WorkspaceDetailView {
             if surface == .chat, let session = chosenChatSession {
                 chatContent(session)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .chat {
+                chatWaitingSurfacePlaceholder()
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browser {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.browser.waiting", defaultValue: "Waiting for Browser"),
+                    detail: L10n.string(
+                        "mobile.browser.waitingDetail",
+                        defaultValue: "The browser will appear when the Mac is ready."
+                    ),
+                    symbol: "globe",
+                    accessibilityIdentifier: "MobileBrowserPlaceholder"
+                )
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browserStream {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.browserStream.waiting", defaultValue: "Waiting for Browser"),
+                    detail: L10n.string(
+                        "mobile.browserStream.waitingDetail",
+                        defaultValue: "The first frame will appear when the Mac is ready."
+                    ),
+                    symbol: "globe",
+                    accessibilityIdentifier: "BrowserStreamPlaceholder"
+                )
             } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
                 simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .simulatorStream {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.simulatorStream.waiting", defaultValue: "Waiting for Simulator"),
+                    detail: L10n.string(
+                        "mobile.simulatorStream.waitingDetail",
+                        defaultValue: "The first frame will appear when the Mac is ready."
+                    ),
+                    symbol: "iphone",
+                    accessibilityIdentifier: "SimulatorStreamPlaceholder"
+                )
             } else if case let .macSurface(macSurface) = surface {
                 macSurfaceContent(macSurface)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)

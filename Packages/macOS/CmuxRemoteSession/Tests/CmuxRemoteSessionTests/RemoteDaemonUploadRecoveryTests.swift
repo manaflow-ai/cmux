@@ -1,9 +1,44 @@
 import CmuxCore
+import CryptoKit
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
 
 extension RemoteDaemonUploadTests {
+    @Test("Finalize script promotes only a byte-and-hash-matching payload")
+    func finalizeScriptIsFailClosed() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-finalize-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let tempURL = root.appendingPathComponent("cmuxd-remote.tmp", isDirectory: false)
+        let finalURL = root.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        let payload = Data("healthy remote daemon".utf8)
+        try payload.write(to: tempURL)
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let script = RemoteSessionCoordinator.remoteDaemonFinalizeScript(
+            remoteTempPath: tempURL.path,
+            remotePath: finalURL.path,
+            expectedByteCount: Int64(payload.count),
+            expectedSHA256: hash
+        )
+
+        let success = try Self.runShell(script)
+        #expect(success == 0)
+        #expect(fileManager.fileExists(atPath: finalURL.path))
+        #expect(!fileManager.fileExists(atPath: tempURL.path))
+        #expect(try Data(contentsOf: finalURL) == payload)
+
+        try Data("truncated".utf8).write(to: tempURL)
+        let mismatch = try Self.runShell(script)
+        #expect(mismatch == 74)
+        #expect(fileManager.fileExists(atPath: tempURL.path))
+    }
+
     @Test("Bootstrap uploads bypass wedged ControlMasters and scale their deadline with payload size")
     func uploadUsesStandaloneTransportAndScaledDeadline() throws {
         let fileManager = FileManager.default
@@ -41,7 +76,7 @@ extension RemoteDaemonUploadTests {
         #expect(largeUpload.timeout > smallUpload.timeout)
     }
 
-    @Test("Upload timeout exposes the process detail and cleans remote temporary files directly")
+    @Test("Upload timeout reports a safe error and cleans remote temporary files directly")
     func uploadTimeoutSurfacesDetailAndCleansRemoteTemporaryFiles() throws {
         let fileManager = FileManager.default
         let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
@@ -87,7 +122,7 @@ extension RemoteDaemonUploadTests {
             }
             Issue.record("Expected the timed-out upload to fail")
         } catch {
-            #expect(error.localizedDescription.contains("ssh timed out after 222s"))
+            #expect(error.localizedDescription == "failed to upload remote daemon")
         }
 
         let requests = runner.requests
@@ -100,6 +135,8 @@ extension RemoteDaemonUploadTests {
         )
         #expect(uploadRequest.arguments.last?.contains("trap") == true)
         #expect(uploadRequest.arguments.last?.contains("kill") == true)
+        #expect(uploadRequest.arguments.last?.contains("stall_checks") == true)
+        #expect(uploadRequest.arguments.last?.contains("without byte progress") == true)
         #expect(cleanupRequest.arguments.last?.contains(".tmp-*") == true)
         #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
         #expect(!cleanupRequest.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
@@ -230,5 +267,17 @@ extension RemoteDaemonUploadTests {
             stdout: "",
             stderr: "unexpected request: \(request.executable) \(request.arguments.last ?? "<missing>")"
         )
+    }
+
+    private static func runShell(_ script: String) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }
