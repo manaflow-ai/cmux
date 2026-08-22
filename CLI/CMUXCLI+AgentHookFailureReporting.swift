@@ -39,6 +39,15 @@ extension CMUXCLI {
         let errorType = error.map { String(reflecting: type(of: $0)) } ?? "unresolved-target"
         let failureDescription: String
         switch stage {
+        case .journalAppend:
+            failureDescription = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.agentHook.error.journalAppend",
+                    defaultValue: "Agent journal append failed for %@ %@."
+                ),
+                agentName,
+                event
+            )
         case .targetResolution:
             failureDescription = String.localizedStringWithFormat(
                 String(
