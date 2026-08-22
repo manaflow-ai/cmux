@@ -1155,14 +1155,23 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                // Plain actions stay in the overflow menu so the browser
-                // chrome remains quiet at every width. Focus and Design Mode
-                // share one transient text chip while active; the modes are
-                // mutually exclusive, so a second standalone icon would only
-                // recreate the crowded cluster this layout removes.
+                // Focus and Design Mode share one transient text chip while
+                // active. Design Mode and DevTools stay reachable without
+                // opening the menu; lower-frequency Focus and Screenshot
+                // actions remain in the overflow menu.
                 browserActiveModeButtonWithShortcutHint
                 browserScreenshotCopiedIndicator
                 browserOverflowMenu
+                if activeToolbarMode != .design {
+                    BrowserDesignModeToolbarButton(
+                        controller: panel.designModeController,
+                        iconPointSize: devToolsButtonIconSize,
+                        hitSize: addressBarButtonSize,
+                        inactiveColor: devToolsColorOption.color,
+                        onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
+                    )
+                }
+                developerToolsButton
                 browserProfileButton
                 browserThemeModeButton
             }
@@ -1421,21 +1430,6 @@ struct BrowserPanelView: View {
         }
     }
 
-    private var reactGrabButton: some View {
-        Button(action: {
-            panel.clearReactGrabRoundTrip(reason: "toolbarButton.manualStart")
-            Task { await panel.toggleOrInjectReactGrab() }
-        }) {
-            CmuxSystemSymbolImage(systemName: "cursorarrow.click.2", pointSize: devToolsButtonIconSize, weight: .medium)
-                .foregroundStyle(panel.isReactGrabActive ? Color.accentColor : Color.secondary)
-                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        }
-        .buttonStyle(OmnibarAddressButtonStyle())
-        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .safeHelp(String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"))
-        .accessibilityIdentifier("BrowserReactGrabButton")
-    }
-
     private var developerToolsButton: some View {
         Button(action: {
             openDevTools()
@@ -1475,8 +1469,8 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserProfileButton")
     }
 
-    /// Compact-chrome actions that do not need dedicated toolbar space.
-    /// Profile and theme stay as visible buttons since they anchor popovers.
+    /// Low-frequency browser actions that do not need dedicated toolbar space.
+    /// Design Mode and DevTools stay visible because they are persistent tools.
     private var browserOverflowMenu: some View {
         Menu {
             Button(action: handleBrowserFocusModeButtonAction) {
@@ -1494,26 +1488,6 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
             .accessibilityIdentifier("BrowserScreenshotPageButton")
-            BrowserDesignModeOverflowMenuButton(
-                controller: panel.designModeController,
-                onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
-            )
-            .accessibilityIdentifier("BrowserOverflowDesignModeButton")
-            Button {
-                panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
-                Task { await panel.toggleOrInjectReactGrab() }
-            } label: {
-                Label(
-                    String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"),
-                    systemImage: "cursorarrow.click.2"
-                )
-            }
-            .accessibilityIdentifier("BrowserOverflowReactGrabButton")
-
-            Button(action: { openDevTools() }) {
-                Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
-            }
-            .accessibilityIdentifier("BrowserToggleDevToolsButton")
         } label: {
             CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
