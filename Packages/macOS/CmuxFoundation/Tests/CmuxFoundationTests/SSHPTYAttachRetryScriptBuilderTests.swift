@@ -5,6 +5,16 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func defaultReconnectPolicyIsFinite() {
+        let script = SSHPTYAttachRetryScriptBuilder()
+            .lines(command: "cmux_test_attach", reauthenticates: false)
+            .joined(separator: "\n")
+
+        #expect(script.contains("cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\""))
+        #expect(!script.contains("cmux_ssh_attach_reconnect_limit='∞'"))
+        #expect(!script.contains("cmux_ssh_attach_reconnect_unbounded=1"))
+    }
+
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-retry-\(UUID().uuidString)")
