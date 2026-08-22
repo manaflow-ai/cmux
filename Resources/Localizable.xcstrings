@@ -53983,6 +53983,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.recovered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH が再接続されました（試行 %s/%s）。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.stopHint": {
       "extractionState": "manual",
       "localizations": {
@@ -55405,6 +55422,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.reconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY が再接続されました（試行 %s/%s）。"
           }
         }
       }
@@ -145543,6 +145577,125 @@
         }
       }
     },
+    "remoteDaemon.bootstrap.buildOutputEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote daemon files are missing or empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのファイルがないか空です"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.reconnectPaused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブートストラップを続行できないため自動再接続を一時停止しました。表示されたリモートの問題を修復して「再接続」を実行してください。"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not prepare the remote daemon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンを準備できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.helloFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not confirm that the remote daemon is ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンが準備完了したことを確認できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not inspect the remote daemon installation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのインストールを検査できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.removeCorruptFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed to remove corrupt remote daemon install: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損したリモートデーモンのインストールを削除できませんでした：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.createDirectoryFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -145583,13 +145736,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to install remote daemon binary"
+            "value": "failed to install remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンのバイナリをインストールできませんでした"
+            "value": "リモートデーモンをインストールできませんでした"
           }
         }
       }
@@ -145611,19 +145764,53 @@
         }
       }
     },
+    "remoteDaemon.upload.verifyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました"
+          }
+        }
+      }
+    },
+    "remoteDaemon.upload.verifyFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote daemon integrity verification failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンの整合性検証に失敗しました：%@"
+          }
+        }
+      }
+    },
     "remoteDaemon.upload.transferFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to upload cmuxd-remote"
+            "value": "failed to upload remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxd-remote をアップロードできませんでした"
+            "value": "リモートデーモンをアップロードできませんでした"
           }
         }
       }
@@ -146296,6 +146483,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.proxy.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote proxy unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートプロキシを利用できません"
           }
         }
       }
