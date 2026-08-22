@@ -69,8 +69,10 @@ struct TerminalComposerView: View {
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
     @State private var pickerSelection: [PhotosPickerItem] = []
-    /// Drives the photo picker's presentation from the attach button.
+    /// Drives the photo picker's presentation from the attach menu.
     @State private var isPickerPresented = false
+    /// Drives the Files importer's presentation from the attach menu.
+    @State private var isFileImporterPresented = false
     /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
     /// attachment is staged. The chip row renders these instead of decoding the
     /// full multi-MB `Data` from inside the view body on every composer
@@ -342,17 +344,60 @@ struct TerminalComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                MobileComposerIconButton(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    ),
-                    size: controlHeight,
-                    accessibilityIdentifier: "MobileComposerAttach",
-                    accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
-                ) {
-                    presentPhotoPicker()
+                // The attach button offers the same sources as the task
+                // composer's menu: Photo Library, Choose Files (when the
+                // paired Mac supports file uploads), and Paste.
+                Menu {
+                    Button {
+                        presentPhotoPicker()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.composer.attach.photoLibrary",
+                                defaultValue: "Photo Library"
+                            ),
+                            systemImage: "photo.on.rectangle"
+                        )
+                    }
+                    if store.supportsComposerFileAttachments {
+                        Button {
+                            presentFileImporter()
+                        } label: {
+                            Label(
+                                L10n.string(
+                                    "mobile.composer.attach.chooseFiles",
+                                    defaultValue: "Choose Files"
+                                ),
+                                systemImage: "folder"
+                            )
+                        }
+                    }
+                    Button {
+                        _ = pasteComposerAttachments()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.composer.attach.paste",
+                                defaultValue: "Paste"
+                            ),
+                            systemImage: "doc.on.clipboard"
+                        )
+                    }
+                } label: {
+                    MobileComposerIconLabel(
+                        systemImage: "paperclip",
+                        foregroundStyle: AnyShapeStyle(
+                            store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                        ),
+                        size: controlHeight
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("MobileComposerAttach")
+                .accessibilityLabel(L10n.string(
+                    "mobile.composer.attach.add",
+                    defaultValue: "Add Attachment"
+                ))
 
                 micButton
 
@@ -443,6 +488,21 @@ struct TerminalComposerView: View {
                     .photoPickerDismissed,
                     correlationID: terminalID
                 )
+                photoPickerDidDismiss()
+            }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true,
+            onCompletion: stagePickedFiles
+        )
+        .onChange(of: isFileImporterPresented) { _, isPresented in
+            // The Files importer is a modal over the composer like the photo
+            // picker; route the same responder boundary signals.
+            if isPresented {
+                photoPickerDidPresent()
+            } else {
                 photoPickerDidDismiss()
             }
         }
@@ -570,6 +630,59 @@ struct TerminalComposerView: View {
         store.recordAppEvent(.photoPickerOpened, correlationID: terminalID)
         photoPickerWillPresent()
         isPickerPresented = true
+    }
+
+    /// Same modal boundary for the Files importer behind the attach menu's
+    /// Choose Files item.
+    private func presentFileImporter() {
+        guard pendingAttachments.count < Self.maxAttachmentCount else {
+            attachmentAlertMessage = Self.attachmentLimitMessage
+            store.recordAppEvent(
+                .attachmentPreparationFailed,
+                correlationID: terminalID,
+                failure: .attachmentCountLimitReached
+            )
+            return
+        }
+        store.recordAppEvent(.taskAttachmentPickerOpened, correlationID: terminalID)
+        photoPickerWillPresent()
+        isFileImporterPresented = true
+    }
+
+    /// Stage files picked from the Files importer through the same flow as
+    /// pasted files: each security-scoped URL is copied into app-owned temp
+    /// storage, thumbnailed, size-gated, and staged as a pending FILE
+    /// attachment that uploads at send time.
+    private func stagePickedFiles(_ result: Result<[URL], any Error>) {
+        guard case .success(let urls) = result else {
+            attachmentAlertMessage = Self.attachmentUnreadableMessage
+            store.recordAppEvent(
+                .attachmentPreparationFailed,
+                correlationID: terminalID,
+                failure: .permissionDenied
+            )
+            return
+        }
+        let sessionGeneration = store.currentSessionGeneration
+        stagingTask.task?.cancel()
+        stagingTask.task = Task { @MainActor in
+            let reader = MobilePasteboardReader()
+            for url in urls {
+                guard !Task.isCancelled else { break }
+                guard let item = await reader.materializePickedFile(at: url) else {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .unknown
+                    )
+                    attachmentAlertMessage = Self.attachmentUnreadableMessage
+                    continue
+                }
+                await stagePastedFile(item, sessionGeneration: sessionGeneration)
+                reader.cleanUp([item])
+            }
+            requestHeightRemeasure()
+        }
     }
 
     /// Bridge the support package's fixed dictation vocabulary into the app-wide

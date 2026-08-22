@@ -128,6 +128,27 @@ struct MobilePasteboardReader: Sendable {
         return results
     }
 
+    /// Copy one security-scoped picked file (e.g. from a Files importer) into
+    /// the same app-owned wrapper the paste path uses, so both entry points
+    /// feed one staging flow and one cleanup.
+    func materializePickedFile(at url: URL) async -> MobilePastedAttachment? {
+        await withTaskGroup(of: URL?.self) { group in
+            group.addTask(priority: .utility) {
+                let hasScope = url.startAccessingSecurityScopedResource()
+                defer {
+                    if hasScope { url.stopAccessingSecurityScopedResource() }
+                }
+                return copyIntoTemporaryStorage(url, name: url.lastPathComponent)
+            }
+            guard let copied = await group.next() ?? nil else { return nil }
+            return MobilePastedAttachment(
+                kind: .file,
+                url: copied,
+                displayName: copied.lastPathComponent
+            )
+        }
+    }
+
     /// Release copies produced by ``materializeAttachments(from:)``. Each file
     /// lives alone in an app-owned wrapper directory, so the wrapper is removed
     /// with it. Foreign URLs are left untouched.
