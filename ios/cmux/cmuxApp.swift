@@ -111,6 +111,15 @@ struct cmuxApp: App {
                     resourceID: resourceID,
                     offset: offset
                 )
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else {
+                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                return try await iroh.openSimulatorStreamLane(
+                    for: request,
+                    panelID: panelUUID
+                )
             }
         )
 

@@ -1,0 +1,114 @@
+# iOS simulator streaming v2
+
+cmux iOS mirrors a booted iPhone/iPad Simulator hosted by the paired Mac. v2
+replaces per-frame still images pushed through the shared mobile event queue
+with a dedicated low-latency video pipeline. The design goal is that
+interaction feels immediate (touch-to-photon bounded by one encode + one
+network round trip + one decode) and that every failure an operator can cause
+(transport flap, app background, simulator reboot, device switch, slow link)
+recovers without user action and without cross-connection state.
+
+## Why a rebuild
+
+The v1 pipeline sends absolute image frames through the same bounded host
+event queue as all other mobile events. Under backpressure the queue sheds
+frames, which required per-connection replay debt, generation fencing, stall
+counters, resubscribe repair, and demand reannounce to paper over. Each of
+those mechanisms exists only because stale frames can queue and be dropped
+after encoding. v2 makes that state unrepresentable: frames are encoded only
+at the moment the link has capacity, so there is never an encoded frame to
+shed, replay, or fence.
+
+## Invariants
+
+1. **Latest frame wins, always.** The capture side keeps exactly one slot: the
+   newest simulator frame. Encoding consumes that slot only when the transport
+   has credit. Intermediate frames are skipped before encoding, never after.
+2. **No shared queues.** Video runs on its own transport lane with its own
+   flow control. Nothing else can starve it; it can starve nothing else.
+   Input runs ahead of video, not behind it.
+3. **Stateless attach.** A viewer session is created by a single `start`
+   message and every stream begins with a keyframe. Any drop, at any layer,
+   is recovered by sending `start` again. No handshake sequence, no state
+   survives a connection.
+4. **No sleeps, no polling.** Frame flow is driven by capture callbacks and
+   ack arrivals. The only timer is a watchdog that detects "attached + booted
+   + no frame progress" and forces a keyframe/encoder restart.
+5. **Input is sacred.** Touch down/up and key events are never coalesced or
+   dropped; only intermediate touch moves coalesce (newest position per
+   in-flight window). Input is applied on the Mac in arrival order with a
+   monotonic sequence check.
+
+## Frame path
+
+capture (worker BGRA ring, existing) → latest-frame slot → VideoToolbox
+encoder → dedicated iroh lane → iOS VideoToolbox/AVSampleBufferDisplayLayer →
+display.
+
+- **Capture.** The existing supervised simulator worker already writes
+  GPU-synchronized packed-BGRA frames into a shared-memory ring for the Mac
+  pane. v2 attaches a second consumer to that ring. No new capture machinery,
+  no ScreenCaptureKit, no TCC.
+- **Encode.** `VTCompressionSession`, HEVC preferred, H.264 fallback.
+  Real-time mode, frame reordering disabled (no B-frames), low-latency rate
+  control, long keyframe interval with on-demand keyframes for attach and
+  loss recovery. Bitrate adapts to the ack-measured delivery rate; resolution
+  caps at the simulator's pixel size scaled to the viewer's request.
+- **Pacing (encode-on-credit).** The host encodes frame N+1 only while
+  `unacked_frames < window` (default 2). When the link stalls, raw frames
+  keep overwriting the latest slot for free; when credit returns the newest
+  frame is encoded next. Latency under congestion is bounded at ~window
+  frames instead of growing a queue.
+- **Decode/display.** iOS feeds sample buffers to
+  `AVSampleBufferDisplayLayer` with immediate-display attachments (no
+  compositor-side buffering). Decode failures request a keyframe; three
+  consecutive failures restart the stream via `start`.
+
+## Input path
+
+Touches on the phone are forwarded raw (down/move/up, normalized 0–1
+coordinates in the simulator's displayed orientation, multi-touch capable)
+and injected through the existing worker HID path, the same one the Mac pane
+uses. The simulator's own UIKit performs scrolling physics, so scroll fidelity
+is native by construction; nothing synthesizes wheel events. Hardware keys,
+Home, lock, and rotate reuse the existing simulator control RPCs.
+
+Input messages are tiny, sent on a reliable ordered channel separate from
+video frames, flushed immediately. Move events coalesce client-side per
+send-window so a fast drag cannot backlog; down/up never coalesce.
+
+## Wire contract
+
+A dedicated lane (`simulator-stream`) carrying length-prefixed binary
+messages, plus reuse of existing mobile RPC only for discovery:
+
+- `sim.stream.start {device_udid, max_dimension, format_prefs, epoch}` —
+  opens/reopens a stream; host responds with `config` then a keyframe.
+- `config {pixel_size, point_size, orientation, format}` — re-sent whenever
+  geometry changes (rotate, device switch); geometry changes force keyframes.
+- `frame {seq, flags(keyframe), pts, payload}` — encoded video.
+- `ack {seq}` — flow-control credit + bitrate feedback.
+- `input {seq, events[]}` — touch/key/button events (viewer → host).
+- `keyframe_request {}` — decoder loss recovery.
+- `stop {}` — idempotent.
+
+Capability `simulator.stream.v2` is advertised by the host; phones that see
+it use this pipeline, others keep v1. v1 host code stays until the capability
+has shipped in a release, then dies.
+
+## Lifecycle
+
+One state machine on each side, event-driven:
+
+- Transport drop → viewer returns to `connecting`, keeps the last frame
+  on-screen dimmed, and re-sends `start` as soon as the lane reopens. The
+  host destroys the session on lane close; there is nothing to reconcile.
+- App background → viewer sends `stop`, tears down the decoder, keeps state
+  needed to `start` on foreground.
+- Simulator reboot/device switch → host emits `config` + keyframe (same
+  stream) or ends the stream if the device is gone; the viewer's `start`
+  epoch disambiguates stale sessions.
+- Watchdog: if the host has an attached viewer and a booted device but the
+  ring produced no consumable frame for N seconds, restart the worker
+  attachment and force a keyframe. If the viewer has credit outstanding and
+  no frame for N seconds, it re-sends `start`.

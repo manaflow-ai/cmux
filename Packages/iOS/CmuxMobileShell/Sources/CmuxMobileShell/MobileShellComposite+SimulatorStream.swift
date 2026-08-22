@@ -9,6 +9,10 @@ extension MobileShellComposite {
     /// operation chain, so a foreground restart cannot overlap a still-running
     /// background stop against the Mac's single-controller ownership.
     public func startMobileSimulatorStream(panelID: String, workspaceID: String) async {
+        // Simulator streaming v2 runs the panel over its own dedicated lane,
+        // owned entirely by the pane view; starting the v1 image-event stream
+        // alongside it would double-stream and contend for input ownership.
+        guard !supportsSimulatorStreamV2 else { return }
         await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
             await self?.performMobileSimulatorStreamStart(panelID: panelID, workspaceID: workspaceID)
         }.value
@@ -18,6 +22,14 @@ extension MobileShellComposite {
         await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
             await self?.performMobileSimulatorStreamStop(panelID: panelID, workspaceID: workspaceID)
         }.value
+    }
+
+    /// Stops a still-running v1 image stream for a panel the v2 pane is
+    /// taking over (capabilities can arrive after a v1 stream already
+    /// started on an older snapshot). Idempotent.
+    public func stopLegacySimulatorStream(panelID: String, workspaceID: String) async {
+        guard startedMobileSimulatorPanelIDs.contains(panelID) else { return }
+        await stopMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
     }
 
     /// Resolves an aggregate workspace row identity before stopping its

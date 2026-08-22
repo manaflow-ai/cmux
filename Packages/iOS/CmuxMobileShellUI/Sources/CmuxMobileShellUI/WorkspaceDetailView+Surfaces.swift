@@ -224,7 +224,32 @@ extension WorkspaceDetailView {
         }
     }
 
+    @ViewBuilder
     func simulatorStreamContent(_ simulator: MobileSimulatorStreamSurfaceState) -> some View {
+        if store.supportsSimulatorStreamV2,
+            let access = store.simulatorStreamV2Access(panelID: simulator.id)
+        {
+            SimulatorStreamV2Pane(
+                panelID: simulator.id,
+                access: access,
+                isTransportReady: store.connectionState == .connected
+            )
+            .task {
+                await store.stopLegacySimulatorStream(
+                    panelID: simulator.id,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+            .id(simulator.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            legacySimulatorStreamContent(simulator)
+        }
+    }
+
+    private func legacySimulatorStreamContent(
+        _ simulator: MobileSimulatorStreamSurfaceState
+    ) -> some View {
         SimulatorStreamPane(
             state: simulator,
             workspaceID: workspace.rpcWorkspaceID.rawValue,

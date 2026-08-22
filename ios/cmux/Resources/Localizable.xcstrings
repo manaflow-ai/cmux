@@ -1395,6 +1395,40 @@
         }
       }
     },
+    "mobile.simulatorStream.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorを利用できません"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.unavailableDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac closed this Simulator stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacがこのSimulatorストリームを終了しました。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.viewOnly": {
       "extractionState": "manual",
       "localizations": {
