@@ -4138,6 +4138,13 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。" } }
       }
     },
+    "cli.agentHook.error.journalAppend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook journal append failed for %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックのジャーナル追記に失敗しました。" } }
+      }
+    },
     "cli.agentHook.error.targetResolution": {
       "extractionState": "manual",
       "localizations": {
