@@ -44,6 +44,7 @@ public struct AgentsPanelView: View {
     public var body: some View {
         let snapshot = store.snapshot
         let configuration = store.configuration
+        let accountTarget = configuration.accountTarget
         ScrollView {
             // Sections sit flat on the panel (no card boxes), so the gap
             // between providers is the only separator — keep it generous.
@@ -72,17 +73,17 @@ public struct AgentsPanelView: View {
                         accounts: snapshot.accounts(for: provider),
                         pendingSwitch: store.pendingSwitch,
                         actionsForAccount: { account in
-                            rowActions(account: account, configuration: configuration)
+                            rowActions(
+                                account: account,
+                                configuration: configuration,
+                                accountTarget: accountTarget
+                            )
                         },
-                        // Remote mode still offers add: the login chains
-                        // into the upload that lands it on the watched
-                        // server's pool.
-                        onAddAccount: terminalAction(.addAccount(
-                            provider: provider,
-                            serverName: configuration.isRemoteEndpoint
-                                ? (configuration.serverName ?? configuration.endpoint.baseURL.host())
-                                : nil
-                        )),
+                        // A named remote target gets a direct server-scoped
+                        // login; an unnamed explicit URL stays read-only.
+                        onAddAccount: accountTarget.flatMap { target in
+                            terminalAction(.addAccount(provider: provider, target: target))
+                        },
                         // A remote pool is load-balanced per session: no
                         // account is "the selected one", so rows carry no
                         // checkmark or switch glyph there.
@@ -132,7 +133,8 @@ public struct AgentsPanelView: View {
     /// require a terminal-capable host.
     private func rowActions(
         account: SubrouterAccountUsageStatus,
-        configuration: SubrouterConfiguration
+        configuration: SubrouterConfiguration,
+        accountTarget: SubrouterAccountTarget?
     ) -> SubrouterAccountRowActions {
         guard !configuration.isRemoteEndpoint else {
             return SubrouterAccountRowActions()
@@ -146,8 +148,12 @@ public struct AgentsPanelView: View {
             && store.pendingSwitch == nil
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,
-            onSignIn: terminalAction(.signIn(account: account)),
-            onRemove: terminalAction(.removeAccount(account: account))
+            onSignIn: accountTarget.flatMap { target in
+                terminalAction(.signIn(account: account, target: target))
+            },
+            onRemove: accountTarget.flatMap { target in
+                terminalAction(.removeAccount(account: account, target: target))
+            }
         )
     }
 

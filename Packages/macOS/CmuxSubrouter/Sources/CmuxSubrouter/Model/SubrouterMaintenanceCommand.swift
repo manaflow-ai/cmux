@@ -6,35 +6,51 @@ public enum SubrouterMaintenanceCommand {
     /// The command that starts an interactive add-account login for the
     /// provider, or `nil` when the provider has no add verb.
     ///
-    /// With a `serverName`, the login chains into the upload that puts the
-    /// new account on that server's pool (`sr server sync` for Codex,
-    /// `sr claude push` for Claude profiles) — the panel may be watching a
-    /// remote server, where a purely local login would never appear.
+    /// The destination is pinned for this invocation through the `sr` CLI's
+    /// `SUBROUTER_CODEX_SERVER` override. This keeps a local add local even
+    /// when a remote server is configured as the user's default, and sends a
+    /// remote add directly through the selected named server without a second
+    /// `server sync`/`claude push` pass.
     public static func addAccount(
         provider: SubrouterProvider,
-        serverName: String? = nil
+        target: SubrouterAccountTarget = .local
     ) -> String? {
         switch provider {
         case .codex:
-            guard let serverName else { return "cmux sr add" }
-            return "cmux sr add && cmux sr server sync \(shellQuoted(serverName)) --yes"
+            return scoped("cmux sr add", target: target)
         case .claude:
-            guard serverName != nil else { return "cmux sr claude add" }
-            return "cmux sr claude add && cmux sr claude push"
+            return scoped("cmux sr claude add", target: target)
         default:
             return nil
         }
     }
 
+    /// Compatibility overload for callers that already have an optional
+    /// registry name; new callers should pass an explicit target.
+    @available(*, deprecated, message: "Pass an explicit SubrouterAccountTarget instead.")
+    public static func addAccount(
+        provider: SubrouterProvider,
+        serverName: String?
+    ) -> String? {
+        addAccount(
+            provider: provider,
+            target: serverName.map { .server(name: $0) } ?? .local
+        )
+    }
+
     /// The command that re-runs the provider's login for an existing
     /// account (Codex OAuth infers the account from the login; Claude
     /// re-auths the named profile), or `nil` when unsupported.
-    public static func signIn(provider: SubrouterProvider, accountID: String) -> String? {
+    public static func signIn(
+        provider: SubrouterProvider,
+        accountID: String,
+        target: SubrouterAccountTarget = .local
+    ) -> String? {
         switch provider {
         case .codex:
-            return "cmux sr add"
+            return scoped("cmux sr add", target: target)
         case .claude:
-            return "cmux sr claude add \(shellQuoted(accountID))"
+            return scoped("cmux sr claude add \(shellQuoted(accountID))", target: target)
         default:
             return nil
         }
@@ -43,12 +59,16 @@ public enum SubrouterMaintenanceCommand {
     /// The command that removes the account from `sr`'s local store, or
     /// `nil` when unsupported. Callers pre-type this into a terminal
     /// without running it — pressing Return is the confirmation.
-    public static func removeAccount(provider: SubrouterProvider, accountID: String) -> String? {
+    public static func removeAccount(
+        provider: SubrouterProvider,
+        accountID: String,
+        target: SubrouterAccountTarget = .local
+    ) -> String? {
         switch provider {
         case .codex:
-            return "cmux sr remove \(shellQuoted(accountID))"
+            return scoped("cmux sr remove \(shellQuoted(accountID))", target: target)
         case .claude:
-            return "cmux sr claude remove \(shellQuoted(accountID))"
+            return scoped("cmux sr claude remove \(shellQuoted(accountID))", target: target)
         default:
             return nil
         }
@@ -65,6 +85,18 @@ public enum SubrouterMaintenanceCommand {
     /// returns to the local daemon later).
     public static var connectServer: String {
         "cmux sr server add <name> --url <url> --default"
+    }
+
+    /// Prefixes an `sr` command with a one-shot destination override.
+    private static func scoped(_ command: String, target: SubrouterAccountTarget) -> String {
+        let value: String
+        switch target {
+        case .local:
+            value = "local"
+        case .server(let name):
+            value = shellQuoted(name)
+        }
+        return "SUBROUTER_CODEX_SERVER=\(value) \(command)"
     }
 
     /// Wraps a value in single quotes for POSIX shells, escaping any

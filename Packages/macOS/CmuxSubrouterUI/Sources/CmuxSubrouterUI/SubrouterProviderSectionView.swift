@@ -15,7 +15,8 @@ public struct SubrouterProviderSectionView: View {
     /// store/terminal wiring so this section stays snapshot-only.
     private let actionsForAccount: (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions
     /// Opens a terminal running the provider's add-account login, or `nil`
-    /// when adding is unavailable (remote server mode, unknown provider).
+    /// when adding is unavailable (for example, an unnamed explicit remote
+    /// endpoint or an unknown provider).
     private let onAddAccount: (() -> Void)?
     /// Whether rows render the active checkmark / radio switch glyph.
     /// Off for remote pools: the daemon load-balances accounts per

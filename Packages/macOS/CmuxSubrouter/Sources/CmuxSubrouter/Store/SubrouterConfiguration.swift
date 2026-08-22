@@ -48,4 +48,21 @@ public struct SubrouterConfiguration: Sendable, Equatable {
         guard let host = endpoint.baseURL.host()?.lowercased() else { return false }
         return host != "127.0.0.1" && host != "localhost" && host != "::1"
     }
+
+    /// The safe account destination implied by this configuration, or `nil`
+    /// when a remote URL has no corresponding named `sr` server entry.
+    ///
+    /// An explicit remote endpoint is still valid for read-only monitoring,
+    /// but cmux must not turn its host into a fabricated server name for an
+    /// account mutation command.
+    public var accountTarget: SubrouterAccountTarget? {
+        if isRemoteEndpoint {
+            guard let serverName = serverName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !serverName.isEmpty else {
+                return nil
+            }
+            return .server(name: serverName)
+        }
+        return .local
+    }
 }

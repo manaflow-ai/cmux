@@ -13,15 +13,14 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
     public let runsImmediately: Bool
 
     /// The add-account request for a provider, or `nil` when unsupported.
-    /// Pass `serverName` when the panel follows a remote server so the new
-    /// login is also uploaded to that server's pool.
+    /// Pass the explicit local or named-server target selected by the host.
     public static func addAccount(
         provider: SubrouterProvider,
-        serverName: String? = nil
+        target: SubrouterAccountTarget = .local
     ) -> SubrouterTerminalRequest? {
         guard let command = SubrouterMaintenanceCommand.addAccount(
             provider: provider,
-            serverName: serverName
+            target: target
         ) else {
             return nil
         }
@@ -61,11 +60,16 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
         )
     }
 
-    /// The re-login request for an account, or `nil` when unsupported.
-    public static func signIn(account: SubrouterAccountUsageStatus) -> SubrouterTerminalRequest? {
+    /// The re-login request for an account at the explicit target, or `nil`
+    /// when unsupported.
+    public static func signIn(
+        account: SubrouterAccountUsageStatus,
+        target: SubrouterAccountTarget = .local
+    ) -> SubrouterTerminalRequest? {
         guard let command = SubrouterMaintenanceCommand.signIn(
             provider: account.provider,
-            accountID: account.id
+            accountID: account.id,
+            target: target
         ) else {
             return nil
         }
@@ -79,12 +83,17 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
         )
     }
 
-    /// The remove request for an account, or `nil` when unsupported.
+    /// The remove request for an account at the explicit target, or `nil`
+    /// when unsupported.
     /// Pre-typed, never auto-run: pressing Return is the confirmation.
-    public static func removeAccount(account: SubrouterAccountUsageStatus) -> SubrouterTerminalRequest? {
+    public static func removeAccount(
+        account: SubrouterAccountUsageStatus,
+        target: SubrouterAccountTarget = .local
+    ) -> SubrouterTerminalRequest? {
         guard let command = SubrouterMaintenanceCommand.removeAccount(
             provider: account.provider,
-            accountID: account.id
+            accountID: account.id,
+            target: target
         ) else {
             return nil
         }
