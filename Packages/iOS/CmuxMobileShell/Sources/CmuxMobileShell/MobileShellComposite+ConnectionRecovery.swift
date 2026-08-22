@@ -680,7 +680,14 @@ extension MobileShellComposite {
                 guard let port = entry.port ?? advertisedPort else { return nil }
                 return (entry.address, port)
             }
-        guard !candidates.isEmpty else { return .failed(.noRoute) }
+        // Temporary Direct-lane diagnostics for dogfood; remove before merge.
+        MobileDebugLog.anchormux(
+            "direct.dial start mac=\(pairedMacDeviceID) candidates=\(candidates.map { "\($0.host):\($0.port)" }.joined(separator: ",")) advertisedPort=\(advertisedPort.map(String.init) ?? "nil") pairingFound=\(pairing != nil)"
+        )
+        guard !candidates.isEmpty else {
+            MobileDebugLog.anchormux("direct.dial no candidates -> noRoute")
+            return .failed(.noRoute)
+        }
         for candidate in candidates {
             guard ifStillCurrent?() ?? true else { return .superseded }
             await connectManualHost(
@@ -691,6 +698,9 @@ extension MobileShellComposite {
                 instanceTagExpectation: instanceTagExpectation,
                 recordsPairingAttempt: recordsPairingAttempt,
                 ifStillCurrent: ifStillCurrent
+            )
+            MobileDebugLog.anchormux(
+                "direct.dial tried \(candidate.host):\(candidate.port) state=\(String(describing: connectionState)) fg=\(foregroundMacDeviceID ?? "nil") err=\(connectionError ?? "nil")"
             )
             if connectionState == .connected,
                remoteClient != nil,
@@ -722,6 +732,10 @@ extension MobileShellComposite {
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
+        // Temporary Direct-lane diagnostics for dogfood; remove before merge.
+        MobileDebugLog.anchormux(
+            "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(connectionMethod(forMacDeviceID: pairedMacDeviceID, instanceTag: instanceTagExpectation.expectedTag).rawValue) routes=\(routes.count)"
+        )
         // The Direct method dials ONLY the user-enabled direct addresses,
         // through the same Stack-authenticated manual-host lane as the raw
         // candidates below. No advertised route of any kind participates.

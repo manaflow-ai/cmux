@@ -2894,6 +2894,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
 
+            // Temporary Direct-lane diagnostics for dogfood; remove before merge.
+            MobileDebugLog.anchormux(
+                "reconnect.candidate[\(candidateIndex)] mac=\(mac.macDeviceID) tag=\(mac.instanceTag ?? "nil") method=\(connectionMethod(for: mac).rawValue) directEnabled=\(mac.directAddresses.filter(\.enabled).count) localRoutes=\(localRoutes.count) canSecure=\(localCanConnectSecurely)"
+            )
             // Raw Tailscale/TCP is bearer-capable only for an exact local route
             // grandfathered during the v7-to-v8 migration. Every fresh, changed,
             // restored, or registry route remains a hint for discovering Iroh.
