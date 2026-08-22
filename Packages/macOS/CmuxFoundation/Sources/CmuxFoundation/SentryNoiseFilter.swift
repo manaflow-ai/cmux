@@ -5,6 +5,16 @@ import Foundation
 public struct SentryNoiseFilter: Sendable {
     public init() {}
 
+    /// Returns `true` when a structured CLI protocol code denotes an expected
+    /// app-lifecycle response rather than an actionable failure.
+    ///
+    /// The check is intentionally narrow: only the protocol's `unavailable`
+    /// code is lifecycle noise. Other codes, including `not_found` and
+    /// `internal_error`, remain eligible for Sentry reporting.
+    public func isExpectedCLIErrorCode(_ code: String?) -> Bool {
+        code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "unavailable"
+    }
+
     /// Returns `true` for an expected CLI socket lifecycle failure.
     ///
     /// - Parameters:
@@ -15,15 +25,28 @@ public struct SentryNoiseFilter: Sendable {
     ///     trusted restricted-sandbox provenance. Pass
     ///     ``CLISocketSentryPolicy/allowsSandboxPolicyDenial`` rather than
     ///     inferring this from the error text.
+    ///   - cliErrorCode: The structured v2 code carried by a CLI error.
+    ///     `unavailable` is an expected app-lifecycle response when it is
+    ///     returned through a CLI socket command.
+    ///   - socketPathMissing: Whether the typed CLI error identified a missing
+    ///     socket path.
     /// - Returns: `true` when the failure is safe to omit from Sentry.
     public func isExpectedCLISocketTransportFailure(
         stage: String,
         message: String,
         dataKeys: Set<String> = [],
-        allowSandboxPolicyDenial: Bool = false
+        allowSandboxPolicyDenial: Bool = false,
+        cliErrorCode: String? = nil,
+        socketPathMissing: Bool = false
     ) -> Bool {
         guard isCLISocketTransportContext(stage: stage, dataKeys: dataKeys) else {
             return false
+        }
+        if isExpectedCLIErrorCode(cliErrorCode) {
+            return true
+        }
+        if socketPathMissing {
+            return true
         }
         return isExpectedCLISocketTransportMessage(message) ||
             (allowSandboxPolicyDenial && isSocketConnectPolicyDenial(message))
@@ -33,6 +56,14 @@ public struct SentryNoiseFilter: Sendable {
     /// are normal lifecycle races at fleet scale.
     public func isExpectedCLISocketTransportMessage(_ text: String) -> Bool {
         let t = text.lowercased()
+
+        // V2 formats protocol failures as `unavailable: <message>`. Keep the
+        // legacy text fallback for older callers that do not preserve v2Code;
+        // the structured `cliErrorCode` path above remains authoritative for
+        // localized or otherwise changed unavailable messages.
+        if t.contains("unavailable:") || t.contains("tabmanager not available") {
+            return true
+        }
 
         let isSocketWriteFailure =
             t.contains("failed to write to socket") ||

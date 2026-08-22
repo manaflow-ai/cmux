@@ -39,6 +39,11 @@ final class CLISocketSentryTelemetry {
         let data: [String: Any]
     }
 
+    private struct CLIErrorMetadata {
+        let code: String?
+        let socketPathMissing: Bool
+    }
+
     private let command: String
     private let subcommand: String
     private let socketPath: String
@@ -129,15 +134,35 @@ final class CLISocketSentryTelemetry {
 #endif
     }
 
-    func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
+    /// Captures an actionable CLI failure while preserving the original error
+    /// for classification when the emitted Sentry error is deliberately
+    /// privacy-reduced (for example, agent-hook summaries).
+    func captureError(
+        stage: String,
+        error: Error,
+        data: [String: Any] = [:],
+        classificationError: Error? = nil
+    ) {
         guard shouldEmit else { return }
         let errorDescription = String(describing: error)
-        guard !noiseFilter.isExpectedCLISocketTransportFailure(
+        let classificationCandidate = classificationError ?? error
+        let cliErrorMetadata = metadata(for: classificationCandidate)
+        let isExpectedStructuredCLIError =
+            noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
+            cliErrorMetadata.socketPathMissing
+        let isExpectedLegacyCLIError = classificationCandidate is CLIError &&
+            noiseFilter.isExpectedCLISocketTransportMessage(String(describing: classificationCandidate))
+        let isExpectedTransportFailure = noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
             dataKeys: Set(data.keys),
-            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
-        ) else {
+            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial,
+            cliErrorCode: cliErrorMetadata.code,
+            socketPathMissing: cliErrorMetadata.socketPathMissing
+        )
+        guard !isExpectedStructuredCLIError,
+              !isExpectedLegacyCLIError,
+              !isExpectedTransportFailure else {
             return
         }
 #if DEBUG
@@ -148,6 +173,12 @@ final class CLISocketSentryTelemetry {
         var context = baseContext()
         context["stage"] = stage
         context["error"] = errorDescription
+        if let code = cliErrorMetadata.code {
+            context["cli_error_code"] = code
+        }
+        if cliErrorMetadata.socketPathMissing {
+            context["socket_path_missing"] = true
+        }
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
@@ -185,6 +216,35 @@ final class CLISocketSentryTelemetry {
 
     private var shouldEmit: Bool {
         !disabledByEnv
+    }
+
+    /// Preserves structured CLI error provenance before Sentry bridges the
+    /// value to an ``NSError``. The reporting policy must not infer lifecycle
+    /// state from localized text when the protocol already supplied a code.
+    private func metadata(for error: Error) -> CLIErrorMetadata {
+        if let cliError = error as? CLIError {
+            return CLIErrorMetadata(
+                code: cliError.v2Code,
+                socketPathMissing: cliError.socketFailureKind == .pathMissing
+            )
+        }
+
+        // A few command helpers wrap failures in NSError. Walk the standard
+        // underlying-error chain so the same policy applies after wrapping,
+        // while keeping a hard bound against malformed cycles.
+        var current: NSError? = error as NSError
+        var remaining = 8
+        while let candidate = current, remaining > 0 {
+            if let underlying = candidate.userInfo[NSUnderlyingErrorKey] as? CLIError {
+                return CLIErrorMetadata(
+                    code: underlying.v2Code,
+                    socketPathMissing: underlying.socketFailureKind == .pathMissing
+                )
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+            remaining -= 1
+        }
+        return CLIErrorMetadata(code: nil, socketPathMissing: false)
     }
 
 #if DEBUG
@@ -270,6 +330,24 @@ final class CLISocketSentryTelemetry {
 
     private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
         let noiseFilter = SentryNoiseFilter()
+        if let socketContext = event.context?["cli_socket"] {
+            let stage = socketContext["stage"] as? String ?? ""
+            let message = socketContext["error"] as? String ?? ""
+            let cliErrorCode = socketContext["cli_error_code"] as? String
+            let socketPathMissing = socketContext["socket_path_missing"] as? Bool ?? false
+            if noiseFilter.isExpectedCLIErrorCode(cliErrorCode) || socketPathMissing {
+                return true
+            }
+            if noiseFilter.isExpectedCLISocketTransportFailure(
+                stage: stage,
+                message: message,
+                dataKeys: Set(socketContext.keys),
+                cliErrorCode: cliErrorCode,
+                socketPathMissing: socketPathMissing
+            ) {
+                return true
+            }
+        }
         if let message = event.message?.formatted,
            noiseFilter.isExpectedCLISocketTransportMessage(message) {
             return true

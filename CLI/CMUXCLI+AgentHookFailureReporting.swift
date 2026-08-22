@@ -53,7 +53,8 @@ extension CMUXCLI {
                 "hook_event": event,
                 "has_session_id": !sessionId.isEmpty,
                 "underlying_error_type": errorType,
-            ]
+            ],
+            classificationError: error
         )
     }
 }

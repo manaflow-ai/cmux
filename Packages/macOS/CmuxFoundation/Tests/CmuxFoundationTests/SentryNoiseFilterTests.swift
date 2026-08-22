@@ -24,9 +24,26 @@ import Testing
     }
 
     @Test func dropsExpectedUnavailableCLIErrorInSocketStages() {
+        #expect(filter.isExpectedCLIErrorCode(" unavailable "))
+        #expect(!filter.isExpectedCLIErrorCode("internal_error"))
+        #expect(!filter.isExpectedCLIErrorCode(nil))
         #expect(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_command",
             message: "unavailable: TabManager not available (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: Workspace context is unavailable (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "The app is still starting",
+            cliErrorCode: "unavailable"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Socket path was removed while the app was restarting",
+            socketPathMissing: true
         ))
     }
 
@@ -82,6 +99,16 @@ import Testing
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "codex-monitor-start",
             message: "Failed to write to socket (Broken pipe, errno 32)"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "codex-monitor-start",
+            message: "The app is still starting",
+            cliErrorCode: "unavailable"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "The app is still starting",
+            cliErrorCode: "internal_error"
         ))
     }
 }
