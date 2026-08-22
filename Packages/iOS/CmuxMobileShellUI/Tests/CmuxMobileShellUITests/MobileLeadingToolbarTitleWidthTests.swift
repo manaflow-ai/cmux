@@ -107,31 +107,6 @@ import Testing
         #expect(unmeasured.cap == cap(393))
     }
 
-    @Test func measuredBranchLeavesOnlyAMinimalTrailingGap() {
-        // Dogfood calibration on a 402pt iPhone 17 bar (changes chip ~30 +
-        // trailing cluster 96 measured): the earlier 24pt/item chrome plus
-        // 84pt margin reserve left a ~35pt dead gap before the trailing
-        // cluster while the title truncated. The recalibrated reserves must
-        // hand that slack to the title, leaving only a back-gap-sized space.
-        let value = MobileLeadingToolbarTitleWidth(
-            contentWidth: 402,
-            hasBackButton: true,
-            hasTrailingCluster: true,
-            hasChatToggle: true,
-            measuredTrailingItemsWidth: 126,
-            measuredTrailingItemCount: 2,
-            trailingItemCount: 2
-        )
-        let expected: CGFloat = 402
-            - MobileLeadingToolbarTitleWidth.backButtonReserve
-            - (126 + 2 * MobileLeadingToolbarTitleWidth.trailingItemChrome)
-            - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
-
-        #expect(value.cap == expected)
-        // 100pt under the old reserves; the freed ~22pt goes to the title.
-        #expect(value.cap >= 120)
-    }
-
     @Test func structuralItemWithoutMeasurementStillReservesSpace() {
         // The changes chip just appeared: the cluster has measured, the chip
         // has not. The cap must not expand into the chip's space, or the

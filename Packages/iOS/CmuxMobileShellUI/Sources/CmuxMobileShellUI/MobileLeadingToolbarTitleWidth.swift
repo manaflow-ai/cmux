@@ -33,16 +33,9 @@ struct MobileLeadingToolbarTitleWidth {
     static let backButtonReserve: CGFloat = 44
     static let trailingReserveBase: CGFloat = 64
     static let chatToggleReserve: CGFloat = 60
-    /// Bar side margins, the back-to-title spacer, the title pill's own glass
-    /// padding, and the minimum title-to-trailing gap. Calibrated against a
-    /// 402pt iPhone 17 bar (16 + 17 side margins, 13 back gap, ~18 pill
-    /// padding, 13 minimum trailing gap ≈ the back-to-title gap) so the title
-    /// stops just short of the trailing cluster instead of leaving a dead gap.
-    static let barMarginsAndSpacing: CGFloat = 78
+    static let barMarginsAndSpacing: CGFloat = 84
     /// Horizontal glass-capsule chrome around one trailing item's content.
-    /// Measured: a 2-item trailing group renders ~33pt wider than the sum of
-    /// its content widths, so ~16pt per item, not the 24pt first estimated.
-    static let trailingItemChrome: CGFloat = 16
+    static let trailingItemChrome: CGFloat = 24
     /// Safe content-width reserve for a structural item that has not reported
     /// geometry yet.
     static let unmeasuredTrailingItemReserve: CGFloat = 64
