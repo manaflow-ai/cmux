@@ -897,8 +897,22 @@ impl MachineUiState {
         }
         let previous_targets = previous.rail_targets();
         let previous_target = previous.rail_target();
+        // A machine whose managed status JUST became Recoverable was deleted
+        // out from under the selection; keeping its row selected would leave
+        // the rail parked on the ghost. A row that was already recoverable
+        // when selected stays selected (restore/purge navigation).
+        let freshly_recoverable = matches!(
+            previous_target,
+            Some(MachineRailTarget::Machine(key))
+                if previous
+                    .managed_machine(key)
+                    .is_none_or(|managed| managed.status != ManagedMachineStatus::Recoverable)
+                    && self
+                        .managed_machine(key)
+                        .is_some_and(|managed| managed.status == ManagedMachineStatus::Recoverable)
+        );
         let target = previous_target
-            .filter(|target| targets.contains(target))
+            .filter(|target| !freshly_recoverable && targets.contains(target))
             .or_else(|| {
                 self.snapshot.active.and_then(|active| {
                     let target = MachineRailTarget::Machine(active);
@@ -927,8 +941,35 @@ impl MachineUiState {
                         .iter()
                         .position(|machine| machine.key == deleted)
                         .unwrap_or_default();
-                    let next = previous_index.min(self.snapshot.machines.len() - 1);
-                    return_target(&self.snapshot.machines[next])
+                    // Prefer usable machines (recoverable rows are ghosts of
+                    // deleted ones); fall back to plain slot-clamping only
+                    // when nothing usable remains.
+                    let usable = |machine: &&MachineDescriptor| {
+                        self.managed_machine(machine.key).is_none_or(|managed| {
+                            managed.status != ManagedMachineStatus::Recoverable
+                        })
+                    };
+                    let next = self
+                        .snapshot
+                        .machines
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, machine)| usable(machine))
+                        .map(|(index, machine)| (index, machine))
+                        .fold(None::<(usize, &MachineDescriptor)>, |best, (index, machine)| {
+                            match best {
+                                Some((chosen, _)) if chosen >= previous_index => best,
+                                _ => Some((index, machine)),
+                            }
+                        })
+                        .map(|(_, machine)| machine);
+                    match next {
+                        Some(machine) => return_target(machine),
+                        None => {
+                            let clamp = previous_index.min(self.snapshot.machines.len() - 1);
+                            return_target(&self.snapshot.machines[clamp])
+                        }
+                    }
                 } else {
                     let previous_index = previous_target
                         .and_then(|target| previous_targets.iter().position(|item| *item == target))
