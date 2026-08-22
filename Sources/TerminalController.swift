@@ -1106,7 +1106,7 @@ class TerminalController {
     nonisolated static let v2Parser = ControlRequestParser()
     nonisolated static let v2Encoder = ControlResponseEncoder()
 
-    private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
+    nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
         ControlCommandExecutionPolicy(forMethod: method)
     }
 
