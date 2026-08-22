@@ -1238,6 +1238,12 @@ class TerminalController {
                 return (true, listNotifications())
             case "clear_notifications":
                 return (true, clearNotifications(args))
+            // The v1 agent-journal family: the append commits durably on this
+            // worker thread (the reply is the emitting hook's durable
+            // acknowledgement); reduction and sidebar application run on the
+            // journal center's ordered consumer.
+            case "agent_journal_append":
+                return (true, agentJournalAppend(args))
             // The v1 terminal-read family (tranche C): the Ghostty capture
             // takes one v2MainSync hop, the (possibly multi-MB) formatting
             // runs here on this worker thread. NOT mainThreadCallable — the
