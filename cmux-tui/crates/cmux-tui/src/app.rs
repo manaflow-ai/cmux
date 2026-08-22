@@ -10890,6 +10890,7 @@ impl App {
             Some(MachineRequest::Switch(target)) if !machine_usable(&update, *target)
         );
         if doomed_switch {
+            crate::client_log::info("machine", "dropped a queued switch to a deleted machine");
             update.request = None;
         }
         // The presented machine was deleted (gone from the catalog, or left
@@ -10926,6 +10927,13 @@ impl App {
                 .map(|(_, key)| key);
             match next_key {
                 Some(next_key) => {
+                    crate::client_log::info(
+                        "machine",
+                        &format!(
+                            "presented machine {} was deleted; switching to {}",
+                            presented.0, next_key.0
+                        ),
+                    );
                     update.request = Some(MachineRequest::Switch(next_key));
                     failover_rail_target = Some(next_key);
                     // The presented session belongs to a deleted machine:
@@ -10935,6 +10943,13 @@ impl App {
                     update.session_available = false;
                 }
                 None => {
+                    crate::client_log::info(
+                        "machine",
+                        &format!(
+                            "presented machine {} was deleted; no usable machine remains",
+                            presented.0
+                        ),
+                    );
                     // Nothing usable remains: drop the presentation instead
                     // of routing input into the deleted machine's dead
                     // session. The rail keeps its create and connect rows.
@@ -10987,6 +11002,10 @@ impl App {
                 && machine_usable(&update, *machine)
                 && update.request.is_none()
             {
+                crate::client_log::info(
+                    "machine",
+                    &format!("preserving the pending switch to {}", machine.0),
+                );
                 update.request = Some(MachineRequest::Switch(*machine));
             }
             update.extend_connection_phases_from(previous);
@@ -11291,6 +11310,10 @@ impl App {
                     )
             })
         {
+            crate::client_log::info(
+                "machine",
+                &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
+            );
             machine.session_available = false;
             machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
             // The previous open's narration is stale now; a later wake
@@ -11300,12 +11323,15 @@ impl App {
             return true;
         }
         if machine.request.is_none() {
-            machine.request = Some(
-                machine
-                    .snapshot
-                    .active
-                    .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch),
+            let request = machine
+                .snapshot
+                .active
+                .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch);
+            crate::client_log::info(
+                "machine",
+                &format!("stream lost; queueing {request:?} to reconnect"),
             );
+            machine.request = Some(request);
         }
         true
     }
