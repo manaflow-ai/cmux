@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
 Regression tests for cmux-claude-wrapper keeping the bundled cmux-cua skill
-picker-visible: the durable ~/.claude/skills/cmux-cua link is the primary
-path (Claude shows personal skills there unqualified; ~/.agents/skills is
-Codex's root, which Claude does not scan), the session-scoped --plugin-dir is
-a fallback used only when that link cannot be installed, and the legacy
-~/.agents/skills/cmux-computer-use link is migrated away. Global discovery can
-be explicitly disabled.
+picker-visible: the durable ~/.claude/skills/cmux-cua link is the only
+Claude-side delivery path (Claude shows personal skills there unqualified;
+~/.agents/skills is Codex's root, which Claude does not scan), there is never
+a --plugin-dir injection (plugin-delivered skills display qualified), and the
+legacy ~/.agents/skills/cmux-computer-use link is migrated away. Global
+discovery can be explicitly disabled.
 """
 
 from __future__ import annotations
 
 import os
-import json
 import socket
 import subprocess
 import tempfile
@@ -71,19 +70,6 @@ def run_wrapper(
     bundled_skill = bundle_bin.parent / "cmux-cua"
     bundled_skill.mkdir()
     (bundled_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
-    manifest = bundled_skill / ".claude-plugin" / "plugin.json"
-    manifest.parent.mkdir()
-    manifest.write_text(
-        json.dumps(
-            {
-                "name": "cmux-cua",
-                "version": "1.0.0",
-                "description": "Test bundled cmux Computer Use skill",
-                "skills": ["./"],
-            }
-        ),
-        encoding="utf-8",
-    )
 
     args_log = root / "claude-args.log"
     write_executable(
@@ -262,9 +248,8 @@ def test_claude_global_skill_can_be_disabled_explicitly(failures: list[str]) -> 
         failures,
     )
     expect(
-        plugin_dir_arg(args) is not None
-        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
-        f"expected session plugin to remain active under global opt-out, got {args}",
+        plugin_dir_arg(args) is None,
+        f"expected no plugin injection under global opt-out, got {args}",
         failures,
     )
 
@@ -288,9 +273,8 @@ def test_claude_leaves_user_owned_skill_links_alone(failures: list[str]) -> None
         failures,
     )
     expect(
-        plugin_dir_arg(args) is not None
-        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
-        f"expected the session plugin fallback when the link is user-owned, got {args}",
+        plugin_dir_arg(args) is None,
+        f"expected no plugin injection even when the link is user-owned, got {args}",
         failures,
     )
 
@@ -318,9 +302,8 @@ def test_claude_leaves_user_owned_skill_directories_alone(failures: list[str]) -
         failures,
     )
     expect(
-        plugin_dir_arg(args) is not None
-        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
-        f"expected the session plugin fallback when the path is user-owned, got {args}",
+        plugin_dir_arg(args) is None,
+        f"expected no plugin injection even when the path is user-owned, got {args}",
         failures,
     )
 
@@ -380,7 +363,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: claude wrapper keeps the cmux-cua skill picker-visible without plugin duplication")
+    print("PASS: claude wrapper keeps the cmux-cua skill picker-visible with no plugin injection")
     return 0
 
 

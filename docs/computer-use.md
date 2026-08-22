@@ -26,9 +26,12 @@ replace that plugin: it supplies its own local MCP server and the
 its agent's own discovery root before launching — `~/.claude/skills/cmux-cua`
 for Claude, `~/.agents/skills/cmux-cua` for Codex (migrating any older
 cmux-owned `~/.agents/skills/cmux-computer-use` link) — so both pickers see
-the same skill as a single plain `cmux-cua` entry. The session-scoped plugin /
+the same skill as a single plain `cmux-cua` entry. Codex's invocation-scoped
 `skills.config` injection is only a fallback for when that link cannot be
-installed. No `npx skills add` step is required; a
+installed; Claude has no session fallback, and the skill directory ships no
+plugin manifest — Codex treats `.claude-plugin/plugin.json` as a plugin
+manifest and would namespace the skill as `cmux-cua:cmux-cua`. No
+`npx skills add` step is required; a
 new agent session is enough after a cmux build. cmux refreshes only a symlink
 that already points at a cmux app bundle and never overwrites a user-owned
 skill directory or unrelated symlink. Set

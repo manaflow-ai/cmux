@@ -982,19 +982,6 @@ cmux_claude_computer_use_enabled_for_invocation() {
     return 0
 }
 
-cmux_claude_computer_use_plugin_dir() {
-    # Claude's --plugin-dir is session-only. Derive the plugin solely from this
-    # wrapper's signed app resources so no global Claude or shared agent config
-    # is created or modified.
-    local self_dir resource_dir plugin_dir
-    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
-    resource_dir="${self_dir%/bin}"
-    plugin_dir="$resource_dir/cmux-cua"
-    [[ -f "$plugin_dir/.claude-plugin/plugin.json" ]] || return 1
-    [[ -f "$plugin_dir/SKILL.md" ]] || return 1
-    printf '%s' "$plugin_dir"
-}
-
 cmux_computer_use_config() {
     cmux_claude_computer_use_enabled_for_invocation "$@" || return 1
     local client state_dir default_session cua_socket runtime_scope runtime_uid auth_token
@@ -1409,29 +1396,13 @@ fi
 # Keep the bundled skill discoverable by Claude's picker as well as Codex's.
 # Installation is best-effort and never replaces a user-owned path; set
 # CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0 for a strictly session-local run.
-CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
+# There is deliberately no --plugin-dir fallback: a plugin manifest in the
+# skill directory makes Codex namespace the skill (cmux-cua:cmux-cua) and
+# Claude display plugin skills qualified, so the durable ~/.claude/skills
+# link is the only Claude-side delivery path.
 if cmux_claude_global_skill_install_enabled \
       && cmux_claude_computer_use_enabled_for_invocation "$@"; then
-    if cmux_claude_install_computer_use_skill; then
-        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=1
-    fi
-fi
-
-# Session-only fallback: load the app-bundled skill as a plugin only when the
-# durable ~/.agents/skills link is not in place. Plugin skills always display
-# plugin-qualified (cmux-cua:cmux-cua), so the plugin must not ride along when
-# the plain global entry already covers this session. The fallback stays
-# independent of helper readiness, so Claude can explain onboarding even before
-# the MCP daemon is attachable. Managed disableSideloadFlags and strict MCP
-# invocations remain fully inert.
-CMUX_COMPUTER_USE_PLUGIN_DIR=""
-if [[ "$CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED" != 1 ]] \
-      && cmux_claude_computer_use_enabled_for_invocation "$@"; then
-    CMUX_COMPUTER_USE_PLUGIN_DIR="$(cmux_claude_computer_use_plugin_dir 2>/dev/null)" \
-        || CMUX_COMPUTER_USE_PLUGIN_DIR=""
-fi
-if [[ -n "$CMUX_COMPUTER_USE_PLUGIN_DIR" ]]; then
-    set -- "--plugin-dir" "$CMUX_COMPUTER_USE_PLUGIN_DIR" "$@"
+    cmux_claude_install_computer_use_skill || true
 fi
 
 # Attach the cmux computer use MCP server. Prepended so a user-supplied

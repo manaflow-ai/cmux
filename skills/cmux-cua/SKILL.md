@@ -38,11 +38,13 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 - The wrappers keep the signed, app-bundled skill discoverable in both agent
   pickers: each repairs the link in its agent's own root before launching —
   `~/.claude/skills/cmux-cua` for Claude, `~/.agents/skills/cmux-cua` for
-  Codex (migrating any older cmux-owned `cmux-computer-use` link). Only when
-  that repair fails do they fall back to Codex's invocation-scoped
-  `skills.config` entry or Claude's session-only `--plugin-dir`, so the picker
-  normally shows one plain `cmux-cua` entry. A user-owned directory or
-  unrelated symlink at that path is never replaced. Set
+  Codex (migrating any older cmux-owned `cmux-computer-use` link) — so the
+  picker shows one plain `cmux-cua` entry. Codex falls back to an
+  invocation-scoped `skills.config` entry only when that repair fails; there
+  is deliberately no Claude plugin fallback and no plugin manifest in this
+  directory, because a manifest makes Codex namespace the skill
+  (`cmux-cua:cmux-cua`) and Claude display it plugin-qualified. A user-owned
+  directory or unrelated symlink at that path is never replaced. Set
   `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` when a strictly session-local
   launch is required.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
