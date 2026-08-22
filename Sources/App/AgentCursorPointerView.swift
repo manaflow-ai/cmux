@@ -74,19 +74,49 @@ private enum ComputerUseCursorArtwork {
 }
 
 /// Produces the helper's rounded app icon with the live cursor's exact shape
-/// and gradient. The plate is rendered explicitly per appearance — a light
-/// tile in Aqua, a dark tile in Dark Aqua — so the icon always matches the
-/// effective cmux appearance (the cmux setting when overridden, the system
-/// otherwise) instead of relying on a translucent plate over the backdrop.
+/// and gradient, drawn on the same tile treatment as the cmux app icon: a
+/// vertical plate gradient with a soft top rim highlight (#313131→#141414 in
+/// Dark Aqua, #FFFFFF→#ECECEC in Aqua). The plate is rendered explicitly per
+/// appearance so the icon always matches the effective cmux appearance (the
+/// cmux setting when overridden, the system otherwise).
+///
+/// Keep the tile constants in sync with
+/// `scripts/generate-computer-use-helper-icon.swift`, which bakes the same
+/// artwork into `Resources/ComputerUseHelperIcon.icns` for System Settings.
 @MainActor
 enum ComputerUseHelperIconRenderer {
     private static let canvasSize = NSSize(width: 1_024, height: 1_024)
     private static let plateCornerRadius: CGFloat = 224
-    private static let lightPlateColor = NSColor(calibratedWhite: 0.96, alpha: 1.0)
-    private static let darkPlateColor = NSColor(calibratedWhite: 0.17, alpha: 1.0)
     private static let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
     private static let cursorScale: CGFloat = 44.8
+    private static let rimWidth: CGFloat = 14
     private static var cachedImages: [Bool: NSImage] = [:]
+
+    private static func plateGradientColors(dark: Bool) -> [CGColor] {
+        if dark {
+            return [
+                CGColor(gray: 0x31 / 255.0, alpha: 1.0),
+                CGColor(gray: 0x14 / 255.0, alpha: 1.0),
+            ]
+        }
+        return [
+            CGColor(gray: 1.0, alpha: 1.0),
+            CGColor(gray: 0xEC / 255.0, alpha: 1.0),
+        ]
+    }
+
+    private static func rimGradientColors(dark: Bool) -> [CGColor] {
+        if dark {
+            return [
+                CGColor(gray: 1.0, alpha: 0.34),
+                CGColor(gray: 1.0, alpha: 0.05),
+            ]
+        }
+        return [
+            CGColor(gray: 0.0, alpha: 0.10),
+            CGColor(gray: 0.0, alpha: 0.04),
+        ]
+    }
 
     static func image(darkMode: Bool? = nil) -> NSImage? {
         let isDark = darkMode ?? (
@@ -136,9 +166,53 @@ enum ComputerUseHelperIconRenderer {
             cornerHeight: plateCornerRadius,
             transform: nil
         )
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        // Plate: the app icon's vertical tile gradient. This context is
+        // flipped, so "top of the icon" is y = 0 here.
+        context.saveGState()
         context.addPath(plate)
-        context.setFillColor((isDark ? darkPlateColor : lightPlateColor).cgColor)
-        context.fillPath()
+        context.clip()
+        if let gradient = CGGradient(
+            colorsSpace: colorSpace,
+            colors: plateGradientColors(dark: isDark) as CFArray,
+            locations: [0.0, 1.0]
+        ) {
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: canvas.midX, y: 0),
+                end: CGPoint(x: canvas.midX, y: canvas.height),
+                options: []
+            )
+        }
+        context.restoreGState()
+
+        // Rim: a soft highlight along the tile edge, brightest at the top,
+        // matching the app icon's inner bevel.
+        let rim = plate.copy(
+            strokingWithWidth: rimWidth * 2,
+            lineCap: .butt,
+            lineJoin: .miter,
+            miterLimit: 10
+        )
+        context.saveGState()
+        context.addPath(plate)
+        context.clip()
+        context.addPath(rim)
+        context.clip()
+        if let gradient = CGGradient(
+            colorsSpace: colorSpace,
+            colors: rimGradientColors(dark: isDark) as CFArray,
+            locations: [0.0, 1.0]
+        ) {
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: canvas.midX, y: 0),
+                end: CGPoint(x: canvas.midX, y: canvas.height),
+                options: []
+            )
+        }
+        context.restoreGState()
 
         context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
         ComputerUseCursorArtwork.draw(

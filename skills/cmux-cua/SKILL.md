@@ -129,12 +129,14 @@ Use it like the built-in Computer Use connector:
 2. Prefer the current snapshot's string `element_index`; use screenshot-local
    x/y coordinates only as fallback.
 3. Use xdotool-style key strings such as `super+l` with `press_key`.
-4. For deterministic, key-driven tasks such as Calculator arithmetic, prefer
-   one `type_text` call containing the complete input (for example,
-   `100+105=`) after the initial state. Requests like “click 100 + 105” normally describe the UI goal,
-   not a requirement to spend one model/tool round trip on every button.
-   Only pointer-click each control when the user explicitly requires visible
-   button-by-button pointer interaction.
+4. Operate controls with visible pointer clicks by default: the branded
+   cursor gliding to each button and clicking is the product experience, so
+   requests like “click 100 + 105” mean literal button-by-button pointer
+   interaction on Calculator's buttons. Reserve `type_text` for entering text
+   into text fields (search boxes, forms, editors) — not as a shortcut around
+   clicking on-screen controls. Only fall back to a single keyboard sequence
+   when the user explicitly asks for speed over visibility or a control has no
+   clickable element.
 5. Every successful action already returns a fresh app state and screenshot.
    Use that returned state to verify the requested outcome and choose the next
    action directly. Call `get_app_state` again only when an action reports that
@@ -167,9 +169,11 @@ Perceive, act in logical groups, then verify:
    after any action that can invalidate those controls.
 4. Verify the completed group by re-snapshotting and reading the element
    `value` / screenshot — do not assume actions landed (clicks are never
-   driver-verified). Prefer one direct `type_text` / keyboard sequence for
-   deterministic text or calculator input unless the user specifically asks
-   to see literal pointer clicks.
+   driver-verified). Operate on-screen controls with visible pointer clicks by
+   default — the gliding branded cursor is the product experience. Use
+   `type_text` for entering text into text fields, and fall back to a pure
+   keyboard sequence only when the user explicitly prefers speed over
+   visibility.
 
 Notes:
 - In the native profile, use `list_apps` / `launch_app` / `list_windows` to

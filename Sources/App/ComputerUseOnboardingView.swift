@@ -122,7 +122,15 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCardBackground: Color {
-        Color(nsColor: .controlBackgroundColor)
+        colorScheme == .dark
+            ? Color.white.opacity(0.055)
+            : Color(nsColor: .controlBackgroundColor)
+    }
+
+    private var permissionCardBorder: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.09)
+            : Color(nsColor: .separatorColor).opacity(0.55)
     }
 
     /// The reference-style overview shown before entering a macOS permission pane.
@@ -157,27 +165,37 @@ struct ComputerUseOnboardingView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 helperHeroIcon
-                    .padding(.top, 52)
+                    .padding(.top, 46)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
                     defaultValue: "Enable cmux Computer Use"
                 ))
-                .font(.system(size: 26, weight: .bold))
-                .padding(.top, 15)
+                .font(.system(size: 25, weight: .bold))
+                .padding(.top, 18)
 
                 Text(heroDetail)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13))
                 .foregroundStyle(overviewSecondaryText)
                 .multilineTextAlignment(.center)
-                .lineSpacing(2)
+                .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 11)
+                .padding(.top, 9)
 
                 permissionOverview
-                    .padding(.top, 16)
+                    .padding(.top, 22)
 
-                Spacer(minLength: 30)
+                Spacer(minLength: 12)
+
+                Text(String(
+                    localized: "computerUse.onboarding.hero.helperNote",
+                    defaultValue: "Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."
+                ))
+                .font(.system(size: 11))
+                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 18)
             }
             .padding(.horizontal, 40)
 
@@ -193,66 +211,81 @@ struct ComputerUseOnboardingView: View {
             ZStack {
                 Circle()
                     .fill(Color.green.gradient)
+                Circle()
+                    .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 31, weight: .bold))
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.white)
             }
-            .frame(width: 64, height: 64)
-            .padding(.top, 105)
+            .frame(width: 60, height: 60)
+            .padding(.top, 108)
             .accessibilityHidden(true)
 
             Text(String(
                 localized: "computerUse.onboarding.done.title",
                 defaultValue: "cmux Computer Use Is Ready"
             ))
-            .font(.system(size: 26, weight: .bold))
-            .padding(.top, 22)
+            .font(.system(size: 25, weight: .bold))
+            .padding(.top, 20)
 
             Text(String(
                 localized: "computerUse.onboarding.done.detailReady",
                 defaultValue: "Setup is complete. You can now ask cmux to use apps on your Mac."
             ))
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: 13))
             .foregroundStyle(overviewSecondaryText)
             .multilineTextAlignment(.center)
-            .padding(.top, 10)
+            .lineSpacing(3)
+            .padding(.top, 9)
 
             ProgressView()
                 .controlSize(.small)
                 .tint(.secondary)
-                .padding(.top, 30)
+                .padding(.top, 28)
 
             Spacer()
         }
         .padding(.horizontal, 48)
     }
 
+    /// The cmux brand gradient shared with the live agent cursor
+    /// (#12C7F5 → #2D8CFF → #6C5CFF).
+    static var brandGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(red: 0x12 / 255.0, green: 0xC7 / 255.0, blue: 0xF5 / 255.0),
+                Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0),
+                Color(red: 0x6C / 255.0, green: 0x5C / 255.0, blue: 0xFF / 255.0),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     private var helperHeroIcon: some View {
         Group {
             if let helperIcon {
+                // The renderer draws the tile full-bleed with its own rim, so
+                // the artwork needs no scale compensation or extra border.
                 Image(nsImage: helperIcon)
                     .resizable()
                     .interpolation(.high)
-                    // The macOS app-icon canvas carries transparent safe-area
-                    // padding. Scale the artwork, not its 52-point layout frame,
-                    // so it reads at the same visual size as the reference icon.
-                    .scaleEffect(1.24)
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(Color.accentColor.gradient)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Self.brandGradient)
                     Image(systemName: "cursorarrow.motionlines")
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
         }
-        .frame(width: 52, height: 52)
+        .frame(width: 64, height: 64)
         .accessibilityHidden(true)
     }
 
     private var permissionOverview: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 12) {
             permissionCard(
                 permissionStep: .accessibility,
                 granted: accessibilityGranted,
@@ -299,14 +332,14 @@ struct ComputerUseOnboardingView: View {
         title: String,
         detail: String
     ) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             permissionIcon(for: permissionStep)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 15, weight: .semibold))
                 Text(detail)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(overviewSecondaryText)
                     .lineLimit(1)
             }
@@ -314,56 +347,53 @@ struct ComputerUseOnboardingView: View {
             Spacer(minLength: 12)
             permissionAction(for: permissionStep, granted: granted)
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 18)
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
-        .frame(height: 80)
+        .frame(height: 72)
         .background(
             permissionCardBackground,
-            in: RoundedRectangle(cornerRadius: 25, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 25, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(permissionCardBorder, lineWidth: 1)
         }
     }
 
+    /// System-Settings-style permission tiles: rounded squares carrying the two
+    /// halves of the cmux brand gradient, so the pair reads as one family.
     @ViewBuilder
     private func permissionIcon(for permissionStep: ComputerUseOnboardingStep) -> some View {
-        if permissionStep == .accessibility {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.14, green: 0.75, blue: 1), .blue],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+        let colors: [Color] = permissionStep == .accessibility
+            ? [
+                Color(red: 0x12 / 255.0, green: 0xC7 / 255.0, blue: 0xF5 / 255.0),
+                Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0),
+            ]
+            : [
+                Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0),
+                Color(red: 0x6C / 255.0, green: 0x5C / 255.0, blue: 0xFF / 255.0),
+            ]
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: colors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
-                Circle()
-                    .strokeBorder(.white.opacity(0.9), lineWidth: 2)
-                Image(systemName: "accessibility")
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .padding(2)
-            .background(Color.blue, in: Circle())
-            .frame(width: 56, height: 56)
-            .accessibilityHidden(true)
-        } else {
-            ZStack {
-                Image(systemName: "camera.viewfinder")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 43, weight: .semibold))
-                    .foregroundStyle(Color.primary.opacity(0.72))
-                Circle()
-                    .fill(Color(red: 0.98, green: 0.76, blue: 0.16))
-                    .frame(width: 5, height: 5)
-                    .offset(x: 15, y: -9)
-            }
-            .frame(width: 56, height: 56)
-            .accessibilityHidden(true)
+                )
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(.white.opacity(0.22), lineWidth: 0.5)
+            Image(
+                systemName: permissionStep == .accessibility
+                    ? "accessibility"
+                    : "camera.viewfinder"
+            )
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(.white)
         }
+        .frame(width: 38, height: 38)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -380,12 +410,14 @@ struct ComputerUseOnboardingView: View {
             } ?? false
         )
         if action == .done {
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.green)
                 Text(String(localized: "computerUse.onboarding.done", defaultValue: "Done"))
-                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
             }
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.primary)
         } else {
             let isButtonEnabled = ComputerUsePermissionRowAction.isButtonEnabled(
                 helperIsReady: helperAppURL != nil,
@@ -399,16 +431,14 @@ struct ComputerUseOnboardingView: View {
                     localized: "computerUse.onboarding.allow",
                     defaultValue: "Allow"
                 ))
-                .font(.system(size: 13, weight: .medium))
-                .frame(
-                    width: 57,
-                    height: 24
-                )
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 62, height: 26)
                 .foregroundStyle(.white)
-                .background(
-                    Color.accentColor.opacity(isButtonEnabled ? 1 : 0.55),
-                    in: Capsule()
-                )
+                .background(Self.brandGradient, in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                }
+                .opacity(isButtonEnabled ? 1 : 0.5)
             }
             .buttonStyle(.plain)
             .disabled(!isButtonEnabled)
@@ -747,7 +777,7 @@ struct ComputerUsePermissionCompanionView: View {
             HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(ComputerUseOnboardingView.brandGradient)
                     .frame(width: 30, height: 30)
                     .background(
                         Color.accentColor.opacity(0.12),

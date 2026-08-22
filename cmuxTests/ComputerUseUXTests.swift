@@ -2371,7 +2371,7 @@ struct ComputerUseUXTests {
     /// Every Codex compatibility action already returns a refreshed screenshot
     /// and accessibility snapshot. Asking the agent to scan again doubled the
     /// state captures and model/MCP round trips between Calculator clicks.
-    @Test func bundledCodexInstructionsUseTheReferenceFastPathAndReturnedState() throws {
+    @Test func bundledCodexInstructionsUseVisiblePointerClicksAndReturnedState() throws {
         let skillURL = try #require(Bundle.main.url(
             forResource: "SKILL",
             withExtension: "md",
@@ -2379,14 +2379,16 @@ struct ComputerUseUXTests {
         ))
         let skill = try String(contentsOf: skillURL, encoding: .utf8)
 
+        // Visible pointer interaction is the product default; keystrokes are
+        // for text fields, not a shortcut around clicking controls.
         #expect(skill.contains(
-            "For deterministic, key-driven tasks such as Calculator arithmetic"
+            "Operate controls with visible pointer clicks by default"
         ))
         #expect(skill.contains(
-            "Requests like “click 100 + 105” normally describe the UI goal"
+            "mean literal button-by-button pointer"
         ))
         #expect(skill.contains(
-            "Only pointer-click each control when the user explicitly requires"
+            "Reserve `type_text` for entering text"
         ))
         #expect(skill.contains(
             "Every successful action already returns a fresh app state and screenshot."
