@@ -75,6 +75,13 @@ import Testing
         )
     }
 
+    @Test func browserTabAutomationResolvesHostLikeLocalhostInput() throws {
+        let resolved = try #require(
+            TerminalController.browserAutomationURL(from: " localhost:3000 ")
+        )
+        #expect(resolved.absoluteString == "http://localhost:3000")
+    }
+
     @Test func bareAbsolutePathNavigatesAsLocalFileURL() throws {
         let resolved = try #require(resolveBrowserNavigableURL("/Users/x/y.html"))
 

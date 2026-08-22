@@ -115,6 +115,21 @@ struct ManagedPolicySettingsImportTests {
         }
         """.utf8).write(to: settingsFileURL)
 
+        let unforcedStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { _ in false }
+        )
+        try withExtendedLifetime(unforcedStore) {
+            #expect(defaults.string(forKey: key) == "internal.example.com")
+        }
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: Self.backupsKey)
+        defaults.removeObject(forKey: Self.importedManagedDefaultsKey)
+
         let store = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,

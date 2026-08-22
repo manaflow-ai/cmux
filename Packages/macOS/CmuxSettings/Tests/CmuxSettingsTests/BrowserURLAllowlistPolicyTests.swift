@@ -5,6 +5,7 @@ import Testing
 struct BrowserURLAllowlistPolicyTests {
     @Test(arguments: [
         ("example.com", "https://example.com/path", true),
+        ("Example.com", "https://example.com/path", true),
         ("example.com", "https://www.example.com/path", false),
         ("*.example.com", "https://www.example.com/path", true),
         ("*.example.com", "https://example.com/path", false),
@@ -34,6 +35,7 @@ struct BrowserURLAllowlistPolicyTests {
         #expect(BrowserURLAllowlistPattern("https://example.com/path") == nil)
         #expect(BrowserURLAllowlistPattern("example.com:99999") == nil)
         #expect(BrowserURLAllowlistPattern("example.com:not-a-port") == nil)
+        #expect(BrowserURLAllowlistPattern("example.com:") == nil)
         #expect(BrowserURLAllowlistPattern("*example.com") == nil)
     }
 
@@ -50,7 +52,9 @@ struct BrowserURLAllowlistPolicyTests {
         let policy = BrowserURLAllowlistPolicy(managedPatterns: [])
         #expect(policy.isManaged)
         #expect(!policy.allows(try #require(URL(string: "https://example.com"))))
-        #expect(policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
+        #expect(!policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
+        #expect(!policy.allows(try #require(URL(string: "data:text/html,blocked"))))
+        #expect(policy.allowsTrustedInternalURL(try #require(URL(string: "file:///tmp/index.html"))))
     }
 
     @Test func userRulesAreOptionalAndEmptyMeansAllowAll() throws {
@@ -128,6 +132,15 @@ struct BrowserURLAllowlistPolicyTests {
             managedDevicePolicy: ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil)
         )
         #expect(arrayPolicy.patterns == stringPolicy.patterns)
+    }
+
+    @Test func anAllInvalidUserListLeavesBrowsingUnrestricted() {
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: nil,
+            userPatterns: ["example.com:", "not a host"]
+        )
+        #expect(policy.source == .none)
+        #expect(policy.allows(URL(string: "https://outside.example")!))
     }
 
     @Test func forcedValueWinsOverUserValueAndReleaseFallback() throws {
