@@ -798,6 +798,15 @@ impl ProviderMachineRuntime {
                 let machine_id = self.machine_id(machine)?;
                 let deletes_open_session =
                     self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
+                // The deleted machine's list slot, so the replacement can be
+                // the machine that takes its place (or the new last one).
+                let deleted_slot = self
+                    .snapshot
+                    .machines
+                    .iter()
+                    .position(|descriptor| descriptor.id == machine_id)
+                    .unwrap_or_default();
+                let deleted_id = machine_id.clone();
                 let result = self.client.delete_machine(protocol::MachineMutationParams {
                     scope_id: self.snapshot.selected_scope_id.clone(),
                     machine_id,
@@ -810,8 +819,34 @@ impl ProviderMachineRuntime {
                         retire_open_on_failure: deletes_open_session,
                         ..AcceptedProviderEffects::default()
                     },
-                    |runtime| {
+                    move |runtime| {
                         runtime.refresh()?;
+                        // The refreshed catalog no longer lists the deleted
+                        // machine, but the selection may still point at it -
+                        // reopening it would wake the machine the user just
+                        // deleted (or hang behind its teardown). Reselect the
+                        // next available machine before opening.
+                        let selection_stale = runtime
+                            .snapshot
+                            .selected_machine_id
+                            .as_ref()
+                            .is_none_or(|selected| {
+                                *selected == deleted_id
+                                    || !runtime
+                                        .snapshot
+                                        .machines
+                                        .iter()
+                                        .any(|descriptor| &descriptor.id == selected)
+                            });
+                        if deletes_open_session && selection_stale {
+                            runtime.snapshot.selected_machine_id = runtime
+                                .snapshot
+                                .machines
+                                .get(deleted_slot.min(
+                                    runtime.snapshot.machines.len().saturating_sub(1),
+                                ))
+                                .map(|descriptor| descriptor.id.clone());
+                        }
                         if deletes_open_session {
                             let (session, label, open, reused) =
                                 runtime.open_selected_candidate()?;
