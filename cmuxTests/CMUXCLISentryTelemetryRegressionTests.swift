@@ -150,6 +150,16 @@ private final class CMUXCLISentryTelemetryBundleToken {}
             stage: "agent-hook-notification-delivery",
             error: CLIError(message: "ERROR: TabManager not available")
         )
+        telemetry.captureError(
+            stage: "agent-hook-notification-delivery",
+            error: NSError(
+                domain: "com.cmuxterm.cli.wrapper",
+                code: 1,
+                userInfo: [
+                    NSUnderlyingErrorKey: CLIError(message: "ERROR: TabManager not available")
+                ]
+            )
+        )
 
         #expect(
             !FileManager.default.fileExists(atPath: probePath),

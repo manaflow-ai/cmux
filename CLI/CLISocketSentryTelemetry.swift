@@ -42,6 +42,7 @@ final class CLISocketSentryTelemetry {
     private struct CLIErrorMetadata {
         let code: String?
         let socketPathMissing: Bool
+        let legacyMessage: String?
     }
 
     private let command: String
@@ -151,8 +152,11 @@ final class CLISocketSentryTelemetry {
             noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
             cliErrorMetadata.socketPathMissing
         let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let isExpectedLegacyCLIError = !hasStructuredCLIErrorCode && classificationCandidate is CLIError &&
-            noiseFilter.isExpectedCLISocketTransportMessage(String(describing: classificationCandidate))
+        let isExpectedLegacyCLIError = !hasStructuredCLIErrorCode &&
+            cliErrorMetadata.legacyMessage != nil &&
+            noiseFilter.isExpectedCLISocketTransportMessage(
+                cliErrorMetadata.legacyMessage ?? String(describing: classificationCandidate)
+            )
         let isExpectedTransportFailure = noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
@@ -226,7 +230,8 @@ final class CLISocketSentryTelemetry {
         if let cliError = error as? CLIError {
             return CLIErrorMetadata(
                 code: cliError.v2Code,
-                socketPathMissing: cliError.socketFailureKind == .pathMissing
+                socketPathMissing: cliError.socketFailureKind == .pathMissing,
+                legacyMessage: String(describing: cliError)
             )
         }
 
@@ -239,13 +244,14 @@ final class CLISocketSentryTelemetry {
             if let underlying = candidate.userInfo[NSUnderlyingErrorKey] as? CLIError {
                 return CLIErrorMetadata(
                     code: underlying.v2Code,
-                    socketPathMissing: underlying.socketFailureKind == .pathMissing
+                    socketPathMissing: underlying.socketFailureKind == .pathMissing,
+                    legacyMessage: String(describing: underlying)
                 )
             }
             current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
             remaining -= 1
         }
-        return CLIErrorMetadata(code: nil, socketPathMissing: false)
+        return CLIErrorMetadata(code: nil, socketPathMissing: false, legacyMessage: nil)
     }
 
 #if DEBUG
