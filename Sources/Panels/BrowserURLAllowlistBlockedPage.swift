@@ -3,19 +3,13 @@ import WebKit
 
 /// Renders the in-place explanation shown when an embedded-browser navigation
 /// is rejected by an effective URL allowlist.
-@MainActor
 struct BrowserURLAllowlistBlockedPage {
     let blockedURL: URL
     let isManaged: Bool
 
-    init(blockedURL: URL, isManaged: Bool) {
-        self.blockedURL = blockedURL
-        self.isManaged = isManaged
-    }
-
     /// Returns an origin-only label with credentials, paths, queries, and
     /// fragments removed before it reaches UI chrome.
-    nonisolated static func safeDisplayOrigin(for url: URL) -> String {
+    static func safeDisplayOrigin(for url: URL) -> String {
         guard let scheme = url.scheme?.lowercased(), let host = url.host else {
             return ""
         }
@@ -27,12 +21,14 @@ struct BrowserURLAllowlistBlockedPage {
     }
 
     /// Loads the localized policy message into `webView`.
+    @MainActor
     func load(in webView: WKWebView) {
         webView.loadHTMLString(Self.html(isManaged: isManaged), baseURL: nil)
     }
 
-    private static func html(isManaged: Bool) -> String {
-        let title = String(
+    /// Returns the localized title used by both the blocked page and browser chrome.
+    static func title(isManaged: Bool) -> String {
+        String(
             localized: isManaged
                 ? "browser.error.urlAllowlist.title"
                 : "browser.error.urlAllowlist.userTitle",
@@ -40,6 +36,10 @@ struct BrowserURLAllowlistBlockedPage {
                 ? "Blocked by your organization's policy"
                 : "Blocked by the embedded-browser URL policy"
         )
+    }
+
+    private static func html(isManaged: Bool) -> String {
+        let title = Self.title(isManaged: isManaged)
         let message = String(
             localized: isManaged
                 ? "browser.error.urlAllowlist.message"

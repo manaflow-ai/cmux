@@ -3558,19 +3558,12 @@ final class BrowserPanel: Panel, ObservableObject {
             let safeURL = URL(string: BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: url))
             self.currentURL = Self.remoteProxyDisplayURL(for: safeURL) ?? safeURL
             let policy = BrowserURLAllowlistPolicy(defaults: .standard)
-            self.pageTitle = String(
-                localized: policy.isManaged
-                    ? "browser.error.urlAllowlist.title"
-                    : "browser.error.urlAllowlist.userTitle",
-                defaultValue: policy.isManaged
-                    ? "Blocked by your organization's policy"
-                    : "Blocked by the embedded-browser URL policy"
-            )
+            self.pageTitle = BrowserURLAllowlistBlockedPage.title(isManaged: policy.isManaged)
             self.faviconPNGData = nil
             self.lastFaviconURLString = nil
             BrowserURLAllowlistBlockedPage(
                 blockedURL: url,
-                isManaged: BrowserURLAllowlistPolicy(defaults: .standard).isManaged
+                isManaged: policy.isManaged
             ).load(in: webView)
             self.refreshBackgroundAppearance()
         }

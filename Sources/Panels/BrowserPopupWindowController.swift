@@ -206,12 +206,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
             let observedDisplayURL = navDel?.activePolicyBlockedURL
-                .map(BrowserURLAllowlistBlockedPage.safeDisplayOrigin)
+                .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
                 ?? change.newValue??.absoluteString
                 ?? ""
             Task { @MainActor [weak self, weak navDel] in
                 self?.urlLabel.stringValue = navDel?.activePolicyBlockedURL
-                    .map(BrowserURLAllowlistBlockedPage.safeDisplayOrigin)
+                    .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
                     ?? navDel?.activeErrorPageDisplayURL?.absoluteString
                     ?? observedDisplayURL
             }
@@ -269,14 +269,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     fileprivate func showBlockedURLAllowlist(_ url: URL) {
         urlLabel.stringValue = BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
-        panel.title = String(
-            localized: policy.isManaged
-                ? "browser.error.urlAllowlist.title"
-                : "browser.error.urlAllowlist.userTitle",
-            defaultValue: policy.isManaged
-                ? "Blocked by your organization's policy"
-                : "Blocked by the embedded-browser URL policy"
-        )
+        panel.title = BrowserURLAllowlistBlockedPage.title(isManaged: policy.isManaged)
     }
 
     fileprivate func blockURLAllowlistNavigation(_ url: URL, in webView: WKWebView) {
