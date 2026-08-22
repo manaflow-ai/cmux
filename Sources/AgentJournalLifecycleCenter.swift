@@ -51,15 +51,30 @@ final class AgentJournalLifecycleCenter: Sendable {
             // restore records new aliases: canonicalizing a replay fold via
             // per-event SQL lookups would cost two round-trips per event.
             var aliases: AgentJournalAliasResolver?
-            func resolver(_ store: AgentJournalStore) -> AgentJournalAliasResolver {
+            func resolver(_ store: AgentJournalStore) -> AgentJournalAliasResolver? {
                 if let aliases { return aliases }
-                let maps = (try? store.aliasMaps()) ?? (workspaces: [:], surfaces: [:])
-                let loaded = AgentJournalAliasResolver(
-                    workspaces: maps.workspaces,
-                    surfaces: maps.surfaces
-                )
-                aliases = loaded
-                return loaded
+                do {
+                    let maps = try store.aliasMaps()
+                    let loaded = AgentJournalAliasResolver(
+                        workspaces: maps.workspaces,
+                        surfaces: maps.surfaces
+                    )
+                    aliases = loaded
+                    return loaded
+                } catch {
+                    // Fail closed: without alias state, canonicalization
+                    // could attach lifecycle to a stale identity. Drop the
+                    // operation with a diagnostic and retry on the next one.
+                    CmuxEventBus.shared.publish(
+                        name: "agent.journal.aliases_unavailable",
+                        category: "agent",
+                        source: "journal"
+                    )
+#if DEBUG
+                    cmuxDebugLog("agentJournal.aliases.loadError \(String(describing: error))")
+#endif
+                    return nil
+                }
             }
             for await operation in stream {
                 guard let store = lazyStore.store() else {
@@ -73,9 +88,10 @@ final class AgentJournalLifecycleCenter: Sendable {
                 }
                 switch operation {
                 case .ingest(let event):
+                    guard let eventAliases = resolver(store) else { continue }
                     if let application = Self.reduceIngest(
                         event,
-                        aliases: resolver(store),
+                        aliases: eventAliases,
                         reducer: reducer,
                         state: &state
                     ) {
@@ -87,11 +103,11 @@ final class AgentJournalLifecycleCenter: Sendable {
                     }
                 case .recordAliases(let workspaces, let surfaces):
                     do {
+                        defer { aliases?.merge(workspaces: workspaces, surfaces: surfaces) }
                         try store.recordRestoreAliases(
                             workspaceAliases: workspaces,
                             surfaceAliases: surfaces
                         )
-                        aliases?.merge(workspaces: workspaces, surfaces: surfaces)
 #if DEBUG
                         cmuxDebugLog(
                             "agentJournal.aliases.recorded surfaces=\(surfaces.count) " +
@@ -99,14 +115,24 @@ final class AgentJournalLifecycleCenter: Sendable {
                         )
 #endif
                     } catch {
+                        // In-memory state above keeps the live run correct;
+                        // the persistence gap (replay after relaunch) is
+                        // recorded in release builds too.
+                        CmuxEventBus.shared.publish(
+                            name: "agent.journal.alias_persist_failed",
+                            category: "agent",
+                            source: "journal",
+                            payload: ["surfaces": surfaces.count, "workspaces": workspaces.count]
+                        )
 #if DEBUG
                         cmuxDebugLog("agentJournal.aliases.error \(String(describing: error))")
 #endif
                     }
                 case .startupReplay:
+                    guard let replayAliases = resolver(store) else { continue }
                     let assignments = Self.reduceStartupReplay(
                         store: store,
-                        aliases: resolver(store),
+                        aliases: replayAliases,
                         reducer: reducer,
                         replayPolicy: replayPolicy,
                         state: &state
@@ -151,7 +177,12 @@ final class AgentJournalLifecycleCenter: Sendable {
         do {
             draft = try JSONDecoder().decode(AgentJournalEventDraft.self, from: data)
         } catch {
-            return "ERROR: invalid agent journal event: \(error.localizedDescription)"
+            // Stable product-level reply; implementation detail stays in the
+            // debug log (the caller's dead-letter keeps the draft itself).
+#if DEBUG
+            cmuxDebugLog("agentJournal.append.invalid \(String(describing: error))")
+#endif
+            return "ERROR: invalid agent journal event"
         }
         do {
             let outcome = try store.append(draft)
@@ -173,7 +204,16 @@ final class AgentJournalLifecycleCenter: Sendable {
 #endif
             return outcome.replayed ? "OK \(outcome.sequence) replayed" : "OK \(outcome.sequence)"
         } catch {
-            return "ERROR: agent journal append failed: \(String(describing: error))"
+            CmuxEventBus.shared.publish(
+                name: "agent.journal.append_failed",
+                category: "agent",
+                source: "journal",
+                payload: ["kind": draft.kind.rawValue]
+            )
+#if DEBUG
+            cmuxDebugLog("agentJournal.append.error \(String(describing: error))")
+#endif
+            return "ERROR: agent journal append failed"
         }
     }
 
@@ -256,10 +296,25 @@ final class AgentJournalLifecycleCenter: Sendable {
         var folded = 0
         var skipped = 0
         while true {
-            guard let page = try? store.readPage(afterSequence: cursor, limit: 2_048),
-                  !page.isEmpty else {
-                break
+            let page: AgentJournalReadPage
+            do {
+                page = try store.readPage(afterSequence: cursor, limit: 2_048)
+            } catch {
+                // An incomplete fold must not paint partial replay state:
+                // record the failure and paint nothing (live events still
+                // reduce and self-correct per session).
+                CmuxEventBus.shared.publish(
+                    name: "agent.journal.replay_failed",
+                    category: "agent",
+                    source: "journal",
+                    payload: ["cursor": cursor, "folded": folded]
+                )
+#if DEBUG
+                cmuxDebugLog("agentJournal.replay.error cursor=\(cursor) \(String(describing: error))")
+#endif
+                return []
             }
+            if page.isEmpty { break }
             for event in page.events {
                 reducer.apply(canonicalized(event, aliases: aliases), to: &state)
             }
@@ -294,16 +349,29 @@ final class AgentJournalLifecycleCenter: Sendable {
         aliases: AgentJournalAliasResolver
     ) -> AgentJournalEvent {
         var draft = event.draft
-        // A nil resolution means the alias chain hit its cycle cap; keep the
-        // original identity, which fails closed downstream (a dead surface
-        // is skipped at apply, never guessed).
-        if let surfaceId = draft.surfaceId,
-           let resolved = aliases.resolvedSurfaceId(surfaceId) {
-            draft.surfaceId = resolved
+        // A nil resolution means the alias chain hit its cycle cap (corrupt
+        // alias state): the current identity is unknowable, so fail closed —
+        // strip the target and keep the event as an explicit diagnostic
+        // instead of applying state under a possibly stale identity.
+        var cycled = false
+        if let surfaceId = draft.surfaceId {
+            if let resolved = aliases.resolvedSurfaceId(surfaceId) {
+                draft.surfaceId = resolved
+            } else {
+                cycled = true
+            }
         }
-        if let workspaceId = draft.workspaceId,
-           let resolved = aliases.resolvedWorkspaceId(workspaceId) {
-            draft.workspaceId = resolved
+        if let workspaceId = draft.workspaceId {
+            if let resolved = aliases.resolvedWorkspaceId(workspaceId) {
+                draft.workspaceId = resolved
+            } else {
+                cycled = true
+            }
+        }
+        if cycled {
+            draft.workspaceId = nil
+            draft.surfaceId = nil
+            draft.unattributedReason = "alias-cycle"
         }
         return AgentJournalEvent(
             sequence: event.sequence,
@@ -350,6 +418,15 @@ final class AgentJournalLifecycleCenter: Sendable {
             owner = nil
         }
         guard let owner else {
+            // Fail closed and record it in release builds too: the panel no
+            // longer exists, so the assignment is dropped, never re-homed.
+            CmuxEventBus.shared.publish(
+                name: "agent.journal.apply_skipped",
+                category: "agent",
+                source: "journal",
+                surfaceId: assignment.surfaceId,
+                payload: ["agent_key": assignment.agentKey, "reason": "panelGone"]
+            )
 #if DEBUG
             cmuxDebugLog(
                 "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +

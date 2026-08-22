@@ -76,9 +76,15 @@ struct AgentJournalStoreTests {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
         _ = try store.append(draft(eventId: "stable-id", kind: .turnStarted))
-        #expect(throws: AgentJournalStoreError.self) {
+        do {
             _ = try store.append(draft(eventId: "stable-id", kind: .turnCompleted))
+            Issue.record("same-id retry with different content must throw idempotencyConflict")
+        } catch AgentJournalStoreError.idempotencyConflict {
+            // Expected: the receipt guard, not some unrelated storage error.
         }
+        // The rejected append must not have written anything.
+        #expect(try store.headSequence() == 1)
+        #expect(try store.events(afterSequence: 0, limit: 10).count == 1)
         store.close()
     }
 
@@ -90,9 +96,15 @@ struct AgentJournalStoreTests {
         }
         var bad = draft()
         bad.unattributedReason = "target-unresolved"
-        #expect(throws: AgentJournalStoreError.self) {
+        do {
             _ = try store.append(bad)
+            Issue.record("a reason plus a target must be rejected as an invalid draft")
+        } catch AgentJournalStoreError.invalidDraft {
+            // Expected: admission validation, not some unrelated storage error.
         }
+        // The rejected append must not have written anything.
+        #expect(try store.headSequence() == 0)
+        #expect(try store.events(afterSequence: 0, limit: 10).isEmpty)
         store.close()
     }
 
@@ -110,6 +122,12 @@ struct AgentJournalStoreTests {
         #expect(events[0].sequence == outcome.sequence)
         #expect(events[0].draft.unattributedReason == "target-unresolved")
         store.close()
+        // Diagnostics are durable: an independent reopen still reads them.
+        let reopened = try AgentJournalStore(databaseURL: url)
+        defer { reopened.close() }
+        let reread = try reopened.events(afterSequence: 0, limit: 10)
+        #expect(reread.count == 1)
+        #expect(reread[0].draft == diagnostic)
     }
 
     @Test func roundTripsAllFields() throws {
@@ -137,10 +155,10 @@ struct AgentJournalStoreTests {
         let outcome = try store.append(draft())
         store.close()
         let reopened = try AgentJournalStore(databaseURL: url)
+        defer { reopened.close() }
         #expect(try reopened.headSequence() == outcome.sequence)
         let events = try reopened.events(afterSequence: 0, limit: 10)
         #expect(events.count == 1)
-        reopened.close()
     }
 
     @Test func surfaceAliasChainsResolve() throws {
