@@ -156,6 +156,7 @@ final class cmuxUITests: XCTestCase {
             visual: XCUIElement,
             additionalContent: [XCUIElement] = [],
             includeFooter: Bool = true,
+            verifiesVerticalStability: Bool = true,
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
@@ -170,6 +171,10 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(viewportFrame.contains(visual.frame), file: file, line: line)
             for element in additionalContent {
                 XCTAssertTrue(viewportFrame.contains(element.frame), file: file, line: line)
+            }
+            guard verifiesVerticalStability else {
+                assertStableChrome(includeFooter: includeFooter, file: file, line: line)
+                return
             }
 
             let initialTitleFrame = title.frame
@@ -370,10 +375,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(compactRetryButton.waitForExistence(timeout: 4))
         XCTAssertTrue(compactRetryButton.label.contains("Check Again"))
         recordChromeReferenceFrames()
+        // Containment-only: no onboarding page hosts a vertical ScrollView, and
+        // XCUITest reports an empty visible frame when swiping the preview in
+        // the landscape two-column layout, so the bounce probe is skipped here.
         assertPageContentFitsWithoutScrolling(
             title: app.staticTexts["Connect your Mac"],
             visual: element("MobileOnboardingConnectionPreview"),
-            additionalContent: [element("MobileOnboardingConnectionMechanisms")]
+            additionalContent: [element("MobileOnboardingConnectionMechanisms")],
+            verifiesVerticalStability: false
         )
         capture("onboarding-08-connect-compact-height")
     }
