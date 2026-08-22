@@ -293,8 +293,13 @@ extension RemoteSessionCoordinator {
     }
 
     private static func isRemoteDaemonIntegrityFailure(_ result: RemoteCommandResult) -> Bool {
-        result.status == 74 || result.status == 75 ||
-            result.stderr.localizedCaseInsensitiveContains("cmux daemon verification failed")
+        let stderr = result.stderr.lowercased()
+        return result.status == 74 || result.status == 75 ||
+            stderr.contains("cmux daemon verification failed") ||
+            stderr.contains("sha256") ||
+            stderr.contains("sha-256") ||
+            stderr.contains("checksum") ||
+            stderr.contains("size mismatch")
     }
 
     private static func remoteDaemonIntegrityFailureMessage(detail: String?) -> String {
