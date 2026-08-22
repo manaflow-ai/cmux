@@ -4116,26 +4116,8 @@
     "cli.agentHook.error.journalAppend": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "فشل إلحاق سجل الوكيل لـ %@ %@." } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Dodavanje u dnevnik agenta nije uspjelo za %@ %@." } },
-        "da": { "stringUnit": { "state": "translated", "value": "Tilføjelse til agentjournalen mislykkedes for %@ %@." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Das Anhängen an das Agentenjournal ist für %@ %@ fehlgeschlagen." } },
         "en": { "stringUnit": { "state": "translated", "value": "Agent journal append failed for %@ %@." } },
-        "es": { "stringUnit": { "state": "translated", "value": "No se pudo añadir al diario del agente para %@ %@." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Échec de l’ajout au journal de l’agent pour %@ %@." } },
-        "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiungere al registro dell’agente per %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントジャーナルに追記できませんでした。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការបន្ថែមទៅកំណត់ហេតុភ្នាក់ងារបានបរាជ័យសម្រាប់ %@ %@។" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 저널 추가에 실패했습니다." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke legge til i agentjournalen for %@ %@." } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dopisać do dziennika agenta dla %@ %@." } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao acrescentar ao diário do agente para %@ %@." } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось добавить запись в журнал агента для %@ %@." } },
-        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มข้อมูลลงในบันทึกเอเจนต์สำหรับ %@ %@ ไม่สำเร็จ" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı günlüğüne ekleme başarısız oldu." } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося додати запис до журналу агента для %@ %@." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法追加 %@ %@ 的代理日志。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法附加 %@ %@ 的代理程式日誌。" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントジャーナルに追記できませんでした。" } }
       }
     },
     "cli.agentHook.error.notificationDelivery": {
