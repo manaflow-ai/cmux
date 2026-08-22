@@ -40720,6 +40720,15 @@ struct CMUXTermMain {
         if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
             return false
         }
+        // A shell's generated completion script invokes the binary as
+        // `cmux ---completion <command path...> -- <argument> <partial>` to
+        // resolve a `.custom` completion handler. That marker is always the
+        // literal first argument, is not a declared command name, and must
+        // always reach ArgumentParser or every dynamic completion silently
+        // breaks in real shell usage.
+        if CommandLine.arguments.dropFirst().first == "---completion" {
+            return true
+        }
         guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
             return false
         }

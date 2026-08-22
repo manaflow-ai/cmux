@@ -103,12 +103,14 @@ struct BrowserLegacyAlias<Name: BrowserLegacyAliasName>: LegacyBrowserCommand {
 }
 
 struct BrowserCommand: LegacyBrowserCommand {
-    @Option(name: .customLong("surface"), completion: .custom(CompletionCandidates.surfaces)) var surface: String?
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-
+    // No catch-all argument here: ArgumentParser already generates a rest-argument
+    // spec to dispatch into `subcommands`, and a second one on this struct produces
+    // an invalid duplicate `_arguments` spec in the generated zsh completion script.
+    // `defaultSubcommand` absorbs anything that doesn't name a declared subcommand.
     static let configuration = CommandConfiguration(
         commandName: "browser",
         subcommands: [
+            BrowserFallbackCommand.self,
             BrowserDisableCommand.self, BrowserEnableCommand.self, BrowserStatusCommand.self,
             BrowserOpenCommand.self, BrowserOpenSplitCommand.self, BrowserNewCommand.self,
             BrowserGotoCommand.self, BrowserBackCommand.self, BrowserForwardCommand.self,
@@ -130,8 +132,18 @@ struct BrowserCommand: LegacyBrowserCommand {
             BrowserScreencastCommand.self, BrowserInputCommand.self, BrowserInputMouseCommand.self,
             BrowserInputKeyboardCommand.self, BrowserInputTouchCommand.self, BrowserIdentifyCommand.self,
         ],
+        defaultSubcommand: BrowserFallbackCommand.self,
         helpNames: []
     )
+}
+
+/// Absorbs `--surface` and any verb that isn't a declared subcommand, so
+/// unrecognized input still reaches the legacy browser dispatcher instead of
+/// failing ArgumentParser's own parse. Never a name a user would type.
+struct BrowserFallbackCommand: LegacyBrowserCommand {
+    @Option(name: .customLong("surface"), completion: .custom(CompletionCandidates.surfaces)) var surface: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "__browser-fallback", shouldDisplay: false, helpNames: [])
 }
 
 struct BrowserOpenCommand: LegacyBrowserCommand {

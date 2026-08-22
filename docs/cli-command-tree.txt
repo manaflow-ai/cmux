@@ -14,7 +14,6 @@ command  __tmux-compat  aliases=-
 command  agent-hibernation  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ai-accounts  aliases=-
-  arg  arguments  kind=argument  completion=-
 command  ai-accounts list  aliases=-
   arg  arguments  kind=argument  completion=-
 command  ai-accounts remove  aliases=-
@@ -22,7 +21,6 @@ command  ai-accounts remove  aliases=-
 command  ai-accounts upload  aliases=-
   arg  arguments  kind=argument  completion=-
 command  auth  aliases=-
-  arg  arguments  kind=argument  completion=-
 command  auth login  aliases=-
   arg  arguments  kind=argument  completion=-
 command  auth logout  aliases=-
@@ -38,6 +36,7 @@ command  break-pane  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
 command  browser  aliases=-
+command  browser __browser-fallback  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  browser addinitscript  aliases=-
@@ -710,7 +709,6 @@ command  remote-daemon-status  aliases=-
   arg  --os  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
 command  remotes  aliases=remote
-  arg  arguments  kind=argument  completion=-
 command  remotes add  aliases=-
   arg  --route  kind=option  completion=-
   arg  --tag  kind=option  completion=-
@@ -948,7 +946,6 @@ command  tab-action  aliases=-
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  themes  aliases=-
-  arg  arguments  kind=argument  completion=-
 command  themes clear  aliases=-
   arg  arguments  kind=argument  completion=-
 command  themes list  aliases=-
@@ -986,9 +983,7 @@ command  uninstall-hooks  aliases=-
 command  version  aliases=-
   arg  arguments  kind=argument  completion=-
 command  vm  aliases=cloud
-  arg  arguments  kind=argument  completion=-
 command  vm base  aliases=-
-  arg  arguments  kind=argument  completion=-
 command  vm base open  aliases=-
   arg  --detach  kind=flag  completion=-
   arg  --window  kind=option  completion=custom-deprecated
