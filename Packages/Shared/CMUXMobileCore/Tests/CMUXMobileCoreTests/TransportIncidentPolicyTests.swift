@@ -9,14 +9,15 @@ import Testing
     private func dialFailed(
         at seconds: UInt64,
         failure: DiagnosticFailureKind = .policyUnavailable,
-        transport: DiagnosticTransportKind = .iroh
+        transport: DiagnosticTransportKind = .iroh,
+        attempt: Int = 1
     ) -> DiagnosticEvent {
         DiagnosticEvent(
             code: .transportDialFailed,
             tNanos: seconds * Self.second,
             a: transport.rawValue,
             b: failure.rawValue,
-            c: 1
+            c: attempt
         )
     }
 
@@ -128,6 +129,37 @@ import Testing
 
         #expect(policy.decide(dialFailed(at: 10)) == nil)
         #expect(policy.decide(dialFailed(at: 20)) == nil)
+    }
+
+    @Test func fractionalFailureSamplingIsDeterministicAndBounded() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 0,
+                hourlyCaptureLimit: 2_000,
+                outageFailureThreshold: 10_000,
+                outageMinimumDuration: 10_000,
+                outageRearmInterval: 3_600,
+                failureSampleRate: 0.05,
+                outageSampleRate: 0.25
+            ),
+            locale: englishLocale
+        )
+        var captures = 0
+        for index in 0 ..< 1_000 {
+            if policy.decide(dialFailed(
+                at: UInt64(index + 1),
+                attempt: index
+            )) != nil {
+                captures += 1
+            }
+        }
+
+        // The deterministic hash should retain roughly 5% of ordinary
+        // failures; keep the assertion broad enough to be stable across
+        // compiler/platform implementations while still catching a disabled
+        // or unbounded sampler.
+        #expect(captures > 10)
+        #expect(captures < 120)
     }
 
     @Test func idleTimeoutSuppressedInBackground() {
