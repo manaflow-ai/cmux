@@ -19,8 +19,10 @@ extension VMIDCommand {
 }
 
 struct VMCommand: LegacyVMCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-
+    // No catch-all argument here: ArgumentParser already generates a rest-argument
+    // spec to dispatch into `subcommands`, and a second one on this struct produces
+    // an invalid duplicate `_arguments` spec in the generated zsh completion script.
+    // `defaultSubcommand` absorbs anything that doesn't name a declared subcommand.
     static let configuration = CommandConfiguration(
         commandName: "vm",
         subcommands: [
@@ -49,7 +51,7 @@ struct VMCommand: LegacyVMCommand {
 }
 
 struct VMBaseCommand: LegacyVMCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    // See VMCommand's comment: no catch-all argument alongside `subcommands`.
     static let configuration = CommandConfiguration(
         commandName: "base",
         subcommands: [VMBaseOpenCommand.self, VMBaseResetCommand.self],
@@ -173,7 +175,7 @@ struct VMSSHAttachCommand: VMIDCommand {
 }
 
 struct RemotesCommand: LegacyVMCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    // See VMCommand's comment: no catch-all argument alongside `subcommands`.
     static let configuration = CommandConfiguration(
         commandName: "remotes",
         subcommands: [RemotesListCommand.self, RemotesAddCommand.self, RemotesRemoveCommand.self],

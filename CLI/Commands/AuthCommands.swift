@@ -11,8 +11,10 @@ extension LegacyAuthCommand {
 }
 
 struct AuthCommand: LegacyAuthCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-
+    // No catch-all argument here: ArgumentParser already generates a rest-argument
+    // spec to dispatch into `subcommands`, and a second one on this struct produces
+    // an invalid duplicate `_arguments` spec in the generated zsh completion script.
+    // `defaultSubcommand` absorbs anything that doesn't name a declared subcommand.
     static let configuration = CommandConfiguration(
         commandName: "auth",
         subcommands: [AuthStatusCommand.self, AuthLoginCommand.self, AuthLogoutCommand.self],
@@ -49,8 +51,7 @@ struct LogoutCommand: LegacyAuthCommand {
 }
 
 struct AIAccountsCommand: LegacyAuthCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
     static let configuration = CommandConfiguration(
         commandName: "ai-accounts",
         subcommands: [AIAccountsListCommand.self, AIAccountsUploadCommand.self, AIAccountsRemoveCommand.self],
