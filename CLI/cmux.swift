@@ -26953,14 +26953,26 @@ struct CMUXCLI {
             if lock {
                 let lockURL = tmuxWaitForLockURL(name: name)
                 let deadline = Date().addingTimeInterval(timeout)
-                do {
-                    try SocketClient.waitForFilesystemPathAbsence(lockURL.path, timeout: max(0, deadline.timeIntervalSinceNow))
-                } catch {
-                    throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                while true {
+                    let fd = open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+                    if fd >= 0 {
+                        Darwin.close(fd)
+                        print("OK")
+                        return
+                    }
+                    guard errno == EEXIST else {
+                        throw CLIError(message: "wait-for failed to lock '\(name)': \(String(cString: strerror(errno)))")
+                    }
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else {
+                        throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                    }
+                    do {
+                        try SocketClient.waitForFilesystemPathAbsence(lockURL.path, timeout: remaining)
+                    } catch {
+                        throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                    }
                 }
-                FileManager.default.createFile(atPath: lockURL.path, contents: Data())
-                print("OK")
-                return
             }
             let deadline = Date().addingTimeInterval(timeout)
             do {

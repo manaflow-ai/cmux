@@ -15,7 +15,5 @@ extension SharedLegacyFacadeCommand {
     static var surfaceCompletion: CompletionKind { .custom(CompletionCandidates.surfaces) }
     static var paneCompletion: CompletionKind { .custom(CompletionCandidates.panes) }
     static var windowCompletion: CompletionKind { .custom(CompletionCandidates.windows) }
-    static var panelCompletion: CompletionKind { .custom(CompletionCandidates.panels) }
-    static var tabCompletion: CompletionKind { .custom(CompletionCandidates.tabs) }
     static var vmCompletion: CompletionKind { .custom(CompletionCandidates.vms) }
 }
