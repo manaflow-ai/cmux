@@ -37,21 +37,27 @@ extension CMUXCLI {
         }
         let shortSessionId = String(sessionId.prefix(12))
         let errorType = error.map { String(reflecting: type(of: $0)) } ?? "unresolved-target"
-        let messageKey: String
-        let defaultMessage: String
+        let failureDescription: String
         switch stage {
         case .targetResolution:
-            messageKey = "cli.agentHook.error.targetResolution"
-            defaultMessage = "Agent hook target resolution failed for %@ %@."
+            failureDescription = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.agentHook.error.targetResolution",
+                    defaultValue: "Agent hook target resolution failed for %@ %@."
+                ),
+                agentName,
+                event
+            )
         case .notificationDelivery:
-            messageKey = "cli.agentHook.error.notificationDelivery"
-            defaultMessage = "Agent hook notification delivery failed for %@ %@."
+            failureDescription = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.agentHook.error.notificationDelivery",
+                    defaultValue: "Agent hook notification delivery failed for %@ %@."
+                ),
+                agentName,
+                event
+            )
         }
-        let failureDescription = String.localizedStringWithFormat(
-            String(localized: messageKey, defaultValue: defaultMessage),
-            agentName,
-            event
-        )
         let userInfo: [String: Any] = [
             NSLocalizedDescriptionKey: failureDescription,
             NSDebugDescriptionErrorKey: failureDescription,
