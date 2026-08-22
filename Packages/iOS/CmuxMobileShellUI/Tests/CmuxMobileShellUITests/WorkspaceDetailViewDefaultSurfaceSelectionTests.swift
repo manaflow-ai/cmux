@@ -14,25 +14,33 @@ import Testing
 
 @MainActor
 @Suite struct WorkspaceDetailViewDefaultSurfaceSelectionTests {
-    @Test func simulatorOnlyWorkspaceAutoSelectsItsFirstPanelWhenPanelsArrive() async {
+    @Test func simulatorOnlyWorkspaceAutoSelectsItsFocusedPanelWhenPanelsArrive() async {
         let workspaceID = "workspace-1"
-        let simulatorSurface = MobileSurfacePreview(
-            id: .init(rawValue: Self.descriptor().panelID),
+        let firstDescriptor = Self.descriptor(panelID: "sim-1")
+        let focusedDescriptor = Self.descriptor(panelID: "sim-2")
+        let firstSimulatorSurface = MobileSurfacePreview(
+            id: .init(rawValue: firstDescriptor.panelID),
             kind: .other("simulator"),
-            title: "Simulator"
+            title: "First Simulator"
+        )
+        let focusedSimulatorSurface = MobileSurfacePreview(
+            id: .init(rawValue: focusedDescriptor.panelID),
+            kind: .other("simulator"),
+            title: "Focused Simulator",
+            isFocused: true
         )
         let initialWorkspace = MobileWorkspacePreview(
             id: .init(rawValue: workspaceID),
             name: "Workspace",
             terminals: [],
-            surfaces: [simulatorSurface]
+            surfaces: [firstSimulatorSurface, focusedSimulatorSurface]
         )
         let updatedWorkspace = MobileWorkspacePreview(
             id: .init(rawValue: workspaceID),
             name: "Workspace",
             terminals: [],
-            surfaces: [simulatorSurface],
-            simulators: [Self.descriptor()]
+            surfaces: [firstSimulatorSurface, focusedSimulatorSurface],
+            simulators: [firstDescriptor, focusedDescriptor]
         )
         let simulatorStore = MobileSimulatorStreamStore()
         let browserStreamStore = BrowserStreamStore()
@@ -69,12 +77,12 @@ import Testing
         model.workspace = updatedWorkspace
         controller.view.layoutIfNeeded()
         await Self.waitForActivePanel(
-            expectedID: Self.descriptor().panelID,
+            expectedID: focusedDescriptor.panelID,
             activeID: { simulatorStore.activeState(in: workspaceID)?.id }
         )
         controller.view.layoutIfNeeded()
 
-        #expect(simulatorStore.activeState(in: workspaceID)?.id == Self.descriptor().panelID)
+        #expect(simulatorStore.activeState(in: workspaceID)?.id == focusedDescriptor.panelID)
         window.isHidden = true
     }
 
