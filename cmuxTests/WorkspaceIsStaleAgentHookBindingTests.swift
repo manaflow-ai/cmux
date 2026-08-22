@@ -115,6 +115,34 @@ struct WorkspaceIsStaleAgentHookBindingTests {
     }
 
     @Test
+    func plainSSHProcessBindingSurvivesATransientMissedProcessScan() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            cwd: "/Users/test",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.reconcileSurfaceResumeBindings(
+            using: .empty,
+            restorableAgentIndex: .empty
+        )
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == binding)
+        #expect(
+            workspace.effectiveSurfaceResumeBinding(
+                panelId: panelId,
+                surfaceResumeBindingIndex: .empty
+            ) == binding
+        )
+    }
+
+    @Test
     func reconciliationKeepsPiBindingAfterResumeScannerResolvesUUIDToSessionPath() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
