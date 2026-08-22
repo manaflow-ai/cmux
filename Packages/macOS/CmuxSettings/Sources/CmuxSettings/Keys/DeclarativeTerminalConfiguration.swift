@@ -44,6 +44,8 @@ public final class DeclarativeTerminalConfigurationCache {
     /// Creates an empty snapshot cache.
     public init() {}
 
+    deinit {}
+
     /// Returns the current snapshot, re-reading the file when its resolved
     /// path or filesystem signature changes.
     public func snapshot(

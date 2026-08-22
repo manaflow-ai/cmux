@@ -150,7 +150,8 @@ public struct TerminalShellStartupPolicy: Sendable {
         hasExplicitInput: Bool,
         hasGhosttyCommand: Bool,
         isRestoreSurface: Bool,
-        isManualSurface: Bool
+        isManualSurface: Bool,
+        hasManagedShellIntegration: Bool = false
     ) -> String? {
         let resolution = Self.resolve(
             configuredMode: configuration.mode,
@@ -158,7 +159,8 @@ public struct TerminalShellStartupPolicy: Sendable {
             hasExplicitInput: hasExplicitInput,
             hasGhosttyCommand: hasGhosttyCommand,
             isRestoreSurface: isRestoreSurface,
-            isManualSurface: isManualSurface
+            isManualSurface: isManualSurface,
+            hasManagedShellIntegration: hasManagedShellIntegration
         )
         guard resolution.allowsDeclarativeShellStartup,
               let command = configuration.command else {

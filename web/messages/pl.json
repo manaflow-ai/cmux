@@ -1010,14 +1010,14 @@
         },
         "terminal": {
           "newSurfaceWorkingDirectory": {
-            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
-            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
-            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+            "description": "Domyślne ustawienia katalogu roboczego dla zwykłych nowych lokalnych paneli, kart, podziałów i obszarów roboczych. Jawne katalogi robocze, polecenia zdalne i przywrócone powierzchnie zawsze mają pierwszeństwo.",
+            "policy": "Wybierz, czy nowe powierzchnie lokalne mają dziedziczyć aktywny katalog panelu, używać katalogu przechwyconego podczas tworzenia obszaru roboczego, czy też używać skonfigurowanej stałej ścieżki.",
+            "path": "Ścieżka używana przez fixPath. Użyj ścieżki bezwzględnej lub zaczynającej się od tyldy. Jeśli brakuje ścieżki lub nie jest to katalog, cmux bezpiecznie powraca do katalogu głównego obszaru roboczego."
           },
           "shellStartup": {
-            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
-            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
-            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+            "description": "Domyślne zachowanie uruchamiania powłoki dla zwykłych nowych powierzchni lokalnych. Jawne polecenia i dane wejściowe, sesje zdalne, przywrócone powierzchnie i ręczne kopie lustrzane tmux nie ulegają zmianie.",
+            "mode": "Uruchom powłokę użytkownika jako interaktywną powłokę logowania lub interaktywną powłokę niezalogowaną.",
+            "command": "Opcjonalne polecenie wysyłane jako wejście startowe po uruchomieniu zwykłej nowej powłoki lokalnej. Nie jest ona stosowana, gdy powierzchnia ma już wyraźną pracę startową."
           },
           "sessionContentMaxWidth": "Opcjonalna maksymalna szerokość w punktach dla zawartości terminala i wbudowanego czatu agenta. Ustaw false, aby użyć pełnej szerokości panelu.",
           "sessionContentAlignment": "Poziome położenie zawartości terminala i wbudowanego czatu agenta po włączeniu sessionContentMaxWidth.",

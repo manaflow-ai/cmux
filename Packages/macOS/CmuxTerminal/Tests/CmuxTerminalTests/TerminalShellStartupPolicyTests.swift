@@ -86,6 +86,17 @@ struct TerminalShellStartupPolicyTests {
             isManualSurface: false
         )
         #expect(result == nil)
+        #expect(
+            policy.startupInput(
+                configuration: .init(mode: .login, command: "echo startup"),
+                hasExplicitCommand: false,
+                hasExplicitInput: false,
+                hasGhosttyCommand: false,
+                isRestoreSurface: false,
+                isManualSurface: false,
+                hasManagedShellIntegration: true
+            ) == nil
+        )
     }
 
     @Test func loginModeLeavesGhosttyCommandUnchanged() {
