@@ -8492,6 +8492,23 @@
         }
       }
     },
+    "mobile.settings.terminalLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルラボ"
+          }
+        }
+      }
+    },
     "mobile.settings.shellIconLab.footer": {
       "extractionState": "manual",
       "localizations": {
