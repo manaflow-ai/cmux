@@ -84,7 +84,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
     }
 
-    @Test func establishedSessionKeepsRetryingUnclassifiedAndTransientAuthenticationFailures() throws {
+    @Test func establishedSessionStopsAfterTheFiniteReconnectBudget() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-unclassified-reauth-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: logURL) }
@@ -123,10 +123,10 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             ]
         )
 
-        #expect(result.status == 7)
+        #expect(result.status == 254)
         let events = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n")
-        #expect(events.filter { $0 == "auth" }.count == 23)
-        #expect(events.filter { $0 == "attach" }.count == 2)
+        #expect(events.filter { $0 == "auth" }.count == 21)
+        #expect(events.filter { $0 == "attach" }.count == 1)
     }
 
     @Test func permanentReauthenticationStillFailsClosedAfterEstablishedSession() throws {
