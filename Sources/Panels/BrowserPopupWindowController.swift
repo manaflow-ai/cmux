@@ -465,7 +465,6 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
            navigationAction.targetFrame?.isMainFrame != false,
            url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
-            controller?.blockURLAllowlistNavigation(url, in: webView)
             return nil
         }
 

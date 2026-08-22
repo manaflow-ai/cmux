@@ -530,7 +530,7 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $urlAllowlistDraft)
@@ -547,6 +547,11 @@ public struct BrowserSection: View {
                 )
                 .disabled(browserURLAllowlistManagedByPolicy)
                 .accessibilityIdentifier("SettingsBrowserURLAllowlistField")
+            if let validationMessage = urlAllowlistValidationMessage {
+                Text(validationMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.orange)
+            }
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 10) {
                     urlAllowlistHint
@@ -605,6 +610,20 @@ public struct BrowserSection: View {
             .cmuxFont(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var urlAllowlistValidationMessage: String? {
+        guard !browserURLAllowlistManagedByPolicy else { return nil }
+        let rules = urlAllowlistDraft
+            .components(separatedBy: CharacterSet(charactersIn: ",;\n\r\t"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !rules.isEmpty else { return nil }
+        guard rules.contains(where: { BrowserURLAllowlistPattern($0) == nil }) else { return nil }
+        return String(
+            localized: "settings.browser.urlAllowlist.invalidRule",
+            defaultValue: "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern."
+        )
     }
 
     private func urlAllowlistSaveButton(model: DefaultsValueModel<String>) -> some View {

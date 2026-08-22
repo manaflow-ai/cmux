@@ -5616,7 +5616,9 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
-            navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            if intent == .currentTab {
+                navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            }
             onNavigationStarted?(nil)
             return
         }
@@ -8298,7 +8300,6 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
            navigationAction.targetFrame?.isMainFrame != false,
            url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
-            owner?.blockURLAllowlistNavigation(url, in: webView)
             return nil
         }
 

@@ -221,8 +221,9 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
 
     /// The valid, normalized rules. When ``source`` is ``Source/none`` because
     /// no user override exists, this contains the suggested loopback entries
-    /// even though navigation remains unrestricted. Invalid user rules are
-    /// ignored; an invalid forced value remains managed and therefore fails
+    /// even though navigation remains unrestricted. A non-empty user value
+    /// whose rules are all invalid remains active with no matching patterns,
+    /// so it fails closed; invalid forced values are likewise managed and fail
     /// closed.
     public let patterns: [BrowserURLAllowlistPattern]
 
@@ -231,8 +232,9 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     public var isManaged: Bool { source == .managed }
 
     /// Whether navigation is restricted. A missing or explicitly empty user
-    /// value leaves the optional user restriction off. A managed empty list
-    /// remains restrictive.
+    /// value leaves the optional user restriction off. A non-empty user value,
+    /// including one containing only invalid rules, is restrictive. A managed
+    /// empty list remains restrictive.
     public var isActive: Bool { source != .none }
 
     /// Resolves the policy from the supplied preference suite.
@@ -261,8 +263,12 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
         }
 
         let userValues = Self.stringValues(from: defaults.object(forKey: Self.userDefaultsKey))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         let userPatterns = Self.patterns(from: userValues)
-        self.source = userPatterns.isEmpty ? .none : .user
+        // Empty text clears the optional restriction. A non-empty value whose
+        // rules all fail validation stays active and therefore fails closed.
+        self.source = userValues.isEmpty ? .none : .user
         self.patterns = userPatterns
     }
 
@@ -272,9 +278,11 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
             source = .managed
             patterns = Self.patterns(from: managedPatterns)
         } else {
-            let normalized = Self.patterns(from: userPatterns)
-            source = normalized.isEmpty ? .none : .user
-            patterns = normalized
+            let normalizedValues = userPatterns
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            source = normalizedValues.isEmpty ? .none : .user
+            patterns = Self.patterns(from: normalizedValues)
         }
     }
 

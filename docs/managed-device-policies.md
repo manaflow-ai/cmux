@@ -55,7 +55,8 @@ Notes:
   loopback list (`localhost`, `*.localhost`, `127.0.0.1`, `::1`, `0.0.0.0`,
   and `*.localtest.me`); saving that list opts into the restriction, and
   removing individual entries blocks those origins. An absent or cleared user
-  value leaves ordinary browsing unrestricted. A forced `BrowserURLAllowlist`
+  value leaves ordinary browsing unrestricted. A non-empty value containing
+  only invalid rules fails closed and is called out in Settings. A forced `BrowserURLAllowlist`
   always wins and locks that editor; an administrator may also force the
   user-level `browserURLAllowlist` key directly, and the importer skips the
   setting while either key is managed.
