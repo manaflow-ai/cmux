@@ -13,6 +13,21 @@ final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
+    /// One-shot app-owned internal navigations (file/data/blob/etc.) that
+    /// must pass the browser URL policy's trusted-load seam. Page callbacks
+    /// never add to this set.
+    private var trustedInternalNavigationURLs: Set<String> = []
+
+    @MainActor
+    func markTrustedInternalNavigation(_ url: URL) {
+        trustedInternalNavigationURLs.insert(url.absoluteString)
+    }
+
+    @MainActor
+    func consumeTrustedInternalNavigation(_ url: URL) -> Bool {
+        trustedInternalNavigationURLs.remove(url.absoluteString) != nil
+    }
+
     // WebKit registers web-content edit commands on the view's `undoManager`;
     // owning one per web view keeps every page's undo stack scoped to this
     // view's lifetime instead of the window's shared undo manager.

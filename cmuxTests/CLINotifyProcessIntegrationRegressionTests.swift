@@ -176,14 +176,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.plan_review.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "ExitPlanMode PreToolUse must drive Needs input, saw \(context.state.commands)"
+            "ExitPlanMode PreToolUse must journal a plan-review request, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "ExitPlanMode PreToolUse must not drive Running while blocked on plan approval, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -235,14 +237,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.question.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "AskUserQuestion PreToolUse must drive Needs input, saw \(context.state.commands)"
+            "AskUserQuestion PreToolUse must journal a question request, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "AskUserQuestion PreToolUse must not drive Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -291,13 +295,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.question.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
             },
-            "AskUserQuestion PreToolUse must drive Needs input in every mode, saw \(context.state.commands)"
+            "AskUserQuestion PreToolUse must journal a question request in every mode, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "AskUserQuestion PreToolUse must not drive Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1867,11 +1873,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let notificationCommands = Array(context.state.commands.dropFirst(notificationStart))
         XCTAssertTrue(
-            notificationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: notificationCommands).contains { capture in
+                capture.kind == "agent.approval.requested"
+                    && capture.agentKey == "codex"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
+            "Notification requiring user input must journal a needs-input approval request, saw \(notificationCommands)"
         )
 
         state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
@@ -1919,9 +1927,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
         let staleStopCommands = Array(context.state.commands.dropFirst(staleStopStart))
-        XCTAssertFalse(
-            staleStopCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
-            "A stale Stop from an older session must not mark the surface idle, saw \(staleStopCommands)"
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                staleStopCommands,
+                kind: "agent.turn.completed",
+                agentKey: "codex",
+                sessionId: oldSessionId
+            ),
+            "A stale Stop journals the old session's completion (the reducer keeps the newer running session in charge), saw \(staleStopCommands)"
         )
         XCTAssertFalse(
             staleStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -1979,9 +1992,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(staleNotification.status, 0, staleNotification.stderr)
 
         let staleNotificationCommands = Array(context.state.commands.dropFirst(staleNotificationStart))
-        XCTAssertFalse(
-            staleNotificationCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
-            "A stale idle notification must not mark the newer session idle, saw \(staleNotificationCommands)"
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                staleNotificationCommands,
+                kind: "agent.turn.completed",
+                agentKey: "codex",
+                sessionId: oldSessionId
+            ),
+            "A stale idle notification journals the old session's completion (the reducer keeps the newer running session in charge), saw \(staleNotificationCommands)"
         )
         XCTAssertFalse(
             staleNotificationCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },

@@ -106,6 +106,9 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
+         location = "group:CmuxAgentJournal">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef

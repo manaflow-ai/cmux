@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxFoundation
+import CmuxSettings
 import ObjectiveC
 import WebKit
 #if canImport(Security)
@@ -204,9 +205,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             }
         }
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
-            let observedDisplayURL = change.newValue??.absoluteString ?? ""
+            let observedDisplayURL = navDel?.activePolicyBlockedURL
+                .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
+                ?? change.newValue??.absoluteString
+                ?? ""
             Task { @MainActor [weak self, weak navDel] in
-                self?.urlLabel.stringValue = navDel?.activeErrorPageDisplayURL?.absoluteString ?? observedDisplayURL
+                self?.urlLabel.stringValue = navDel?.activePolicyBlockedURL
+                    .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
+                    ?? navDel?.activeErrorPageDisplayURL?.absoluteString
+                    ?? observedDisplayURL
             }
         }
 
@@ -249,6 +256,24 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     func closePopup() {
         WebViewInspectorTeardown.closeAllInspectors(in: panel)
         panel.close() // triggers windowWillClose
+    }
+
+    /// Applies the current URL allowlist to this popup and nested popups.
+    func enforceURLAllowlistPolicy() {
+        popupNavigationDelegate.enforceURLAllowlistPolicy(in: webView)
+        for child in childPopups {
+            child.enforceURLAllowlistPolicy()
+        }
+    }
+
+    fileprivate func showBlockedURLAllowlist(_ url: URL) {
+        urlLabel.stringValue = BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: url)
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        panel.title = BrowserURLAllowlistBlockedPage.title(isManaged: policy.isManaged)
+    }
+
+    fileprivate func blockURLAllowlistNavigation(_ url: URL, in webView: WKWebView) {
+        popupNavigationDelegate.blockURLAllowlistNavigation(url, in: webView)
     }
 
     func closeAllChildPopups() {
@@ -343,6 +368,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
         guard let url = request.url else { return }
 
+        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+            popupNavigationDelegate.blockURLAllowlistNavigation(url, in: webView)
+            return
+        }
+
         if browserShouldBlockInsecureHTTPURL(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
@@ -424,6 +454,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            return nil
+        }
+
         if let url = navigationAction.request.url,
            BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) {
 #if DEBUG
@@ -597,6 +634,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private(set) var activeErrorPageDisplayURL: URL?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
+    private(set) var activePolicyBlockedURL: URL?
 
     func cancelPendingAuthenticationPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -609,6 +647,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         activeSSLTrustBypassErrorPageFailedURL = nil
         activeSSLTrustBypassReplayRequest = nil
         activeErrorPageDisplayURL = nil
+        activePolicyBlockedURL = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
         lastAttemptedURL = request.url
         if sslBypassState.canRetainRequestForReplay(request) {
@@ -628,6 +667,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
         activeSSLTrustBypassReplayRequest = nil
         activeErrorPageDisplayURL = nil
+        activePolicyBlockedURL = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
@@ -663,6 +703,16 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
+        }
+
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
+        if url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            decisionHandler(.cancel)
+            if isMainFrame {
+                blockURLAllowlistNavigation(url, in: webView)
+            }
             return
         }
 
@@ -804,13 +854,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
-        } else if activeErrorPageDisplayURL == nil {
+        } else if activeErrorPageDisplayURL == nil && activePolicyBlockedURL == nil {
             clearAttemptedRequest()
         }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if activeErrorPageDisplayURL == nil {
+        if activeErrorPageDisplayURL == nil && activePolicyBlockedURL == nil {
             clearAttemptedRequest()
         }
     }
@@ -845,6 +895,15 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
+        if let url = navigationResponse.response.url,
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            decisionHandler(.cancel)
+            if navigationResponse.isForMainFrame {
+                blockURLAllowlistNavigation(url, in: webView)
+            }
+            return
+        }
+
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
@@ -912,6 +971,22 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
         browserLoadRequest(request, in: webView)
+    }
+
+    func blockURLAllowlistNavigation(_ url: URL, in webView: WKWebView) {
+        clearAttemptedRequest(discardPendingBypasses: true)
+        activePolicyBlockedURL = url
+        BrowserURLAllowlistBlockedPage(
+            blockedURL: url,
+            isManaged: BrowserURLAllowlistPolicy(defaults: .standard).isManaged
+        ).load(in: webView)
+        controller?.showBlockedURLAllowlist(url)
+    }
+
+    func enforceURLAllowlistPolicy(in webView: WKWebView) {
+        guard let url = webView.url,
+              !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else { return }
+        blockURLAllowlistNavigation(url, in: webView)
     }
 
     private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {
