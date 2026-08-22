@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Shared indentation metric so directory and file rows nest consistently.
-enum ChangedFilesTreeIndentation {
-    static func width(forDepth depth: Int) -> CGFloat {
+extension ChangedFilesTreeRow {
+    /// Shared indentation metric so directory and file rows nest consistently.
+    static func indentationWidth(forDepth depth: Int) -> CGFloat {
         CGFloat(depth) * 18
     }
 }
@@ -36,7 +36,7 @@ struct WorkspaceChangedDirectoryRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.leading, ChangedFilesTreeIndentation.width(forDepth: row.depth))
+            .padding(.leading, ChangedFilesTreeRow.indentationWidth(forDepth: row.depth))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -8,6 +8,8 @@ public struct WorkspaceChangesListView: View {
     private let files: [ChangedFileItem]
     private let state: WorkspaceChangesListState
     private let actions: WorkspaceChangesListActions
+    /// Built once per snapshot; collapse toggles only re-flatten it.
+    private let tree: ChangedFilesTree
     @Environment(\.colorScheme) private var colorScheme
     /// Directory paths the user folded shut; everything starts expanded.
     @State private var collapsedDirectories: Set<String> = []
@@ -34,6 +36,7 @@ public struct WorkspaceChangesListView: View {
         self.files = files
         self.state = state
         self.actions = actions
+        tree = ChangedFilesTree.build(from: files)
     }
 
     public var body: some View {
@@ -119,7 +122,7 @@ public struct WorkspaceChangesListView: View {
     }
 
     private var treeRows: [ChangedFilesTreeRow] {
-        ChangedFilesTree.build(from: files).rows(collapsedDirectories: collapsedDirectories)
+        tree.rows(collapsedDirectories: collapsedDirectories)
     }
 
     private var failureView: some View {

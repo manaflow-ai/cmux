@@ -49,7 +49,7 @@ struct WorkspaceChangedFileRow: View {
                     }
                 }
             }
-            .padding(.leading, ChangedFilesTreeIndentation.width(forDepth: indentationDepth))
+            .padding(.leading, ChangedFilesTreeRow.indentationWidth(forDepth: indentationDepth))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
