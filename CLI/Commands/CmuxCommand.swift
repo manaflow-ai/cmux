@@ -194,7 +194,10 @@ struct CmuxCommand: ParsableCommand {
 
     /// Every command name and alias the facade owns. The router sends only these
     /// to ArgumentParser; everything else falls through to the legacy parser.
-    static var declaredCommandNames: Set<String> {
+    /// Cached: building this walks every subcommand's `configuration`, which
+    /// evaluates localized abstracts and (for `coderouter`) locates the app
+    /// bundle, so recomputing it on every invocation is measurably slow.
+    static let declaredCommandNames: Set<String> = {
         var names: Set<String> = []
         for subcommand in configuration.subcommands {
             let config = subcommand.configuration
@@ -202,7 +205,7 @@ struct CmuxCommand: ParsableCommand {
             names.formUnion(config.aliases)
         }
         return names
-    }
+    }()
 
     /// Commands implemented by the ArgumentParser facade itself rather than
     /// delegated back to the legacy command runner.
@@ -223,6 +226,9 @@ struct CmuxCommand: ParsableCommand {
             CMUXCLIOutput.writeStandardError("Error: \(error.message)\n")
             CMUXCLIOutput.writeStandardError("\(usageString(for: error.command))\n")
             Darwin.exit(error.exitCode)
+        } catch let error as CLIError {
+            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            Darwin.exit(error.exitCode)
         } catch {
             exit(withError: error)
         }
@@ -231,9 +237,10 @@ struct CmuxCommand: ParsableCommand {
 
 /// A validation failure whose diagnostic needs cmux's historical exit code.
 /// Rendering and process termination stay at the facade boundary, not in a
-/// command declaration.
+/// command declaration. Legacy reports these selector errors via plain
+/// `CLIError(message:)`, whose default exit code is 1.
 struct FacadeValidationError: Error {
     let message: String
     let command: ParsableCommand.Type
-    let exitCode: Int32 = 2
+    let exitCode: Int32 = 1
 }

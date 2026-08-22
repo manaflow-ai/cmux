@@ -120,7 +120,7 @@ struct EventsCommand: LegacyNotificationCommand {
     @Option(name: .customLong("name")) var names: [String] = []
     @Option(name: .customLong("category")) var categories: [String] = []
     @Flag(name: .customLong("reconnect")) var reconnect = false
-    @Option(name: .customLong("limit")) var limit: Int?
+    @Option(name: .customLong("limit")) var limit: String?
     @Option(name: .customLong("timeout")) var timeout: Double?
     @Flag(name: .customLong("snapshot")) var snapshot = false
     @Flag(name: .customLong("no-ack")) var noAck = false
@@ -160,7 +160,7 @@ struct SetStatusCommand: NotificationTargetCommand {
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Option(name: .customLong("icon")) var icon: String?
     @Option(name: .customLong("color")) var color: String?
-    @Option(name: .customLong("priority")) var priority: Int?
+    @Option(name: .customLong("priority")) var priority: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "set-status", helpNames: [])
 }
@@ -181,7 +181,7 @@ struct ClearStatusCommand: NotificationTargetCommand {
 }
 
 struct SetProgressCommand: NotificationTargetCommand {
-    @Argument var progress: Double?
+    @Argument var progress: String?
     @Option(name: .customLong("label")) var label: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
