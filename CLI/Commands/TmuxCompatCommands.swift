@@ -25,6 +25,7 @@ struct CapturePaneCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Flag(name: .customLong("scrollback")) var scrollback = false
     @Option(name: .customLong("lines")) var lines: Int?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "capture-pane", helpNames: [])
 }
 
@@ -37,6 +38,7 @@ struct ResizePaneCommand: TmuxCompatTargetCommand {
     @Flag(name: .customShort("U")) var up = false
     @Flag(name: .customShort("D")) var down = false
     @Option(name: .customLong("amount")) var amount: Int?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "resize-pane", helpNames: [])
 }
 
@@ -62,6 +64,7 @@ struct SwapPaneCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "swap-pane", helpNames: [])
 }
 
@@ -72,6 +75,7 @@ struct BreakPaneCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Option(name: .customLong("focus")) var focus: String?
     @Flag(name: .customLong("no-focus")) var noFocus = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "break-pane", helpNames: [])
 }
 
@@ -83,6 +87,7 @@ struct JoinPaneCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Option(name: .customLong("focus")) var focus: String?
     @Flag(name: .customLong("no-focus")) var noFocus = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "join-pane", helpNames: [])
 }
 
@@ -90,6 +95,7 @@ struct ClearHistoryCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surface) var surfaceID: String?
     @Option(name: .customLong("window"), completion: window) var windowID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "clear-history", helpNames: [])
 }
 
@@ -102,6 +108,7 @@ struct SetHookCommand: LegacyTmuxCompatCommand {
 
 private protocol TmuxCompatUnsupportedCommand: LegacyTmuxCompatCommand {
     static var commandName: String { get }
+    var arguments: [String] { get set }
 }
 
 extension TmuxCompatUnsupportedCommand {
@@ -110,10 +117,22 @@ extension TmuxCompatUnsupportedCommand {
     }
 }
 
-struct PopupCommand: TmuxCompatUnsupportedCommand { static let commandName = "popup" }
-struct BindKeyCommand: TmuxCompatUnsupportedCommand { static let commandName = "bind-key" }
-struct UnbindKeyCommand: TmuxCompatUnsupportedCommand { static let commandName = "unbind-key" }
-struct CopyModeCommand: TmuxCompatUnsupportedCommand { static let commandName = "copy-mode" }
+struct PopupCommand: TmuxCompatUnsupportedCommand {
+    static let commandName = "popup"
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+}
+struct BindKeyCommand: TmuxCompatUnsupportedCommand {
+    static let commandName = "bind-key"
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+}
+struct UnbindKeyCommand: TmuxCompatUnsupportedCommand {
+    static let commandName = "unbind-key"
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+}
+struct CopyModeCommand: TmuxCompatUnsupportedCommand {
+    static let commandName = "copy-mode"
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+}
 
 struct SetBufferCommand: LegacyTmuxCompatCommand {
     @Option(name: .customLong("name")) var name: String?
@@ -122,6 +141,7 @@ struct SetBufferCommand: LegacyTmuxCompatCommand {
 }
 
 struct ListBuffersCommand: LegacyTmuxCompatCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "list-buffers", helpNames: [])
 }
 
@@ -130,6 +150,7 @@ struct PasteBufferCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("workspace"), completion: workspace) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surface) var surfaceID: String?
     @Option(name: .customLong("window"), completion: window) var windowID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "paste-buffer", helpNames: [])
 }
 
@@ -154,6 +175,7 @@ struct ReadScreenCommand: TmuxCompatTargetCommand {
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Flag(name: .customLong("scrollback")) var scrollback = false
     @Option(name: .customLong("lines")) var lines: Int?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "read-screen", helpNames: [])
 }
 

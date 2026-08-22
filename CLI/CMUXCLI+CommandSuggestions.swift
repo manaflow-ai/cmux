@@ -50,7 +50,5 @@ extension CMUXCLI {
         return previous[right.count]
     }
 
-    static var topLevelCommandNames: Set<String> {
-        CmuxCommand.declaredCommandNames
-    }
+    static let topLevelCommandNames: Set<String> = CmuxCommand.declaredCommandNames
 }

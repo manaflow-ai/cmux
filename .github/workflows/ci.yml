@@ -1384,6 +1384,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_command_tree_snapshot.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_completion_scripts.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_dispatch_parity.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_facade_behavior_parity.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
