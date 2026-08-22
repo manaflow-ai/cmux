@@ -10341,6 +10341,12 @@ impl App {
     fn process_machine_requests(&mut self) -> RenderAction {
         self.submit_pending_durable_notice_ack();
         if self.machine_action_in_flight {
+            if self.machine_ui.as_ref().is_some_and(|ui| ui.request.is_some()) {
+                crate::client_log::info(
+                    "machine",
+                    "request queued but an action is in flight; waiting",
+                );
+            }
             return RenderAction::None;
         }
         if let Some(retry_at) = self.machine_provider_reconnect_retry_at {
