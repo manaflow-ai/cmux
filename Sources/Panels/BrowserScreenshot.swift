@@ -394,6 +394,10 @@ extension CmuxWebView {
         beginScreenshotSectionSelection()
     }
 
+    func beginScreenshotSectionSelectionFromBrowserChrome() {
+        beginScreenshotSectionSelection()
+    }
+
     private func beginScreenshotSectionSelection() {
         screenshotSelectionOverlay?.removeFromSuperview()
 
@@ -439,5 +443,10 @@ extension BrowserPanel {
             return false
         }
         return await webView.captureScreenshotPageToClipboard()
+    }
+
+    func beginScreenshotSectionSelectionFromBrowserChrome() {
+        guard let webView = webView as? CmuxWebView else { return }
+        webView.beginScreenshotSectionSelectionFromBrowserChrome()
     }
 }

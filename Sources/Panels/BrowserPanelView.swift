@@ -647,6 +647,11 @@ struct BrowserPanelView: View {
         }
     }
 
+    private func handleScreenshotSectionButtonAction() {
+        guard panel.shouldRenderWebView else { return }
+        panel.beginScreenshotSectionSelectionFromBrowserChrome()
+    }
+
     private func showScreenshotPageCopiedIndicator() {
         screenshotPageCopiedScheduler.cancel()
         screenshotPageCopied = true
@@ -1157,11 +1162,11 @@ struct BrowserPanelView: View {
                 }
                 // Focus and Design Mode share one transient text chip while
                 // active. Design Mode and DevTools stay reachable without
-                // opening the menu; lower-frequency Focus and Screenshot
-                // actions remain in the overflow menu.
+                // opening the menu; lower-frequency screenshot actions remain
+                // in the overflow menu. Keep More at the far right so the
+                // popover/menu affordance has a stable trailing anchor.
                 browserActiveModeButtonWithShortcutHint
                 browserScreenshotCopiedIndicator
-                browserOverflowMenu
                 if activeToolbarMode != .design {
                     BrowserDesignModeToolbarButton(
                         controller: panel.designModeController,
@@ -1174,6 +1179,7 @@ struct BrowserPanelView: View {
                 developerToolsButton
                 browserProfileButton
                 browserThemeModeButton
+                browserOverflowMenu
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
@@ -1489,6 +1495,14 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
             .accessibilityIdentifier("BrowserScreenshotPageButton")
+            Button(action: handleScreenshotSectionButtonAction) {
+                Label(
+                    String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot Section"),
+                    systemImage: "viewfinder"
+                )
+            }
+            .disabled(!panel.shouldRenderWebView)
+            .accessibilityIdentifier("BrowserScreenshotSectionButton")
         } label: {
             CmuxSystemSymbolImage(systemName: "ellipsis", pointSize: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
