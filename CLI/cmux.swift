@@ -11597,8 +11597,7 @@ struct CMUXCLI {
             options,
             remoteBootstrapScript: Self.freestyleInteractiveShellScript(
                 suppressWelcome: ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil,
-                workspaceID: ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
-                surfaceID: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+                environment: ProcessInfo.processInfo.environment
             )
         )
         guard let launchPath = sshArguments.first else {
@@ -11912,10 +11911,22 @@ struct CMUXCLI {
         return lines.isEmpty ? ":" : lines.joined(separator: "\n")
     }
 
-    private static func freestyleInteractiveShellScript(
+    /// Builds the interactive Cloud VM bootstrap from the caller's cmux context.
+    static func freestyleInteractiveShellScript(
         suppressWelcome: Bool = false,
-        workspaceID: String? = nil,
-        surfaceID: String? = nil
+        environment: [String: String]
+    ) -> String {
+        freestyleInteractiveShellScript(
+            suppressWelcome: suppressWelcome,
+            workspaceID: environment["CMUX_WORKSPACE_ID"],
+            surfaceID: environment["CMUX_SURFACE_ID"]
+        )
+    }
+
+    private static func freestyleInteractiveShellScript(
+        suppressWelcome: Bool,
+        workspaceID: String?,
+        surfaceID: String?
     ) -> String {
         """
         \(suppressWelcome ? "export CMUX_CLOUD_WELCOME=0" : ":")
