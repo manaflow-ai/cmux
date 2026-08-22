@@ -27,7 +27,7 @@ public enum ShellStartupMode: String, CaseIterable, Sendable, SettingCodable {
 @MainActor
 public final class DeclarativeTerminalConfigurationCache {
     private struct CachedSnapshot {
-        let signature: SnapshotSignature
+        let signature: SnapshotSignature?
         let value: DeclarativeTerminalConfiguration.Snapshot
     }
 
@@ -54,12 +54,26 @@ public final class DeclarativeTerminalConfigurationCache {
     ) -> DeclarativeTerminalConfiguration.Snapshot {
         let configuredPath = fileURL.standardizedFileURL.path
         let signature = Self.snapshotSignature(for: fileURL)
-        if let cached = snapshots[configuredPath], cached.signature == signature {
+        if let cached = snapshots[configuredPath], cached.signature == nil || cached.signature == signature {
             return cached.value
         }
         let value = configuration.snapshot(fileURL: fileURL)
         snapshots[configuredPath] = CachedSnapshot(signature: signature, value: value)
         return value
+    }
+
+    /// Replaces the cached value after the actor-backed JSON store has
+    /// delivered an authoritative update. A nil signature means the next
+    /// update is expected to arrive from that observer rather than from a
+    /// synchronous filesystem probe.
+    public func replace(
+        _ value: DeclarativeTerminalConfiguration.Snapshot,
+        fileURL: URL = CmuxConfigLocation().userConfigFile
+    ) {
+        snapshots[fileURL.standardizedFileURL.path] = CachedSnapshot(
+            signature: nil,
+            value: value
+        )
     }
 
     /// Drops every memoized file snapshot.
@@ -160,16 +174,16 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
     /// Immutable values read from the declarative terminal configuration.
     public struct Snapshot: Equatable, Sendable {
         /// `nil` means the new policy key is absent or invalid.
-        public let workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy?
+        public var workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy?
 
         /// Configured fixed path, or an empty string when absent.
-        public let workingDirectoryPath: String
+        public var workingDirectoryPath: String
 
         /// Configured shell invocation mode, defaulting to login.
-        public let shellStartupMode: ShellStartupMode
+        public var shellStartupMode: ShellStartupMode
 
         /// Trimmed startup command, or an empty string when absent.
-        public let shellStartupCommand: String
+        public var shellStartupCommand: String
 
         /// Creates a snapshot of declarative terminal values.
         ///

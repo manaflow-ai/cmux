@@ -68,7 +68,8 @@ public struct SettingsRuntime: @unchecked Sendable {
             jsonStore: jsonStore,
             userDefaultsStore: userDefaultsStore,
             catalog: catalog,
-            errorLog: errorLog
+            errorLog: errorLog,
+            cache: declarativeTerminalConfigurationCache
         )
         self.accountFlow = accountFlow
         self.hostActions = hostActions

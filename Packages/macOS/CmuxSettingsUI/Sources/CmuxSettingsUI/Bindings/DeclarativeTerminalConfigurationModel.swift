@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxSettings
+import Foundation
 import Observation
 
 /// Runtime-owned snapshot and mutation surface for declarative terminal
@@ -48,23 +49,43 @@ public final class DeclarativeTerminalConfigurationModel {
     private let userDefaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
+    private let cache: DeclarativeTerminalConfigurationCache
+    private let fileURL: URL
     private var observationTasks = MainActorTaskStore<String>()
     private var saveTasks = MainActorTaskStore<String>()
+    private var snapshotRevision: UInt64 = 0
 
     /// The single presence-preserving state consumed by the Settings card.
-    public private(set) var snapshot = Snapshot()
+    /// JSON values come from the shared cache; only the legacy fallback is
+    /// maintained locally until its UserDefaults stream changes.
+    public var snapshot: Snapshot {
+        _ = snapshotRevision
+        let raw = cache.snapshot(fileURL: fileURL)
+        return Snapshot(
+            workingDirectoryPolicy: raw.workingDirectoryPolicy,
+            workingDirectoryPath: raw.workingDirectoryPath,
+            shellStartupMode: raw.shellStartupMode,
+            shellStartupCommand: raw.shellStartupCommand,
+            legacyInheritanceEnabled: legacyInheritanceEnabled
+        )
+    }
+    private var legacyInheritanceEnabled = true
 
     /// Creates a model over the stores owned by one ``SettingsRuntime``.
     public init(
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog
+        errorLog: SettingsErrorLog,
+        cache: DeclarativeTerminalConfigurationCache,
+        fileURL: URL? = nil
     ) {
         self.jsonStore = jsonStore
         self.userDefaultsStore = userDefaultsStore
         self.catalog = catalog
         self.errorLog = errorLog
+        self.cache = cache
+        self.fileURL = fileURL ?? jsonStore.fileURL
     }
 
     deinit {
@@ -98,7 +119,7 @@ public final class DeclarativeTerminalConfigurationModel {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
             let committed = await self.jsonStore.valueIfPresent(for: key)
-            self.update { $0.workingDirectoryPolicy = committed }
+            self.updateJSON { $0.workingDirectoryPolicy = committed }
         }
     }
 
@@ -113,7 +134,7 @@ public final class DeclarativeTerminalConfigurationModel {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
             let committed = await self.jsonStore.value(for: key)
-            self.update { $0.workingDirectoryPath = committed }
+            self.updateJSON { $0.workingDirectoryPath = committed }
         }
     }
 
@@ -128,7 +149,7 @@ public final class DeclarativeTerminalConfigurationModel {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
             let committed = await self.jsonStore.value(for: key)
-            self.update { $0.shellStartupMode = committed }
+            self.updateJSON { $0.shellStartupMode = committed }
         }
     }
 
@@ -143,7 +164,7 @@ public final class DeclarativeTerminalConfigurationModel {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
             let committed = await self.jsonStore.value(for: key)
-            self.update { $0.shellStartupCommand = committed }
+            self.updateJSON { $0.shellStartupCommand = committed }
         }
     }
 
@@ -160,47 +181,61 @@ public final class DeclarativeTerminalConfigurationModel {
                 for: catalog.app.workspaceInheritWorkingDirectory
             )
         )
-        snapshot = next
+        cache.replace(
+            DeclarativeTerminalConfiguration.Snapshot(
+                workingDirectoryPolicy: next.workingDirectoryPolicy,
+                workingDirectoryPath: next.workingDirectoryPath,
+                shellStartupMode: next.shellStartupMode,
+                shellStartupCommand: next.shellStartupCommand
+            ),
+            fileURL: fileURL
+        )
+        legacyInheritanceEnabled = next.legacyInheritanceEnabled
+        snapshotRevision &+= 1
     }
 
     private func observeWorkingDirectoryPolicy() async {
         for await value in jsonStore.valuesIfPresent(for: catalog.terminal.newSurfaceWorkingDirectoryPolicy) {
             if Task.isCancelled { return }
-            update { $0.workingDirectoryPolicy = value }
+            updateJSON { $0.workingDirectoryPolicy = value }
         }
     }
 
     private func observeWorkingDirectoryPath() async {
         for await value in jsonStore.values(for: catalog.terminal.newSurfaceWorkingDirectoryPath) {
             if Task.isCancelled { return }
-            update { $0.workingDirectoryPath = value }
+            updateJSON { $0.workingDirectoryPath = value }
         }
     }
 
     private func observeShellStartupMode() async {
         for await value in jsonStore.values(for: catalog.terminal.shellStartupMode) {
             if Task.isCancelled { return }
-            update { $0.shellStartupMode = value }
+            updateJSON { $0.shellStartupMode = value }
         }
     }
 
     private func observeShellStartupCommand() async {
         for await value in jsonStore.values(for: catalog.terminal.shellStartupCommand) {
             if Task.isCancelled { return }
-            update { $0.shellStartupCommand = value }
+            updateJSON { $0.shellStartupCommand = value }
         }
     }
 
     private func observeLegacyInheritance() async {
         for await value in userDefaultsStore.values(for: catalog.app.workspaceInheritWorkingDirectory) {
             if Task.isCancelled { return }
-            update { $0.legacyInheritanceEnabled = value }
+            legacyInheritanceEnabled = value
+            snapshotRevision &+= 1
         }
     }
 
-    private func update(_ body: (inout Snapshot) -> Void) {
-        var next = snapshot
+    private func updateJSON(
+        _ body: (inout DeclarativeTerminalConfiguration.Snapshot) -> Void
+    ) {
+        var next = cache.snapshot(fileURL: fileURL)
         body(&next)
-        snapshot = next
+        cache.replace(next, fileURL: fileURL)
+        snapshotRevision &+= 1
     }
 }
