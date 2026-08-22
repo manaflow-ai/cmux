@@ -183,19 +183,16 @@ public actor CmxConnectivityInvalidationSubscriber {
         let keepalive = Task {
             while !Task.isCancelled {
                 guard (try? await pingSleep(Self.keepalivePingInterval)) != nil else { return }
-                do {
-                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                        task.sendPing { error in
-                            if let error {
-                                cont.resume(throwing: error)
-                            } else {
-                                cont.resume()
-                            }
-                        }
+                // Fire-and-forget deliberately: URLSession can invoke the pong
+                // handler MORE THAN ONCE during connection teardown (observed
+                // as a CheckedContinuation double-resume crash), so no
+                // continuation may wrap it. A dead transport surfaces as an
+                // error here; cancelling makes the suspended `receive()`
+                // throw, which is the one signal the stream loop acts on.
+                task.sendPing { error in
+                    if error != nil {
+                        task.cancel(with: .abnormalClosure, reason: nil)
                     }
-                } catch {
-                    task.cancel(with: .abnormalClosure, reason: nil)
-                    return
                 }
             }
         }
