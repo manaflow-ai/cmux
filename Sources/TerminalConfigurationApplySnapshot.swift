@@ -9,8 +9,6 @@ final class TerminalConfigurationApplySnapshot {
     let previousMagnificationPercent: Int
     let terminalFontConfiguration:
         WorkspaceTerminalFontConfigurationSnapshot
-    let appliesNativeConfiguration: Bool
-    let refreshesHostAppearance: Bool
 
     private var surfaceStates:
         [ObjectIdentifier: TerminalConfigurationSurfaceApplyState] = [:]
@@ -21,9 +19,7 @@ final class TerminalConfigurationApplySnapshot {
             GhosttyConfig.ColorSchemePreference,
         previousMagnificationPercent: Int,
         terminalFontConfiguration:
-            WorkspaceTerminalFontConfigurationSnapshot,
-        appliesNativeConfiguration: Bool,
-        refreshesHostAppearance: Bool
+            WorkspaceTerminalFontConfigurationSnapshot
     ) {
         self.source = source
         self.preferredColorScheme = preferredColorScheme
@@ -31,10 +27,6 @@ final class TerminalConfigurationApplySnapshot {
             previousMagnificationPercent
         self.terminalFontConfiguration =
             terminalFontConfiguration
-        self.appliesNativeConfiguration =
-            appliesNativeConfiguration
-        self.refreshesHostAppearance =
-            refreshesHostAppearance
     }
 
     func surfaceState(

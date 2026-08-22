@@ -1,13 +1,17 @@
 import Foundation
+import CmuxTerminalCore
 
 /// Config-derived values observed directly by persistent SwiftUI chrome.
 struct TerminalConfigurationPresentationMetrics: Equatable {
     let terminalFontSize: CGFloat
     let surfaceTabBarFontSize: CGFloat
     let sidebarFontSize: CGFloat
+    let chromeConfigurationIdentity:
+        TerminalChromeConfigurationIdentity
 
     static func capture(
-        magnificationPercent: Int
+        magnificationPercent: Int,
+        usesHostLayerBackground: Bool
     ) -> Self {
         let config = GhosttyConfig.loadForCmux(
             useCache: false,
@@ -18,7 +22,13 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
             terminalFontSize: config.fontSize,
             surfaceTabBarFontSize:
                 config.surfaceTabBarFontSize,
-            sidebarFontSize: config.sidebarFontSize
+            sidebarFontSize: config.sidebarFontSize,
+            chromeConfigurationIdentity:
+                TerminalChromeConfigurationIdentity(
+                    configuration: config,
+                    usesHostLayerBackground:
+                        usesHostLayerBackground
+                )
         )
     }
 
@@ -46,6 +56,13 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
                 object: nil
             )
         }
+        if chromeConfigurationIdentity
+            != previous.chromeConfigurationIdentity {
+            center.post(
+                name: .ghosttyChromeConfigurationDidChange,
+                object: nil
+            )
+        }
     }
 }
 
@@ -58,5 +75,8 @@ extension Notification.Name {
     )
     static let ghosttySidebarFontSizeDidChange = Notification.Name(
         "ghosttySidebarFontSizeDidChange"
+    )
+    static let ghosttyChromeConfigurationDidChange = Notification.Name(
+        "ghosttyChromeConfigurationDidChange"
     )
 }

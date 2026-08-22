@@ -4,10 +4,9 @@ import Testing
 @Suite("Terminal configuration apply scheduler")
 struct TerminalConfigurationApplySchedulerTests {
     @Test @MainActor
-    func prioritizesVisibleSurfacesAndBoundsEveryDrainTurn() {
+    func appliesEveryVisibleSurfaceImmediatelyAndBoundsDeferredDrainTurns() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
-            maximumImmediatePriorityCount: 1,
             maximumVisitsPerDrain: 3,
             schedule: manualScheduler.schedule
         )
@@ -30,7 +29,7 @@ struct TerminalConfigurationApplySchedulerTests {
             }
         )
 
-        #expect(applied == [3])
+        #expect(applied == [3, 1])
         #expect(manualScheduler.pendingCount == 1)
         #expect(!didFinish)
 
@@ -48,7 +47,6 @@ struct TerminalConfigurationApplySchedulerTests {
     func newerSnapshotSupersedesUndrainedWorkWithoutSchedulingASecondTurn() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
-            maximumImmediatePriorityCount: 0,
             maximumVisitsPerDrain: 4,
             schedule: manualScheduler.schedule
         )
@@ -61,7 +59,7 @@ struct TerminalConfigurationApplySchedulerTests {
 
         scheduler.replacePendingWork(
             snapshot: firstSnapshot,
-            prioritizedIDs: [10],
+            prioritizedIDs: [],
             nextID: { firstSource.next() },
             apply: { id, snapshot in
                 applied.append((id, snapshot.id))
@@ -97,7 +95,6 @@ struct TerminalConfigurationApplySchedulerTests {
     func replacingRetryingSnapshotRollsBackBeforeApplyingNewWork() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
-            maximumImmediatePriorityCount: 1,
             maximumVisitsPerDrain: 1,
             schedule: manualScheduler.schedule
         )
@@ -113,7 +110,8 @@ struct TerminalConfigurationApplySchedulerTests {
                 events.append("apply:\(id):\(snapshot.id)")
                 return .retry
             },
-            abandon: { id, snapshot in
+            abandon: { id, snapshot, reason in
+                #expect(reason == .pendingWorkReplaced)
                 events.append("abandon:\(id):\(snapshot.id)")
             }
         )
@@ -141,7 +139,6 @@ struct TerminalConfigurationApplySchedulerTests {
     func sharesOneDerivedSnapshotAcrossEverySurface() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
-            maximumImmediatePriorityCount: 1,
             maximumVisitsPerDrain: 2,
             schedule: manualScheduler.schedule
         )
@@ -175,7 +172,6 @@ struct TerminalConfigurationApplySchedulerTests {
     func retriesInLaterTurnsAndAbandonsAtTheConfiguredLimit() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
-            maximumImmediatePriorityCount: 0,
             maximumVisitsPerDrain: 1,
             maximumAttemptsPerID: 2,
             schedule: manualScheduler.schedule
@@ -184,6 +180,7 @@ struct TerminalConfigurationApplySchedulerTests {
         var source = [1].makeIterator()
         var attemptCount = 0
         var abandonedIDs: [Int] = []
+        var abandonReasons: [TerminalConfigurationApplyAbandonReason] = []
         var didFinish = false
 
         scheduler.replacePendingWork(
@@ -194,8 +191,9 @@ struct TerminalConfigurationApplySchedulerTests {
                 attemptCount += 1
                 return .retry
             },
-            abandon: { id, _ in
+            abandon: { id, _, reason in
                 abandonedIDs.append(id)
+                abandonReasons.append(reason)
             },
             completion: {
                 didFinish = true
@@ -207,6 +205,7 @@ struct TerminalConfigurationApplySchedulerTests {
 
         #expect(attemptCount == 2)
         #expect(abandonedIDs == [1])
+        #expect(abandonReasons == [.retryLimitReached])
         #expect(didFinish)
     }
 }

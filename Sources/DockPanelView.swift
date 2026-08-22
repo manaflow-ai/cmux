@@ -105,6 +105,9 @@ struct DockPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshAppearance(reason: "ghosttyChromeConfigurationDidChange")
+        }
         .onChange(of: windowAppearance.resolvedColorScheme) { _, _ in
             // The Dock's Bonsplit controller is an AppKit subtree and does not
             // inherit SwiftUI's environment automatically. Re-apply its

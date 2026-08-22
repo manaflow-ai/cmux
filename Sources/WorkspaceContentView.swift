@@ -406,6 +406,11 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyChromeConfigurationDidChange"
+            )
+        }
 
         Group {
             if workspace.layoutMode == .canvas {

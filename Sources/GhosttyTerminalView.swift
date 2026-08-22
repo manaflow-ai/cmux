@@ -494,7 +494,6 @@ class GhosttyApp {
             ObjectIdentifier,
             TerminalConfigurationApplySnapshot
         >(
-            maximumImmediatePriorityCount: 1,
             maximumVisitsPerDrain: 1
         )
     private var appliedConfigurationContentIdentity:
@@ -1020,7 +1019,9 @@ class GhosttyApp {
         terminalConfigurationPresentationMetrics =
             TerminalConfigurationPresentationMetrics.capture(
                 magnificationPercent:
-                    appliedGlobalFontMagnificationPercent
+                    appliedGlobalFontMagnificationPercent,
+                usesHostLayerBackground:
+                    usesHostLayerBackground
             )
 
         // Notify observers that a usable config is available (initial load).
@@ -1973,9 +1974,7 @@ class GhosttyApp {
                     fontTransaction
                         .previousMagnificationPercent,
                 terminalFontConfiguration:
-                    terminalFontConfiguration,
-                appliesNativeConfiguration: true,
-                refreshesHostAppearance: true
+                    terminalFontConfiguration
             )
             scheduleConfigurationApply(
                 snapshot,
@@ -2107,8 +2106,15 @@ class GhosttyApp {
             "reload.config.commit source=\(source) mode=full contentChanged=\(configurationChanged ? 1 : 0)"
         )
 #endif
-        Task { @MainActor [weak self] in
-            self?.applyBackgroundToKeyWindow()
+        applyBackgroundToKeyWindow()
+
+        guard configurationChanged else {
+            didCommit()
+            logThemeAction(
+                "reload end source=\(source) soft=\(soft) mode=full changed=false"
+            )
+            completion()
+            return
         }
 
         let snapshot = TerminalConfigurationApplySnapshot(
@@ -2118,11 +2124,7 @@ class GhosttyApp {
             previousMagnificationPercent:
                 fontTransaction.previousMagnificationPercent,
             terminalFontConfiguration:
-                terminalFontConfiguration,
-            appliesNativeConfiguration:
-                configurationChanged,
-            refreshesHostAppearance:
-                configurationChanged
+                terminalFontConfiguration
         )
         scheduleConfigurationApply(
             snapshot,

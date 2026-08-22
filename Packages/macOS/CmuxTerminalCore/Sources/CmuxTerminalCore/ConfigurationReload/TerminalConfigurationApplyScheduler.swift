@@ -1,4 +1,4 @@
-import Foundation
+internal import CmuxFoundation
 
 /// Applies one shared terminal configuration snapshot without monopolizing the
 /// main actor for the full surface registry.
@@ -18,13 +18,13 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     public typealias Apply =
         @MainActor (ID, Snapshot) -> TerminalConfigurationApplyResult
 
-    /// Rolls back surface-specific state after retry exhaustion.
-    public typealias Abandon = @MainActor (ID, Snapshot) -> Void
+    /// Rolls back surface-specific state that cannot finish applying.
+    public typealias Abandon =
+        @MainActor (ID, Snapshot, TerminalConfigurationApplyAbandonReason) -> Void
 
     /// Runs after the active traversal reaches its fixed endpoint.
     public typealias Completion = @MainActor @Sendable () -> Void
 
-    private let maximumImmediatePriorityCount: Int
     private let maximumVisitsPerDrain: Int
     private let maximumAttemptsPerID: Int
     private let schedule: Scheduler
@@ -45,34 +45,32 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
     /// Creates a scheduler with explicit per-turn work limits.
     ///
-    /// The immediate limit should stay small: it exists for the focused surface
-    /// and a bounded number of visible siblings. All other identities are
-    /// visited through later main-actor turns.
+    /// Every focused or visible identity supplied to ``replacePendingWork(
+    /// snapshot:prioritizedIDs:nextID:apply:abandon:completion:)`` is applied in
+    /// the accepting turn. All other identities are visited through later
+    /// main-actor turns.
     ///
     /// - Parameters:
-    ///   - maximumImmediatePriorityCount: Maximum prioritized identities applied
-    ///     synchronously when work is replaced. Zero defers every identity.
     ///   - maximumVisitsPerDrain: Maximum identities visited in one scheduled
     ///     turn, including duplicates that are skipped.
     ///   - maximumAttemptsPerID: Maximum attempts before `abandon` runs.
-    ///   - schedule: Scheduling seam. The default uses the next common main
-    ///     run-loop turn.
+    ///   - schedule: Scheduling seam. The default yields to a later main-actor
+    ///     executor turn through ``MainActorDeferredActionScheduler``.
     public init(
-        maximumImmediatePriorityCount: Int,
         maximumVisitsPerDrain: Int,
         maximumAttemptsPerID: Int = 3,
         schedule: Scheduler? = nil
     ) {
-        precondition(maximumImmediatePriorityCount >= 0)
         precondition(maximumVisitsPerDrain > 0)
         precondition(maximumAttemptsPerID > 0)
-        self.maximumImmediatePriorityCount =
-            maximumImmediatePriorityCount
         self.maximumVisitsPerDrain = maximumVisitsPerDrain
         self.maximumAttemptsPerID = maximumAttemptsPerID
-        self.schedule = schedule ?? { action in
-            RunLoop.main.perform(inModes: [.common]) {
-                MainActor.assumeIsolated {
+        if let schedule {
+            self.schedule = schedule
+        } else {
+            let deferredScheduler = MainActorDeferredActionScheduler()
+            self.schedule = { action in
+                deferredScheduler.schedule(zeroDelayPolicy: .yieldOnce) {
                     action()
                 }
             }
@@ -90,7 +88,8 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     ///   - prioritizedIDs: Focused and visible identities in application order.
     ///   - nextID: Pull-based fixed traversal for all remaining identities.
     ///   - apply: Applies `snapshot` to a currently live identity.
-    ///   - abandon: Rolls back surface-specific state after retry exhaustion.
+    ///   - abandon: Rolls back surface-specific state after retry exhaustion or
+    ///     replacement by a newer snapshot.
     ///   - completion: Runs only if this snapshot reaches the traversal endpoint
     ///     before being superseded.
     public func replacePendingWork(
@@ -98,9 +97,10 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         prioritizedIDs: [ID],
         nextID: @escaping NextID,
         apply: @escaping Apply,
-        abandon: @escaping Abandon = { _, _ in },
+        abandon: @escaping Abandon = { _, _, _ in },
         completion: @escaping Completion = {}
     ) {
+        abandonPendingRetriesBeforeReplacement()
         self.snapshot = snapshot
         self.prioritizedIDs = prioritizedIDs
         prioritizedIndex = 0
@@ -120,14 +120,23 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
     private func drainImmediatePriority() {
         guard let snapshot, let apply else { return }
-        var visits = 0
-        while visits < maximumImmediatePriorityCount,
-              prioritizedIndex < prioritizedIDs.count {
+        while prioritizedIndex < prioritizedIDs.count {
             let id = prioritizedIDs[prioritizedIndex]
             prioritizedIndex += 1
-            visits += 1
             guard visitedIDs.insert(id).inserted else { continue }
             attempt(id, snapshot: snapshot, apply: apply)
+        }
+    }
+
+    private func abandonPendingRetriesBeforeReplacement() {
+        guard let snapshot, let abandon,
+              retryIndex < retryIDs.count else {
+            return
+        }
+        var abandonedIDs: Set<ID> = []
+        for id in retryIDs[retryIndex...]
+        where abandonedIDs.insert(id).inserted {
+            abandon(id, snapshot, .pendingWorkReplaced)
         }
     }
 
@@ -188,7 +197,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         case .retry where attemptCount < maximumAttemptsPerID:
             retryIDs.append(id)
         case .retry:
-            abandon?(id, snapshot)
+            abandon?(id, snapshot, .retryLimitReached)
             attemptCounts.removeValue(forKey: id)
         }
     }

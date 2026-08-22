@@ -13,7 +13,9 @@ extension GhosttyApp {
         let next =
             TerminalConfigurationPresentationMetrics.capture(
                 magnificationPercent:
-                    magnificationPercent
+                    magnificationPercent,
+                usesHostLayerBackground:
+                    usesHostLayerBackground
             )
         terminalConfigurationPresentationMetrics = next
         next.publishChanges(comparedTo: previous)
@@ -37,6 +39,7 @@ extension GhosttyApp {
             "reload.config.surfaceApply.begin source=\(snapshot.source) prioritized=\(prioritizedIDs.count)"
         )
 #endif
+        didCommit()
         terminalConfigurationApplyScheduler.replacePendingWork(
             snapshot: snapshot,
             prioritizedIDs: prioritizedIDs,
@@ -49,11 +52,21 @@ extension GhosttyApp {
                     to: identity
                 ) ?? .complete
             },
-            abandon: { [weak self] identity, snapshot in
-                self?.abandonConfigurationSnapshot(
-                    snapshot,
-                    for: identity
-                )
+            abandon: { [weak self] identity, snapshot, reason in
+                switch reason {
+                case .retryLimitReached:
+                    self?.abandonConfigurationSnapshot(
+                        snapshot,
+                        for: identity,
+                        reason: .retryLimitReached
+                    )
+                case .pendingWorkReplaced:
+                    self?.abandonConfigurationSnapshot(
+                        snapshot,
+                        for: identity,
+                        reason: .pendingWorkReplaced
+                    )
+                }
             },
             completion: {
 #if DEBUG
@@ -64,7 +77,6 @@ extension GhosttyApp {
                 completionBox.finish()
             }
         )
-        didCommit()
     }
 
     @MainActor
@@ -77,7 +89,8 @@ extension GhosttyApp {
                 as? TerminalSurface else {
             abandonConfigurationSnapshot(
                 snapshot,
-                for: identity
+                for: identity,
+                reason: .surfaceUnavailable
             )
             return .complete
         }
@@ -90,7 +103,8 @@ extension GhosttyApp {
         } else {
             abandonConfigurationSnapshot(
                 snapshot,
-                for: identity
+                for: identity,
+                reason: .surfaceReplaced
             )
             let fontReloadState = surface
                 .captureFontSizeConfigurationReloadState(
@@ -125,7 +139,8 @@ extension GhosttyApp {
                 .isRegistered(surface) else {
             abandonConfigurationSnapshot(
                 snapshot,
-                for: identity
+                for: identity,
+                reason: .surfaceUnregistered
             )
             return .complete
         }
@@ -154,8 +169,7 @@ extension GhosttyApp {
         _ snapshot: TerminalConfigurationApplySnapshot,
         to surface: TerminalSurface
     ) {
-        if snapshot.appliesNativeConfiguration,
-           let config,
+        if let config,
            let liveSurface = surface
             .liveSurfaceForGhosttyAccess(
                 reason: "configReload.incrementalApply"
@@ -172,9 +186,6 @@ extension GhosttyApp {
                         snapshot.preferredColorScheme
                 )
         }
-        guard snapshot.refreshesHostAppearance else {
-            return
-        }
         surface.hostedView
             .refreshHostBackgroundAfterGhosttyConfigReload()
         surface.forceRefresh(
@@ -187,7 +198,8 @@ extension GhosttyApp {
     @MainActor
     private func abandonConfigurationSnapshot(
         _ snapshot: TerminalConfigurationApplySnapshot,
-        for identity: ObjectIdentifier
+        for identity: ObjectIdentifier,
+        reason: ConfigurationSnapshotAbandonReason
     ) {
         guard let state = snapshot.removeSurfaceState(
             identity: identity
@@ -201,8 +213,26 @@ extension GhosttyApp {
                     snapshot.terminalFontConfiguration
                         .magnificationPercent
             )
-        Self.initializationLogger.error(
-            "Terminal font reconciliation rolled back after retry exhaustion surface=\(surface.id.uuidString, privacy: .public)"
-        )
+        switch reason {
+        case .retryLimitReached:
+            Self.initializationLogger.error(
+                "Terminal font reconciliation rolled back after retry exhaustion surface=\(surface.id.uuidString, privacy: .public)"
+            )
+        case .pendingWorkReplaced,
+             .surfaceUnavailable,
+             .surfaceReplaced,
+             .surfaceUnregistered:
+            Self.initializationLogger.debug(
+                "Terminal font reconciliation rolled back during surface churn reason=\(reason.rawValue, privacy: .public) surface=\(surface.id.uuidString, privacy: .public)"
+            )
+        }
     }
+}
+
+private enum ConfigurationSnapshotAbandonReason: String {
+    case retryLimitReached = "retry-limit-reached"
+    case pendingWorkReplaced = "pending-work-replaced"
+    case surfaceUnavailable = "surface-unavailable"
+    case surfaceReplaced = "surface-replaced"
+    case surfaceUnregistered = "surface-unregistered"
 }
