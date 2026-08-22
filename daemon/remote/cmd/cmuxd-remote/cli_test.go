@@ -841,8 +841,8 @@ func TestCLINotifyExplicitWorkspacePreservesTarget(t *testing.T) {
 		if got := params["workspace_id"]; got != explicitWorkspaceID {
 			t.Fatalf("expected explicit workspace_id %s, got %v", explicitWorkspaceID, got)
 		}
-		if got := params["surface_id"]; got != inheritedSurfaceID {
-			t.Fatalf("expected inherited surface_id %s to remain a normal target field, got %v", inheritedSurfaceID, got)
+		if _, exists := params["surface_id"]; exists {
+			t.Fatalf("expected inherited surface_id %s to be omitted for an explicit workspace, got %v", inheritedSurfaceID, params["surface_id"])
 		}
 		for _, key := range []string{"preferred_workspace_id", "preferred_surface_id", "caller_tty", "prefer_tty"} {
 			if got, exists := params[key]; exists {
