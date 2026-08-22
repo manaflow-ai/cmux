@@ -3,6 +3,14 @@ import Testing
 
 @testable import CmuxTerminal
 
+// SAFETY: the detached cancellation probe exclusively owns these handles until
+// its result is awaited; cleanup and assertions happen afterward on MainActor.
+private struct CancelledPasteboardWriteFixture: @unchecked Sendable {
+    let service: TerminalPasteboardService
+    let pasteboard: NSPasteboard
+    let item: NSPasteboardItem
+}
+
 @MainActor
 @Suite("Terminal pasteboard service review regressions", .serialized)
 struct TerminalPasteboardServiceReviewRegressionTests {
@@ -27,10 +35,18 @@ struct TerminalPasteboardServiceReviewRegressionTests {
         let item = NSPasteboardItem()
         #expect(item.setString("replacement", forType: .string))
 
-        let write = Task { @MainActor in
-            await service.replaceContentsAndWait(
-                of: standard,
-                with: [item]
+        let fixture = CancelledPasteboardWriteFixture(
+            service: service,
+            pasteboard: standard,
+            item: item
+        )
+        // This probe exercises the service's intentionally nonisolated caller
+        // contract; the unchecked fixture above makes its exclusive lifetime
+        // explicit to Swift 6.
+        let write = Task.detached {
+            await fixture.service.replaceContentsAndWait(
+                of: fixture.pasteboard,
+                with: [fixture.item]
             )
         }
         write.cancel()
