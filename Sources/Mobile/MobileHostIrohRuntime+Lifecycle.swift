@@ -295,13 +295,15 @@ extension MobileHostIrohRuntime {
                   self.retryInspectionRevision == inspectionRevision,
                   self.desiredActive,
                   self.runtime === activeRuntime,
-                  revision == self.lifecycleRevision else { return }
+                  revision == self.lifecycleRevision,
+                  self.relayPolicyNetworkReachable == true else { return }
             if await activeRuntime.snapshot().state == .failed {
                 guard self.desiredActive,
                       !self.signOutIntentActive,
                       self.runtime === activeRuntime,
                       self.retryInspectionRevision == inspectionRevision,
-                      revision == self.lifecycleRevision else { return }
+                      revision == self.lifecycleRevision,
+                      self.relayPolicyNetworkReachable == true else { return }
                 // A fresh external signal resets the backoff ladder, then uses
                 // the single guarded recovery entrypoint.
                 self.retryInspectionTask = nil
@@ -310,7 +312,8 @@ extension MobileHostIrohRuntime {
                 return
             }
             guard self.runtime === activeRuntime,
-                  revision == self.lifecycleRevision else { return }
+                  revision == self.lifecycleRevision,
+                  self.relayPolicyNetworkReachable == true else { return }
             await self.synchronizeLANPublicationWithSettings()
         }
     }
@@ -374,7 +377,8 @@ extension MobileHostIrohRuntime {
               runtime === activeRuntime,
               transitionTask == nil,
               desiredActive,
-              !signOutIntentActive else { return }
+              !signOutIntentActive,
+              relayPolicyNetworkReachable == true else { return }
         scheduleReconcile(eraseAccountState: false, restartActiveRuntime: true)
     }
 
@@ -416,7 +420,8 @@ extension MobileHostIrohRuntime {
         let state = await activeRuntime.snapshot().state
         guard state == .failed,
               revision == lifecycleRevision,
-              runtime === activeRuntime else { return }
+              runtime === activeRuntime,
+              relayPolicyNetworkReachable == true else { return }
         scheduleFailureRecovery()
     }
 

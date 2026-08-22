@@ -160,6 +160,8 @@ final class MobileHostIrohRuntime {
     /// Single-flight owner for revision reconciliation: one task in flight,
     /// later signals coalesce at the greatest observed revision.
     var serverSignalRefreshTask: Task<Void, Never>?
+    var serverSignalRefreshTaskID: UUID?
+    var serverSignalRefreshRevision: UInt64?
     var serverSignalPendingRevision: UInt64?
 
     private init() {
@@ -257,6 +259,11 @@ final class MobileHostIrohRuntime {
         lifecycleRevision &+= 1
         cancelRetryInspection()
         bindingPersistenceQueue.cancel()
+        serverSignalRefreshTask?.cancel()
+        serverSignalRefreshTask = nil
+        serverSignalRefreshTaskID = nil
+        serverSignalRefreshRevision = nil
+        serverSignalPendingRevision = nil
         let revision = lifecycleRevision
         let previous = transitionTask
         previous?.cancel()
@@ -356,6 +363,12 @@ final class MobileHostIrohRuntime {
         networkReachable == true
     }
 
+    /// Returns whether an externally delivered connectivity signal must be
+    /// retained until the path monitor reports a usable route.
+    nonisolated static func shouldDeferServerConnectivitySignal(networkReachable: Bool?) -> Bool {
+        networkReachable != true
+    }
+
     nonisolated static func diagnosticFailureKind(
         for error: any Error
     ) -> DiagnosticFailureKind {
@@ -367,6 +380,15 @@ final class MobileHostIrohRuntime {
     /// bursts coalesce at the greatest revision instead of creating one waiter
     /// per frame. Terminal evidence rebuilds through the shared lifecycle path.
     func reconcileConnectivityFromServerSignal(revision: UInt64) {
+        guard !Self.shouldDeferServerConnectivitySignal(
+            networkReachable: relayPolicyNetworkReachable
+        ) else {
+            serverSignalPendingRevision = max(
+                serverSignalPendingRevision ?? revision,
+                revision
+            )
+            return
+        }
         if serverSignalRefreshTask != nil {
             serverSignalPendingRevision = max(
                 serverSignalPendingRevision ?? revision,
@@ -378,21 +400,68 @@ final class MobileHostIrohRuntime {
             retryIfNeeded()
             return
         }
+        let taskID = UUID()
+        serverSignalRefreshTaskID = taskID
+        serverSignalRefreshRevision = revision
         serverSignalRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                guard let self,
+                      self.serverSignalRefreshTaskID == taskID else { return }
+                self.serverSignalRefreshTask = nil
+                self.serverSignalRefreshTaskID = nil
+                self.serverSignalRefreshRevision = nil
+            }
+            guard let self,
+                  self.serverSignalRefreshTaskID == taskID,
+                  !Task.isCancelled,
+                  self.relayPolicyNetworkReachable == true else {
+                if let self,
+                   self.serverSignalRefreshTaskID == taskID,
+                   self.relayPolicyNetworkReachable != true {
+                    self.serverSignalPendingRevision = max(
+                        self.serverSignalPendingRevision ?? revision,
+                        revision
+                    )
+                }
+                return
+            }
             _ = await signalRuntime.reconcileConnectivityRevision(revision)
-            guard let self else { return }
-            self.serverSignalRefreshTask = nil
+            guard let self,
+                  self.serverSignalRefreshTaskID == taskID else { return }
             let replayRevision = self.serverSignalPendingRevision
             self.serverSignalPendingRevision = nil
+            guard !Task.isCancelled,
+                  self.relayPolicyNetworkReachable == true else {
+                self.serverSignalPendingRevision = max(
+                    replayRevision ?? revision,
+                    revision
+                )
+                return
+            }
             guard self.runtime === signalRuntime,
                   self.desiredActive,
                   !self.signOutIntentActive,
-                  self.transitionTask == nil else { return }
+                  self.transitionTask == nil,
+                  self.relayPolicyNetworkReachable == true else {
+                if self.relayPolicyNetworkReachable != true {
+                    self.serverSignalPendingRevision = max(
+                        replayRevision ?? revision,
+                        revision
+                    )
+                }
+                return
+            }
+            // Release this single-flight slot before replaying a coalesced
+            // revision; otherwise the recursive call would only requeue it.
+            self.serverSignalRefreshTask = nil
+            self.serverSignalRefreshTaskID = nil
+            self.serverSignalRefreshRevision = nil
             if await signalRuntime.snapshot().state == .failed {
                 guard self.runtime === signalRuntime,
                       self.desiredActive,
                       !self.signOutIntentActive,
-                      self.transitionTask == nil else { return }
+                      self.transitionTask == nil,
+                      self.relayPolicyNetworkReachable == true else { return }
                 self.scheduleReconcile(
                     eraseAccountState: false,
                     restartActiveRuntime: true

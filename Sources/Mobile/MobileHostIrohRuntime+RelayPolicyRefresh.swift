@@ -23,6 +23,16 @@ extension MobileHostIrohRuntime {
             relayPolicyRefreshTask?.cancel()
             relayPolicyRefreshTask = nil
             relayPolicyRefreshTaskID = nil
+            if let revision = serverSignalRefreshRevision {
+                serverSignalPendingRevision = max(
+                    serverSignalPendingRevision ?? revision,
+                    revision
+                )
+            }
+            serverSignalRefreshTask?.cancel()
+            serverSignalRefreshTask = nil
+            serverSignalRefreshTaskID = nil
+            serverSignalRefreshRevision = nil
             failureRecoveryTask?.cancel()
             failureRecoveryTask = nil
             return
@@ -46,6 +56,11 @@ extension MobileHostIrohRuntime {
                 revision: revision,
                 refreshImmediately: true
             )
+        }
+        if let pendingRevision = serverSignalPendingRevision,
+           serverSignalRefreshTask == nil {
+            serverSignalPendingRevision = nil
+            reconcileConnectivityFromServerSignal(revision: pendingRevision)
         }
         retryIfNeeded()
     }

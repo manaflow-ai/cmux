@@ -603,16 +603,19 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
     ) async throws {
         let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
         if let refreshTaskID {
-            guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
+            guard ownsRelayPolicyRefreshTask(refreshTaskID),
+                  relayPolicyNetworkReachable == true else { return }
         }
         if let runtime {
             if let refreshTaskID {
-                guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
+                guard ownsRelayPolicyRefreshTask(refreshTaskID),
+                      relayPolicyNetworkReachable == true else { return }
             }
             try await runtime.replaceRelayPolicy(effective)
         }
         if let refreshTaskID {
-            guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
+            guard ownsRelayPolicyRefreshTask(refreshTaskID),
+                  relayPolicyNetworkReachable == true else { return }
         }
         relayPolicyEffective = effective
         relayPolicyDiagnostics = diagnostics
@@ -627,6 +630,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         relayPolicyRefreshTask?.cancel()
         relayPolicyRefreshTask = nil
         relayPolicyRefreshTaskID = nil
+        serverSignalRefreshTask?.cancel()
+        serverSignalRefreshTask = nil
+        serverSignalRefreshTaskID = nil
+        serverSignalRefreshRevision = nil
+        serverSignalPendingRevision = nil
         relayPolicyRefreshService = nil
         relayPolicyRefreshAccountID = nil
         relayPolicyRefreshEndpointID = nil

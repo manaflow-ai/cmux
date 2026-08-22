@@ -182,6 +182,12 @@ import Testing
         #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: true))
     }
 
+    @Test func serverConnectivitySignalsWaitForReachabilityBeforeReconciliation() {
+        #expect(MobileHostIrohRuntime.shouldDeferServerConnectivitySignal(networkReachable: nil))
+        #expect(MobileHostIrohRuntime.shouldDeferServerConnectivitySignal(networkReachable: false))
+        #expect(!MobileHostIrohRuntime.shouldDeferServerConnectivitySignal(networkReachable: true))
+    }
+
     // MARK: - Resolver cache invalidation
 
     private func tailscaleHosts(in snapshot: MobileHostRouteSnapshot) -> [String] {
