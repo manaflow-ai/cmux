@@ -4113,6 +4113,40 @@
         }
       }
     },
+    "cli.agentHook.error.notificationDelivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook notification delivery failed for %@ %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ のエージェントフック通知を配信できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.agentHook.error.targetResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook target resolution failed for %@ %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ のエージェントフック配信先を解決できませんでした。"
+          }
+        }
+      }
+    },
     "agent.generic.notification.body.approvalNeeded": {
       "extractionState": "manual",
       "localizations": {
