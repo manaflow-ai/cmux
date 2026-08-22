@@ -158,6 +158,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             panel.surface.setOcclusion(rendering)
         case .hosted(let panel, _, _):
             (panel as? SimulatorPanel)?.setCanvasRendering(rendering)
+            (panel as? MacAppPanel)?.setVisibleInUI(rendering)
             // Offscreen browsers may hidden-discard their webview; coming
             // back into the render region restores it.
             (panel as? BrowserPanel)?.noteWebViewVisibility(
@@ -183,6 +184,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 simulatorPanel.setVisibleInUI(false)
                 simulatorPanel.setCanvasRendering(nil)
             }
+            (panel as? MacAppPanel)?.setVisibleInUI(false)
             if let browserPanel = panel as? BrowserPanel {
                 browserPanel.canvasInlineHostingActive = false
                 browserPanel.noteWebViewVisibility(false, reason: "canvas.unmount")

@@ -16,6 +16,7 @@ extension ContentView {
         case .customSidebar:
             return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
         case .simulator: return String(localized: "commandPalette.kind.simulator", defaultValue: "Simulator")
+        case .macApp: return String(localized: "commandPalette.kind.macApp", defaultValue: "Mac App")
         case .agentSession:
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
         case .project:
@@ -49,6 +50,7 @@ extension ContentView {
         case .customSidebar:
             return ["custom", "sidebar", "pane"]
         case .simulator: return ["simulator", "iphone", "ipad", "ios"]
+        case .macApp: return ["mac", "app", "window", "mirror", "capture"]
         case .agentSession:
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
         case .project:

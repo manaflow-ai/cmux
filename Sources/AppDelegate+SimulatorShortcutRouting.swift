@@ -45,6 +45,19 @@ extension AppDelegate {
         return true
     }
 
+    func performConfiguredNewMacAppAction(
+        context: MainWindowContext,
+        onExecuted: (() -> Void)?
+    ) -> Bool {
+        guard let workspace = context.tabManager.selectedWorkspace,
+              let pane = workspace.bonsplitController.focusedPaneId,
+              workspace.newMacAppSurface(inPane: pane, focus: true) != nil else {
+            return false
+        }
+        onExecuted?()
+        return true
+    }
+
     func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .showHideAllWindows
             && action != .globalSearch

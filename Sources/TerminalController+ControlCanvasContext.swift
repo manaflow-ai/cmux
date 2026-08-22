@@ -235,6 +235,7 @@ extension TerminalController: ControlCanvasContext {
         switch type {
         case "browser": paneType = .browser
         case "simulator": paneType = .simulator
+        case "macapp", "mac-app": paneType = .macApp
         default: paneType = .terminal
         }
         guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true) else {

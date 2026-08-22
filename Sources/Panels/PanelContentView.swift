@@ -157,6 +157,17 @@ struct PanelContentView: View {
                     )
                 }
             }
+        case .macApp:
+            if let macAppPanel = panel as? MacAppPanel {
+                MacAppPanelView(
+                    panel: macAppPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    allowsPointerInput: allowsPointerInput,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .agentSession:
             if let agentSessionPanel = panel as? AgentSessionPanel {
                 AgentSessionPanelView(
@@ -238,7 +249,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .macApp, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false

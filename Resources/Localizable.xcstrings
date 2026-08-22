@@ -35472,13 +35472,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"
+            "value": "Usage: cmux canvas new-pane [--type terminal|browser|simulator|macapp]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux canvas new-pane [--type terminal|browser|simulator]"
+            "value": "使用方法: cmux canvas new-pane [--type terminal|browser|simulator|macapp]"
           }
         }
       }
@@ -267550,6 +267550,146 @@
         "uk": { "stringUnit": { "state": "translated", "value": "Не знайдено потрібний CLI. Установіть команду та повторіть спробу." } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
+      }
+    },
+    "command.newMacAppPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mirror and interact with an open app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているアプリをミラーして操作" } }
+      }
+    },
+    "command.newMacAppPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Mac App Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規Macアプリペイン" } }
+      }
+    },
+    "commandPalette.kind.macApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac App" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macアプリ" } }
+      }
+    },
+    "macApp.capture.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow Screen Recording for cmux, then choose this app again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxの画面収録を許可してから、このアプリをもう一度選択してください。" } }
+      }
+    },
+    "macApp.capture.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow Accessibility for cmux to interact with this app." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxがこのアプリを操作できるようにアクセシビリティを許可してください。" } }
+      }
+    },
+    "macApp.capture.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The app window could not be captured. Refresh and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリウィンドウをキャプチャできませんでした。更新してもう一度お試しください。" } }
+      }
+    },
+    "macApp.capture.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Starting app mirror…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリミラーを開始中…" } }
+      }
+    },
+    "macApp.pane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac App" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macアプリ" } }
+      }
+    },
+    "macApp.picker.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open an app window and refresh this pane." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリのウィンドウを開いて、このペインを更新してください。" } }
+      }
+    },
+    "macApp.picker.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No capturable app windows" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャプチャできるアプリウィンドウがありません" } }
+      }
+    },
+    "macApp.picker.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Finding open apps…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているアプリを検索中…" } }
+      }
+    },
+    "macApp.picker.permission.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow Screen Recording for cmux in System Settings, then refresh." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "システム設定でcmuxの画面収録を許可してから、更新してください。" } }
+      }
+    },
+    "macApp.picker.openAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Accessibility Settings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセシビリティ設定を開く" } }
+      }
+    },
+    "macApp.picker.openScreenRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Screen Recording Settings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画面収録設定を開く" } }
+      }
+    },
+    "macApp.picker.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "macApp.picker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose an open Mac app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているMacアプリを選択" } }
+      }
+    },
+    "macApp.toolbar.change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Change App" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリを変更" } }
+      }
+    },
+    "macApp.toolbar.refresh.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh available apps" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用可能なアプリを更新" } }
+      }
+    },
+    "menu.file.newMacAppPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Mac App Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新規Macアプリペイン" } }
+      }
+    },
+    "menu.history.recentlyClosed.panel.macApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac App" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macアプリ" } }
       }
     }
   },

@@ -8948,8 +8948,8 @@ struct CMUXCLI {
             method = "canvas.set_viewport"
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser", "simulator"].contains(type) else {
-                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
+                guard ["terminal", "browser", "simulator", "macapp"].contains(type) else {
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator|macapp]"))
                 }
                 params["type"] = type
             }
@@ -16156,7 +16156,7 @@ struct CMUXCLI {
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a canvas point
                                             (optionally set magnification)
-              new-pane [--type terminal|browser|simulator]
+              new-pane [--type terminal|browser|simulator|macapp]
                                             Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
@@ -17200,7 +17200,7 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser|simulator> Pane type (default: terminal)
+              --type <terminal|browser|simulator|macapp> Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
@@ -17223,7 +17223,7 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|simulator|macapp|agent-session>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -36964,8 +36964,8 @@ export default CMUXSessionRestore;
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
-          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator|macapp>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|macapp|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

@@ -11,6 +11,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case rightSidebarTool
     case customSidebar
     case simulator
+    case macApp = "macapp"
     case agentSession
     case project
     case extensionBrowser

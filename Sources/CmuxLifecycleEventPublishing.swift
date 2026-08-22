@@ -219,6 +219,8 @@ extension Workspace {
             return "custom_sidebar"
         case .simulator:
             return "simulator"
+        case .macApp:
+            return "macapp"
         case .agentSession:
             return "agent_session"
         case .project:
