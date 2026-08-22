@@ -112,6 +112,28 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.usesTransparentWindow)
     }
 
+    @MainActor
+    func testDockChromeLeavesSharedWindowBackdropUnpainted() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.8
+        )
+        var config = GhosttyConfig()
+        config.backgroundColor = snapshot.terminalBackgroundColor
+        config.backgroundOpacity = Double(snapshot.terminalBackgroundOpacity)
+
+        let appearance = DockSplitStore.makeAppearance(
+            from: config,
+            windowAppearance: snapshot
+        )
+
+        XCTAssertEqual(
+            appearance.chromeColors.backgroundHex,
+            "#00000000",
+            "Dock chrome must leave the shared window backdrop visible behind terminal surfaces"
+        )
+    }
+
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
         let red = makeSnapshot(
             unifySurfaceBackdrops: false,
