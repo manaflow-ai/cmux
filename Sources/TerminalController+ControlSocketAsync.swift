@@ -188,6 +188,7 @@ extension TerminalController {
     private nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {
         let base = await v2MainAsync {
             let foundationParams = request.params.mapValues(\.foundationObject)
+            self.v2RefreshKnownRefs()
             return Self.controlCallResult(
                 fromLegacy: self.v2SystemTopBasePayload(params: foundationParams)
             )
