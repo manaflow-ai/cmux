@@ -12,7 +12,7 @@ public struct SentryNoiseFilter: Sendable {
     /// code is lifecycle noise. Other codes, including `not_found` and
     /// `internal_error`, remain eligible for Sentry reporting.
     public func isExpectedCLIErrorCode(_ code: String?) -> Bool {
-        code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "unavailable"
+        normalizedCLIErrorCode(code) == "unavailable"
     }
 
     /// Returns `true` for an expected CLI socket lifecycle failure.
@@ -42,12 +42,12 @@ public struct SentryNoiseFilter: Sendable {
         guard isCLISocketTransportContext(stage: stage, dataKeys: dataKeys) else {
             return false
         }
-        if isExpectedCLIErrorCode(cliErrorCode) {
-            return true
+        // A protocol code is authoritative. Do not let a localized/legacy
+        // message override an explicitly actionable code.
+        if let normalizedCode = normalizedCLIErrorCode(cliErrorCode) {
+            return normalizedCode == "unavailable" || socketPathMissing
         }
-        if socketPathMissing {
-            return true
-        }
+        if socketPathMissing { return true }
         return isExpectedCLISocketTransportMessage(message) ||
             (allowSandboxPolicyDenial && isSocketConnectPolicyDenial(message))
     }
@@ -107,6 +107,14 @@ public struct SentryNoiseFilter: Sendable {
             stage.hasPrefix("socket_command") ||
             dataKeys.contains("socket_phase") ||
             dataKeys.contains("socket_operation")
+    }
+
+    private func normalizedCLIErrorCode(_ code: String?) -> String? {
+        guard let normalized = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalized.isEmpty else {
+            return nil
+        }
+        return normalized
     }
 
     private func containsErrno(_ code: Int, in text: String) -> Bool {

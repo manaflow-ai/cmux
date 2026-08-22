@@ -150,7 +150,8 @@ final class CLISocketSentryTelemetry {
         let isExpectedStructuredCLIError =
             noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
             cliErrorMetadata.socketPathMissing
-        let isExpectedLegacyCLIError = classificationCandidate is CLIError &&
+        let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let isExpectedLegacyCLIError = !hasStructuredCLIErrorCode && classificationCandidate is CLIError &&
             noiseFilter.isExpectedCLISocketTransportMessage(String(describing: classificationCandidate))
         let isExpectedTransportFailure = noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
@@ -330,10 +331,12 @@ final class CLISocketSentryTelemetry {
 
     private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
         let noiseFilter = SentryNoiseFilter()
+        var hasStructuredCLIErrorCode = false
         if let socketContext = event.context?["cli_socket"] {
             let stage = socketContext["stage"] as? String ?? ""
             let message = socketContext["error"] as? String ?? ""
             let cliErrorCode = socketContext["cli_error_code"] as? String
+            hasStructuredCLIErrorCode = cliErrorCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             let socketPathMissing = socketContext["socket_path_missing"] as? Bool ?? false
             if noiseFilter.isExpectedCLIErrorCode(cliErrorCode) || socketPathMissing {
                 return true
@@ -348,14 +351,17 @@ final class CLISocketSentryTelemetry {
                 return true
             }
         }
-        if let message = event.message?.formatted,
+        if !hasStructuredCLIErrorCode,
+           let message = event.message?.formatted,
            noiseFilter.isExpectedCLISocketTransportMessage(message) {
             return true
         }
-        for exception in event.exceptions ?? [] {
-            if let value = exception.value,
-               noiseFilter.isExpectedCLISocketTransportMessage(value) {
-                return true
+        if !hasStructuredCLIErrorCode {
+            for exception in event.exceptions ?? [] {
+                if let value = exception.value,
+                   noiseFilter.isExpectedCLISocketTransportMessage(value) {
+                    return true
+                }
             }
         }
         return false

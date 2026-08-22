@@ -45,6 +45,16 @@ import Testing
             message: "Socket path was removed while the app was restarting",
             socketPathMissing: true
         ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: TabManager not available (Code: 1)",
+            cliErrorCode: "internal_error"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Connection refused, errno 61)",
+            cliErrorCode: "not_found"
+        ))
     }
 
     @Test func keepsActionableSocketFailures() {
