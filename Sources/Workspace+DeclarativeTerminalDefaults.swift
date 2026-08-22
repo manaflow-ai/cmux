@@ -34,13 +34,16 @@ extension Workspace {
             fixedPath = nil
         }
 
-        let sourceHasRemoteDirectoryProvenance = allowsDeclarativeDefaults && (
-            isRemoteWorkspace
-                || isRemoteTmuxMirror
-                || sourcePanelId.map(isRemoteTerminalContext) == true
-        )
+        let remoteWorkspaceOwner = isRemoteWorkspace || isRemoteTmuxMirror
+        let sourceHasRemoteDirectoryProvenance = remoteWorkspaceOwner
+            || sourcePanelId.map(isRemoteTerminalContext) == true
+        // Declarative creation must never copy a remote cwd into a local
+        // surface. Respawn/reconnect deliberately opts out of declarative
+        // defaults and keeps the historical remote cwd provenance instead.
+        let rejectsRemoteDirectoryProvenance = allowsDeclarativeDefaults
+            && sourceHasRemoteDirectoryProvenance
         let inheritedDirectory: String?
-        if policy == .inheritActivePane, !sourceHasRemoteDirectoryProvenance {
+        if policy == .inheritActivePane, !rejectsRemoteDirectoryProvenance {
             inheritedDirectory = sourcePanelId
                 .flatMap { resumedAgentPaneWorkingDirectoryRescue(panelId: $0) }
                 ?? TerminalWorkingDirectoryResolver.firstAvailable([
@@ -52,17 +55,26 @@ extension Workspace {
             inheritedDirectory = nil
         }
 
-        let rootDirectory = TerminalWorkingDirectoryResolver.normalized(workspaceRootDirectory)
-            ?? (sourceHasRemoteDirectoryProvenance
-                ? nil
-                : TerminalWorkingDirectoryResolver.normalized(currentDirectory))
+        let localWorkspaceRoot = remoteWorkspaceOwner
+            ? nil
+            : TerminalWorkingDirectoryResolver.normalized(workspaceRootDirectory)
+        let localCurrentDirectory = remoteWorkspaceOwner
+            ? nil
+            : TerminalWorkingDirectoryResolver.normalized(currentDirectory)
+        let rootDirectory = rejectsRemoteDirectoryProvenance
+            ? (localWorkspaceRoot ?? localCurrentDirectory)
+            : TerminalWorkingDirectoryResolver.normalized(workspaceRootDirectory)
+                ?? TerminalWorkingDirectoryResolver.normalized(currentDirectory)
         return WorkspaceCreationWorkingDirectoryPolicy(
             policy: policy,
             fixedPath: fixedPath
         ).resolve(
             explicitWorkingDirectory: requestedWorkingDirectory,
             inheritedWorkingDirectory: inheritedDirectory,
-            defaultWorkingDirectory: rootDirectory ?? "/",
+            defaultWorkingDirectory: rootDirectory
+                ?? (remoteWorkspaceOwner
+                    ? FileManager.default.homeDirectoryForCurrentUser.path
+                    : "/"),
             workspaceRootWorkingDirectory: rootDirectory
         )
     }

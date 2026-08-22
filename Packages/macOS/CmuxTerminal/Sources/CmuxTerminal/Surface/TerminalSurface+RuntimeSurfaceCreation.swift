@@ -314,8 +314,7 @@ extension TerminalSurface {
                 hasExplicitInput: hasExplicitSurfaceInput,
                 hasGhosttyCommand: engine.hasUserGhosttyCommand,
                 isRestoreSurface: isRestoreSurface,
-                isManualSurface: ioMode.usesManualIO,
-                hasManagedShellIntegration: managedShellCommand != nil
+                isManualSurface: ioMode.usesManualIO
             )
         }()
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in

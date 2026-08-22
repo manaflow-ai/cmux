@@ -86,17 +86,6 @@ struct TerminalShellStartupPolicyTests {
             isManualSurface: false
         )
         #expect(result == nil)
-        #expect(
-            policy.startupInput(
-                configuration: .init(mode: .login, command: "echo startup"),
-                hasExplicitCommand: false,
-                hasExplicitInput: false,
-                hasGhosttyCommand: false,
-                isRestoreSurface: false,
-                isManualSurface: false,
-                hasManagedShellIntegration: true
-            ) == nil
-        )
     }
 
     @Test func loginModeLeavesGhosttyCommandUnchanged() {
@@ -164,6 +153,34 @@ struct TerminalShellStartupPolicyTests {
             hasManagedShellIntegration: true
         )
         #expect(result == nil)
+    }
+
+    @Test func managedIntegrationStillReceivesDeclarativeStartupInput() {
+        let configuration = TerminalShellStartupConfiguration(
+            mode: .nonLogin,
+            command: "echo startup"
+        )
+        let launchOverride = policy.commandOverride(
+            shell: "/bin/zsh",
+            configuration: configuration,
+            hasExplicitCommand: false,
+            hasExplicitInput: false,
+            hasGhosttyCommand: false,
+            isRestoreSurface: false,
+            isManualSurface: false,
+            hasManagedShellIntegration: true
+        )
+        let startupInput = policy.startupInput(
+            configuration: configuration,
+            hasExplicitCommand: false,
+            hasExplicitInput: false,
+            hasGhosttyCommand: false,
+            isRestoreSurface: false,
+            isManualSurface: false
+        )
+
+        #expect(launchOverride == nil)
+        #expect(startupInput == "echo startup\n")
     }
 
     @Test func blankStartupCommandIsIgnored() {

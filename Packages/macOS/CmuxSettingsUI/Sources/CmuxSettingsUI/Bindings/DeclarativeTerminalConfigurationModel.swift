@@ -155,15 +155,17 @@ public final class DeclarativeTerminalConfigurationModel {
 
     /// Persists and reconciles the shell startup command draft.
     public func setShellStartupCommand(_ value: String) {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = catalog.terminal.shellStartupCommand
         saveTasks.replaceOnMainActor("shellStartupCommand") { [weak self] in
             guard let self else { return }
             do {
-                try await self.jsonStore.set(value, for: key)
+                try await self.jsonStore.set(normalized, for: key)
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
             let committed = await self.jsonStore.value(for: key)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             self.updateJSON { $0.shellStartupCommand = committed }
         }
     }
@@ -176,7 +178,8 @@ public final class DeclarativeTerminalConfigurationModel {
             ),
             workingDirectoryPath: await jsonStore.value(for: terminal.newSurfaceWorkingDirectoryPath),
             shellStartupMode: await jsonStore.value(for: terminal.shellStartupMode),
-            shellStartupCommand: await jsonStore.value(for: terminal.shellStartupCommand),
+            shellStartupCommand: (await jsonStore.value(for: terminal.shellStartupCommand))
+                .trimmingCharacters(in: .whitespacesAndNewlines),
             legacyInheritanceEnabled: await userDefaultsStore.value(
                 for: catalog.app.workspaceInheritWorkingDirectory
             )
@@ -218,7 +221,9 @@ public final class DeclarativeTerminalConfigurationModel {
     private func observeShellStartupCommand() async {
         for await value in jsonStore.values(for: catalog.terminal.shellStartupCommand) {
             if Task.isCancelled { return }
-            updateJSON { $0.shellStartupCommand = value }
+            updateJSON {
+                $0.shellStartupCommand = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
     }
 

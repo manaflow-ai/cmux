@@ -132,9 +132,13 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
 
         let localWorkspaceRoot = "/tmp/cmux-local-root-\(UUID().uuidString)"
         let remoteDirectory = "/home/remote/project"
+        let configurationFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-isolated-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: configurationFile) }
         let workspace = Workspace(
             workingDirectory: localWorkspaceRoot,
-            settings: settings
+            settings: settings,
+            declarativeTerminalConfigurationFileURL: configurationFile
         )
         let remotePanelId = try #require(workspace.focusedPanelId)
         workspace.trackRemoteTerminalSurface(remotePanelId)
@@ -149,6 +153,37 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
         #expect(resolvedDirectory != remoteDirectory)
     }
 
+    @Test("remote respawn preserves remote working-directory provenance")
+    func remoteRespawnPreservesRemoteSourceDirectory() throws {
+        let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.remote-respawn-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
+        let configurationFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-isolated-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: configurationFile) }
+
+        let remoteDirectory = "/home/remote/project"
+        let workspace = Workspace(
+            workingDirectory: remoteDirectory,
+            settings: settings,
+            declarativeTerminalConfigurationFileURL: configurationFile
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.trackRemoteTerminalSurface(remotePanelId)
+        workspace.panelDirectories[remotePanelId] = remoteDirectory
+
+        let resolvedDirectory = workspace.resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: nil,
+            sourcePanelId: remotePanelId,
+            allowsDeclarativeDefaults: false
+        )
+
+        #expect(resolvedDirectory == remoteDirectory)
+    }
+
     @Test("new local workspace rejects remote workspace cwd and root")
     func newLocalWorkspaceRejectsRemoteWorkspaceDirectoryProvenance() throws {
         let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"
@@ -160,10 +195,14 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
 
         let remoteDirectory = "/home/remote/project"
         let localDefaultDirectory = "/tmp/cmux-local-default-\(UUID().uuidString)"
+        let configurationFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-isolated-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: configurationFile) }
         let manager = TabManager(
             initialWorkingDirectory: remoteDirectory,
             autoWelcomeIfNeeded: false,
             settings: settings,
+            declarativeTerminalConfigurationFileURL: configurationFile,
             defaultWorkspaceWorkingDirectoryProvider: { localDefaultDirectory }
         )
         let remoteWorkspace = try #require(manager.selectedWorkspace)

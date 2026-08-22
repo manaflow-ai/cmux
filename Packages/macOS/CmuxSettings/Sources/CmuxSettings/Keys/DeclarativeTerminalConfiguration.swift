@@ -26,74 +26,50 @@ public enum ShellStartupMode: String, CaseIterable, Sendable, SettingCodable {
 /// process-wide mutable state.
 @MainActor
 public final class DeclarativeTerminalConfigurationCache {
-    private struct CachedSnapshot {
-        let signature: SnapshotSignature?
-        let value: DeclarativeTerminalConfiguration.Snapshot
+    private var snapshots: [String: DeclarativeTerminalConfiguration.Snapshot] = [:]
+
+    /// Creates a cache, optionally primed with a snapshot read before app wiring.
+    ///
+    /// Spawn paths only read the in-memory value. File I/O and JSON parsing must
+    /// happen before construction (at app startup) or through the long-lived
+    /// ``DeclarativeTerminalConfigurationModel`` observation stream.
+    ///
+    /// - Parameters:
+    ///   - initialSnapshot: Immutable values to publish immediately.
+    ///   - fileURL: File identity associated with ``initialSnapshot``.
+    public init(
+        initialSnapshot: DeclarativeTerminalConfiguration.Snapshot? = nil,
+        fileURL: URL = CmuxConfigLocation().userConfigFile
+    ) {
+        if let initialSnapshot {
+            snapshots[fileURL.standardizedFileURL.path] = initialSnapshot
+        }
     }
-
-    private struct SnapshotSignature: Equatable {
-        let resolvedPath: String
-        let exists: Bool
-        let modificationTime: TimeInterval?
-        let byteCount: Int64?
-        let inode: UInt64?
-    }
-
-    private var snapshots: [String: CachedSnapshot] = [:]
-
-    /// Creates an empty snapshot cache.
-    public init() {}
 
     deinit {}
 
-    /// Returns the current snapshot, re-reading the file when its resolved
-    /// path or filesystem signature changes.
+    /// Returns the last published snapshot without touching the filesystem.
+    ///
+    /// A cache that has not been primed yet returns the safe schema defaults.
+    /// Runtime configuration updates arrive through ``replace(_:fileURL:)``
+    /// from the app-lifetime JSON observation owner.
     public func snapshot(
-        configuration: DeclarativeTerminalConfiguration = DeclarativeTerminalConfiguration(),
         fileURL: URL = CmuxConfigLocation().userConfigFile
     ) -> DeclarativeTerminalConfiguration.Snapshot {
-        let configuredPath = fileURL.standardizedFileURL.path
-        let signature = Self.snapshotSignature(for: fileURL)
-        if let cached = snapshots[configuredPath], cached.signature == nil || cached.signature == signature {
-            return cached.value
-        }
-        let value = configuration.snapshot(fileURL: fileURL)
-        snapshots[configuredPath] = CachedSnapshot(signature: signature, value: value)
-        return value
+        snapshots[fileURL.standardizedFileURL.path] ?? .init()
     }
 
-    /// Replaces the cached value after the actor-backed JSON store has
-    /// delivered an authoritative update. A nil signature means the next
-    /// update is expected to arrive from that observer rather than from a
-    /// synchronous filesystem probe.
+    /// Publishes an authoritative value delivered by the actor-backed JSON store.
     public func replace(
         _ value: DeclarativeTerminalConfiguration.Snapshot,
         fileURL: URL = CmuxConfigLocation().userConfigFile
     ) {
-        snapshots[fileURL.standardizedFileURL.path] = CachedSnapshot(
-            signature: nil,
-            value: value
-        )
+        snapshots[fileURL.standardizedFileURL.path] = value
     }
 
     /// Drops every memoized file snapshot.
     public func reset() {
         snapshots.removeAll(keepingCapacity: true)
-    }
-
-    private static func snapshotSignature(for fileURL: URL) -> SnapshotSignature {
-        let resolvedURL = fileURL.resolvingSymlinksInPath().standardizedFileURL
-        let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedURL.path)
-        let modificationTime = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate
-        let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
-        let inode = (attributes?[.systemFileNumber] as? NSNumber).map { $0.uint64Value }
-        return SnapshotSignature(
-            resolvedPath: resolvedURL.path,
-            exists: attributes != nil,
-            modificationTime: modificationTime,
-            byteCount: byteCount,
-            inode: inode
-        )
     }
 }
 
@@ -133,10 +109,11 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
 
     /// Reads the current values directly from the configured JSON file.
     ///
-    /// This is deliberately a synchronous, lock-free snapshot for creation
-    /// paths that must choose a cwd or shell command before their first
-    /// suspension point. Settings UI writes still go through the actor-backed
-    /// ``JSONConfigStore``.
+    /// This synchronous reader is reserved for bootstrap and test seams.
+    /// Interactive creation paths consume the injected
+    /// ``DeclarativeTerminalConfigurationCache`` instead, while Settings UI
+    /// writes and external edits flow through the actor-backed
+    /// ``JSONConfigStore`` observation stream.
     ///
     /// - Parameter fileURL: Config file to read. Defaults to the active
     ///   per-user `cmux.json` location.
@@ -194,10 +171,10 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
         ///   - shellStartupMode: Parsed shell startup mode.
         ///   - shellStartupCommand: Raw startup command value.
         public init(
-            workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy?,
-            workingDirectoryPath: String,
-            shellStartupMode: ShellStartupMode,
-            shellStartupCommand: String
+            workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy? = nil,
+            workingDirectoryPath: String = "",
+            shellStartupMode: ShellStartupMode = .login,
+            shellStartupCommand: String = ""
         ) {
             self.workingDirectoryPolicy = workingDirectoryPolicy
             self.workingDirectoryPath = workingDirectoryPath
