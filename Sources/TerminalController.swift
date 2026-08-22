@@ -447,6 +447,26 @@ class TerminalController {
         )
         self.socketPathMarkerStore = socketPathMarkerStore
         self.remoteProxyBroker = remoteProxyBroker
+        // Managed Cloud VM daemon endpoints go stale when the machine's preview rotates
+        // (sandbox recreation, preview re-creation). Before each proxy retry, re-mint the
+        // endpoint through the backend so the broker never redials a dead URL forever.
+        (remoteProxyBroker as? RemoteProxyBroker)?.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID else { return nil }
+            guard let attach = try? await VMClient.shared.openAttach(id: vmID, requireDaemon: true),
+                  case .websocket(let endpoint) = attach,
+                  let daemon = endpoint.daemon else {
+                return nil
+            }
+            return configuration.withDaemonWebSocketEndpoint(
+                WorkspaceRemoteWebSocketDaemonEndpoint(
+                    url: daemon.url,
+                    headers: daemon.headers,
+                    token: daemon.token,
+                    sessionId: daemon.sessionId,
+                    expiresAtUnix: daemon.expiresAtUnix
+                )
+            )
+        }
         let simulatorOwnershipFileManager = FileManager()
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
             for: .applicationSupportDirectory,
