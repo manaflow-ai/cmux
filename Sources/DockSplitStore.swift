@@ -328,7 +328,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
         self.declarativeTerminalConfigurationCache =
-            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
+            declarativeTerminalConfigurationCache
+                ?? DeclarativeTerminalConfigurationCache(
+                    fileURL: declarativeTerminalConfigurationFileURL
+                )
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,

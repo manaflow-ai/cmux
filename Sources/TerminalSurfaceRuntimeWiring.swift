@@ -59,7 +59,9 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
-        let declarativeTerminalSettings = declarativeTerminalConfigurationCache.snapshot()
+        let declarativeTerminalSettings = declarativeTerminalConfigurationCache.snapshot(
+            fileURL: declarativeTerminalConfigurationCache.fileURL
+        )
         let shellStartupMode: TerminalShellStartupMode = switch declarativeTerminalSettings.shellStartupMode {
         case .login:
             .login

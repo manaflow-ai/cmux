@@ -3437,7 +3437,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
         self.declarativeTerminalConfigurationCache =
-            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
+            declarativeTerminalConfigurationCache
+                ?? DeclarativeTerminalConfigurationCache(
+                    fileURL: declarativeTerminalConfigurationFileURL
+                )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
