@@ -23,6 +23,13 @@ import Testing
         ))
     }
 
+    @Test func dropsExpectedUnavailableCLIErrorInSocketStages() {
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: TabManager not available (Code: 1)"
+        ))
+    }
+
     @Test func keepsActionableSocketFailures() {
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_command",
