@@ -147,26 +147,22 @@ struct SessionIndexView: View {
 
             Spacer(minLength: 4)
 
-            Toggle(isOn: $store.scopeToCurrentDirectory) {
-                Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-            }
-            .toggleStyle(.checkbox)
-            .controlSize(.small)
+            ScopeButton(
+                isOn: $store.scopeToCurrentDirectory,
+                isEnabled: store.currentDirectory != nil,
+                label: String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only")
+            )
             .frame(height: RightSidebarChromeMetrics.controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
-            .disabled(store.currentDirectory == nil)
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
             .titlebarInteractiveControl()
 
             Button {
                 store.reload()
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .cmuxFont(size: 10, weight: .medium)
+                HeaderChromeIconStyle.symbol("arrow.clockwise")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarSecondaryControl_reload"))
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
             .titlebarInteractiveControl()
@@ -363,9 +359,9 @@ struct SessionIndexView: View {
             isSearchInFlight = false
             return
         }
-        // Matches SectionPopoverView's debounce idiom: rapid keystrokes bump
-        // the task id, cancelling this sleep before any work happens.
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        // Rapid keystrokes bump the task id, cancelling this genuine debounce
+        // deadline before any transcript work starts.
+        try? await ContinuousClock().sleep(for: .milliseconds(200))
         guard !Task.isCancelled else { return }
         isSearchInFlight = true
         let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
@@ -445,6 +441,8 @@ private struct GroupingButton: View {
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
@@ -453,6 +451,69 @@ private struct GroupingButton: View {
         .onHover { isHovered = $0 }
         .help(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
+    }
+}
+
+/// Compact scope toggle for the Vault toolbar. The full label stays available
+/// to accessibility and the tooltip while the visible control remains a
+/// predictable 20-point utility button in narrow sidebars.
+private struct ScopeButton: View {
+    @Binding var isOn: Bool
+    let isEnabled: Bool
+    let label: String
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            guard isEnabled else { return }
+            isOn.toggle()
+        } label: {
+            Image(systemName: "scope")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFont(size: RightSidebarChromeMetrics.headerIconSize, weight: .regular)
+                .frame(
+                    width: RightSidebarChromeMetrics.headerIconFrameSize,
+                    height: RightSidebarChromeMetrics.headerIconFrameSize
+                )
+                .frame(
+                    width: RightSidebarChromeMetrics.headerControlSize,
+                    height: RightSidebarChromeMetrics.headerControlSize
+                )
+                .foregroundStyle(
+                    isOn
+                        ? Color.accentColor
+                        : HeaderChromeIconStyle.foregroundColor.opacity(
+                            isEnabled
+                                ? (isHovered ? HeaderChromeIconStyle.hoveredOpacity : HeaderChromeIconStyle.opacity)
+                                : HeaderChromeIconStyle.disabledOpacity
+                        )
+                )
+                .background {
+                    if isOn || isHovered {
+                        RoundedRectangle(
+                            cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
+                            style: .continuous
+                        )
+                        .fill(
+                            isOn
+                                ? Color.accentColor.opacity(0.12)
+                                : Color.primary.opacity(0.07)
+                        )
+                    }
+                }
+                .contentShape(
+                    RoundedRectangle(
+                        cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
+                        style: .continuous
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .onHover { isHovered = $0 }
+        .help(label)
+        .accessibilityLabel(Text(label))
+        .accessibilityAddTraits(isOn ? [.isSelected] : [])
     }
 }
 
@@ -623,10 +684,14 @@ struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .cmuxFont(size: 13, weight: .regular)
+                    .cmuxFont(size: 12, weight: .semibold)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Text(section.entries.count.description)
+                    .cmuxFont(size: 11, weight: .medium, monospacedDigit: true)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
                 Image(systemName: "chevron.down")
                     .cmuxFont(size: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.6))
@@ -654,12 +719,12 @@ struct IndexSectionView: View, Equatable {
         case .day:
             Image(systemName: "calendar")
                 .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.secondary)
+                .foregroundColor(.accentColor.opacity(0.82))
                 .frame(width: 14, height: 14)
         case .search:
             Image(systemName: "magnifyingglass")
                 .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.secondary)
+                .foregroundColor(.accentColor.opacity(0.82))
                 .frame(width: 14, height: 14)
         }
     }
@@ -760,7 +825,12 @@ private struct SessionRow: View, Equatable {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 6) {
-                AgentIconImage(agent: entry.agent, size: 12)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                    AgentIconImage(agent: entry.agent, size: 12)
+                }
+                .frame(width: 20, height: 20)
                 Text(entry.displayTitle)
                     .cmuxFont(size: 13)
                     .foregroundColor(.primary.opacity(0.92))
@@ -835,7 +905,7 @@ private struct SessionRow: View, Equatable {
             return Color.primary.opacity(0.05)
         }
         if isPreviewPresented {
-            return Color.primary.opacity(0.07)
+            return Color.accentColor.opacity(0.10)
         }
         return Color.clear
     }

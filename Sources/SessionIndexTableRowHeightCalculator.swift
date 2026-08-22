@@ -24,7 +24,10 @@ final class SessionIndexTableRowHeightCalculator {
 
             let entryHeight = lineHeight(
                 baseFontSize: 13,
-                minimumContentHeight: 12,
+                // SessionRow reserves a 20-point agent icon frame so the
+                // primary line stays aligned even when an icon asset is
+                // unavailable.
+                minimumContentHeight: 20,
                 verticalPadding: 8,
                 environment: environment
             )
@@ -40,7 +43,9 @@ final class SessionIndexTableRowHeightCalculator {
             for entry in section.entries.prefix(rowLimit) {
                 visibleEntryHeight += entryHeight
                 if section.accessories[entry.id]?.hasSubtitle == true {
-                    visibleEntryHeight += subtitleHeight
+                    // SessionRow is a VStack with one point of spacing
+                    // between its primary and metadata lines.
+                    visibleEntryHeight += 1 + subtitleHeight
                 }
             }
             let showMoreHeight: CGFloat

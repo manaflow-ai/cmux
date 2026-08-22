@@ -287,21 +287,19 @@ enum VaultRecencySections {
         }
         if let weekAgo = calendar.date(byAdding: .day, value: -6, to: today),
            dayStart >= weekAgo, dayStart < today {
-            return Self.weekdayFormatter.string(from: dayStart)
+            let weekdayFormatter = DateFormatter()
+            weekdayFormatter.calendar = calendar
+            weekdayFormatter.locale = calendar.locale ?? .current
+            weekdayFormatter.timeZone = calendar.timeZone
+            weekdayFormatter.setLocalizedDateFormatFromTemplate("EEEE")
+            return weekdayFormatter.string(from: dayStart)
         }
-        return Self.dateFormatter.string(from: dayStart)
+        let dateFormatter = DateFormatter()
+        dateFormatter.calendar = calendar
+        dateFormatter.locale = calendar.locale ?? .current
+        dateFormatter.timeZone = calendar.timeZone
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+        return dateFormatter.string(from: dayStart)
     }
-
-    private static let weekdayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.setLocalizedDateFormatFromTemplate("EEEE")
-        return formatter
-    }()
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter
-    }()
 }

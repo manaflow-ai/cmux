@@ -19,9 +19,12 @@ struct VaultAllSessionsBar: View {
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             searchField
             if showsSortAndFilter {
+                Divider()
+                    .frame(height: 16)
+                    .opacity(0.45)
                 sortMenu
                 filterMenu
             }
@@ -73,11 +76,12 @@ struct VaultAllSessionsBar: View {
         // The one standardized Vault search-field style, shared with
         // SectionPopoverView's "Search Vault" row.
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
         )
+        .frame(maxWidth: .infinity, alignment: .leading)
         .titlebarInteractiveControl()
     }
 
@@ -93,12 +97,12 @@ struct VaultAllSessionsBar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
-                .cmuxFont(size: 10, weight: .medium)
+            VaultToolbarIcon(systemName: "arrow.up.arrow.down")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .contentShape(Rectangle())
         .help(String(localized: "sessionIndex.allSessions.sortTooltip", defaultValue: "Sort sessions"))
         .accessibilityIdentifier("VaultAllSessionsSortMenu")
         .titlebarInteractiveControl()
@@ -112,7 +116,7 @@ struct VaultAllSessionsBar: View {
             ) {
                 Text(String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents"))
                     .tag(String?.none)
-                ForEach(agentOptions, id: \.id) { option in
+                ForEach(store.agentFilterOptions) { option in
                     Text(option.label).tag(String?.some(option.id))
                 }
             }
@@ -132,8 +136,8 @@ struct VaultAllSessionsBar: View {
             ) {
                 Text(String(localized: "sessionIndex.filter.folder.all", defaultValue: "All folders"))
                     .tag(String?.none)
-                ForEach(folderOptions, id: \.path) { option in
-                    Text(option.label).tag(String?.some(option.path))
+                ForEach(store.folderFilterOptions) { option in
+                    Text(option.label).tag(String?.some(option.id))
                 }
             }
             .pickerStyle(.inline)
@@ -155,39 +159,68 @@ struct VaultAllSessionsBar: View {
                 }
             }
         } label: {
-            Image(systemName: store.recencyFilter.isActive
-                ? "line.3.horizontal.decrease.circle.fill"
-                : "line.3.horizontal.decrease.circle")
-                .cmuxFont(size: 10, weight: .medium)
-                .foregroundColor(store.recencyFilter.isActive ? .accentColor : .secondary)
+            VaultToolbarIcon(
+                systemName: store.recencyFilter.isActive
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle",
+                isActive: store.recencyFilter.isActive
+            )
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .contentShape(Rectangle())
         .help(String(localized: "sessionIndex.allSessions.filterTooltip", defaultValue: "Filter sessions"))
         .accessibilityIdentifier("VaultAllSessionsFilterMenu")
         .titlebarInteractiveControl()
     }
 
-    /// Distinct agents present in the loaded index, in recency order (the
-    /// entries array is already sorted by last activity).
-    private var agentOptions: [(id: String, label: String)] {
-        var seen: Set<String> = []
-        var options: [(id: String, label: String)] = []
-        for entry in store.entries where seen.insert(entry.agent.rawValue).inserted {
-            options.append((id: entry.agent.rawValue, label: entry.agent.displayName))
-        }
-        return options
-    }
+}
 
-    /// Distinct folders present in the loaded index, in recency order.
-    private var folderOptions: [(path: String, label: String)] {
-        var seen: Set<String> = []
-        var options: [(path: String, label: String)] = []
-        for entry in store.entries {
-            guard let cwd = entry.cwd, !cwd.isEmpty, seen.insert(cwd).inserted else { continue }
-            options.append((path: cwd, label: entry.cwdBasename ?? cwd))
-        }
-        return options
+/// Consistent 20-point utility target for search-row menus. The quiet resting
+/// state keeps the field primary; hover and active states make the affordance
+/// legible without adding another pill to the toolbar.
+private struct VaultToolbarIcon: View {
+    let systemName: String
+    var isActive = false
+    @State private var isHovered = false
+
+    var body: some View {
+        Image(systemName: systemName)
+            .symbolRenderingMode(.monochrome)
+            .cmuxFont(size: RightSidebarChromeMetrics.headerIconSize, weight: .regular)
+            .foregroundStyle(
+                isActive
+                    ? Color.accentColor
+                    : HeaderChromeIconStyle.foregroundColor.opacity(
+                        isHovered
+                            ? HeaderChromeIconStyle.hoveredOpacity
+                            : HeaderChromeIconStyle.opacity
+                    )
+            )
+            .frame(
+                width: RightSidebarChromeMetrics.headerControlSize,
+                height: RightSidebarChromeMetrics.headerControlSize
+            )
+            .background {
+                if isActive || isHovered {
+                    RoundedRectangle(
+                        cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(
+                        isActive
+                            ? Color.accentColor.opacity(0.12)
+                            : Color.primary.opacity(0.07)
+                    )
+                }
+            }
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
+                    style: .continuous
+                )
+            )
+            .onHover { isHovered = $0 }
     }
 }

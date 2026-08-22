@@ -118,6 +118,12 @@ enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Cached filter-menu option derived from the loaded Vault index.
+struct SessionIndexFilterOption: Identifiable, Equatable {
+    let id: String
+    let label: String
+}
+
 /// Identifier for a section in the index. For agent grouping, raw value is `agent:<rawValue>`;
 /// for directory grouping, `dir:<absolute path>` (or `dir:` for unknown).
 struct SectionKey: Hashable {
@@ -190,9 +196,14 @@ final class SessionIndexStore: ObservableObject {
     @Published private(set) var entries: [SessionEntry] = [] {
         didSet {
             guard entries != oldValue else { return }
+            rebuildFilterOptions()
             invalidateSectionsCache()
         }
     }
+    /// Menu options are rebuilt when the index changes, never while SwiftUI
+    /// is evaluating the toolbar body or while the user is typing a query.
+    private(set) var agentFilterOptions: [SessionIndexFilterOption] = []
+    private(set) var folderFilterOptions: [SessionIndexFilterOption] = []
     @Published private(set) var isLoading: Bool = false
     @Published var scopeToCurrentDirectory: Bool = false {
         didSet {
@@ -282,7 +293,10 @@ final class SessionIndexStore: ObservableObject {
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
-        self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
+        // Vault's primary job is to surface the session a person was just in;
+        // keep the recency-first view as the first-run default while honoring
+        // an existing grouping preference.
+        self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .recency
         let storedSort = UserDefaults.standard.string(forKey: Self.recencySortKey)
         self.recencySort = VaultSessionSort(rawValue: storedSort ?? "") ?? .lastActivity
     }
@@ -439,6 +453,33 @@ final class SessionIndexStore: ObservableObject {
 
     private func invalidateSectionsCache() {
         sectionsCacheRevision &+= 1
+    }
+
+    private func rebuildFilterOptions() {
+        var seenAgents = Set<String>()
+        var nextAgents: [SessionIndexFilterOption] = []
+        nextAgents.reserveCapacity(entries.count)
+        var seenFolders = Set<String>()
+        var nextFolders: [SessionIndexFilterOption] = []
+        nextFolders.reserveCapacity(entries.count)
+
+        for entry in entries {
+            let agentID = entry.agent.rawValue
+            if seenAgents.insert(agentID).inserted {
+                nextAgents.append(
+                    SessionIndexFilterOption(id: agentID, label: entry.agent.displayName)
+                )
+            }
+            if let cwd = entry.cwd,
+               !cwd.isEmpty,
+               seenFolders.insert(cwd).inserted {
+                nextFolders.append(
+                    SessionIndexFilterOption(id: cwd, label: entry.cwdBasename ?? cwd)
+                )
+            }
+        }
+        agentFilterOptions = nextAgents
+        folderFilterOptions = nextFolders
     }
 
     private func filteredEntriesForCurrentScope() -> [SessionEntry] {
