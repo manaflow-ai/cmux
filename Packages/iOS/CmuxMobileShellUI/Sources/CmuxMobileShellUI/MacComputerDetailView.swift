@@ -49,6 +49,7 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomName: String?
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
+    @State private var pendingLastRouteRemoval: CmxAttachRoute?
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -133,6 +134,45 @@ struct MacComputerDetailView: View {
             Text(L10n.string(
                 "mobile.connections.direct.addMessage",
                 defaultValue: "Where this computer is reachable, like 192.168.1.20 or mac.local:64000. Without a port, the Mac's advertised port is used."
+            ))
+        }
+        .confirmationDialog(
+            L10n.string(
+                "mobile.connections.route.deleteComputer.title",
+                defaultValue: "Delete this computer?"
+            ),
+            isPresented: Binding(
+                get: { pendingLastRouteRemoval != nil },
+                set: { if !$0 { pendingLastRouteRemoval = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(
+                L10n.string(
+                    "mobile.connections.route.deleteComputer.confirm",
+                    defaultValue: "Delete Computer"
+                ),
+                role: .destructive
+            ) {
+                guard let route = pendingLastRouteRemoval else { return }
+                pendingLastRouteRemoval = nil
+                Task {
+                    let removed = await store.removeRoute(
+                        route,
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag,
+                        deleteComputerIfLastRoute: true
+                    )
+                    if removed { dismiss() }
+                }
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                pendingLastRouteRemoval = nil
+            }
+        } message: {
+            Text(L10n.string(
+                "mobile.connections.route.deleteComputer.message",
+                defaultValue: "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again."
             ))
         }
         .onAppear {
@@ -674,13 +714,7 @@ struct MacComputerDetailView: View {
                     .textSelection(.enabled)
                 if route.kind != .iroh {
                     Button {
-                        Task {
-                            await store.removeRoute(
-                                route,
-                                macDeviceID: macDeviceID,
-                                instanceTag: instanceTag
-                            )
-                        }
+                        removeRoute(route)
                     } label: {
                         Image(systemName: "trash")
                     }
@@ -697,6 +731,20 @@ struct MacComputerDetailView: View {
             }
             pingStatusLine(for: route)
         }
+    }
+
+    private func removeRoute(_ route: CmxAttachRoute) {
+        guard pairedMac?.routes.count == 1 else {
+            Task {
+                await store.removeRoute(
+                    route,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            }
+            return
+        }
+        pendingLastRouteRemoval = route
     }
 
     /// The per-route ping status sub-line: nothing before the first ping, a
