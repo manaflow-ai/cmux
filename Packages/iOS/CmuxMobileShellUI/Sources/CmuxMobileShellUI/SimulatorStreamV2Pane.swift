@@ -1,7 +1,10 @@
+#if canImport(UIKit)
 import CmuxMobileShell
 import CmuxMobileSimulatorStream
+import CmuxMobileSupport
 import CmuxSimulatorStreamKit
 import SwiftUI
+import UIKit
 
 /// Simulator streaming v2: hardware-decoded video over a dedicated lane.
 ///
@@ -243,3 +246,4 @@ private struct SimStreamDisplayRepresentable: UIViewRepresentable {
 
     func updateUIView(_ uiView: SimStreamDisplayView, context: Context) {}
 }
+#endif
