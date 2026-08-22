@@ -5,19 +5,6 @@ import SwiftUI
 
 extension WorkspaceDetailView {
     @ViewBuilder
-    func chatWaitingSurfacePlaceholder() -> some View {
-        waitingSurfacePlaceholder(
-            title: L10n.string("mobile.chat.waiting", defaultValue: "Waiting for Chat"),
-            detail: L10n.string(
-                "mobile.chat.waitingDetail",
-                defaultValue: "The conversation will appear when it is ready."
-            ),
-            symbol: "bubble.left.and.bubble.right",
-            accessibilityIdentifier: "WorkspaceChatPlaceholder"
-        )
-    }
-
-    @ViewBuilder
     func waitingSurfacePlaceholder(
         title: String,
         detail: String,

@@ -416,8 +416,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
     /// The number of currently retained unread notifications across all Macs.
     public private(set) var notificationFeedUnreadCount: Int = 0
-    /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
-    var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of every
     /// entry in ``workspacesByMac``. Each group's `isCollapsed` reflects this
     /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
@@ -1051,8 +1049,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
-    /// Identity token that changes when the paired Mac chat event source is rebuilt.
-    public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
     var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
@@ -1247,7 +1243,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Focus generations whose terminal subscription has been removed for a
     /// role handoff but whose registry transition has not committed yet.
     @ObservationIgnored var focusedHandoffPreparedGenerations: Set<UUID> = []
-    private var chatEventSourceGeneration: UUID
     /// One authoritative per-Mac connection registry. Compatibility accessors
     /// below keep focused/control call sites reviewable while every mutation
     /// lands in this single role-aware map.
@@ -1735,7 +1730,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
-        self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
         self.viewportReportGenerationsBySequenceKey = [:]
@@ -1915,7 +1909,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // not write partial state into a store we are emptying wholesale.
         isLoadingDraft = true
         terminalInputText = ""
-        chatSessionSnapshotsByWorkspaceID = [:]
         // Enqueued on the FIFO draft pipeline so every save issued before this
         // point is applied first and then wiped; a pending keystroke save can
         // never land after the wipe and leak into the next account's session.
@@ -7406,7 +7399,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         pruneTerminalThemes(to: derived)
-        pruneChatSessionSnapshots(to: derived)
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
             let remapped = previousSelection.flatMap { previous in
@@ -7430,27 +7422,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macIDsInDisplayOrder: macIDsInDisplayOrder
         )
         workspaceGroups = groupCollapseStore.apply(to: derivedGroups)
-    }
-
-    private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
-        var validWorkspaceIDs = Set<String>()
-        for workspace in visibleWorkspaces {
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            validWorkspaceIDs.insert(workspace.id.rawValue)
-            validWorkspaceIDs.insert(remoteID.rawValue)
-            if let macDeviceID = workspace.macDeviceID {
-                validWorkspaceIDs.insert(
-                    workspaceAggregation.rowID(
-                        macDeviceID: macDeviceID,
-                        instanceTag: workspace.macInstanceTag,
-                        workspaceID: remoteID
-                    ).rawValue
-                )
-            }
-        }
-        chatSessionSnapshotsByWorkspaceID = chatSessionSnapshotsByWorkspaceID.filter {
-            validWorkspaceIDs.contains($0.key)
-        }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
@@ -7666,22 +7637,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func dropStalePreviousForeground(_ previousKey: MacPairingKey) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
-        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            return [
-                workspace.id.rawValue,
-                remoteID.rawValue,
-                workspaceAggregation.rowID(
-                    macDeviceID: previousKey.canonicalMacDeviceID,
-                    instanceTag: previousKey.normalizedInstanceTag,
-                    workspaceID: remoteID
-                ).rawValue,
-            ]
-        })
         workspacesByMac[previousKey] = nil
-        for workspaceID in removedWorkspaceIDs {
-            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
-        }
     }
 
     /// Adopt a host-reported real device id as the foreground Mac's aggregate key.
@@ -10046,9 +10002,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             previous.retire()
         }
         remoteClient = newValue
-        if newValue != nil, previous !== newValue {
-            chatEventSourceGeneration = UUID()
-        }
         if previous !== newValue {
             terminalSubscriptionHandoffFences.removeAll()
         }
@@ -10077,7 +10030,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if !preservingTerminalHandoffFences {
             terminalSubscriptionHandoffFences.removeAll()
         }
-        chatEventSourceGeneration = UUID()
         return connectionGeneration
     }
 

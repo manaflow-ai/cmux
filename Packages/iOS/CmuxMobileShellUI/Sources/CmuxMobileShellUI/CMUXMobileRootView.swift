@@ -138,14 +138,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowStreamingChatPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.streamingChatPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var shouldShowMacSurfaceGalleryPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.macSurfaceGalleryPreviewPage != nil
@@ -189,14 +181,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
     #endif
-
-    @ViewBuilder private var streamingChatPreview: some View {
-        #if os(iOS) && DEBUG
-        StreamingChatPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
 
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
@@ -459,8 +443,6 @@ struct CMUXMobileRootView: View {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
-        } else if shouldShowAgentChatDemoPreview {
-            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
@@ -469,8 +451,6 @@ struct CMUXMobileRootView: View {
             macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
-        } else if shouldShowStreamingChatPreview {
-            streamingChatPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
