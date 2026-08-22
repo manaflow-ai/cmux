@@ -43,6 +43,7 @@ extension TerminalPasteboardService {
     /// `expectedChangeCount` is evaluated when the mutation reaches the head
     /// of the lane, not when it is enqueued. Once the mutation is admitted, the
     /// service reports its authoritative result even if the caller is cancelled.
+    @MainActor
     public func replaceContentsAndWait(
         of pasteboard: NSPasteboard,
         with items: [NSPasteboardItem],

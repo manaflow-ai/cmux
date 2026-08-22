@@ -256,6 +256,16 @@ void ghostty_config_load_string(
     config->diagnostics_count = 1;
 }
 
+ghostty_string_s ghostty_config_serialize(void *config) {
+    static const char serialized[] = "cmux-terminal-test-config";
+    (void)config;
+    return (ghostty_string_s){
+        .ptr = serialized,
+        .len = sizeof(serialized) - 1,
+        .sentinel = true,
+    };
+}
+
 bool ghostty_config_get(
     void *raw_config,
     void *raw_value,
