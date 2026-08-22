@@ -3933,98 +3933,76 @@ final class SocketClient {
     }
 
     static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
-        if FileManager.default.fileExists(atPath: path) {
-            return
-        }
-
-        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "Timed out waiting for \(path)")
-        }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else {
-            throw CLIError(message: "Timed out waiting for \(path)")
-        }
-
-        let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
-        let semaphore = DispatchSemaphore(value: 0)
-        var found = false
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
+        try waitForFilesystemPathCondition(
+            path,
+            timeout: timeout,
+            timeoutMessage: "Timed out waiting for \(path)",
+            isConditionMet: { FileManager.default.fileExists(atPath: path) }
         )
-
-        func checkPath() {
-            guard !found else { return }
-            if FileManager.default.fileExists(atPath: path) {
-                found = true
-                semaphore.signal()
-            }
-        }
-
-        source.setEventHandler {
-            checkPath()
-        }
-        source.setCancelHandler {
-            Darwin.close(watchFD)
-        }
-        source.resume()
-        queue.async {
-            checkPath()
-        }
-
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            source.cancel()
-            throw CLIError(message: "Timed out waiting for \(path)")
-        }
-
-        source.cancel()
     }
 
     static func waitForFilesystemPathAbsence(_ path: String, timeout: TimeInterval) throws {
-        if !FileManager.default.fileExists(atPath: path) {
+        try waitForFilesystemPathCondition(
+            path,
+            timeout: timeout,
+            timeoutMessage: "Timed out waiting for \(path) to be removed",
+            isConditionMet: { !FileManager.default.fileExists(atPath: path) }
+        )
+    }
+
+    /// Blocks until `isConditionMet` becomes true, waking only on filesystem
+    /// events in the path's parent directory rather than polling. Shared by
+    /// `waitForFilesystemPath` and `waitForFilesystemPathAbsence`, which differ
+    /// only in the polarity of their `fileExists` check.
+    private static func waitForFilesystemPathCondition(
+        _ path: String,
+        timeout: TimeInterval,
+        timeoutMessage: @autoclosure () -> String,
+        isConditionMet: @escaping () -> Bool
+    ) throws {
+        if isConditionMet() {
             return
         }
 
         guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "Timed out waiting for \(path) to be removed")
+            throw CLIError(message: timeoutMessage())
         }
         let watchFD = open(watchDirectory, O_EVTONLY)
         guard watchFD >= 0 else {
-            throw CLIError(message: "Timed out waiting for \(path) to be removed")
+            throw CLIError(message: timeoutMessage())
         }
 
         let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
         let semaphore = DispatchSemaphore(value: 0)
-        var removed = false
+        var met = false
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: watchFD,
             eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
             queue: queue
         )
 
-        func checkPath() {
-            guard !removed else { return }
-            if !FileManager.default.fileExists(atPath: path) {
-                removed = true
+        func checkCondition() {
+            guard !met else { return }
+            if isConditionMet() {
+                met = true
                 semaphore.signal()
             }
         }
 
         source.setEventHandler {
-            checkPath()
+            checkCondition()
         }
         source.setCancelHandler {
             Darwin.close(watchFD)
         }
         source.resume()
         queue.async {
-            checkPath()
+            checkCondition()
         }
 
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
             source.cancel()
-            throw CLIError(message: "Timed out waiting for \(path) to be removed")
+            throw CLIError(message: timeoutMessage())
         }
 
         source.cancel()
