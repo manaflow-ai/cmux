@@ -33,12 +33,11 @@ extension RemoteSessionCoordinator {
             )
             return false
         }
-        guard let resolvedControlPath,
-              let relayID = configuration.relayID?
-              .trimmingCharacters(in: .whitespacesAndNewlines),
-              !relayID.isEmpty,
-              let relayToken = configuration.relayToken?
-              .trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let relayID = configuration.relayID?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !relayID.isEmpty,
+            let relayToken = configuration.relayToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
               !relayToken.isEmpty else {
             return false
         }
@@ -54,11 +53,61 @@ extension RemoteSessionCoordinator {
         let token = UUID()
         let configuration = self.configuration
         let connectionBroker = self.connectionBroker
+        let processRunner = self.processRunner
+        let resolutionAttempt: NativeSSHControlPathResolutionAttempt?
+        if resolvedControlPath != nil {
+            resolutionAttempt = nil
+        } else {
+            guard let effectiveOptions = resolvedControlMasterSSHOptions,
+                  let ownedPath = connectionBroker.sharingOptions
+                    .cmuxOwnedControlPath(in: effectiveOptions),
+                  ownedPath.contains("%") else {
+                return false
+            }
+            let resolver = NativeSSHControlPathResolver(
+                sharingOptions: connectionBroker.sharingOptions
+            )
+            let request = RemoteProcessRequest(
+                executable: "/usr/bin/ssh",
+                arguments: resolver.resolutionArguments(
+                    configuration: configuration,
+                    effectiveOptions: effectiveOptions
+                ),
+                environment: configuration.sshProcessEnvironment,
+                timeout: 5
+            )
+            resolutionAttempt = NativeSSHControlPathResolutionAttempt(
+                request: request,
+                resolver: resolver,
+                effectiveOptions: effectiveOptions,
+                processRunner: processRunner
+            )
+        }
         let task = Task { [weak self] in
+            let effectiveControlPath: String?
+            if let resolutionAttempt {
+                effectiveControlPath = await resolutionAttempt.run()
+                guard !Task.isCancelled else { return }
+            } else {
+                effectiveControlPath = resolvedControlPath
+            }
+            guard let effectiveControlPath else {
+                self?.queue.async { [weak self] in
+                    self?.finishInheritedControlMasterReapLocked(
+                        token: token,
+                        outcome: .deferred(
+                            "could not resolve the cmux SSH ControlPath"
+                        ),
+                        remotePath: remotePath,
+                        relayPort: relayPort
+                    )
+                }
+                return
+            }
             let outcome =
                 await connectionBroker.reapInheritedControlMaster(
                     for: configuration,
-                    resolvedControlPath: resolvedControlPath,
+                    resolvedControlPath: effectiveControlPath,
                     metadataProbeCommand: metadataProbeCommand
                 )
             guard !Task.isCancelled else { return }

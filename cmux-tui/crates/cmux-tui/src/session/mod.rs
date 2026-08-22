@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     VIEWPORT_SPLITS_CAPABILITY,
@@ -295,6 +295,46 @@ fn default_true() -> bool {
     true
 }
 
+/// How attach must bootstrap a session so a bare `cmux` launch never lands on
+/// pure emptiness. A brand-new session gets its first workspace. A session
+/// whose every workspace has lost its screens (the legitimate outcome of the
+/// startup repair that prunes dead terminals) gets the default shell in the
+/// active workspace, because empty is indistinguishable from broken at
+/// attach. One surviving screen anywhere means the user's layout is intact,
+/// and includes the deliberately-empty-workspace case, so startup must not
+/// mutate anything.
+enum InitialBootstrap {
+    FirstWorkspace,
+    ShellInActiveWorkspace,
+    LayoutIntact,
+}
+
+/// Idempotency identity for the bare-session bootstrap create. Uniqueness
+/// matters: a collision would make the daemon replay another client's create
+/// instead of applying the revision guard.
+fn bootstrap_mutation_id() -> anyhow::Result<String> {
+    use std::fmt::Write as _;
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("cannot allocate bootstrap mutation identity: {error}"))?;
+    let mut id = String::with_capacity(50);
+    id.push_str("attach-bootstrap_");
+    for byte in bytes {
+        let _ = write!(id, "{byte:02x}");
+    }
+    Ok(id)
+}
+
+fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
+    if tree.workspaces.is_empty() {
+        return InitialBootstrap::FirstWorkspace;
+    }
+    if tree.workspaces.iter().all(|workspace| workspace.screens.is_empty()) {
+        return InitialBootstrap::ShellInActiveWorkspace;
+    }
+    InitialBootstrap::LayoutIntact
+}
+
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
     if let Some((cols, rows)) = size {
@@ -362,7 +402,92 @@ pub(crate) enum SurfaceAttach {
     Missing,
 }
 
+/// A client's focused pane and tab. Reported to the mux as memory only: a
+/// later attach adopts it (the same client through its own record, any other
+/// client through the session's last reported focus), and future follow-along
+/// clients can subscribe to it. Reports never move the live shared focus, so
+/// clients that are already attached stay where they are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ClientFocus {
+    pub(crate) pane: PaneId,
+    pub(crate) tab: usize,
+}
+
 impl Session {
+    /// Best-effort focus report: the client already navigated optimistically,
+    /// so failures are ignored and remote sends are never awaited. On the
+    /// local path and on a `client-focus-v1` server the report only writes
+    /// memory: the session's last reported focus (the adoption default for a
+    /// later attach) and, with a client id, this client's own record for its
+    /// reconnection. It never moves the live shared focus, so other attached
+    /// clients keep their own view. Only a remote server without the
+    /// capability degrades to `focus-pane` plus `select-tab`, which does move
+    /// the shared focus.
+    pub(crate) fn report_focus(
+        &self,
+        previous: Option<ClientFocus>,
+        focus: ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        let pane_changed = previous.map(|value| value.pane) != Some(focus.pane);
+        let tab_changed = previous != Some(focus);
+        if !pane_changed && !tab_changed {
+            return;
+        }
+        match self {
+            Session::Local(mux) => {
+                mux.record_session_focus(focus.pane, Some(focus.tab));
+                if let Some(client_id) = client_id {
+                    mux.remember_client_focus(client_id.to_string(), focus.pane, Some(focus.tab));
+                }
+            }
+            Session::Remote(remote) => {
+                let combined =
+                    client_id.filter(|_| remote.supports_capability(CLIENT_FOCUS_CAPABILITY));
+                if let Some(client_id) = combined {
+                    let _ = remote.notify(json!({
+                        "cmd": "report-focus",
+                        "client_id": client_id,
+                        "pane": focus.pane,
+                        "tab": focus.tab,
+                    }));
+                    return;
+                }
+                if pane_changed {
+                    let _ = remote.notify(json!({"cmd": "focus-pane", "pane": focus.pane}));
+                }
+                if tab_changed {
+                    let _ = remote.notify(
+                        json!({"cmd": "select-tab", "pane": focus.pane, "index": focus.tab}),
+                    );
+                }
+            }
+        }
+    }
+
+    /// This client's remembered focus on this session, falling back to the
+    /// session's last reported focus from any client, if the server has
+    /// either and its pane is still alive. The remote server applies the
+    /// same fallback inside the `client-focus` command.
+    pub(crate) fn client_focus(&self, client_id: &str) -> Option<ClientFocus> {
+        match self {
+            Session::Local(mux) => mux
+                .client_focus(client_id)
+                .or_else(|| mux.session_focus())
+                .map(|(pane, tab)| ClientFocus { pane, tab: tab.unwrap_or(0) }),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {
+                    return None;
+                }
+                let value =
+                    remote.request(json!({"cmd": "client-focus", "client_id": client_id})).ok()?;
+                let pane: PaneId = serde_json::from_value(value.get("pane")?.clone()).ok()?;
+                let tab = value.get("tab").and_then(|tab| tab.as_u64()).unwrap_or(0) as usize;
+                Some(ClientFocus { pane, tab })
+            }
+        }
+    }
+
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
             Session::Local(mux) => mux.allocate_in_process_resize_owner(),
@@ -465,6 +590,17 @@ impl Session {
         }
     }
 
+    /// Whether this session's transport can still serve requests. A remote
+    /// session whose reader hit EOF (VM paused, stream ended, network died)
+    /// flips its shutdown flag; a warm connection pool must not hand such a
+    /// corpse back to a switch.
+    pub fn is_alive(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => !remote.is_shut_down(),
+        }
+    }
+
     pub fn journal_frontend_event(
         &self,
         event: cmux_tui_core::FrontendJournalEvent,
@@ -523,16 +659,115 @@ impl Session {
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.new_workspace(None, size)?;
+                // One snapshot serves both the decision and the target
+                // selection; a second read could disagree with the first
+                // when another mux owner mutates the tree in between.
+                let tree = self.tree();
+                match initial_bootstrap(&tree) {
+                    InitialBootstrap::FirstWorkspace => {
+                        mux.new_workspace(None, size)?;
+                    }
+                    InitialBootstrap::ShellInActiveWorkspace => {
+                        let workspace = tree
+                            .workspaces
+                            .get(tree.active_workspace)
+                            .or_else(|| tree.workspaces.first())
+                            .expect("bare-session bootstrap requires at least one workspace")
+                            .id;
+                        mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                    }
+                    InitialBootstrap::LayoutIntact => {}
+                }
                 Ok(())
             }
             Session::Remote(remote) => {
-                if remote.refresh_tree()?.workspaces.is_empty() {
-                    remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
-                    anyhow::ensure!(
-                        !remote.refresh_tree()?.workspaces.is_empty(),
-                        "remote session did not expose the workspace it created"
-                    );
+                let tree = remote.refresh_tree()?;
+                match initial_bootstrap(&tree) {
+                    InitialBootstrap::FirstWorkspace => {
+                        remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
+                        anyhow::ensure!(
+                            !remote.refresh_tree()?.workspaces.is_empty(),
+                            "remote session did not expose the workspace it created"
+                        );
+                    }
+                    InitialBootstrap::ShellInActiveWorkspace => {
+                        // Re-read the tree raw so the create can carry the
+                        // terminal revision of the very snapshot it targets,
+                        // and re-verify bareness from that snapshot: when two
+                        // clients attach to one bare session, the daemon
+                        // rejects the guarded create whose revision already
+                        // moved, and the postcondition accepts the shell
+                        // whichever client created it.
+                        let snapshot = remote.request(json!({"cmd": "list-workspaces"}))?;
+                        let workspaces = snapshot["workspaces"].as_array();
+                        let bare = workspaces.is_some_and(|workspaces| {
+                            !workspaces.is_empty()
+                                // An explicit empty screen array is the only
+                                // proof of bareness; a missing or malformed
+                                // field fails closed and skips the create.
+                                && workspaces.iter().all(|workspace| {
+                                    workspace["screens"]
+                                        .as_array()
+                                        .is_some_and(|screens| screens.is_empty())
+                                })
+                        });
+                        // Fail closed: without the revision metadata the
+                        // create cannot carry its guard, and an unguarded
+                        // create from two concurrent attaches would add two
+                        // shells. A daemon old enough to omit the metadata
+                        // keeps its old behavior (the session stays bare).
+                        let guard = match (
+                            snapshot["generation"].as_str(),
+                            snapshot["terminal_revision"].as_u64(),
+                        ) {
+                            (Some(generation), Some(revision)) => Some((generation, revision)),
+                            _ => None,
+                        };
+                        let create_result = match (bare, guard) {
+                            (true, Some((generation, revision))) => {
+                                let workspaces = workspaces.expect("bareness implies an array");
+                                let target = workspaces
+                                    .iter()
+                                    .find(|workspace| workspace["active"].as_bool() == Some(true))
+                                    .unwrap_or(&workspaces[0]);
+                                let mut request = json!({
+                                    "cmd": "create-terminal",
+                                    "origin": "attach-bare-session-bootstrap",
+                                    "mutation_id": bootstrap_mutation_id()?,
+                                    "expected_generation": generation,
+                                    "expected_revision": revision,
+                                });
+                                match target["key"].as_str() {
+                                    Some(key) if !key.is_empty() => request["key"] = json!(key),
+                                    _ => request["workspace"] = target["id"].clone(),
+                                }
+                                Some(remote.request(with_size(request, size)).map(|_| ()))
+                            }
+                            _ => None,
+                        };
+                        // Refresh unconditionally: when another attach won
+                        // between the first tree read and the raw snapshot,
+                        // no create runs here, and without this refresh the
+                        // cached tree would still show the pre-shell session.
+                        let refreshed = remote.refresh_tree()?;
+                        if let Some(create_result) = create_result {
+                            let bootstrapped = refreshed
+                                .workspaces
+                                .iter()
+                                .any(|workspace| !workspace.screens.is_empty());
+                            if !bootstrapped {
+                                return Err(match create_result {
+                                    Err(error) => error.context(
+                                        "bare-session bootstrap could not create its shell",
+                                    ),
+                                    Ok(()) => anyhow::anyhow!(
+                                        "remote session did not expose the shell it created in its bare workspace"
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                    InitialBootstrap::LayoutIntact => {}
                 }
                 Ok(())
             }

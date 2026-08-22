@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529. */
+/* cmux-tui mux protocol 12, IR b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529" as const;
+export const SDK_IR_SHA256 = "b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -274,6 +274,14 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 6,
     "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": []
+  },
+  "client-focus": {
+    "authority": "control",
+    "since": 12,
+    "capability": "client-focus-v1",
     "fields": {},
     "stream": null,
     "constraints": []
@@ -852,6 +860,14 @@ export const COMMAND_METADATA = {
     "constraints": [
       "A stored hook report outranks later socket reports until another hook report or surface close."
     ]
+  },
+  "report-focus": {
+    "authority": "control",
+    "since": 12,
+    "capability": "client-focus-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": []
   },
   "resize-attached-view": {
     "authority": "frontend",
@@ -6987,6 +7003,44 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "client-focus": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "client_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "pane": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "tab": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "close-pane": {
     "request": {
       "additional_properties": false,
@@ -9254,6 +9308,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ReportAgentResult"
+    }
+  },
+  "report-focus": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "client_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "tab": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "resize-attached-view": {

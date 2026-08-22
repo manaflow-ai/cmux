@@ -100,6 +100,7 @@ actor LivenessHostRouter {
     )] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
+    private var replayFailureCode: String?
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
     /// Scripts the next `mobile.sync.fetch` answer (state sync v2 tests). The
@@ -202,6 +203,22 @@ actor LivenessHostRouter {
             Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
         }
         return reached
+    }
+
+    /// Waits for the transport's real replay-request admission signal. This
+    /// is used by tests that need to distinguish an already-started request
+    /// from one that must wait for an output acknowledgement.
+    @discardableResult
+    func waitForReplayRequestStart(
+        after existingCount: Int,
+        timeoutNanoseconds: UInt64 = 250_000_000
+    ) async -> Bool {
+        await waitForCount(
+            of: "mobile.terminal.replay",
+            atLeast: existingCount + 1,
+            timeoutNanoseconds: timeoutNanoseconds,
+            recordIssueOnTimeout: false
+        )
     }
 
     private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
@@ -338,6 +355,12 @@ actor LivenessHostRouter {
     }
 
     func failNextReplay(count: Int = 1) {
+        replayFailureCode = nil
+        replayFailuresRemaining += count
+    }
+
+    func failNextReplay(code: String, count: Int = 1) {
+        replayFailureCode = code
         replayFailuresRemaining += count
     }
 
@@ -633,7 +656,15 @@ actor LivenessHostRouter {
             }
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
-                return try? Self.errorFrame(id: id, message: "replay failed")
+                let failureCode = replayFailureCode
+                if replayFailuresRemaining == 0 {
+                    replayFailureCode = nil
+                }
+                return try? Self.errorFrame(
+                    id: id,
+                    code: failureCode,
+                    message: "replay failed"
+                )
             }
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
@@ -1009,7 +1040,8 @@ func makeConnectedStore(
     box: TransportBox,
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
-    inputAckRetryClock: any Clock<Duration> = ContinuousClock()
+    inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
+    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -1018,7 +1050,8 @@ func makeConnectedStore(
     )
     let store = MobileShellComposite.preview(
         runtime: runtime,
-        terminalInputAckResubscribeClock: inputAckRetryClock
+        terminalInputAckResubscribeClock: inputAckRetryClock,
+        controlPlaneSchedulingClock: controlPlaneSchedulingClock
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)

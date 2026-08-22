@@ -97,8 +97,9 @@ pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
-    /// TERM value for children. xterm-256color is the compatible default;
-    /// set xterm-ghostty when the ghostty terminfo is installed.
+    /// TERM value for children: the outer terminal's xterm-ghostty when it
+    /// advertised that (see [`default_child_term`]), else the compatible
+    /// xterm-256color. CMUX_TUI_TERM/CMUX_MUX_TERM override.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -130,6 +131,32 @@ pub struct SurfaceOptions {
     pub terminal_host_root: Option<PathBuf>,
 }
 
+/// Default TERM for child shells.
+///
+/// `xterm-ghostty` when the OUTER terminal advertised it (this process's
+/// own TERM), else the compatible `xterm-256color`. No terminfo probing:
+/// a Ghostty session that sets TERM=xterm-ghostty also exports TERMINFO
+/// pointing at its bundled database, and children inherit that variable
+/// through cmux-tui untouched, so the entry resolves for them exactly as
+/// it does for programs in the raw Ghostty pane. Children — local and
+/// remote (ssh forwards TERM, not terminfo) — therefore see precisely the
+/// TERM they would have seen without the multiplexer, never a less
+/// compatible one, and TERM-name-sniffing prompts (oh-my-zsh themes
+/// matching `*256color`) take the same branch inside cmux-tui as in raw
+/// Ghostty, so colors match. Only xterm-ghostty passes through: the inner
+/// terminal IS ghostty-vt, so that name is truthful regardless of which
+/// client later attaches; any other outer TERM would misdescribe it.
+/// Servers started outside a Ghostty session (launchd, ssh, cron) keep
+/// xterm-256color. CMUX_TUI_TERM, CMUX_MUX_TERM, and --term override.
+pub fn default_child_term() -> String {
+    child_term_for(std::env::var("TERM").ok().as_deref()).into()
+}
+
+/// Pure selection rule for [`default_child_term`].
+fn child_term_for(outer_term: Option<&str>) -> &'static str {
+    if outer_term == Some("xterm-ghostty") { "xterm-ghostty" } else { "xterm-256color" }
+}
+
 impl Default for SurfaceOptions {
     fn default() -> Self {
         SurfaceOptions {
@@ -137,7 +164,7 @@ impl Default for SurfaceOptions {
             cwd: None,
             term: std::env::var("CMUX_TUI_TERM")
                 .or_else(|_| std::env::var("CMUX_MUX_TERM"))
-                .unwrap_or_else(|_| "xterm-256color".into()),
+                .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
             scrollback: 10_000,
@@ -3541,33 +3568,36 @@ impl Surface {
                                 identity.incarnation,
                                 replacement_sequence_boundary
                             );
-                            if let Err(error) = reconnect_mux.create_journal_checkpoint(
+                            // The checkpoint is a journal-replay optimization:
+                            // failing to capture one only means the next replay
+                            // starts from an older boundary. Capture races with
+                            // every other terminal's concurrent reconnect
+                            // appends, so retry it in place a few times - and
+                            // never tear down the freshly reconnected, healthy
+                            // host over it. The old path disconnected and re-ran
+                            // the full reconnect up to 16 times per terminal,
+                            // each attempt's journal writes re-poisoning the
+                            // other terminals' captures.
+                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
                                 "terminal_host_reconnect",
                                 &checkpoint_key,
-                            ) {
-                                reconnect_mux.emit(MuxEvent::Status(format!(
-                                    "could not checkpoint terminal {} reconnect: {error:#}",
-                                    identity.terminal_id
-                                )));
-                                replacement_control_responses.fail_all();
-                                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
-                                    && host.identity() == identity
-                                {
-                                    host.disconnect();
+                            );
+                            for attempt in 1u32..4 {
+                                if checkpoint.is_ok() {
+                                    break;
                                 }
-                                pty.host_connection_state.store(
-                                    TerminalHostConnectionState::Reconnecting as u8,
-                                    Ordering::Release,
+                                std::thread::sleep(Duration::from_millis(25 << attempt));
+                                checkpoint = reconnect_mux.create_journal_checkpoint(
+                                    "terminal_host_reconnect",
+                                    &checkpoint_key,
                                 );
-                                if !reconnect_mux
-                                    .terminal_host_connection_lost(surface.id, &identity)
-                                {
-                                    return;
-                                }
-                                if !retry.wait_or_fail(pty) {
-                                    return;
-                                }
-                                continue;
+                            }
+                            match checkpoint {
+                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
+                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
+                                    &identity.terminal_id,
+                                    &error,
+                                ),
                             }
                         }
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
@@ -7405,6 +7435,29 @@ mod tests {
         );
     }
 
+    /// The selection rule: pass xterm-ghostty through only when the outer
+    /// terminal already advertised it. Prompts that sniff the TERM name
+    /// then take the same branch inside cmux-tui as in the host terminal
+    /// (colors match), and children never get a less compatible TERM than
+    /// the host terminal gave the user.
+    #[test]
+    fn child_term_passes_ghostty_through_and_nothing_else() {
+        assert_eq!(child_term_for(Some("xterm-ghostty")), "xterm-ghostty");
+        assert_eq!(child_term_for(Some("xterm-256color")), "xterm-256color");
+        assert_eq!(child_term_for(Some("screen")), "xterm-256color");
+        assert_eq!(child_term_for(Some("alacritty")), "xterm-256color");
+        assert_eq!(child_term_for(Some("")), "xterm-256color");
+        assert_eq!(child_term_for(None), "xterm-256color");
+    }
+
+    /// default_child_term composes the rule with this process's real TERM
+    /// and must agree with it.
+    #[test]
+    fn default_child_term_matches_selection_rule() {
+        let outer = std::env::var("TERM").ok();
+        assert_eq!(default_child_term(), child_term_for(outer.as_deref()));
+    }
+
     #[cfg(unix)]
     fn spawn_and_read_colorterm(id: SurfaceId, extra_env: Vec<(String, String)>) -> String {
         let mux = Mux::new_for_test("colorterm-env", SurfaceOptions::default());
@@ -7426,10 +7479,10 @@ mod tests {
         loop {
             let text =
                 surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
-            if let Some(start) = text.find("CT=[") {
-                if let Some(len) = text[start..].find(']') {
-                    return text[start..=start + len].to_string();
-                }
+            if let Some(start) = text.find("CT=[")
+                && let Some(len) = text[start..].find(']')
+            {
+                return text[start..=start + len].to_string();
             }
             assert!(Instant::now() < deadline, "child never printed COLORTERM: {text:?}");
             std::thread::sleep(Duration::from_millis(5));
