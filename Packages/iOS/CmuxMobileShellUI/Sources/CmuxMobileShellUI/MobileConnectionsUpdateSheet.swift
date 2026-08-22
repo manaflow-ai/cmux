@@ -16,24 +16,16 @@ struct MobileConnectionsUpdateSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(spacing: 32) {
-                    VStack(spacing: 6) {
-                        Text(L10n.string(
-                            "mobile.connectionsUpdate.ribbon",
-                            defaultValue: "What's New"
-                        ))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        Text(L10n.string(
-                            "mobile.connectionsUpdate.title",
-                            defaultValue: "Every computer, its own connection"
-                        ))
-                        .font(.largeTitle.bold())
-                        .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, 48)
-                    .padding(.horizontal, 24)
-                    VStack(alignment: .leading, spacing: 24) {
+                VStack(spacing: 36) {
+                    Text(L10n.string(
+                        "mobile.connectionsUpdate.title",
+                        defaultValue: "What's New in cmux"
+                    ))
+                    .font(.largeTitle.bold())
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 56)
+                    .padding(.horizontal, 32)
+                    VStack(alignment: .leading, spacing: 28) {
                         featureRow(
                             symbol: "desktopcomputer.and.macbook",
                             title: L10n.string(
