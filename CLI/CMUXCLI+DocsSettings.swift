@@ -128,6 +128,20 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
+            topic: "completion",
+            aliases: ["shell-completion", "autocomplete", "tab-completion"],
+            summary: "Shell completion scripts for zsh, bash, and fish.",
+            webURL: "https://cmux.com/docs/api",
+            rawResources: [
+                DocsResource(label: "CLI contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
+            ],
+            commands: [
+                "cmux completion zsh",
+                "cmux completion bash",
+                "cmux completion fish",
+            ]
+        ),
+        DocsReference(
             topic: "sidebars",
             aliases: ["sidebar", "custom-sidebar", "custom-sidebars", "vibe-sidebar"],
             summary: "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta).",
@@ -163,7 +177,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]")
         }
 
         if topic == "list" || topic == "all" {
@@ -188,7 +202,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
