@@ -2732,10 +2732,33 @@ final class UpdateTitlebarAccessoryController {
 
     func start() {
         guard !didStart else { return }
+        prewarmTitlebarSymbols()
         didStart = true
         attachToExistingWindows()
         installObservers()
         scheduleStartupWindowScans()
+    }
+
+    private func prewarmTitlebarSymbols() {
+        let iconSizes = TitlebarControlsStyle.allCases.map { $0.config.iconSize }
+        let dropdownSizes = TitlebarControlsStyle.allCases.map {
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: $0.config)
+        }
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell", "arrow.left", "arrow.right"],
+            pointSizes: iconSizes,
+            weight: .regular
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["plus", "cloud"],
+            pointSizes: iconSizes,
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.down"],
+            pointSizes: dropdownSizes,
+            weight: .bold
+        )
     }
 
     func attach(to window: NSWindow) {

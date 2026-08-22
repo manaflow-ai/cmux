@@ -138,6 +138,25 @@ enum RenderableSystemSymbol {
         renderabilityCache.isRenderable(symbol)
     }
 
+    /// Resolves a bounded set of symbols before a view enters an AppKit
+    /// window's constraint/layout cycle.
+    @MainActor
+    static func prewarmAppKitImages(
+        systemNames: [String],
+        pointSizes: [CGFloat],
+        weight: Font.Weight? = nil
+    ) {
+        for systemName in systemNames {
+            for pointSize in pointSizes {
+                _ = configuredAppKitImage(
+                    systemName: systemName,
+                    pointSize: pointSize,
+                    weight: weight
+                )
+            }
+        }
+    }
+
     static func clampedRasterPointSize(_ pointSize: CGFloat) -> CGFloat {
         guard pointSize.isFinite else {
             return minimumRasterPointSize
@@ -186,15 +205,70 @@ enum RenderableSystemSymbol {
             weight: fontWeight
         )
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
-        let image = (configuredImage.copy() as? NSImage) ?? configuredImage
+        let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
+        guard let image = materializedImage(configuredImage, size: imageSize) else {
+            renderabilityCache.cacheRenderability(false, for: systemName)
+            return nil
+        }
+        // Keep the template contract used by the SwiftUI and AppKit callers,
+        // while replacing AppKit's lazy symbol representation with a bitmap
+        // that cannot be materialized again from an NSWindow layout pass.
         image.isTemplate = true
-        image.size = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         appKitImageCache[cacheKey] = image
         appKitImageCacheInsertionOrder.append(cacheKey)
         while appKitImageCacheInsertionOrder.count > appKitImageCacheLimit {
             let evictedKey = appKitImageCacheInsertionOrder.removeFirst()
             appKitImageCache.removeValue(forKey: evictedKey)
         }
+        return image
+    }
+
+    /// Draws a symbol into an owned bitmap before handing it to AppKit views.
+    ///
+    /// `NSImage(systemSymbolName:)` stores a lazy symbol representation. If
+    /// that representation reaches an `NSImageView` while AppKit is solving
+    /// window constraints, the first provider lookup can block the main
+    /// thread for several seconds. A bitmap representation makes all later
+    /// intrinsic-size and layout queries constant-time.
+    @MainActor
+    private static func materializedImage(_ source: NSImage, size: NSSize) -> NSImage? {
+        let pixelScale: CGFloat = 2
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: max(1, Int(ceil(size.width * pixelScale))),
+            pixelsHigh: max(1, Int(ceil(size.height * pixelScale))),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ),
+        let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+
+        bitmap.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        graphicsContext.imageInterpolation = .high
+        source.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+
+        let image = NSImage(size: size)
+        image.addRepresentation(bitmap)
+        image.cacheMode = .never
         return image
     }
 
