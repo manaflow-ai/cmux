@@ -8207,12 +8207,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// path and the second add re-reads the (already-grown) set, so the combined
     /// total can never exceed the cap. The store is the single source of truth.
     @discardableResult
-    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
+    public func addPendingAttachment(
+        _ data: Data,
+        format: String,
+        thumbnailData: Data? = nil,
+        forTerminalID terminalID: String? = nil
+    ) -> MobilePendingAttachment.ID? {
         stagePendingAttachment(
             kind: .image,
             data: data,
             format: format,
             displayName: nil,
+            thumbnailData: thumbnailData,
             forTerminalID: terminalID
         )
     }
@@ -8234,6 +8240,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ data: Data,
         fileExtension: String,
         displayName: String,
+        thumbnailData: Data? = nil,
         forTerminalID terminalID: String? = nil
     ) -> MobilePendingAttachment.ID? {
         stagePendingAttachment(
@@ -8241,6 +8248,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             data: data,
             format: fileExtension,
             displayName: displayName,
+            thumbnailData: thumbnailData,
             forTerminalID: terminalID
         )
     }
@@ -8254,6 +8262,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ data: Data,
         fileExtension: String,
         displayName: String,
+        thumbnailData: Data? = nil,
         forTerminalID terminalID: String? = nil,
         ifSessionGeneration capturedGeneration: Int
     ) -> MobilePendingAttachment.ID? {
@@ -8277,6 +8286,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             data,
             fileExtension: fileExtension,
             displayName: displayName,
+            thumbnailData: thumbnailData,
             forTerminalID: terminalID
         )
     }
@@ -8291,6 +8301,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         data: Data,
         format: String,
         displayName: String?,
+        thumbnailData: Data?,
         forTerminalID terminalID: String?
     ) -> MobilePendingAttachment.ID? {
         let key = terminalID ?? selectedTerminalID?.rawValue
@@ -8354,7 +8365,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             kind: kind,
             data: data,
             format: format,
-            displayName: displayName
+            displayName: displayName,
+            thumbnailData: thumbnailData
         )
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
         recordAppEvent(
@@ -8389,6 +8401,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func addPendingAttachment(
         _ data: Data,
         format: String,
+        thumbnailData: Data? = nil,
         forTerminalID terminalID: String? = nil,
         ifSessionGeneration capturedGeneration: Int
     ) -> MobilePendingAttachment.ID? {
@@ -8414,7 +8427,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return nil
         }
-        return addPendingAttachment(data, format: format, forTerminalID: terminalID)
+        return addPendingAttachment(
+            data,
+            format: format,
+            thumbnailData: thumbnailData,
+            forTerminalID: terminalID
+        )
     }
 
     /// Whether a terminal id is present in the current workspace/terminal

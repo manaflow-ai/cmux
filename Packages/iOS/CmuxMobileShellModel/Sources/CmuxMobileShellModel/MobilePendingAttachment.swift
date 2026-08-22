@@ -34,6 +34,11 @@ public struct MobilePendingAttachment: Identifiable, Equatable, Sendable {
     /// The user-visible file name shown on a file chip and sent to the Mac as
     /// the upload's file name. `nil` for images, whose chips render thumbnails.
     public let displayName: String?
+    /// A small encoded chip preview, built ONCE at stage time (image
+    /// downsample, or a Quick Look thumbnail for files). Carried on the staged
+    /// value — not in a view-side cache — so a terminal or workspace switch
+    /// that recreates the composer view re-renders the same preview.
+    public let thumbnailData: Data?
 
     /// Creates a pending attachment.
     /// - Parameters:
@@ -43,17 +48,20 @@ public struct MobilePendingAttachment: Identifiable, Equatable, Sendable {
     ///   - data: The staged bytes.
     ///   - format: A lowercase file-extension hint (`"png"`/`"jpg"`/`"pdf"`).
     ///   - displayName: User-visible file name for ``Kind/file`` chips.
+    ///   - thumbnailData: Small encoded chip preview, if available.
     public init(
         id: UUID = UUID(),
         kind: Kind = .image,
         data: Data,
         format: String,
-        displayName: String? = nil
+        displayName: String? = nil,
+        thumbnailData: Data? = nil
     ) {
         self.id = id
         self.kind = kind
         self.data = data
         self.format = format
         self.displayName = displayName
+        self.thumbnailData = thumbnailData
     }
 }

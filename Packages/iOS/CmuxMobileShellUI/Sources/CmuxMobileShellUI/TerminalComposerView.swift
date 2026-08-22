@@ -5,6 +5,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import PhotosUI
+import QuickLookThumbnailing
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -209,6 +210,13 @@ struct TerminalComposerView: View {
         // (chip-less) layout rather than the stale tall one.
         .onChange(of: pendingAttachments.isEmpty) { _, _ in
             requestHeightRemeasure()
+        }
+        // Thumbnails are carried on the staged attachments themselves, so a
+        // terminal or workspace switch that recreates this view (emptying the
+        // view-side decode cache) re-hydrates the same chip previews instead
+        // of degrading to placeholders.
+        .onChange(of: pendingAttachments.map(\.id), initial: true) { _, _ in
+            warmThumbnailCache()
         }
         .onChange(of: sendStatus) { _, _ in
             requestHeightRemeasure()
@@ -611,8 +619,22 @@ struct TerminalComposerView: View {
                     )
                 }
             }
-            .padding(.leading, controlHeight + 8)
+            // Chips start at the composer's own leading margin (aligned with
+            // the toolbar's leading control), not indented past the attach
+            // button; the container's 12pt padding is the only inset.
             .padding(.trailing, 12)
+        }
+    }
+
+    /// Decode any staged attachment's carried thumbnail into the view-side
+    /// cache. The cache only avoids re-decoding on every body evaluation; the
+    /// bytes themselves live on the attachment (see the `onChange` above).
+    private func warmThumbnailCache() {
+        for attachment in pendingAttachments {
+            guard thumbnailCache.image(for: attachment.id) == nil,
+                  let thumbnailData = attachment.thumbnailData,
+                  let image = UIImage(data: thumbnailData) else { continue }
+            thumbnailCache.set(image, for: attachment.id)
         }
     }
 
@@ -784,6 +806,7 @@ struct TerminalComposerView: View {
                 guard let id = store.addPendingAttachment(
                     prepared.data,
                     format: prepared.format,
+                    thumbnailData: prepared.thumbnailData,
                     forTerminalID: terminalID,
                     ifSessionGeneration: sessionGeneration
                 ) else { continue }
@@ -913,6 +936,7 @@ struct TerminalComposerView: View {
         guard let id = store.addPendingAttachment(
             prepared.data,
             format: prepared.format,
+            thumbnailData: prepared.thumbnailData,
             forTerminalID: terminalID,
             ifSessionGeneration: sessionGeneration
         ) else { return }
@@ -981,6 +1005,10 @@ struct TerminalComposerView: View {
             }
             return
         }
+        // Best-effort inline preview from the still-on-disk pasted file
+        // (Quick Look renders documents it recognizes; unrecognized types
+        // fall back to the chip's document glyph).
+        let thumbnailData = await Self.fileThumbnailData(at: item.url)
         guard !Task.isCancelled else {
             store.recordAppEvent(
                 .attachmentPreparationFailed,
@@ -993,6 +1021,7 @@ struct TerminalComposerView: View {
             data,
             fileExtension: item.url.pathExtension.lowercased(),
             displayName: item.displayName,
+            thumbnailData: thumbnailData,
             forTerminalID: terminalID,
             ifSessionGeneration: sessionGeneration
         ) != nil else { return }
@@ -1001,6 +1030,24 @@ struct TerminalComposerView: View {
             correlationID: terminalID,
             count: data.count
         )
+    }
+
+    /// Render a small Quick Look thumbnail for a pasted file, or `nil` when
+    /// the system has no renderer for the type. `.thumbnail` only — the
+    /// generic icon representation is skipped so unrecognized types keep the
+    /// chip's own themed document glyph.
+    private static func fileThumbnailData(at url: URL) async -> Data? {
+        let request = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: 80, height: 80),
+            scale: 3,
+            representationTypes: .thumbnail
+        )
+        guard let representation = try? await QLThumbnailGenerator.shared
+            .generateBestRepresentation(for: request) else {
+            return nil
+        }
+        return representation.uiImage.pngData()
     }
 
     /// Read the materialized file's bytes off the main actor so a multi-MB
@@ -1201,9 +1248,7 @@ private struct AttachmentChip: View {
 
     private var filePill: some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.fill")
-                .font(.system(size: 20))
-                .foregroundStyle(theme.terminalForegroundColor.opacity(0.55))
+            fileThumbnailOrGlyph
             VStack(alignment: .leading, spacing: 2) {
                 Text(attachment.displayName ?? fileFallbackName)
                     .font(.caption.weight(.medium))
@@ -1215,13 +1260,31 @@ private struct AttachmentChip: View {
                     .foregroundStyle(theme.terminalForegroundColor.opacity(0.6))
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 8)
         .frame(height: side)
         .frame(maxWidth: 190)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.terminalForegroundColor.opacity(0.08))
         )
+    }
+
+    /// Inline document preview when Quick Look rendered one at stage time,
+    /// else the themed document glyph.
+    @ViewBuilder
+    private var fileThumbnailOrGlyph: some View {
+        if let thumbnail {
+            Image(uiImage: thumbnail)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else {
+            Image(systemName: "doc.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(theme.terminalForegroundColor.opacity(0.55))
+                .frame(width: 40, height: 40)
+        }
     }
 
     private var fileFallbackName: String {

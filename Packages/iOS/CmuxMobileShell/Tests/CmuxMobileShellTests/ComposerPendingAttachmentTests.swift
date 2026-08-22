@@ -100,6 +100,30 @@ import Testing
         #expect(composite.composerCanSend(forTerminalID: "term-a"))
     }
 
+    /// The chip preview travels ON the staged attachment, so a composer view
+    /// recreated by a terminal/workspace switch re-renders the same thumbnail
+    /// instead of a placeholder.
+    @Test func thumbnailDataPersistsOnStagedAttachments() throws {
+        let composite = Self.makeComposite()
+        let thumb = Self.bytes("thumb-bytes")
+        let imageID = try #require(composite.addPendingAttachment(
+            Self.bytes("img"),
+            format: "png",
+            thumbnailData: thumb,
+            forTerminalID: "term-a"
+        ))
+        let fileID = try #require(composite.addPendingFileAttachment(
+            Self.bytes("file"),
+            fileExtension: "pdf",
+            displayName: "doc.pdf",
+            thumbnailData: thumb,
+            forTerminalID: "term-a"
+        ))
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.first { $0.id == imageID }?.thumbnailData == thumb)
+        #expect(staged.first { $0.id == fileID }?.thumbnailData == thumb)
+    }
+
     @Test func imageAddsStayImageKindWithoutDisplayName() {
         let composite = Self.makeComposite()
         composite.addPendingAttachment(Self.bytes("img"), format: "png", forTerminalID: "term-a")
