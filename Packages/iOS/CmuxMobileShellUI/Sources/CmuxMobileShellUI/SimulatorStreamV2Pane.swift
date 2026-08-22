@@ -25,6 +25,7 @@ struct SimulatorStreamV2Pane: View {
     @State private var store: SimulatorStreamV2Store?
     @State private var pendingText = ""
     @State private var devices: [MobileSimulatorDeviceDescriptor] = []
+    @State private var deviceFetchTask: Task<Void, Never>?
     @AppStorage("cmux.simulatorStream.quality")
     private var qualityRaw = SimStreamQualityPreset.default.rawValue
     @FocusState private var textFocused: Bool
@@ -61,8 +62,11 @@ struct SimulatorStreamV2Pane: View {
             store.activate()
         }
         .task {
-            guard supportsDeviceSwitching else { return }
-            devices = await listDevices()
+            refreshDevices()
+        }
+        .onDisappear {
+            deviceFetchTask?.cancel()
+            deviceFetchTask = nil
         }
         .onChange(of: qualityRaw) { _, _ in
             store?.setQuality(maximumLongSidePixels: quality.maximumLongSidePixels)
@@ -214,6 +218,13 @@ struct SimulatorStreamV2Pane: View {
                 if supportsDeviceSwitching, !devices.isEmpty {
                     deviceMenu
                 }
+                // Menu content materializes when the menu opens, so this
+                // refreshes the device inventory (and stale checkmarks from
+                // Mac-side switches) right before the user can reach the
+                // Switch Simulator submenu.
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .onAppear { refreshDevices() }
             } label: {
                 Image(systemName: "ellipsis.circle").frame(width: 24, height: 24)
             }
@@ -283,10 +294,25 @@ struct SimulatorStreamV2Pane: View {
         "\(device.name) · \(device.runtimeName)"
     }
 
+    /// One owned fetch at a time; a superseded fetch's result is discarded
+    /// so a slow older response can never overwrite a newer inventory.
+    private func refreshDevices() {
+        guard supportsDeviceSwitching else { return }
+        deviceFetchTask?.cancel()
+        deviceFetchTask = Task {
+            let fetched = await listDevices()
+            guard !Task.isCancelled else { return }
+            devices = fetched
+        }
+    }
+
     private func switchDevice(to udid: String) {
-        Task {
+        deviceFetchTask?.cancel()
+        deviceFetchTask = Task {
             _ = await selectDevice(udid)
-            devices = await listDevices()
+            let fetched = await listDevices()
+            guard !Task.isCancelled else { return }
+            devices = fetched
         }
     }
 

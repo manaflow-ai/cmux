@@ -134,12 +134,21 @@ public final class SimulatorStreamV2Store {
 
     /// Applies a new resolution cap: live sessions renegotiate in place
     /// (start -> config -> keyframe on the same lane) and future attaches
-    /// use the new value.
+    /// use the new value. Rides the same lifecycle-owned relay chain as
+    /// input, so renegotiation serializes with in-flight events, cancels on
+    /// teardown, and can never target a superseded engine.
     public func setQuality(maximumLongSidePixels: UInt16) {
         guard maximumLongSidePixels != self.maximumLongSidePixels else { return }
         self.maximumLongSidePixels = maximumLongSidePixels
         guard let engine else { return }
-        Task { await engine.updateQuality(maximumLongSidePixels: maximumLongSidePixels) }
+        let previous = inputRelayTask
+        inputRelayTask = Task { [weak self] in
+            await previous?.value
+            guard let self, await MainActor.run(body: { self.engine === engine }) else {
+                return
+            }
+            await engine.updateQuality(maximumLongSidePixels: maximumLongSidePixels)
+        }
     }
 
     // MARK: - Machine execution
