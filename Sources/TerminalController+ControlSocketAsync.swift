@@ -112,7 +112,10 @@ extension TerminalController {
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
-                params: request.params
+                params: request.params,
+                maximumAgeNanoseconds: Self.snapshotMaximumAgeNanoseconds(
+                    for: request.method
+                )
            ) {
             return Self.v2Encoder.response(id: request.id, snapshotResult)
         }
@@ -336,6 +339,21 @@ extension TerminalController {
         return trimmed.split(separator: " ", maxSplits: 1)
             .first
             .map { String($0).lowercased() }
+    }
+
+    private nonisolated static func snapshotMaximumAgeNanoseconds(
+        for method: String
+    ) -> UInt64? {
+        switch method {
+        case "surface.read_text":
+            return 100_000_000
+        case "system.top":
+            return 500_000_000
+        case "system.memory":
+            return 2_000_000_000
+        default:
+            return nil
+        }
     }
 
     private nonisolated static func socketRateLimitedResponse(

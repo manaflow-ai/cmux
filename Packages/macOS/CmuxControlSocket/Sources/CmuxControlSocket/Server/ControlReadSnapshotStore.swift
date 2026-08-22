@@ -1,4 +1,5 @@
 internal import CmuxControlSocketAtomicsC
+internal import Dispatch
 internal import os
 
 /// An immutable publication of control-plane read results.
@@ -7,18 +8,45 @@ internal import os
 /// supplies the live request id when it encodes a hit, so snapshot reads retain
 /// the v2 id-echo contract while avoiding a main-actor turn for every poll.
 public struct ControlReadSnapshot: Sendable, Equatable {
+    fileprivate struct Entry: Sendable, Equatable {
+        let result: ControlCallResult
+        let publishedAtUptimeNanoseconds: UInt64
+    }
+
     /// Monotonically increasing publication generation.
     public let generation: UInt64
+    fileprivate let entries: [String: Entry]
     /// Results indexed by ``key(method:params:)``.
-    public let responses: [String: ControlCallResult]
+    public var responses: [String: ControlCallResult] {
+        entries.mapValues(\.result)
+    }
 
     /// Creates a snapshot.
+    ///
+    /// - Parameters:
+    ///   - generation: Monotonic publication generation.
+    ///   - responses: Typed results indexed by canonical request key.
+    ///   - publishedAtUptimeNanoseconds: Shared timestamp for the supplied
+    ///     entries; defaults to the current monotonic uptime.
     public init(
         generation: UInt64 = 0,
-        responses: [String: ControlCallResult] = [:]
+        responses: [String: ControlCallResult] = [:],
+        publishedAtUptimeNanoseconds: UInt64? = nil
     ) {
         self.generation = generation
-        self.responses = responses
+        let publishedAtUptimeNanoseconds = publishedAtUptimeNanoseconds
+            ?? DispatchTime.now().uptimeNanoseconds
+        self.entries = responses.mapValues { result in
+            Entry(
+                result: result,
+                publishedAtUptimeNanoseconds: publishedAtUptimeNanoseconds
+            )
+        }
+    }
+
+    fileprivate init(generation: UInt64, entries: [String: Entry]) {
+        self.generation = generation
+        self.entries = entries
     }
 
     /// Builds the canonical lookup key for a command and its typed params.
@@ -159,18 +187,36 @@ public final class ControlReadSnapshotStore: @unchecked Sendable {
     }
 
     /// Looks up one command result without an actor hop.
+    ///
+    /// - Parameters:
+    ///   - method: V2 method name.
+    ///   - params: Typed request parameters.
+    ///   - maximumAgeNanoseconds: Optional freshness ceiling. Older entries
+    ///     are treated as misses.
+    ///   - nowUptimeNanoseconds: Injectable monotonic time for tests.
+    /// - Returns: The fresh result, or `nil` for a miss/expired entry.
     public func response(
         method: String,
-        params: [String: JSONValue]
+        params: [String: JSONValue],
+        maximumAgeNanoseconds: UInt64? = nil,
+        nowUptimeNanoseconds: UInt64? = nil
     ) -> ControlCallResult? {
         let key = ControlReadSnapshot.key(method: method, params: params)
         CmuxControlSocketAtomicCounterIncrement(readerCountStorage)
         let rawPointer = CmuxControlSocketAtomicPointerLoadAcquire(pointerStorage)
-        let result = rawPointer == 0
+        let entry = rawPointer == 0
             ? nil
-            : Self.box(from: rawPointer).takeUnretainedValue().snapshot.responses[key]
+            : Self.box(from: rawPointer).takeUnretainedValue().snapshot.entries[key]
         CmuxControlSocketAtomicCounterDecrement(readerCountStorage)
-        return result
+        guard let entry else { return nil }
+        if let maximumAgeNanoseconds {
+            let now = nowUptimeNanoseconds ?? DispatchTime.now().uptimeNanoseconds
+            let age = now >= entry.publishedAtUptimeNanoseconds
+                ? now - entry.publishedAtUptimeNanoseconds
+                : 0
+            guard age <= maximumAgeNanoseconds else { return nil }
+        }
+        return entry.result
     }
 
     /// Publishes/replaces one response and advances the generation.
@@ -182,11 +228,14 @@ public final class ControlReadSnapshotStore: @unchecked Sendable {
         let key = ControlReadSnapshot.key(method: method, params: params)
         retiredState.withLock { retired in
             var snapshot = readUnlocked()
-            var responses = snapshot.responses
-            responses[key] = result
+            var entries = snapshot.entries
+            entries[key] = ControlReadSnapshot.Entry(
+                result: result,
+                publishedAtUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+            )
             snapshot = ControlReadSnapshot(
                 generation: snapshot.generation &+ 1,
-                responses: responses
+                entries: entries
             )
             publishLocked(snapshot, retired: &retired)
         }

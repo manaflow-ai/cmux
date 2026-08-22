@@ -165,7 +165,8 @@ struct ControlPlaneConcurrencyTests {
                 generation: 1,
                 responses: [
                     ControlReadSnapshot.key(method: "workspace.list", params: [:]): initial,
-                ]
+                ],
+                publishedAtUptimeNanoseconds: 100
             )
         )
 
@@ -174,6 +175,22 @@ struct ControlPlaneConcurrencyTests {
         )
         let differentParams: [String: JSONValue] = ["all": .bool(true)]
         #expect(store.response(method: "workspace.list", params: differentParams) == nil)
+        #expect(
+            store.response(
+                method: "workspace.list",
+                params: [:],
+                maximumAgeNanoseconds: 100,
+                nowUptimeNanoseconds: 200
+            ) == initial
+        )
+        #expect(
+            store.response(
+                method: "workspace.list",
+                params: [:],
+                maximumAgeNanoseconds: 100,
+                nowUptimeNanoseconds: 201
+            ) == nil
+        )
 
         let replacement = ControlCallResult.ok(.object(["generation": .int(2)]))
         store.publishResponse(
