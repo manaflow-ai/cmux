@@ -2208,6 +2208,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */; };
 		9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6800000000000000000001 /* SSHPTYTerminalReadinessReport.swift */; };
 		873200000000000000000002 /* SSHRemoteCommandChainingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873200000000000000000001 /* SSHRemoteCommandChainingTests.swift */; };
+		F97300030000000000000002 /* SSHStartupCommandTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97300030000000000000001 /* SSHStartupCommandTestSupport.swift */; };
 		EF70B7123200D1FB6F03DB26 /* SSHStartupManualReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F73A5C0BB93507E18261385 /* SSHStartupManualReconnectTests.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		A5C017000000000000000005 /* StackAccountAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000006 /* StackAccountAvatarView.swift */; };
@@ -5011,6 +5012,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYResizeMonitor.swift; sourceTree = "<group>"; };
 		9A6800000000000000000001 /* SSHPTYTerminalReadinessReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYTerminalReadinessReport.swift; sourceTree = "<group>"; };
 		873200000000000000000001 /* SSHRemoteCommandChainingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHRemoteCommandChainingTests.swift; sourceTree = "<group>"; };
+		F97300030000000000000001 /* SSHStartupCommandTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupCommandTestSupport.swift; sourceTree = "<group>"; };
 		4F73A5C0BB93507E18261385 /* SSHStartupManualReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupManualReconnectTests.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		A5C017000000000000000006 /* StackAccountAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAccountAvatarView.swift; sourceTree = "<group>"; };
@@ -8044,6 +8046,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C77070000000000000000007 /* SSHPTYAttachExitCodeClassifierTests.swift */,
 				0C4AD348F196FBBEE52D53A7 /* SSHPTYAttachReconnectInputFilterTests.swift */,
 				4F73A5C0BB93507E18261385 /* SSHStartupManualReconnectTests.swift */,
+				F97300030000000000000001 /* SSHStartupCommandTestSupport.swift */,
 				797800040000000000000002 /* SSHDeepSleepReattachTests.swift */,
 				8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */,
 				A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */,
@@ -11698,6 +11701,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 						E60610300000000000000003 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */,
 						B6285B71BA6F82AF8F945E00 /* SSHPTYAttachReconnectInputFilterTests.swift in Sources */,
 				873200000000000000000002 /* SSHRemoteCommandChainingTests.swift in Sources */,
+				F97300030000000000000002 /* SSHStartupCommandTestSupport.swift in Sources */,
 				EF70B7123200D1FB6F03DB26 /* SSHStartupManualReconnectTests.swift in Sources */,
 				F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */,
 				842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */,

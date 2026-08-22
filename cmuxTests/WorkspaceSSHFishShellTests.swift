@@ -152,6 +152,9 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         """
         try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+        let executableInitialCommand = try SSHStartupCommandTestSupport(
+            sshExecutablePath: fakeSSH.path
+        ).rewriting(initialCommand)
 
         var startupEnvironment = ProcessInfo.processInfo.environment
         startupEnvironment["HOME"] = tempRoot.path
@@ -200,7 +203,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let startupResults = (0..<2).map { _ in
             runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", initialCommand],
+                arguments: ["-c", executableInitialCommand],
                 environment: startupEnvironment,
                 timeout: 5
             )
