@@ -68,6 +68,8 @@ public actor SimStreamViewerEngine {
                 codecPreferences: [.hevc, .h264]
             )
             try await lane.send(SimStreamWireCodec.encodeFramed(.start(start)))
+            // Input staged while the lane was still dialing flushes now.
+            drainInputIfNeeded()
             var accumulator = SimStreamFrameAccumulator()
             while let chunk = try await lane.receive() {
                 guard !chunk.isEmpty else { continue }
