@@ -220,7 +220,7 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
+    private nonisolated static let socketListenerFailurePolicy = SocketListenerFailurePolicy()
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
@@ -874,8 +874,10 @@ class TerminalController {
         let now = Date()
         socketListenerFailureCaptureLock.lock()
         defer { socketListenerFailureCaptureLock.unlock() }
-        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
-           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
+        if !socketListenerFailurePolicy.shouldCapture(
+            lastCapturedAt: socketListenerFailureLastCapturedAt[key],
+            now: now
+        ) {
             return false
         }
         socketListenerFailureLastCapturedAt[key] = now

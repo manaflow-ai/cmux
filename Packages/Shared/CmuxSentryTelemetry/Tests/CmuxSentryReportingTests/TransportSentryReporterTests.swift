@@ -79,11 +79,13 @@ import os
     private func makeReporter(
         recorder: Recorder,
         logsPerHour: Int = 300,
-        ring: Data = Data("ring".utf8)
+        ring: Data = Data("ring".utf8),
+        incidentConfiguration: TransportIncidentPolicy.Configuration = .init()
     ) -> TransportSentryReporter {
         TransportSentryReporter(
             role: .mobileClient,
             exportRing: { ring },
+            incidentConfiguration: incidentConfiguration,
             logsPerHour: logsPerHour,
             delivery: recorder.delivery
         )
@@ -299,5 +301,38 @@ import os
         #expect(recorder.breadcrumbs.withLock { $0.isEmpty })
         #expect(recorder.logs.withLock { $0.isEmpty })
         #expect(recorder.events.withLock { $0.isEmpty })
+    }
+
+    @Test func offlineFailuresRemainBreadcrumbOnly() async {
+        let recorder = Recorder()
+        let reporter = makeReporter(recorder: recorder)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .reachabilityChanged,
+            tNanos: 1,
+            a: 0
+        ))
+        reporter.ingest(dialFailed(at: 10))
+        await Task.yield()
+
+        #expect(recorder.breadcrumbs.withLock { $0.count } == 2)
+        #expect(recorder.events.withLock { $0.isEmpty })
+    }
+
+    @Test func zeroFailureSampleRateKeepsLogsWithoutEvents() async {
+        let recorder = Recorder()
+        let reporter = makeReporter(
+            recorder: recorder,
+            incidentConfiguration: .init(
+                failureSampleRate: 0,
+                outageSampleRate: 0
+            )
+        )
+
+        reporter.ingest(dialFailed(at: 10))
+        await Task.yield()
+
+        #expect(recorder.events.withLock { $0.isEmpty })
+        #expect(recorder.logs.withLock { $0.count } == 1)
     }
 }

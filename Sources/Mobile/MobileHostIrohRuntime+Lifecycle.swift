@@ -265,7 +265,8 @@ extension MobileHostIrohRuntime {
     func retryIfNeeded() {
         guard !signOutIntentActive,
               desiredActive,
-              observedAccountID != nil else { return }
+              observedAccountID != nil,
+              relayPolicyNetworkReachable != false else { return }
         if preparedSignOut?.wasPersisted == false {
             scheduleReconcile(eraseAccountState: true)
             return
@@ -329,7 +330,8 @@ extension MobileHostIrohRuntime {
         guard failureRecoveryTask == nil,
               desiredActive,
               !signOutIntentActive,
-              observedAccountID != nil else { return }
+              observedAccountID != nil,
+              relayPolicyNetworkReachable != false else { return }
         let delay = failureRecoverySchedule.delay(
             failureCount: failureRecoveryFailureCount,
             retryAfterSeconds: nil,
@@ -360,7 +362,8 @@ extension MobileHostIrohRuntime {
         guard desiredActive,
               !signOutIntentActive,
               observedAccountID != nil,
-              transitionTask == nil else { return }
+              transitionTask == nil,
+              relayPolicyNetworkReachable != false else { return }
         guard let activeRuntime = runtime else {
             scheduleReconcile(eraseAccountState: false)
             return

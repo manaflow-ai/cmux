@@ -1431,6 +1431,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C1A070000000000000000002 /* MobileHostIrohAuthObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */; };
 		1B0B09020000000000000002 /* MobileHostIrohRuntime+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */; };
 		C1A070000000000000000003 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */; };
+		105460030000000000000001 /* MobileHostIrohRuntime+RelayPolicyRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 105460040000000000000001 /* MobileHostIrohRuntime+RelayPolicyRefresh.swift */; };
 		1B0B09030000000000000002 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */; };
 		1B0B09040000000000000002 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */; };
 		1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */; };
@@ -1859,6 +1860,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5E2701040000000000000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000001 /* Sentry */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
+		105460010000000000000001 /* SentryEventNoiseFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 105460020000000000000001 /* SentryEventNoiseFilter.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
@@ -4233,6 +4235,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAuthObserver.swift; sourceTree = "<group>"; };
 		1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Activation.swift"; sourceTree = "<group>"; };
 		C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Lifecycle.swift"; sourceTree = "<group>"; };
+		105460040000000000000001 /* MobileHostIrohRuntime+RelayPolicyRefresh.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+RelayPolicyRefresh.swift"; sourceTree = "<group>"; };
 		1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
 		1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsSnapshot.swift"; sourceTree = "<group>"; };
 		1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
@@ -4654,6 +4657,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
 		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
+		105460020000000000000001 /* SentryEventNoiseFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SentryEventNoiseFilter.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
@@ -5912,6 +5916,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1B0B09020000000000000001 /* MobileHostIrohRuntime+Activation.swift */,
 				1B0B09030000000000000001 /* MobileHostIrohRuntime+SettingsControl.swift */,
 				1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */,
+				105460040000000000000001 /* MobileHostIrohRuntime+RelayPolicyRefresh.swift */,
 				C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */,
 				C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */,
 				C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */,
@@ -6358,6 +6363,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F17A00000000000000000001 /* HostLatencyTrace.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
 				A78C41010000000000000002 /* MacSentryStartupPolicy.swift */,
+				105460020000000000000001 /* SentryEventNoiseFilter.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
 				9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
@@ -9846,6 +9852,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A070000000000000000002 /* MobileHostIrohAuthObserver.swift in Sources */,
 				1B0B09020000000000000002 /* MobileHostIrohRuntime+Activation.swift in Sources */,
 				C1A070000000000000000003 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */,
+				105460030000000000000001 /* MobileHostIrohRuntime+RelayPolicyRefresh.swift in Sources */,
 				1B0B09030000000000000002 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */,
 				1B0B09040000000000000002 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */,
 				1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */,
@@ -10124,6 +10131,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
+				105460010000000000000001 /* SentryEventNoiseFilter.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,

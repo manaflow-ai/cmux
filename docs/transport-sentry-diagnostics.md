@@ -36,12 +36,16 @@ emits:
    the `iroh_diag` socket verb and iOS Settings export produce).
 
 The policy suppresses what an operator can already attribute (cancelled or
-superseded dials, offline failures while reachability reports no network,
-idle timeouts while backgrounded), coalesces repeats behind a 10-minute
-per-signature cooldown, caps failure captures per hour, and escalates a
-sustained no-success failure streak into one error-severity
-`transport-outage` event. Environment (reachability, app lifecycle phase,
-seconds since last success, consecutive-failure count) rides on every capture.
+superseded dials, explicit offline failures, transient route/policy failures
+while reachability reports no network, and idle timeouts while backgrounded),
+coalesces repeats behind a per-signature cooldown, caps failure captures per
+hour, and escalates a sustained no-success failure streak into one
+error-severity `transport-outage` event. The long-lived macOS host uses a
+one-hour signature gate, a six-ordinary-failure hourly cap, and deterministic
+sampling of ordinary failures/outages so a process restart cannot recreate a
+retry flood; sustained outage escalation has its own rearm interval.
+Environment (reachability, app lifecycle phase, seconds since last success,
+consecutive-failure count) rides on every capture.
 
 ## Wiring
 
@@ -53,7 +57,11 @@ seconds since last success, consecutive-failure count) rides on every capture.
   (target `CmuxSentryReporting`, pure core in `CmuxSentryScrubbing`).
 - macOS: `AppDelegate` sets the tap on
   `MobileHostIrohRuntime.hostDiagnosticLog` (role `macHost`) after
-  `SentrySDK.start`, gated by `MacSentryStartupPolicy` as before.
+  `SentrySDK.start`, gated by `MacSentryStartupPolicy` as before. The SDK
+  `beforeSend` hook drops listener-start operational noise and applies a
+  transport-only sampling backstop; crashes, hangs, and other loggers are
+  unaffected. The host pauses relay-policy retries while `NWPathMonitor`
+  reports no usable path and wakes one refresh when the path returns.
 
 ## Reading an issue
 

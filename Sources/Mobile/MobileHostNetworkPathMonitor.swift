@@ -11,8 +11,9 @@ import Foundation
 /// this type owns the observation: one `NWPathMonitor`, a path signature for
 /// duplicate suppression, and nothing else.
 ///
-/// Every observation that differs from the previous one fires `onPathChange`,
-/// *including the first*: the initial callback can arrive after the
+/// Every observation that differs from the previous one fires `onPathChange`
+/// and the optional reachability callback, *including the first*: the initial
+/// callback can arrive after the
 /// listener-ready route publish and describe a different path than those
 /// routes were computed on (e.g. Tailscale came up in between), so treating
 /// it as a silent baseline would swallow that first real change. Republishing
@@ -35,17 +36,20 @@ final class MobileHostNetworkPathMonitor {
     /// Signature of the last observed path, for duplicate suppression.
     private var lastSignature: String?
     private let onPathChange: @MainActor () -> Void
+    private let onReachabilityChange: @MainActor (Bool) -> Void
     /// Returns the machine's local IPv4 addresses; injectable for tests.
     /// Called on the monitor queue, off-main.
     private let localIPv4Addresses: @Sendable () -> [String]
 
     init(
         onPathChange: @escaping @MainActor () -> Void,
+        onReachabilityChange: @escaping @MainActor (Bool) -> Void = { _ in },
         localIPv4Addresses: @escaping @Sendable () -> [String] = {
             MobileHostNetworkPathMonitor.systemLocalIPv4Addresses()
         }
     ) {
         self.onPathChange = onPathChange
+        self.onReachabilityChange = onReachabilityChange
         self.localIPv4Addresses = localIPv4Addresses
     }
 
@@ -59,8 +63,11 @@ final class MobileHostNetworkPathMonitor {
                 gateways: path.gateways.map { String(describing: $0) },
                 localAddresses: localIPv4Addresses()
             )
+            let isOnline = Self.isOnline(
+                statusDescription: String(describing: path.status)
+            )
             Task { @MainActor [weak self] in
-                self?.handleObservation(signature: signature)
+                self?.handleObservation(signature: signature, isOnline: isOnline)
             }
         }
         monitor.start(queue: queue)
@@ -70,14 +77,21 @@ final class MobileHostNetworkPathMonitor {
         monitor.cancel()
     }
 
-    private func handleObservation(signature: String) {
+    private func handleObservation(signature: String, isOnline: Bool) {
         let changed = Self.shouldReportPathChange(
             previousSignature: lastSignature,
             newSignature: signature
         )
         lastSignature = signature
         guard changed else { return }
+        onReachabilityChange(isOnline)
         onPathChange()
+    }
+
+    /// Converts the platform path description into the binary reachability
+    /// value used by the privacy-safe diagnostic taxonomy.
+    nonisolated static func isOnline(statusDescription: String) -> Bool {
+        statusDescription == "satisfied"
     }
 
     /// Stable identity of a network path for change detection. Order-insensitive

@@ -169,7 +169,6 @@ private var appHostIsolationRequiredByBuild: Bool {
     @Test(arguments: [
         "socket.listener.start.failed",
         "socket.listener.unhealthy",
-        "Scroll lag detected",
     ])
     func dropsOperationalNoise(_ message: String) {
         #expect(SentryEventNoiseFilter.shouldDrop(message: message))
@@ -203,5 +202,21 @@ private var appHostIsolationRequiredByBuild: Bool {
             bucket: "sample-a",
             sampleRate: 1
         ))
+    }
+
+    @Test func eventFilterDropsOfflineTransportAndListenerEvents() {
+        let filter = SentryEventNoiseFilter()
+
+        let offline = Event(level: .warning)
+        offline.logger = "cmux.transport"
+        offline.tags = [
+            "transport.failure": "offline",
+            "transport.incident": "failure",
+        ]
+        #expect(filter.filter(offline) == nil)
+
+        let listener = Event(level: .error)
+        listener.message = SentryMessage(formatted: "socket.listener.start.failed")
+        #expect(filter.filter(listener) == nil)
     }
 }

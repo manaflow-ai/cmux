@@ -1,5 +1,6 @@
 import CmuxSettings
 import Darwin
+import Foundation
 import Testing
 
 @testable import CmuxControlSocket

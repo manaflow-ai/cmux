@@ -288,22 +288,45 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         refreshImmediately: Bool
     ) {
         relayPolicyRefreshTask?.cancel()
+        relayPolicyRefreshTask = nil
+        relayPolicyRefreshTaskID = nil
         guard let service, let trustRoot else {
-            relayPolicyRefreshTask = nil
+            relayPolicyRefreshService = nil
+            relayPolicyRefreshAccountID = nil
+            relayPolicyRefreshEndpointID = nil
+            relayPolicyRefreshTrustRoot = nil
+            relayPolicyRefreshRevision = nil
             return
         }
+        relayPolicyRefreshService = service
+        relayPolicyRefreshAccountID = accountID
+        relayPolicyRefreshEndpointID = endpointID
+        relayPolicyRefreshTrustRoot = trustRoot
+        relayPolicyRefreshRevision = revision
+        let taskID = UUID()
+        relayPolicyRefreshTaskID = taskID
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                guard let self, self.relayPolicyRefreshTaskID == taskID else { return }
+                self.relayPolicyRefreshTask = nil
+                self.relayPolicyRefreshTaskID = nil
+            }
             var retryAt: Date?
             var failureCount = 0
             var relayAuthorityExpired = false
             var shouldRefreshImmediately = refreshImmediately
             while !Task.isCancelled {
                 guard let self,
-                      revision == self.lifecycleRevision,
-                      self.activeAccountID == accountID,
-                      self.relayPolicyService === service else { return }
+                      self.ownsRelayPolicyRefresh(
+                          taskID: taskID,
+                          service: service,
+                          accountID: accountID,
+                          revision: revision
+                      ),
+                      self.relayPolicyNetworkReachable != false else { return }
                 let snapshot = await service.diagnosticsSnapshot()
-                let current = Date()
+                let clock = self.relayPolicyRefreshClock
+                let current = clock.now()
                 let attemptAt: Date
                 if shouldRefreshImmediately {
                     attemptAt = current
@@ -320,12 +343,20 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 let delay = attemptAt.timeIntervalSince(current)
                 if delay > 0 {
                     do {
-                        try await Task.sleep(for: .seconds(delay))
+                        try await clock.sleep(until: attemptAt)
                     } catch {
                         return
                     }
                 }
-                let wakeDate = Date()
+                let wakeDate = clock.now()
+                guard !Task.isCancelled,
+                      self.ownsRelayPolicyRefresh(
+                          taskID: taskID,
+                          service: service,
+                          accountID: accountID,
+                          revision: revision
+                      ),
+                      self.relayPolicyNetworkReachable != false else { return }
                 if let retryAt,
                    retryAt > wakeDate,
                    Self.shouldDeactivateRelayPolicy(
@@ -341,29 +372,51 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     relayAuthorityExpired = true
                     continue
                 }
-                guard !Task.isCancelled,
-                      revision == self.lifecycleRevision,
-                      self.activeAccountID == accountID,
-                      self.relayPolicyService === service else { return }
                 self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
                         endpointID: endpointID,
                         accountID: accountID,
                         trustRoot: trustRoot,
-                        now: Date()
+                        now: clock.now()
                     )
+                    guard !Task.isCancelled,
+                          self.ownsRelayPolicyRefresh(
+                              taskID: taskID,
+                              service: service,
+                              accountID: accountID,
+                              revision: revision
+                          ),
+                          self.relayPolicyNetworkReachable != false else { return }
                     try await self.applyRelayPolicy(effective)
                     retryAt = nil
                     failureCount = 0
                     relayAuthorityExpired = false
                     self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch is CancellationError {
+                    return
                 } catch {
+                    guard !Task.isCancelled,
+                          self.ownsRelayPolicyRefresh(
+                              taskID: taskID,
+                              service: service,
+                              accountID: accountID,
+                              revision: revision
+                          ) else { return }
+                    let failureKind = Self.diagnosticFailureKind(for: error)
                     self.diagnosticLog.record(DiagnosticEvent(
                         .relayPolicyRefreshFailed,
-                        b: Self.diagnosticFailureKind(for: error).rawValue
+                        b: failureKind.rawValue
                     ))
-                    let failureDate = Date()
+                    // An explicit offline classification, or a path observer
+                    // that says the host is offline, parks this loop. The
+                    // reachability callback owns the next wake, so no timer
+                    // continues polling a captive portal or asleep laptop.
+                    guard !Self.shouldPauseRelayPolicyRetry(
+                        failure: failureKind,
+                        networkReachable: self.relayPolicyNetworkReachable
+                    ) else { return }
+                    let failureDate = clock.now()
                     if Self.shouldDeactivateRelayPolicy(
                         policyExpiresAt: snapshot.policyExpiresAt,
                         now: failureDate
@@ -379,8 +432,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule.relayPolicy(
-                        for: Self.diagnosticFailureKind(for: error)
+                    let retryDelay = CmxIrohRetrySchedule.macHostRelayPolicy(
+                        for: failureKind
                     ).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
@@ -399,6 +452,29 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         }
     }
 
+    private func ownsRelayPolicyRefresh(
+        taskID: UUID,
+        service: CmxIrohRelayPolicyService,
+        accountID: String,
+        revision: UInt64
+    ) -> Bool {
+        relayPolicyRefreshTaskID == taskID
+            && revision == lifecycleRevision
+            && activeAccountID == accountID
+            && relayPolicyService === service
+    }
+
+    /// Whether a failed broker round should park until a path transition.
+    /// `nil` reachability is intentionally allowed to probe once; an explicit
+    /// `.offline` classification is sufficient to park even before the first
+    /// platform callback arrives.
+    nonisolated static func shouldPauseRelayPolicyRetry(
+        failure: DiagnosticFailureKind,
+        networkReachable: Bool?
+    ) -> Bool {
+        failure == .offline || networkReachable == false
+    }
+
     nonisolated static func relayPolicyRefreshAttemptDate(
         policyExpiresAt: Date?,
         retryAt: Date?,
@@ -410,7 +486,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         if let policyExpiresAt {
             return policyExpiresAt.addingTimeInterval(-60)
         }
-        return now.addingTimeInterval(30)
+        return now.addingTimeInterval(CmxIrohRetrySchedule.macHostRelayPolicy.initialDelay)
     }
 
     nonisolated static func shouldDeactivateRelayPolicy(
@@ -488,6 +564,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         relayPolicyObservationTask = nil
         relayPolicyRefreshTask?.cancel()
         relayPolicyRefreshTask = nil
+        relayPolicyRefreshTaskID = nil
+        relayPolicyRefreshService = nil
+        relayPolicyRefreshAccountID = nil
+        relayPolicyRefreshEndpointID = nil
+        relayPolicyRefreshTrustRoot = nil
+        relayPolicyRefreshRevision = nil
         relayPolicyService = nil
         relayPolicyEffective = nil
         relayPolicyDiagnostics = nil

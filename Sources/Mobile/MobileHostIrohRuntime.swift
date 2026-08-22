@@ -113,6 +113,16 @@ final class MobileHostIrohRuntime {
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
     var relayPolicyObservationTask: Task<Void, Never>?
     var relayPolicyRefreshTask: Task<Void, Never>?
+    var relayPolicyRefreshTaskID: UUID?
+    var relayPolicyRefreshService: CmxIrohRelayPolicyService?
+    var relayPolicyRefreshAccountID: String?
+    var relayPolicyRefreshEndpointID: CmxIrohPeerIdentity?
+    var relayPolicyRefreshTrustRoot: CmxIrohRelayPolicyTrustRoot?
+    var relayPolicyRefreshRevision: UInt64?
+    /// Last platform path state. `nil` means the path observer has not emitted
+    /// its first sample yet; unknown state remains eligible for one probe.
+    var relayPolicyNetworkReachable: Bool?
+    var relayPolicyRefreshClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var selectedPathObservationTask: Task<Void, Never>?
     var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     var desiredActive = false
@@ -139,7 +149,7 @@ final class MobileHostIrohRuntime {
     var retryInspectionRevision: UInt64 = 0
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
-    var failureRecoverySchedule = CmxIrohRetrySchedule()
+    var failureRecoverySchedule = CmxIrohRetrySchedule.macHostRelayPolicy
     var failureRecoveryJitter: @Sendable () -> Double = {
         Double.random(in: 0 ... 1)
     }
@@ -329,6 +339,10 @@ final class MobileHostIrohRuntime {
             mobileHostIrohLog.error(
                 "Iroh host activation failed kind=\(failureKind.rawValue, privacy: .public) type=\(failureType, privacy: .public) detail=\(String(describing: error), privacy: .private)"
             )
+            guard !Self.shouldPauseRelayPolicyRetry(
+                failure: failureKind,
+                networkReachable: relayPolicyNetworkReachable
+            ) else { return }
             scheduleFailureRecovery()
         }
     }

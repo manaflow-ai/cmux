@@ -71,15 +71,15 @@ import Testing
         #expect(policy.decide(dialFailed(at: 12, failure: .none)) == nil)
     }
 
-    @Test func offlineSuppressedOnlyWhileUnreachable() {
+    @Test func explicitOfflineClassificationIsAlwaysSuppressed() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
         #expect(policy.decide(dialFailed(at: 10, failure: .offline)) == nil)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 11 * Self.second, a: 1))
-        #expect(policy.decide(dialFailed(at: 12, failure: .offline)) != nil)
+        #expect(policy.decide(dialFailed(at: 12, failure: .offline)) == nil)
     }
 
-    @Test func offlineReportedWhenReachabilityUnknown() {
+    @Test func offlineSuppressedWhenReachabilityUnknown() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
         #expect(policy.decide(dialFailed(at: 10, failure: .offline)) == nil)
     }
@@ -90,7 +90,8 @@ import Testing
 
         #expect(policy.decide(dialFailed(at: 10, failure: .policyUnavailable)) == nil)
         #expect(policy.decide(dialFailed(at: 11, failure: .endpointUnavailable)) == nil)
-        #expect(policy.decide(dialFailed(at: 12, failure: .unknown)) == nil)
+        #expect(policy.decide(dialFailed(at: 12, failure: .authorizationFailed)) == nil)
+        #expect(policy.decide(dialFailed(at: 13, failure: .unknown)) == nil)
     }
 
     @Test func offlineFailuresDoNotEscalateAnOutage() {
@@ -276,16 +277,13 @@ import Testing
         // Exhaust the hourly budget with one signature...
         #expect(policy.decide(dialFailed(at: 10)) != nil)
         // ...then a brand-new signature arrives while the budget is empty.
-        let unreachable = DiagnosticEvent(
-            code: .pairUnreachable,
-            tNanos: 20 * Self.second
-        )
-        #expect(policy.decide(unreachable) == nil)
+        let identityMismatch = dialFailed(at: 20, failure: .identityMismatch)
+        #expect(policy.decide(identityMismatch) == nil)
         // Once the window slides, the never-captured signature must capture
         // immediately: a budget drop is not a capture, so no cooldown applies.
-        let afterWindow = DiagnosticEvent(
-            code: .pairUnreachable,
-            tNanos: (10 + 3700) * Self.second
+        let afterWindow = dialFailed(
+            at: 10 + 3700,
+            failure: .identityMismatch
         )
         let captured = policy.decide(afterWindow)
         #expect(captured != nil)

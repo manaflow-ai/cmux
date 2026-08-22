@@ -101,5 +101,6 @@ struct CmxIrohRetryScheduleTests {
             retryAfterSeconds: nil,
             jitterUnitInterval: 0
         ) <= 21_600)
+        #expect(CmxIrohRetrySchedule.macHostRelayPolicy(for: .offline) == schedule)
     }
 }

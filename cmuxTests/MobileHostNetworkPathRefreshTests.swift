@@ -130,6 +130,31 @@ import Testing
         #expect(!MobileHostNetworkPathMonitor.isOnline(statusDescription: "requiresConnection"))
     }
 
+    @Test func relayPolicyRetryParksOnlyForOfflineEvidence() {
+        #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .offline,
+            networkReachable: nil
+        ))
+        #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .policyUnavailable,
+            networkReachable: false
+        ))
+        #expect(!MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .policyUnavailable,
+            networkReachable: true
+        ))
+    }
+
+    @Test func hostRelayRefreshWithoutExpiryUsesIdleCadence() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: nil,
+            retryAt: nil,
+            now: now
+        )
+        #expect(attempt.timeIntervalSince(now) == 60)
+    }
+
     // MARK: - Resolver cache invalidation
 
     private func tailscaleHosts(in snapshot: MobileHostRouteSnapshot) -> [String] {
