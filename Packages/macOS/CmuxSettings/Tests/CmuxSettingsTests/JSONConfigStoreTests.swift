@@ -44,6 +44,48 @@ struct JSONConfigStoreTests {
         #expect(store.snapshotValueIfPresent(for: key) == nil)
     }
 
+    @Test func coherentSnapshotDecodesRelatedTerminalKeysTogether() async throws {
+        let (store, fileURL, _) = makeStore()
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"fixedPath","path":"/tmp/project"},"shellStartup":{"mode":"nonLogin","command":"echo ready"}}}"#.utf8
+        ).write(to: fileURL)
+
+        let revision = await store.coherentSnapshot()
+        let snapshot = DeclarativeTerminalConfiguration.snapshot(data: revision.data)
+        #expect(snapshot.workingDirectoryPolicy == .fixedPath)
+        #expect(snapshot.workingDirectoryPath == "/tmp/project")
+        #expect(snapshot.shellStartupMode == .nonLogin)
+        #expect(snapshot.shellStartupCommand == "echo ready")
+    }
+
+    @Test func snapshotStreamPublishesOneCoherentRevision() async throws {
+        let (store, fileURL, _) = makeStore()
+        try Data("{}".utf8).write(to: fileURL)
+
+        let (ready, readyContinuation) = AsyncStream<Void>.makeStream()
+        let observed = Task<DeclarativeTerminalConfiguration.Snapshot?, Never> {
+            var iterator = store.snapshots().makeAsyncIterator()
+            guard await iterator.next() != nil else { return nil }
+            readyContinuation.yield()
+            guard let revision = await iterator.next() else { return nil }
+            return DeclarativeTerminalConfiguration.snapshot(data: revision.data)
+        }
+
+        await withTimeout(seconds: 8) {
+            var iterator = ready.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        try Data(
+            #"{"terminal":{"newSurfaceWorkingDirectory":{"policy":"workspaceRoot","path":"/tmp/root"},"shellStartup":{"mode":"login","command":"mise activate"}}}"#.utf8
+        ).write(to: fileURL, options: [.atomic])
+
+        let snapshot = await withTimeout(seconds: 8) { await observed.value }
+        #expect(snapshot?.workingDirectoryPolicy == .workspaceRoot)
+        #expect(snapshot?.workingDirectoryPath == "/tmp/root")
+        #expect(snapshot?.shellStartupMode == .login)
+        #expect(snapshot?.shellStartupCommand == "mise activate")
+    }
+
     @Test func presenceStreamReportsMissingExplicitResetAndValidTransitions() async throws {
         let (store, _, _) = makeStore()
         let key = JSONKey<NewSurfaceWorkingDirectoryPolicy>(

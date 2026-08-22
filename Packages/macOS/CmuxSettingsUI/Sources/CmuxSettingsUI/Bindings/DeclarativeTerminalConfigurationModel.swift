@@ -50,6 +50,7 @@ public final class DeclarativeTerminalConfigurationModel {
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
     private let cache: DeclarativeTerminalConfigurationCache
+    private let reader: DeclarativeTerminalConfigurationReader
     private let fileURL: URL
     private var observationTasks = MainActorTaskStore<String>()
     private var saveTasks = MainActorTaskStore<String>()
@@ -78,6 +79,7 @@ public final class DeclarativeTerminalConfigurationModel {
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
         cache: DeclarativeTerminalConfigurationCache,
+        reader: DeclarativeTerminalConfigurationReader = DeclarativeTerminalConfigurationReader(),
         fileURL: URL? = nil
     ) {
         self.jsonStore = jsonStore
@@ -85,6 +87,7 @@ public final class DeclarativeTerminalConfigurationModel {
         self.catalog = catalog
         self.errorLog = errorLog
         self.cache = cache
+        self.reader = reader
         self.fileURL = fileURL ?? jsonStore.fileURL
     }
 
@@ -98,10 +101,7 @@ public final class DeclarativeTerminalConfigurationModel {
             guard let self else { return }
             await self.refresh()
             await withTaskGroup(of: Void.self) { group in
-                group.addTask { [weak self] in await self?.observeWorkingDirectoryPolicy() }
-                group.addTask { [weak self] in await self?.observeWorkingDirectoryPath() }
-                group.addTask { [weak self] in await self?.observeShellStartupMode() }
-                group.addTask { [weak self] in await self?.observeShellStartupCommand() }
+                group.addTask { [weak self] in await self?.observeTerminalConfiguration() }
                 group.addTask { [weak self] in await self?.observeLegacyInheritance() }
                 await group.waitForAll()
             }
@@ -118,8 +118,8 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            let committed = await self.jsonStore.valueIfPresent(for: key)
-            self.updateJSON { $0.workingDirectoryPolicy = committed }
+            guard !Task.isCancelled else { return }
+            await self.refreshJSON()
         }
     }
 
@@ -133,8 +133,8 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            let committed = await self.jsonStore.value(for: key)
-            self.updateJSON { $0.workingDirectoryPath = committed }
+            guard !Task.isCancelled else { return }
+            await self.refreshJSON()
         }
     }
 
@@ -148,8 +148,8 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            let committed = await self.jsonStore.value(for: key)
-            self.updateJSON { $0.shellStartupMode = committed }
+            guard !Task.isCancelled else { return }
+            await self.refreshJSON()
         }
     }
 
@@ -164,66 +164,32 @@ public final class DeclarativeTerminalConfigurationModel {
             } catch {
                 self.errorLog.recordSaveFailure(keyID: key.id)
             }
-            let committed = await self.jsonStore.value(for: key)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            self.updateJSON { $0.shellStartupCommand = committed }
+            guard !Task.isCancelled else { return }
+            await self.refreshJSON()
         }
     }
 
     private func refresh() async {
-        let terminal = catalog.terminal
-        let next = Snapshot(
-            workingDirectoryPolicy: await jsonStore.valueIfPresent(
-                for: terminal.newSurfaceWorkingDirectoryPolicy
-            ),
-            workingDirectoryPath: await jsonStore.value(for: terminal.newSurfaceWorkingDirectoryPath),
-            shellStartupMode: await jsonStore.value(for: terminal.shellStartupMode),
-            shellStartupCommand: (await jsonStore.value(for: terminal.shellStartupCommand))
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            legacyInheritanceEnabled: await userDefaultsStore.value(
-                for: catalog.app.workspaceInheritWorkingDirectory
-            )
+        await refreshJSON()
+        legacyInheritanceEnabled = await userDefaultsStore.value(
+            for: catalog.app.workspaceInheritWorkingDirectory
         )
-        cache.replace(
-            DeclarativeTerminalConfiguration.Snapshot(
-                workingDirectoryPolicy: next.workingDirectoryPolicy,
-                workingDirectoryPath: next.workingDirectoryPath,
-                shellStartupMode: next.shellStartupMode,
-                shellStartupCommand: next.shellStartupCommand
-            ),
-            fileURL: fileURL
-        )
-        legacyInheritanceEnabled = next.legacyInheritanceEnabled
         snapshotRevision &+= 1
     }
 
-    private func observeWorkingDirectoryPolicy() async {
-        for await value in jsonStore.valuesIfPresent(for: catalog.terminal.newSurfaceWorkingDirectoryPolicy) {
-            if Task.isCancelled { return }
-            updateJSON { $0.workingDirectoryPolicy = value }
-        }
+    private func refreshJSON() async {
+        let revision = await jsonStore.coherentSnapshot()
+        let terminal = await reader.decode(revision)
+        cache.replace(terminal, fileURL: fileURL)
+        snapshotRevision &+= 1
     }
 
-    private func observeWorkingDirectoryPath() async {
-        for await value in jsonStore.values(for: catalog.terminal.newSurfaceWorkingDirectoryPath) {
+    private func observeTerminalConfiguration() async {
+        for await revision in jsonStore.snapshots() {
             if Task.isCancelled { return }
-            updateJSON { $0.workingDirectoryPath = value }
-        }
-    }
-
-    private func observeShellStartupMode() async {
-        for await value in jsonStore.values(for: catalog.terminal.shellStartupMode) {
-            if Task.isCancelled { return }
-            updateJSON { $0.shellStartupMode = value }
-        }
-    }
-
-    private func observeShellStartupCommand() async {
-        for await value in jsonStore.values(for: catalog.terminal.shellStartupCommand) {
-            if Task.isCancelled { return }
-            updateJSON {
-                $0.shellStartupCommand = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+            let terminal = await reader.decode(revision)
+            cache.replace(terminal, fileURL: fileURL)
+            snapshotRevision &+= 1
         }
     }
 
@@ -235,12 +201,4 @@ public final class DeclarativeTerminalConfigurationModel {
         }
     }
 
-    private func updateJSON(
-        _ body: (inout DeclarativeTerminalConfiguration.Snapshot) -> Void
-    ) {
-        var next = cache.snapshot(fileURL: fileURL)
-        body(&next)
-        cache.replace(next, fileURL: fileURL)
-        snapshotRevision &+= 1
-    }
 }
