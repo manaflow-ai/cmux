@@ -14,18 +14,24 @@ public struct MobileSimulatorStreamCapability: Sendable {
     /// `CmuxSimulatorStreamKit.SimStreamProtocol` (same literal, duplicated
     /// so this base DTO package does not link VideoToolbox).
     public let streamV2Identifier: String
+    /// The host serves `mobile.simulator.devices.list` and
+    /// `mobile.simulator.device.select`, so phones can switch which
+    /// simulator a panel streams.
+    public let devicesIdentifier: String
 
     public init(
         identifier: String = "simulator.stream.v1",
         inputIdentifier: String = "simulator.input.v1",
         ownershipIdentifier: String = "simulator.ownership.v1",
         keepaliveIdentifier: String = "simulator.keepalive.v1",
-        streamV2Identifier: String = "simulator.stream.v2"
+        streamV2Identifier: String = "simulator.stream.v2",
+        devicesIdentifier: String = "simulator.devices.v1"
     ) {
         self.identifier = identifier
         self.inputIdentifier = inputIdentifier
         self.ownershipIdentifier = ownershipIdentifier
         self.keepaliveIdentifier = keepaliveIdentifier
         self.streamV2Identifier = streamV2Identifier
+        self.devicesIdentifier = devicesIdentifier
     }
 }

@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 public import CmuxMobileRPC
 import Foundation
 
@@ -24,6 +24,38 @@ extension MobileShellComposite {
         supportedHostCapabilities.contains(Self.simulatorStreamV2Capability)
             && runtime?.simulatorStreamLaneProvider != nil
             && activeRoute?.kind == .iroh
+    }
+
+    /// Whether the connected Mac can list and switch a panel's simulator.
+    public var supportsSimulatorDeviceSwitching: Bool {
+        supportedHostCapabilities.contains(
+            MobileSimulatorStreamCapability.current.devicesIdentifier)
+    }
+
+    /// Installed simulators the panel can stream; empty on any failure so
+    /// the picker simply hides against older or unreachable hosts.
+    public func listSimulatorDevices(
+        panelID: String, workspaceID: String
+    ) async -> [MobileSimulatorDeviceDescriptor] {
+        guard supportsSimulatorDeviceSwitching, let client = remoteClient else { return [] }
+        return (try? await client.listMobileSimulatorDevices(
+            panelID: panelID, workspaceID: workspaceID)) ?? []
+    }
+
+    /// Asks the Mac to switch the panel's simulator. Fire-and-forget: the
+    /// v2 stream's own status/config/keyframe flow shows the transition,
+    /// and a cold boot outlives any reasonable RPC deadline.
+    public func selectSimulatorDevice(
+        panelID: String, workspaceID: String, udid: String
+    ) async -> Bool {
+        guard supportsSimulatorDeviceSwitching, let client = remoteClient else { return false }
+        do {
+            _ = try await client.selectMobileSimulatorDevice(
+                panelID: panelID, workspaceID: workspaceID, udid: udid)
+            return true
+        } catch {
+            return false
+        }
     }
 
     public func simulatorStreamV2Access(panelID: String) -> SimulatorStreamV2Access? {

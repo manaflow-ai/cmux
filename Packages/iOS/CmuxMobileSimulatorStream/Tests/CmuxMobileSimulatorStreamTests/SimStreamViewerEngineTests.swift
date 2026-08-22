@@ -326,6 +326,31 @@ struct SimStreamViewerEngineTests {
     }
 
     @Test
+    func qualityChangeRenegotiatesOnTheLiveLane() async throws {
+        let lane = FakeLane()
+        let presenter = FakePresenter()
+        let engine = SimStreamViewerEngine(
+            presenter: presenter, maximumLongSidePixels: 2_000, epoch: 1
+        ) { _ in }
+        let runTask = Task { await engine.run(opener: { lane }) }
+        _ = await lane.waitForSent(count: 1)
+
+        await engine.updateQuality(maximumLongSidePixels: 800)
+        // Same value again must not renegotiate.
+        await engine.updateQuality(maximumLongSidePixels: 800)
+
+        let sent = await lane.waitForSent(count: 2)
+        let starts = sent.compactMap { message -> SimStreamStartRequest? in
+            guard case .start(let request) = message else { return nil }
+            return request
+        }
+        #expect(starts.map(\.maximumLongSidePixels) == [2_000, 800])
+        #expect(starts.map(\.epoch) == [1, 1])
+        await lane.hostFinishes()
+        await runTask.value
+    }
+
+    @Test
     func frameBeforeConfigFailsClosed() async throws {
         let fixture = try await Self.encodedFixture()
         let lane = FakeLane()

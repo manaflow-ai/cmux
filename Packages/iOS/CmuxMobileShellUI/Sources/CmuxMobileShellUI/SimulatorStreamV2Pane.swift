@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileSimulatorStream
 import CmuxMobileSupport
@@ -14,13 +15,25 @@ import UIKit
 /// remount or route change unable to strand a session.
 struct SimulatorStreamV2Pane: View {
     let panelID: String
+    let workspaceID: String
     let access: SimulatorStreamV2Access
     let isTransportReady: Bool
+    let supportsDeviceSwitching: Bool
+    let listDevices: @MainActor () async -> [MobileSimulatorDeviceDescriptor]
+    let selectDevice: @MainActor (String) async -> Bool
 
     @State private var store: SimulatorStreamV2Store?
     @State private var pendingText = ""
+    @State private var devices: [MobileSimulatorDeviceDescriptor] = []
+    @State private var deviceFetchTask: Task<Void, Never>?
+    @AppStorage("cmux.simulatorStream.quality")
+    private var qualityRaw = SimStreamQualityPreset.default.rawValue
     @FocusState private var textFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
+
+    private var quality: SimStreamQualityPreset {
+        SimStreamQualityPreset(rawValue: qualityRaw) ?? .default
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,10 +55,21 @@ struct SimulatorStreamV2Pane: View {
                 ?? SimulatorStreamV2Store(
                     panelID: panelID,
                     opener: access.opener,
-                    transportReady: access.transportReady
+                    transportReady: access.transportReady,
+                    maximumLongSidePixels: quality.maximumLongSidePixels
                 )
             self.store = store
             store.activate()
+        }
+        .task {
+            refreshDevices()
+        }
+        .onDisappear {
+            deviceFetchTask?.cancel()
+            deviceFetchTask = nil
+        }
+        .onChange(of: qualityRaw) { _, _ in
+            store?.setQuality(maximumLongSidePixels: quality.maximumLongSidePixels)
         }
         .onDisappear {
             store?.deactivate()
@@ -190,6 +214,17 @@ struct SimulatorStreamV2Pane: View {
                 menuButton(
                     .siri, systemImage: "waveform",
                     label: L10n.string("mobile.simulatorStream.siri", defaultValue: "Siri"))
+                qualityMenu
+                if supportsDeviceSwitching, !devices.isEmpty {
+                    deviceMenu
+                }
+                // Menu content materializes when the menu opens, so this
+                // refreshes the device inventory (and stale checkmarks from
+                // Mac-side switches) right before the user can reach the
+                // Switch Simulator submenu.
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .onAppear { refreshDevices() }
             } label: {
                 Image(systemName: "ellipsis.circle").frame(width: 24, height: 24)
             }
@@ -207,6 +242,85 @@ struct SimulatorStreamV2Pane: View {
         .clipShape(Capsule())
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
+    }
+
+    private var qualityMenu: some View {
+        Picker(
+            L10n.string("mobile.simulatorStream.quality", defaultValue: "Stream Quality"),
+            selection: $qualityRaw
+        ) {
+            Text(L10n.string("mobile.simulatorStream.qualityHigh", defaultValue: "High"))
+                .tag(SimStreamQualityPreset.high.rawValue)
+            Text(
+                L10n.string(
+                    "mobile.simulatorStream.qualityBalanced", defaultValue: "Balanced")
+            )
+            .tag(SimStreamQualityPreset.balanced.rawValue)
+            Text(
+                L10n.string(
+                    "mobile.simulatorStream.qualityDataSaver", defaultValue: "Data Saver")
+            )
+            .tag(SimStreamQualityPreset.dataSaver.rawValue)
+        }
+        .pickerStyle(.menu)
+        .accessibilityIdentifier("SimulatorStreamV2QualityPicker")
+    }
+
+    private var deviceMenu: some View {
+        Menu {
+            // Rows live-update in place: entering the submenu re-fetches, so
+            // an inventory raced ahead of the menu-open refresh corrects
+            // itself, and stale selects already fail safe on the host
+            // (unknown devices reject, the current device is a no-op).
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onAppear { refreshDevices() }
+            ForEach(devices) { device in
+                Button {
+                    switchDevice(to: device.udid)
+                } label: {
+                    if device.isSelected {
+                        Label(deviceLabel(device), systemImage: "checkmark")
+                    } else {
+                        Text(deviceLabel(device))
+                    }
+                }
+                .disabled(device.isSelected)
+            }
+        } label: {
+            Label(
+                L10n.string(
+                    "mobile.simulatorStream.switchSimulator", defaultValue: "Switch Simulator"),
+                systemImage: "iphone.gen3"
+            )
+        }
+        .accessibilityIdentifier("SimulatorStreamV2DeviceMenu")
+    }
+
+    private func deviceLabel(_ device: MobileSimulatorDeviceDescriptor) -> String {
+        "\(device.name) · \(device.runtimeName)"
+    }
+
+    /// One owned fetch at a time; a superseded fetch's result is discarded
+    /// so a slow older response can never overwrite a newer inventory.
+    private func refreshDevices() {
+        guard supportsDeviceSwitching else { return }
+        deviceFetchTask?.cancel()
+        deviceFetchTask = Task {
+            let fetched = await listDevices()
+            guard !Task.isCancelled else { return }
+            devices = fetched
+        }
+    }
+
+    private func switchDevice(to udid: String) {
+        deviceFetchTask?.cancel()
+        deviceFetchTask = Task {
+            _ = await selectDevice(udid)
+            let fetched = await listDevices()
+            guard !Task.isCancelled else { return }
+            devices = fetched
+        }
     }
 
     private func chromeButton(
