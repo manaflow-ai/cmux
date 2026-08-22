@@ -718,7 +718,14 @@ export class BlaxelProvider implements VMProvider {
     // than failing the attach.
     const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
     let created: BlaxelPreview | null = null;
-    if (prefixUrl) {
+    const customDomain = prefixUrl ? await verifiedCustomDomain() : null;
+    if (prefixUrl && customDomain) {
+      created = await blaxelFetch<BlaxelPreview>("POST", base, {
+        metadata: { name: previewName },
+        spec: { port, public: false, customDomain: `${prefixUrl}.${customDomain}` },
+      }).catch(() => null);
+    }
+    if (!created && prefixUrl) {
       created = await blaxelFetch<BlaxelPreview>("POST", base, {
         metadata: { name: previewName },
         spec: { port, public: false, prefixUrl },
@@ -777,6 +784,34 @@ export class BlaxelProvider implements VMProvider {
 // Preview subdomain prefix: the machine name for the daemon preview, machine-port for port
 // previews. Only lowercase alphanumerics and hyphens survive; anything else (or an
 // over-long result) disables branding for that preview rather than risking a failed create.
+// Fully-owned machine URLs: when CMUX_VM_BLAXEL_CUSTOM_DOMAIN names a domain that is
+// registered AND verified on the workspace (e.g. vm.cmux.sh with its wildcard CNAME live),
+// previews are created on <prefix>.<domain> — noble-wren.vm.cmux.sh — instead of bl.run.
+// Blaxel rejects customDomain while verification is pending, so the driver checks status
+// (cached briefly) and silently keeps the prefix/hash URL until DNS is live.
+let cachedCustomDomain: { value: string | null; checkedAt: number } | null = null;
+const CUSTOM_DOMAIN_CACHE_MS = 5 * 60 * 1000;
+
+async function verifiedCustomDomain(): Promise<string | null> {
+  const domain = env("CMUX_VM_BLAXEL_CUSTOM_DOMAIN");
+  if (!domain) return null;
+  if (cachedCustomDomain && Date.now() - cachedCustomDomain.checkedAt < CUSTOM_DOMAIN_CACHE_MS) {
+    return cachedCustomDomain.value;
+  }
+  let value: string | null = null;
+  try {
+    const record = await blaxelFetch<{ spec?: { status?: string } }>(
+      "GET",
+      `${CONTROL_PLANE_BASE}/customdomains/${encodeURIComponent(domain)}`,
+    );
+    value = record.spec?.status === "verified" ? domain : null;
+  } catch {
+    value = null;
+  }
+  cachedCustomDomain = { value, checkedAt: Date.now() };
+  return value;
+}
+
 function brandedPreviewPrefix(vmId: string, previewName: string, port: number): string | null {
   const machine = vmId.toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(machine)) return null;
