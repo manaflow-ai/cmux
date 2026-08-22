@@ -18,7 +18,12 @@ struct OnboardingPushPreview: View {
     @State private var typedCharacterCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let replyText = "Merge it"
+    private static var replyText: String {
+        L10n.string(
+            "mobile.onboarding.push.previewReply",
+            defaultValue: "Merge it"
+        )
+    }
     private let clock = ContinuousClock()
 
     var body: some View {
@@ -64,6 +69,8 @@ struct OnboardingPushPreview: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+                // The real notification's title is the agent's process name,
+                // shown verbatim; it is data, not translatable copy.
                 Text(verbatim: "claude")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
@@ -149,19 +156,20 @@ struct OnboardingPushPreview: View {
     }
 
     private func runLoop() async {
+        let replyText = Self.replyText
         while !Task.isCancelled {
             setPhase(.idle, typedCharacters: 0)
             guard await pause(for: .seconds(1.4)) else { return }
 
             setPhase(.typing, typedCharacters: 0)
             guard await pause(for: .seconds(0.5)) else { return }
-            for count in 1...Self.replyText.count {
+            for count in stride(from: 1, through: replyText.count, by: 1) {
                 typedCharacterCount = count
                 guard await pause(for: .milliseconds(110)) else { return }
             }
             guard await pause(for: .seconds(0.5)) else { return }
 
-            setPhase(.sent, typedCharacters: Self.replyText.count)
+            setPhase(.sent, typedCharacters: replyText.count)
             guard await pause(for: .seconds(1.6)) else { return }
         }
     }

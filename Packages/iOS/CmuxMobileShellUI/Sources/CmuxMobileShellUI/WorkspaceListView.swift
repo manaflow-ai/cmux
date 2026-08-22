@@ -674,6 +674,11 @@ struct WorkspaceListView: View {
                         isSettingsPresented: settingsPresentation.isPresented
                     )
                 },
+                startOnboardingPairingScanner: {
+                    settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: settingsPresentation.isPresented
+                    )
+                },
                 signOut: signOut,
                 store: store
             )

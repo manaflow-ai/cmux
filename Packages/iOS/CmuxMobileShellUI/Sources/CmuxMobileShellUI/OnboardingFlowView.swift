@@ -43,7 +43,7 @@ struct OnboardingFlowView: View {
         onRetryConnection: @escaping () -> Void,
         onStartTailscalePairing: @escaping () -> Void,
         onEnablePush: @escaping () async -> Bool,
-        onDeclinePush: @escaping () -> Void = {},
+        onDeclinePush: @escaping () -> Void,
         onComplete: @escaping () -> Void
     ) {
         self.context = context
@@ -238,6 +238,12 @@ struct OnboardingFlowView: View {
     }
 
     private func startTailscalePairing() {
+        // Scanning a pairing code is Tailscale pairing, so every scan
+        // entrypoint adopts the method first. The fallback's scan action can
+        // fire while automatic is still selected, and the root's
+        // manual-pairing gate re-reads the store synchronously, so the
+        // scanner presents instead of silently no-oping.
+        onSelectConnectionMethod(.tailscale)
         diagnosticLog?.recordAppEvent(.onboardingPairingStarted)
         var properties = eventProperties
         properties["source"] = .string("tailscale_choice")

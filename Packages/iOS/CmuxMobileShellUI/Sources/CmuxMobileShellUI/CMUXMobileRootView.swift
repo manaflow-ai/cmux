@@ -644,6 +644,7 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
+            startOnboardingPairingScanner: showOnboardingPairingScanner,
             signOut: signOut,
             store: store,
             initialFocus: initialFocus,
@@ -907,6 +908,7 @@ struct CMUXMobileRootView: View {
             onRetryConnection: {},
             onStartTailscalePairing: showOnboardingPairingScanner,
             onEnablePush: { true },
+            onDeclinePush: {},
             onComplete: completeOnboarding
         )
         #else

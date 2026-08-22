@@ -32,6 +32,10 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Opens the pairing scanner for the onboarding replay. Unlike
+    /// `startPairingScanner`, never nil-gated on the already-selected method:
+    /// the replayed flow adopts Tailscale as part of the scan action itself.
+    let startOnboardingPairingScanner: () -> Void
     let signOut: (() -> Void)?
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
@@ -521,10 +525,19 @@ struct MobileSettingsView: View {
                     onRetryConnection: retryAutomaticConnection,
                     onStartTailscalePairing: {
                         showingOnboarding = false
-                        startPairingScanner?()
+                        startOnboardingPairingScanner()
                     },
                     onEnablePush: { [pushCoordinator] in
-                        await pushCoordinator.enable(trigger: "onboarding_replay")
+                        let granted = await pushCoordinator.enable(
+                            trigger: "onboarding_replay"
+                        )
+                        if !granted {
+                            pushCoordinator.recordOnboardingPushDecline()
+                        }
+                        return granted
+                    },
+                    onDeclinePush: { [pushCoordinator] in
+                        pushCoordinator.recordOnboardingPushDecline()
                     },
                     onComplete: { showingOnboarding = false }
                 )

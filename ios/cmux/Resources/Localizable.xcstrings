@@ -19448,6 +19448,23 @@
         }
       }
     },
+    "mobile.onboarding.push.previewReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マージして"
+          }
+        }
+      }
+    },
     "mobile.onboarding.push.previewSubtitle": {
       "extractionState": "manual",
       "localizations": {
