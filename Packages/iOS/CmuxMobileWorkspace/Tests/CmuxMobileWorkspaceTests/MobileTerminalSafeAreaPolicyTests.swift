@@ -106,4 +106,15 @@ import Testing
         #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
         #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
     }
+
+    @Test func compactLandscapeExpansionKeepsACameraEdgeProtected() {
+        // A landscape phone puts the Dynamic Island / notch on one horizontal
+        // edge; the terminal must keep at least one horizontal safe-area inset
+        // so its content never renders under the hardware.
+        let edges = MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: true
+        )
+        #expect(!(edges.edgeSet.contains(.leading) && edges.edgeSet.contains(.trailing)))
+    }
 }
