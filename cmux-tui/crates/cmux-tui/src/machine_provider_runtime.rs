@@ -847,9 +847,24 @@ impl ProviderMachineRuntime {
                                 ))
                                 .map(|descriptor| descriptor.id.clone());
                         }
+                        crate::client_log::info(
+                            "machine",
+                            &format!(
+                                "delete replacement: stale={selection_stale} machines={} selected={:?}",
+                                runtime.snapshot.machines.len(),
+                                runtime.snapshot.selected_machine_id.as_ref().map(|id| id.as_str().to_string()),
+                            ),
+                        );
                         if deletes_open_session {
                             let (session, label, open, reused) =
                                 runtime.open_selected_candidate()?;
+                            crate::client_log::info(
+                                "machine",
+                                &format!(
+                                    "delete replacement opened: label={label} open={} reused={reused}",
+                                    open.is_some(),
+                                ),
+                            );
                             let session_available = open.is_some();
                             runtime.stage_mandatory_replacement(open);
                             let mut ui = runtime.ui_state(session_available);

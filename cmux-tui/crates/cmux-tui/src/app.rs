@@ -10692,6 +10692,12 @@ impl App {
                             .is_none_or(|machine| self.machine_selection_intent == Some(machine)),
                         _ => true,
                     };
+                crate::client_log::info(
+                    "machine",
+                    &format!(
+                        "replacement prepared: present={present} canceled={connection_canceled}"
+                    ),
+                );
                 self.pending_machine_replacement =
                     Some(PendingMachineReplacement { action_id, present, action: *action });
                 if self
