@@ -139,7 +139,7 @@ struct BrowserNavigationDecisionHandlerTests {
     @Test
     func navigationDecisionHandlerInvokesUnderlyingHandlerAtMostOnce() {
         var policies: [WKNavigationActionPolicy] = []
-        let decisionHandler = BrowserNavigationDecisionHandler(
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
             { policies.append($0) },
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "test.double-call"
@@ -156,7 +156,7 @@ struct BrowserNavigationDecisionHandlerTests {
     func navigationDecisionHandlerCancelsWhenConsumedPathDropsHandler() {
         var policies: [WKNavigationActionPolicy] = []
         var droppedHandler: ((WKNavigationActionPolicy) -> Void)? =
-            BrowserNavigationDecisionHandler(
+            BrowserNavigationActionDecisionHandler(
                 { policies.append($0) },
                 fallbackPolicy: .cancel,
                 label: "test.dropped-consumed-path"
@@ -173,7 +173,7 @@ struct BrowserNavigationDecisionHandlerTests {
     func navigationResponseDecisionHandlerUsesCancelFallback() {
         var policies: [WKNavigationResponsePolicy] = []
         var droppedHandler: ((WKNavigationResponsePolicy) -> Void)? =
-            BrowserNavigationDecisionHandler(
+            BrowserNavigationResponseDecisionHandler(
                 { policies.append($0) },
                 fallbackPolicy: .cancel,
                 label: "test.dropped-response-path"

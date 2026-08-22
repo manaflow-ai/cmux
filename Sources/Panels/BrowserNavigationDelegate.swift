@@ -282,7 +282,7 @@ import WebKit
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        let decisionHandler = BrowserNavigationDecisionHandler(
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
             decisionHandler,
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "BrowserNavigationDelegate.navigationAction"
@@ -708,7 +708,7 @@ import WebKit
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        let decisionHandler = BrowserNavigationDecisionHandler(
+        let decisionHandler = BrowserNavigationResponseDecisionHandler(
             decisionHandler,
             fallbackPolicy: WKNavigationResponsePolicy.cancel,
             label: "BrowserNavigationDelegate.navigationResponse"

@@ -1,10 +1,19 @@
 import Foundation
 import OSLog
+import WebKit
 
 nonisolated private let browserNavigationDecisionHandlerLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "BrowserNavigationDecision"
 )
+
+/// Guards a WebKit action-policy callback with a cancellation fallback.
+typealias BrowserNavigationActionDecisionHandler =
+    BrowserNavigationDecisionHandler<WKNavigationActionPolicy>
+
+/// Guards a WebKit response-policy callback with a cancellation fallback.
+typealias BrowserNavigationResponseDecisionHandler =
+    BrowserNavigationDecisionHandler<WKNavigationResponsePolicy>
 
 /// Guarantees that a WebKit navigation policy callback is completed at most once.
 ///

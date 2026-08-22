@@ -797,7 +797,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            let decisionHandler = BrowserNavigationDecisionHandler(
+            let decisionHandler = BrowserNavigationActionDecisionHandler(
                 decisionHandler,
                 fallbackPolicy: WKNavigationActionPolicy.cancel,
                 label: "MarkdownWebRenderer.Coordinator.navigationAction"
