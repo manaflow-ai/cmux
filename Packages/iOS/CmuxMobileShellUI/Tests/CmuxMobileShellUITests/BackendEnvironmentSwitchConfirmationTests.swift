@@ -98,5 +98,52 @@ struct BackendEnvironmentSwitchConfirmationTests {
 
         #expect(confirmation.pendingTarget == nil)
     }
+
+    @Test
+    @MainActor
+    func recoverySwitchBackRoutesToProductionThroughTheDialog() {
+        // The recovery section's "Switch Back to Production" button is the
+        // SAME machinery as the picker: it parks `.production` behind the
+        // dialog without invoking anything, and only the dialog's confirm
+        // begins the switch — exactly once, to production.
+        let recorder = SwitchInvocationRecorder()
+        var confirmation = BackendEnvironmentSwitchConfirmation()
+
+        confirmation.select(.production, active: .staging)
+
+        #expect(confirmation.pendingTarget == .production)
+        #expect(recorder.targets.isEmpty)
+
+        confirmation.confirm(using: recorder.action)
+
+        #expect(recorder.targets == [.production])
+        #expect(confirmation.pendingTarget == nil)
+    }
+}
+
+/// The Settings-facing mirror of the transaction phases: every in-flight
+/// phase (including the establishing sign-in wait, whose outcome is still
+/// undecided) must report running so the picker and the recovery button stay
+/// inert until the run resolves.
+@Suite
+struct BackendEnvironmentSwitchActionPhaseTests {
+    @Test
+    @MainActor
+    func everyInFlightPhaseReportsRunning() {
+        let inFlight: [BackendEnvironmentSwitchAction.Phase] = [
+            .parking, .retargeting, .establishing, .reverting,
+        ]
+        for phase in inFlight {
+            #expect(BackendEnvironmentSwitchAction(phase: phase) { _ in }.isRunning)
+        }
+    }
+
+    @Test
+    @MainActor
+    func idleAndFinishedReportNotRunning() {
+        for phase in [BackendEnvironmentSwitchAction.Phase.idle, .finished] {
+            #expect(!BackendEnvironmentSwitchAction(phase: phase) { _ in }.isRunning)
+        }
+    }
 }
 #endif

@@ -51,7 +51,7 @@ struct cmuxApp: App {
 /// A dedicated `View` (not the `App`/`WindowGroup` closure) so the reads of
 /// `composition.root`, `composition.generation`, and the transaction phase are
 /// Observation-tracked: assigning a rebuilt root re-renders this body, which
-/// swaps the whole tree via `.id` while the overlay keeps covering the screen.
+/// swaps the whole tree via `.id` while the overlay rides above the swap.
 private struct AppCompositionRootHost: View {
     let composition: AppCompositionHolder
 
@@ -63,7 +63,9 @@ private struct AppCompositionRootHost: View {
                 // navigation) and rebuilds it over the new root.
                 .id(composition.generation)
             // ABOVE the .id boundary so the progress overlay survives the
-            // tree swap and keeps covering the screen until `.finished`.
+            // tree swap: it blocks while the graph is torn down/rebuilt and
+            // becomes a non-blocking banner/note once the rebuilt tree must
+            // be interactive (establishing sign-in, finished outcome).
             BackendEnvironmentSwitchOverlay(composition: composition)
         }
         .environment(
@@ -79,8 +81,10 @@ private struct AppCompositionRootHost: View {
         let phase: BackendEnvironmentSwitchAction.Phase
         switch composition.switchTransaction.phase {
         case .idle: phase = .idle
-        case .signingOut: phase = .signingOut
+        case .parking: phase = .parking
         case .retargeting: phase = .retargeting
+        case .establishing: phase = .establishing
+        case .reverting: phase = .reverting
         case .finished: phase = .finished
         }
         let composition = composition
@@ -135,63 +139,100 @@ private struct AppCompositionRootHost: View {
     }
 }
 
-/// Full-screen progress cover for the live backend switch.
+/// Progress layer for the live backend switch.
 ///
 /// Mounted ABOVE the root scene's `.id` boundary, so it stays up while the
-/// old tree is discarded and the new one mounts. Shows a dimmed background,
-/// a spinner with the current phase, and a brief "Switched to X" note once
-/// the transaction finishes, then resets the transaction back to idle.
+/// old tree is discarded and the new one mounts. Three tiers:
+///
+/// - `.parking` / `.retargeting` / `.reverting`: a full-screen blocking scrim
+///   with a spinner and the localized phase — the tree underneath is being
+///   torn down or rebuilt, so nothing may interact with it.
+/// - `.establishing` on a gated target (staging): a NON-BLOCKING top banner
+///   ("Sign in to Staging to finish switching" with a "Back to Production"
+///   revert affordance). The rebuilt tree underneath already shows
+///   `SignInView`, and the user must be able to use it — the banner is the
+///   only overlay, everything around it passes touches through. Ungated
+///   establishing (a production switch restoring its parked slot) shows
+///   nothing: production never prompts, so there is no wait to explain.
+/// - `.finished(outcome)`: a non-blocking outcome note ("Now on X", or the
+///   localized revert reason) that never intercepts touches and auto-clears
+///   through the overlay's `.task(id:)` clock, then resets the transaction.
 private struct BackendEnvironmentSwitchOverlay: View {
     let composition: AppCompositionHolder
 
-    /// Bounded auto-dismiss for the switched note. Runs on the overlay's
+    /// Bounded auto-dismiss for the finished note. Runs on the overlay's
     /// `.task`, so leaving the finished phase (or unmounting) cancels it.
     private static let dismissClock = ContinuousClock()
     private static let switchedNoteDuration: Duration = .seconds(2)
+    /// Revert notes carry a reason sentence; give them time to be read.
+    private static let revertedNoteDuration: Duration = .seconds(4)
 
     var body: some View {
         let transaction = composition.switchTransaction
-        if transaction.phase != .idle {
-            ZStack {
-                Color.black
-                    .opacity(0.5)
-                    .ignoresSafeArea()
-                VStack(spacing: 14) {
-                    if transaction.phase == .finished {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.green)
-                        Text(switchedText)
-                            .font(.headline)
-                    } else {
-                        ProgressView()
-                            .controlSize(.large)
-                        Text(phaseText(transaction.phase))
-                            .font(.headline)
-                    }
+        Group {
+            switch transaction.phase {
+            case .idle:
+                EmptyView()
+            case .parking, .retargeting, .reverting:
+                blockingProgress(phase: transaction.phase)
+            case .establishing:
+                // Only a gated target waits on a sign-in; production's
+                // establishing is just its parked-slot restore and needs no
+                // overlay (and must not offer a "Back to Production" revert
+                // of a switch TO production).
+                if composition.root.auth.backendEnvironmentSwitch.active.requiresGatedSession {
+                    establishingBanner(transaction: transaction)
                 }
-                .padding(28)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .accessibilityIdentifier("BackendEnvironmentSwitchOverlay")
-            }
-            .transition(.opacity)
-            .task(id: transaction.phase) {
-                guard transaction.phase == .finished else { return }
-                try? await Self.dismissClock.sleep(for: Self.switchedNoteDuration)
-                guard !Task.isCancelled else { return }
-                transaction.reset()
+            case .finished(let outcome):
+                finishedNote(outcome: outcome)
+                    .task(id: transaction.phase) {
+                        let duration: Duration = switch outcome {
+                        case .switched: Self.switchedNoteDuration
+                        case .reverted: Self.revertedNoteDuration
+                        }
+                        try? await Self.dismissClock.sleep(for: duration)
+                        guard !Task.isCancelled else { return }
+                        transaction.reset()
+                    }
             }
         }
     }
 
+    // MARK: - Blocking progress (parking / retargeting / reverting)
+
+    private func blockingProgress(
+        phase: BackendEnvironmentSwitchTransaction.Phase
+    ) -> some View {
+        ZStack {
+            Color.black
+                .opacity(0.5)
+                .ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.large)
+                Text(phaseText(phase))
+                    .font(.headline)
+            }
+            .padding(28)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .accessibilityIdentifier("BackendEnvironmentSwitchOverlay")
+        }
+        .transition(.opacity)
+    }
+
     private func phaseText(_ phase: BackendEnvironmentSwitchTransaction.Phase) -> String {
         switch phase {
-        case .signingOut:
+        case .parking:
             L10n.string(
-                "mobile.settings.backend.progressSigningOut",
-                defaultValue: "Signing out…"
+                "mobile.settings.backend.progressParking",
+                defaultValue: "Saving your session…"
             )
-        case .retargeting, .idle, .finished:
+        case .reverting:
+            L10n.string(
+                "mobile.settings.backend.progressReverting",
+                defaultValue: "Switching back…"
+            )
+        case .retargeting, .idle, .establishing, .finished:
             L10n.string(
                 "mobile.settings.backend.progressSwitching",
                 defaultValue: "Switching environment…"
@@ -199,22 +240,120 @@ private struct BackendEnvironmentSwitchOverlay: View {
         }
     }
 
-    /// "Switched to X", where X is the environment the REBUILT root resolved;
-    /// after the commit + rebuild this is exactly the user's choice.
-    private var switchedText: String {
-        let active = composition.root.auth.backendEnvironmentSwitch.active
-        let name = switch active {
+    // MARK: - Establishing banner (non-blocking)
+
+    /// The sign-in wait banner: pinned to the top, hit-testable only inside
+    /// its own card so the `SignInView` underneath stays fully interactive.
+    private func establishingBanner(
+        transaction: BackendEnvironmentSwitchTransaction
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(
+                String(
+                    format: L10n.string(
+                        "mobile.settings.backend.establishingBanner",
+                        defaultValue: "Sign in to %@ to finish switching"
+                    ),
+                    activeEnvironmentName
+                )
+            )
+            .font(.subheadline.weight(.semibold))
+            Button {
+                transaction.requestRevert()
+            } label: {
+                Text(L10n.string(
+                    "mobile.settings.backend.establishingRevert",
+                    defaultValue: "Back to Production"
+                ))
+                .font(.subheadline)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("BackendEnvironmentSwitchRevertButton")
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .transition(.opacity)
+        .accessibilityIdentifier("BackendEnvironmentSwitchEstablishingBanner")
+    }
+
+    // MARK: - Finished note (non-blocking)
+
+    private func finishedNote(
+        outcome: BackendEnvironmentSwitchTransaction.Outcome
+    ) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: outcome == .switched
+                ? "checkmark.circle.fill"
+                : "arrow.uturn.backward.circle.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(outcome == .switched ? Color.green : Color.orange)
+            Text(outcomeText(outcome))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.horizontal, 24)
+        .accessibilityIdentifier("BackendEnvironmentSwitchFinishedNote")
+        // Purely informational: the freshly mounted tree (sign-in on
+        // staging, the restored shell after a revert) must be immediately
+        // usable, so the note never intercepts a touch.
+        .allowsHitTesting(false)
+        .transition(.opacity)
+    }
+
+    /// The outcome copy, formatted with the environment the REBUILT root
+    /// resolved: after a switch that is the user's choice, after a revert it
+    /// is the previous environment the run restored.
+    private func outcomeText(
+        _ outcome: BackendEnvironmentSwitchTransaction.Outcome
+    ) -> String {
+        let name = activeEnvironmentName
+        switch outcome {
+        case .switched:
+            return String(
+                format: L10n.string(
+                    "mobile.settings.backend.switched",
+                    defaultValue: "Now on %@."
+                ),
+                name
+            )
+        case .reverted(.signInCancelled):
+            return String(
+                format: L10n.string(
+                    "mobile.settings.backend.revertedSignInCancelled",
+                    defaultValue: "Sign-in was cancelled, so you're back on %@."
+                ),
+                name
+            )
+        case .reverted(.signInFailed):
+            return String(
+                format: L10n.string(
+                    "mobile.settings.backend.revertedSignInFailed",
+                    defaultValue: "Sign-in didn't complete, so you're back on %@."
+                ),
+                name
+            )
+        case .reverted(.notEligible):
+            return String(
+                format: L10n.string(
+                    "mobile.settings.backend.revertedNotEligible",
+                    defaultValue: "That account can't use Staging, so you're back on %@."
+                ),
+                name
+            )
+        }
+    }
+
+    private var activeEnvironmentName: String {
+        switch composition.root.auth.backendEnvironmentSwitch.active {
         case .production:
             L10n.string("mobile.settings.backend.production", defaultValue: "Production")
         case .staging:
             L10n.string("mobile.settings.backend.staging", defaultValue: "Staging")
         }
-        return String(
-            format: L10n.string(
-                "mobile.settings.backend.switched",
-                defaultValue: "Switched to %@"
-            ),
-            name
-        )
     }
 }

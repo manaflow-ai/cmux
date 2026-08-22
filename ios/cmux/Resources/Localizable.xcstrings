@@ -7062,13 +7062,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch & Sign Out"
+            "value": "Switch Environment"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "切り替えてサインアウト"
+            "value": "環境を切り替える"
           }
         }
       }
@@ -7079,13 +7079,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staging is a separate environment with separate accounts and data. Switching signs you out, and your Mac and iPhone must be on the same environment to pair."
+            "value": "Staging is a separate environment with separate accounts and data. Your current session is kept on this iPhone, and you'll be asked to sign in to the environment you switch to. Your Mac and iPhone must be on the same environment to pair."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ステージングはアカウントとデータが分かれた別の環境です。切り替えるとサインアウトされます。ペアリングするには Mac と iPhone が同じ環境である必要があります。"
+            "value": "ステージングはアカウントとデータが分かれた別の環境です。現在のセッションはこの iPhone に保持され、切り替え先の環境へのサインインを求められます。ペアリングするには Mac と iPhone が同じ環境である必要があります。"
           }
         }
       }
@@ -7124,19 +7124,53 @@
         }
       }
     },
+    "mobile.settings.backend.establishingBanner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to %@ to finish switching"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替えを完了するには %@ にサインインしてください"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.establishingRevert": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to Production"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番環境に戻る"
+          }
+        }
+      }
+    },
     "mobile.settings.backend.footer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staging is a separate environment with separate accounts and data. Switching signs you out, and your Mac and iPhone must be on the same environment to pair."
+            "value": "Staging is a separate environment with separate accounts and data. Each environment keeps its own session on this iPhone, and your Mac and iPhone must be on the same environment to pair."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ステージングはアカウントとデータが分かれた別の環境です。切り替えるとサインアウトされます。ペアリングするには Mac と iPhone が同じ環境である必要があります。"
+            "value": "ステージングはアカウントとデータが分かれた別の環境です。環境ごとのセッションはこの iPhone に保持されます。ペアリングするには Mac と iPhone が同じ環境である必要があります。"
           }
         }
       }
@@ -7175,19 +7209,36 @@
         }
       }
     },
-    "mobile.settings.backend.progressSigningOut": {
+    "mobile.settings.backend.progressParking": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Signing out…"
+            "value": "Saving your session…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サインアウトしています…"
+            "value": "セッションを保存しています…"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.progressReverting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching back…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の環境に戻しています…"
           }
         }
       }
@@ -7205,6 +7256,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "環境を切り替えています…"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.recoveryAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Back to Production"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番環境に戻す"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.recoveryExplanation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staging is a separate cmux environment for testing, with separate accounts and data. Switch back to Production to use your normal account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージングはアカウントとデータが分かれたテスト用の別環境です。通常のアカウントを使うには本番環境に戻してください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.recoveryTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is on Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスはステージング環境を使用しています"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.revertedNotEligible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That account can't use Staging, so you're back on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのアカウントはステージングを利用できないため、%@ に戻りました。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.revertedSignInCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in was cancelled, so you're back on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインがキャンセルされたため、%@ に戻りました。"
+          }
+        }
+      }
+    },
+    "mobile.settings.backend.revertedSignInFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in didn't complete, so you're back on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインが完了しなかったため、%@ に戻りました。"
           }
         }
       }
@@ -7249,13 +7402,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switched to %@"
+            "value": "Now on %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に切り替えました"
+            "value": "現在 %@ を使用しています。"
           }
         }
       }
@@ -9491,6 +9644,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインアウト"
+          }
+        }
+      }
+    },
+    "mobile.signOut.stagingConfirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        }
+      }
+    },
+    "mobile.signOut.stagingConfirmCancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "mobile.signOut.stagingConfirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signing out ends your Staging session and returns this iPhone to Production, restoring your Production sign-in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトするとステージングのセッションが終了し、この iPhone は本番環境に戻り、保存された本番環境のサインインが復元されます。"
+          }
+        }
+      }
+    },
+    "mobile.signOut.stagingConfirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out and return to Production?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトして本番環境に戻りますか？"
           }
         }
       }

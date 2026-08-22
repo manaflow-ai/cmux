@@ -143,7 +143,7 @@ extension WorkspaceListView {
                 filter = .all
                 macSelection = .all
             },
-            signOut: signOut,
+            signOut: signOutActions?.interactive,
             retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,

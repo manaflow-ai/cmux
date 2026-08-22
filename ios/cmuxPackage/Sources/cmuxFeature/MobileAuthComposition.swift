@@ -133,7 +133,7 @@ public struct MobileAuthComposition {
             tokenStore: Self.tokenStore(
                 appNamespace: appNamespace,
                 accessGroup: keychainAccessGroup,
-                legacyProjectID: resolvedConfig.stack.projectId
+                projectID: resolvedConfig.stack.projectId
             ),
             oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
@@ -161,6 +161,12 @@ public struct MobileAuthComposition {
         // cached user. This rides its own launch flag (NOT clearAuthRequested,
         // whose UI-test semantics stop priming and would suppress the dogfood
         // auto-login on the very next normal reload).
+        //
+        // detectAuthProjectSwitch must RUN unconditionally (it updates the
+        // stored project id); the switch-rebuild marker only suppresses its
+        // verdict. A backend-environment switch parks the old session and
+        // must restore the target's parked slot, while an organic project
+        // flip (rebaked tagged build) keeps today's pinned clear semantics.
         let authProjectSwitched = Self.detectAuthProjectSwitch(
             resolvedProjectID: resolvedConfig.stack.projectId,
             buildDefaultProjectID: AuthConfig(
@@ -178,7 +184,10 @@ public struct MobileAuthComposition {
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
             includesDevAuth: includesDevAuth,
-            clearStaleAuthOnLaunch: authProjectSwitched,
+            clearStaleAuthOnLaunch: Self.resolvedClearStaleAuthOnLaunch(
+                authProjectSwitched: authProjectSwitched,
+                defaults: defaults
+            ),
             replaceStoredSessionWithAutoLogin: Self.shouldReplaceStoredSessionWithAutoLogin(
                 includesDevAuth: includesDevAuth,
                 environment: environment
@@ -465,6 +474,22 @@ public struct MobileAuthComposition {
         return previous != resolvedProjectID
     }
 
+    /// The one place the launch-hygiene clear verdict is computed: an organic
+    /// Stack-project flip keeps today's pinned clear semantics, while a
+    /// backend-environment-switch rebuild (which PARKED the old session and
+    /// must restore the target's parked slot) arms the one-shot marker inside
+    /// its `storeOverride` step and is suppressed here exactly once. The
+    /// marker is consumed unconditionally so a crash-recovered arm cannot
+    /// leak into a later organic flip.
+    nonisolated static func resolvedClearStaleAuthOnLaunch(
+        authProjectSwitched: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        let switchRebuildSuppressesClear =
+            CMUXBackendEnvironmentSwitchRebuildMarker.consume(from: defaults)
+        return authProjectSwitched && !switchRebuildSuppressesClear
+    }
+
     private static var apnsEnvironment: String {
         #if DEBUG
         "sandbox"
@@ -476,21 +501,30 @@ public struct MobileAuthComposition {
     private static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
-        legacyProjectID: String
+        projectID: String
     ) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
+        // Already per-project: the simulator memory registry keys its slots by
+        // the resolved Stack project.
         .memory
         #else
         guard let appNamespace else {
             return .none
         }
+        // Per-project token slots: keying the store by the resolved Stack
+        // project lets a live backend-environment switch PARK the old
+        // environment's session (its slot survives untouched) and restore it
+        // on return. The same project id stays the legacy tier so the store
+        // adopts the pre-per-project single slot (and the old SDK's
+        // account-only items) on first read.
         return .custom(
             KeychainStackTokenStore(
                 service: appNamespace.keychainService(
                     base: "com.cmuxterm.app.auth"
                 ),
                 accessGroup: accessGroup,
-                legacyProjectID: legacyProjectID
+                legacyProjectID: projectID,
+                projectID: projectID
             )
         )
         #endif

@@ -30,7 +30,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     var body: some View {
         WorkspaceShellView(
             store: store,
-            signOut: {},
+            signOutActions: .unwired,
             showAddDevice: nil
         )
         .environment(browserStore)

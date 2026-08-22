@@ -6,16 +6,24 @@ import SwiftUI
 ///
 /// Mirrors the transaction's phase (so the section can disable its picker
 /// while a switch runs) and exposes `beginSwitch(to:)`, which starts the
-/// app-root transaction: sign out of the old environment, quiesce the old
-/// composition, store the override, rebuild the tree. The phase enum is a
-/// mirror rather than the engine's own type so this UI package stays coupled
-/// to a small seam instead of the transaction implementation.
+/// app-root transaction: park the old environment's session, quiesce the old
+/// composition, store the override, rebuild the tree, establish a session on
+/// the target. The phase enum is a mirror rather than the engine's own type
+/// so this UI package stays coupled to a small seam instead of the
+/// transaction implementation.
 public struct BackendEnvironmentSwitchAction: Sendable {
     /// Where the app-root switch transaction currently is.
     public enum Phase: Equatable, Sendable {
         case idle
-        case signingOut
+        /// Detaching the old environment's session; its token slot survives.
+        case parking
+        /// Override stored; rebuilding the composition for the target.
         case retargeting
+        /// Rebuilt on the target; restoring its parked session or waiting
+        /// for an eligible sign-in.
+        case establishing
+        /// Undoing the switch back to the previous environment.
+        case reverting
         case finished
     }
 
@@ -33,8 +41,15 @@ public struct BackendEnvironmentSwitchAction: Sendable {
     }
 
     /// Whether a switch is currently in flight (picker should be inert).
+    /// Establishing counts: the run is still deciding between switched and
+    /// reverted until the sign-in wait resolves.
     public var isRunning: Bool {
-        phase == .signingOut || phase == .retargeting
+        switch phase {
+        case .parking, .retargeting, .establishing, .reverting:
+            true
+        case .idle, .finished:
+            false
+        }
     }
 
     /// Starts (or joins) the live switch to `target`.

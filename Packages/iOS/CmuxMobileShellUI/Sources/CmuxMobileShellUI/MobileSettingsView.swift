@@ -33,7 +33,9 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
-    let signOut: (() -> Void)?
+    /// The root's sign-out paths, threaded to the account section. Required:
+    /// there is no nil fallback that could bypass the root's teardown chain.
+    let signOutActions: MobileAccountSignOutActions
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
@@ -74,7 +76,7 @@ struct MobileSettingsView: View {
                     connectionMethodSettingsSection
                 }
 
-                MobileSettingsAccountSection(signOut: signOut)
+                MobileSettingsAccountSection(signOutActions: signOutActions)
 
                 // Runtime Production/Staging backend switch, applied on the
                 // next launch. The section gates its own visibility (team
@@ -684,8 +686,10 @@ struct MobileSettingsView: View {
             await pushCoordinator.refreshReadiness()
             return true
         case .signInAgain, .signIntoMatchingAccount:
-            signOut?()
-            return signOut != nil
+            // The interactive path: on staging the root warns first, exactly
+            // like every other user-facing sign-out control.
+            signOutActions.interactive()
+            return true
         case .connectMac:
             startPairingScanner?()
             return startPairingScanner != nil
