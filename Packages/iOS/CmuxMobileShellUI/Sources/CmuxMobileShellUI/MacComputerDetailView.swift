@@ -411,7 +411,7 @@ struct MacComputerDetailView: View {
             Text(directAddressDrafts.contains(where: \.enabled)
                 ? L10n.string(
                     "mobile.connections.direct.footer",
-                    defaultValue: "Enabled addresses are dialed in order. Without a port, the Mac's advertised port is used."
+                    defaultValue: "Enabled addresses feed the encrypted dial as hints; the connection is always identity-checked. Ports are optional."
                 )
                 : L10n.string(
                     "mobile.connections.direct.noneEnabled",
@@ -509,7 +509,7 @@ struct MacComputerDetailView: View {
         case .direct:
             return L10n.string(
                 "mobile.settings.connectionMethod.directFooter",
-                defaultValue: "Dials only the direct addresses you enable below — for LAN, WireGuard, or any other network where this computer is reachable. The Mac must be signed in to the same cmux account."
+                defaultValue: "Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."
             )
         case .automatic:
             return L10n.string(

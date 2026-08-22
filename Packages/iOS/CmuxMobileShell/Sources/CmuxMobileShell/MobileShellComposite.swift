@@ -2887,10 +2887,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         persistedRoutes: mac.legacyTailscaleRoutes ?? []
                     ) != nil
                 }
-                // Direct macs dial their user-enabled addresses through the
-                // dedicated authenticated lane inside connectStoredMacOutcome.
-                || (connectionMethod(for: mac) == .direct
-                    && mac.directAddresses.contains(where: \.enabled))
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
 
@@ -9602,22 +9598,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // disconnected instead of silently switching to Iroh. The method is
         // the dialed Computer's own choice, falling back to the app default.
         let ticketMethod = connectionMethod(forMacDeviceID: ticket.macDeviceID, instanceTag: nil)
-        if ticketMethod == .direct {
-            // Direct dials ONLY the user-enabled addresses. The Direct lane
-            // itself mints its attach ticket through the manual-host flow
-            // over the exact enabled address, so keep precisely the routes
-            // matching an enabled Direct address (host, and port when the
-            // entry pins one); every advertised route stays excluded.
-            let enabledDirectAddresses = pairedMacs
-                .filter { $0.macDeviceID == ticket.macDeviceID }
-                .flatMap { $0.directAddresses.filter(\.enabled) }
-            return supportedRoutes.filter { route in
-                guard case let .hostPort(host, port) = route.endpoint else { return false }
-                return enabledDirectAddresses.contains { entry in
-                    entry.address == host && (entry.port == nil || entry.port == port)
-                }
-            }
-        }
+        // Direct rides the Iroh lane (identity-checked, encrypted; private
+        // addresses join as path hints in the transport), so it shares the
+        // strict iroh(+dev loopback) filter below with the Iroh method.
         if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(

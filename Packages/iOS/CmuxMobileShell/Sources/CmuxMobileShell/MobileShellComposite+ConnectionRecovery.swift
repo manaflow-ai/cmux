@@ -653,77 +653,6 @@ extension MobileShellComposite {
         )
     }
 
-    /// Direct-method dial: iterate the Computer's enabled direct addresses
-    /// through the same Stack-authenticated manual-host flow the raw
-    /// candidate lane uses, strictly and in list order.
-    private func connectDirectCandidatesOutcome(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String,
-        instanceTagExpectation: MobileMacInstanceTagExpectation,
-        automaticReconnectAccountID: String?,
-        recordsPairingAttempt: Bool,
-        knownPairing: MobilePairedMac?,
-        ifStillCurrent: (() -> Bool)?
-    ) async -> StoredMacReconnectOutcome {
-        // During startup restore the published `pairedMacs` list is not
-        // loaded yet, so the caller's freshly loaded row is authoritative;
-        // the in-memory lookup is only a fallback for late callers.
-        let pairing = knownPairing ?? pairedMacs.first {
-            $0.macDeviceID == pairedMacDeviceID
-                && (instanceTagExpectation.expectedTag == nil
-                    || $0.instanceTag == instanceTagExpectation.expectedTag)
-        } ?? pairedMacs.first { $0.macDeviceID == pairedMacDeviceID }
-        // All methods share the Mac's one listener port, so an entry without
-        // its own port override dials the advertised port.
-        let advertisedPort = (pairing?.routes ?? routes).compactMap { route -> Int? in
-            if case let .hostPort(_, port) = route.endpoint { return port }
-            return nil
-        }.first
-        let candidates = (pairing?.directAddresses ?? [])
-            .filter(\.enabled)
-            .compactMap { entry -> (host: String, port: Int)? in
-                guard let port = entry.port ?? advertisedPort else { return nil }
-                return (entry.address, port)
-            }
-        // Temporary Direct-lane diagnostics for dogfood; remove before merge.
-        MobileDebugLog.anchormux(
-            "direct.dial start mac=\(pairedMacDeviceID) candidates=\(candidates.map { "\($0.host):\($0.port)" }.joined(separator: ",")) advertisedPort=\(advertisedPort.map(String.init) ?? "nil") pairingFound=\(pairing != nil)"
-        )
-        guard !candidates.isEmpty else {
-            MobileDebugLog.anchormux("direct.dial no candidates -> noRoute")
-            return .failed(.noRoute)
-        }
-        for candidate in candidates {
-            guard ifStillCurrent?() ?? true else { return .superseded }
-            await connectManualHost(
-                name: name,
-                host: candidate.host,
-                port: candidate.port,
-                pairedMacDeviceID: pairedMacDeviceID,
-                instanceTagExpectation: instanceTagExpectation,
-                recordsPairingAttempt: recordsPairingAttempt,
-                ifStillCurrent: ifStillCurrent
-            )
-            MobileDebugLog.anchormux(
-                "direct.dial tried \(candidate.host):\(candidate.port) state=\(String(describing: connectionState)) fg=\(foregroundMacDeviceID ?? "nil") err=\(connectionError ?? "nil")"
-            )
-            if connectionState == .connected,
-               remoteClient != nil,
-               foregroundMacDeviceID == pairedMacDeviceID {
-                break
-            }
-        }
-        let connected = (ifStillCurrent?() ?? true)
-            && connectionState == .connected
-            && remoteClient != nil
-            && foregroundMacDeviceID == pairedMacDeviceID
-        if connected, let automaticReconnectAccountID {
-            clearAutomaticReconnectBackoff(accountID: automaticReconnectAccountID)
-        }
-        return connected ? .connected : .failed(.unknown)
-    }
-
     /// Connects through a stored route set while enforcing the caller's exact
     /// authenticated instance-authority requirement.
     @discardableResult
@@ -752,21 +681,10 @@ extension MobileShellComposite {
         MobileDebugLog.anchormux(
             "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(resolvedMethod.rawValue) knownPairing=\(knownPairing != nil) routes=\(routes.count)"
         )
-        // The Direct method dials ONLY the user-enabled direct addresses,
-        // through the same Stack-authenticated manual-host lane as the raw
-        // candidates below. No advertised route of any kind participates.
-        if resolvedMethod == .direct {
-            return await connectDirectCandidatesOutcome(
-                name: name,
-                routes: routes,
-                pairedMacDeviceID: pairedMacDeviceID,
-                instanceTagExpectation: instanceTagExpectation,
-                automaticReconnectAccountID: automaticReconnectAccountID,
-                recordsPairingAttempt: recordsPairingAttempt,
-                knownPairing: knownPairing,
-                ifStillCurrent: ifStillCurrent
-            )
-        }
+        // The Direct method rides the Iroh lane below: identity-checked and
+        // encrypted, with the Computer's private addresses joined as path
+        // hints by the transport. Raw host/port dialing cannot carry the
+        // account credential (plaintext TCP), so no separate lane exists.
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,

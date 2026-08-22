@@ -280,9 +280,9 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        // Direct dials user-entered addresses via its own lane
-        // (connectDirectCandidatesOutcome); advertised routes never apply.
-        guard connectionMethod(for: mac) != .direct else { return [] }
+        // Direct rides the Iroh lane: the strict iroh(+dev loopback) filter
+        // below applies, and the transport joins the Computer's private
+        // addresses as encrypted path hints at dial time.
         return Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
