@@ -10885,12 +10885,23 @@ impl App {
         // A queued switch aimed at a machine that just became unusable (the
         // wake that raced its own deletion) must not survive: it would both
         // fail pointlessly and block the failover below.
-        let doomed_switch = matches!(
-            &update.request,
-            Some(MachineRequest::Switch(target)) if !machine_usable(&update, *target)
-        );
-        if doomed_switch {
-            crate::client_log::info("machine", "dropped a queued switch to a deleted machine");
+        let doomed_request = match &update.request {
+            // The wake that raced its own deletion.
+            Some(MachineRequest::Switch(target)) => !machine_usable(&update, *target),
+            // The stream-loss recovery for the machine being deleted: the
+            // provider link is demonstrably alive (this update just arrived
+            // over it), and reconnecting would only reopen the deleted
+            // machine. Let the failover below aim somewhere usable instead.
+            Some(MachineRequest::ReconnectProvider) => self
+                .machine_presented
+                .is_some_and(|presented| !machine_usable(&update, presented)),
+            _ => false,
+        };
+        if doomed_request {
+            crate::client_log::info(
+                "machine",
+                "dropped a queued request aimed at a deleted machine",
+            );
             update.request = None;
         }
         // The presented machine was deleted (gone from the catalog, or left
@@ -10900,26 +10911,6 @@ impl App {
         // Skipped while the user is already aiming somewhere else usable, or
         // while another request is queued.
         let mut failover_rail_target = None;
-        if let Some(presented) = self.machine_presented
-            && !machine_usable(&update, presented)
-        {
-            crate::client_log::info(
-                "machine",
-                &format!(
-                    "presented {} unusable: active={:?} req={:?} intent={:?} prev_has={} managed={:?}",
-                    presented.0,
-                    update.snapshot.active.map(|k| k.0),
-                    update.request.as_ref().map(std::mem::discriminant),
-                    self.machine_selection_intent.map(|k| k.0),
-                    self.machine_ui.as_ref().is_some_and(|p| p
-                        .snapshot
-                        .machines
-                        .iter()
-                        .any(|m| m.key == presented)),
-                    update.managed_machine(presented).map(|m| m.status),
-                ),
-            );
-        }
         if let Some(presented) = self.machine_presented
             && update.snapshot.active.is_none()
             && update.request.is_none()
@@ -37304,11 +37295,11 @@ mod tests {
             managed(2, ManagedMachineStatus::Recoverable),
             managed(3, ManagedMachineStatus::Recoverable),
         ]);
-        // The deletion races its own stream death: a wake switch back to the
-        // dying machine is already queued (this is exactly what live
-        // Freestyle dogfood produced). It must not survive the update or
+        // The deletion races its own stream death: live Freestyle dogfood
+        // queued a provider RECONNECT for the dying machine (snapshot.active
+        // was already gone), which is not a Switch and must equally not
         // block the failover.
-        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(2)));
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
         app.apply_machine_ui_update(update);
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
