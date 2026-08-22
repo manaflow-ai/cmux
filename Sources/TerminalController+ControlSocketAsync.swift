@@ -58,11 +58,10 @@ extension TerminalController {
             }
             let authorizedRequest = relayAuthorization.request
             let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
-            let policyParams = authorizedRequest.params.mapValues(\.foundationObject)
             return await withSocketCommandPolicyAsync(
                 commandKey: authorizedRequest.method,
                 isV2: true,
-                params: policyParams
+                params: authorizedRequest.params
             ) {
                 if policy.runsOnSocketWorker {
                     return await self.socketWorkerV2ResponseAsync(authorizedRequest)
@@ -83,7 +82,9 @@ extension TerminalController {
         return await withSocketCommandPolicyAsync(
             commandKey: commandName,
             isV2: false,
-            params: commandName == "right_sidebar" ? ["args": args] : [:]
+            params: commandName == "right_sidebar"
+                ? ["args": .string(args)]
+                : [:]
         ) {
             if policy.runsOnSocketWorker {
                 // The existing worker implementation is already nonisolated
@@ -304,13 +305,14 @@ extension TerminalController {
     nonisolated func withSocketCommandPolicyAsync<T: Sendable>(
         commandKey: String,
         isV2: Bool,
-        params: [String: Any] = [:],
+        params: [String: JSONValue] = [:],
         _ body: @escaping @Sendable () async -> T
     ) async -> T {
+        let foundationParams = params.mapValues(\.foundationObject)
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
             commandKey: commandKey,
             isV2: isV2,
-            params: params
+            params: foundationParams
         )
         var stack = Self.currentSocketCommandFocusAllowanceStack()
         stack.append(allowsFocusMutation)
