@@ -1161,16 +1161,13 @@ struct BrowserPanelView: View {
                 // mutually exclusive, so a second standalone icon would only
                 // recreate the crowded cluster this layout removes.
                 browserActiveModeButtonWithShortcutHint
+                browserScreenshotCopiedIndicator
                 browserOverflowMenu
                 browserProfileButton
                 browserThemeModeButton
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
-            .overlay(alignment: .topTrailing) {
-                browserScreenshotCopiedIndicator
-                    .offset(y: -24)
-            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
