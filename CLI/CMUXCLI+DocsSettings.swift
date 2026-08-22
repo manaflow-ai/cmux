@@ -130,7 +130,7 @@ extension CMUXCLI {
         DocsReference(
             topic: "completion",
             aliases: ["shell-completion", "autocomplete", "tab-completion"],
-            summary: "Shell completion scripts for zsh, bash, and fish.",
+            summary: String(localized: "cli.docs.completion.summary", defaultValue: "Shell completion scripts for zsh, bash, and fish."),
             webURL: "https://cmux.com/docs/api",
             rawResources: [
                 DocsResource(label: "CLI contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
@@ -177,7 +177,10 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]")
+            throw CLIError(message: String(
+                localized: "cli.docs.usage.topics",
+                defaultValue: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+            ))
         }
 
         if topic == "list" || topic == "all" {
@@ -201,8 +204,12 @@ extension CMUXCLI {
     }
 
     func docsUsage() -> String {
+        let usageLine = String(
+            localized: "cli.docs.usage.topics",
+            defaultValue: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+        )
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]
+        \(usageLine)
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
