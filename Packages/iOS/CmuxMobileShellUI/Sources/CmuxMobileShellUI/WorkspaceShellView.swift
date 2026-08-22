@@ -184,11 +184,6 @@ struct WorkspaceShellView: View {
     // the destination stack's own onAppear.
     @State private var workspacesStackIsOnScreen = false
     @State private var notificationsStackIsOnScreen = false
-    // Set when a workspace is opened from search results: popping back then
-    // finishes the search round on the Workspaces tab with the query cleared,
-    // instead of stranding the user on a deactivated search tab whose selected
-    // (tinted) search control suggests a search is still in progress.
-    @State private var searchSelectionReturnsToWorkspaces = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
@@ -325,20 +320,12 @@ struct WorkspaceShellView: View {
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
-                    searchSelectionReturnsToWorkspaces = false
                 }
             }
             .onChange(of: visibleSimulatorWorkspaceID) { previousWorkspaceID, workspaceID in
                 guard let previousWorkspaceID,
                       previousWorkspaceID != workspaceID else { return }
                 store.stopActiveMobileSimulatorStream(in: previousWorkspaceID)
-            }
-            .onChange(of: workspaceSearchNavigationPath) { _, path in
-                guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
-                searchSelectionReturnsToWorkspaces = false
-                guard selectedPrimaryTab == .search else { return }
-                primarySearchCoordinator.workspaces = ""
-                selectedPrimaryTab = .workspaces
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
@@ -987,7 +974,6 @@ struct WorkspaceShellView: View {
         )
         pendingCompactCreateNavigationWorkspaceIDs = nil
         primarySearchCoordinator.deactivateCurrentSearch()
-        searchSelectionReturnsToWorkspaces = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]

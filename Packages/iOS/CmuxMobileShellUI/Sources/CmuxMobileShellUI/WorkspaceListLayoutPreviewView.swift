@@ -194,7 +194,6 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var fixtureRoute: FixtureWorkspaceRoute?
     // Mirrors the shell: search results push onto the search tab's own stack.
     @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
-    @State private var searchSelectionReturnsToWorkspaces = false
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -784,15 +783,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         .onChange(of: selectedPrimaryTab) { oldValue, newValue in
             if oldValue == .search, newValue != .search {
                 searchFixturePath = []
-                searchSelectionReturnsToWorkspaces = false
             }
-        }
-        .onChange(of: searchFixturePath) { _, path in
-            guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
-            searchSelectionReturnsToWorkspaces = false
-            guard selectedPrimaryTab == .search else { return }
-            primarySearchCoordinator.workspaces = ""
-            selectedPrimaryTab = .workspaces
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
@@ -839,10 +830,9 @@ public struct WorkspaceListLayoutPreviewView: View {
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
             // Mirrors the shell: choosing a result ends the search session so
-            // the field re-collapses to the bottom control after popping back,
-            // and the pop finishes the round on the Workspaces tab.
+            // the field re-collapses to the bottom control after popping back
+            // onto the still-filtered results.
             primarySearchCoordinator.deactivateCurrentSearch()
-            searchSelectionReturnsToWorkspaces = true
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
             }
