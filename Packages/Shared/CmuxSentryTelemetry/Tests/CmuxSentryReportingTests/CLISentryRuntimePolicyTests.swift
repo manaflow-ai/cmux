@@ -14,5 +14,6 @@ import Testing
         #expect(options.enableWatchdogTerminationTracking == false)
         #expect(options.enableAutoSessionTracking == false)
         #expect(options.enableLogs == false)
+        #expect(options.enableMetricKit == false)
     }
 }
