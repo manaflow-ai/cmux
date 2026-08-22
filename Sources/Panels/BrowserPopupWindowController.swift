@@ -205,10 +205,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             }
         }
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
-            let observedDisplayURL = navDel?.activePolicyBlockedURL
-                .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
-                ?? change.newValue??.absoluteString
-                ?? ""
+            let observedDisplayURL = change.newValue??.absoluteString ?? ""
             Task { @MainActor [weak self, weak navDel] in
                 self?.urlLabel.stringValue = navDel?.activePolicyBlockedURL
                     .map { BrowserURLAllowlistBlockedPage.safeDisplayOrigin(for: $0) }
