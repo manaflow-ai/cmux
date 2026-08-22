@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
@@ -136,7 +137,12 @@ import Testing
     @Test func browserSurfacesLeaveMacSurfacesWhenTheMacStreamsBrowsers() {
         let browser = MobileSurfacePreview(id: "surface-web", kind: .browser, title: "cmux.com")
         let markdown = MobileSurfacePreview(id: "surface-md", kind: .markdown, title: "README")
-        func value(snapshotRows: [TerminalPickerMenuRow], supportsBrowserStream: Bool) -> TerminalPickerMenuValue {
+        let browserPanel = BrowserStreamPickerRow(Self.browserDescriptor(panelID: browser.id.rawValue))
+        func value(
+            snapshotRows: [TerminalPickerMenuRow],
+            supportsBrowserStream: Bool,
+            browserStreamRows: [BrowserStreamPickerRow] = []
+        ) -> TerminalPickerMenuValue {
             TerminalPickerMenuValue(
                 liveTerminals: [],
                 liveSurfaces: [browser, markdown],
@@ -145,19 +151,120 @@ import Testing
                 canCreateWorkspace: true,
                 hasActiveBrowser: false,
                 isChatMode: false,
+                browserStreamRows: browserStreamRows,
                 supportsBrowserStream: supportsBrowserStream
             )
         }
 
         // Live rows and snapshot rows must obey the same policy: with browser
-        // streaming, the pane lives in "Mac Browsers", not "Mac Surfaces".
+        // streaming, a discovered pane lives in "Mac Browsers", not "Mac Surfaces".
         let snapshot = [TerminalPickerMenuRow(browser), TerminalPickerMenuRow(markdown)]
         for rows in [[], snapshot] {
-            let streaming = value(snapshotRows: rows, supportsBrowserStream: true)
+            let streaming = value(
+                snapshotRows: rows,
+                supportsBrowserStream: true,
+                browserStreamRows: [browserPanel]
+            )
             #expect(streaming.macSurfaceRows.map(\.id) == [.macSurface(markdown.id)])
             let legacyMac = value(snapshotRows: rows, supportsBrowserStream: false)
             #expect(legacyMac.macSurfaceRows.map(\.id) == [.macSurface(browser.id), .macSurface(markdown.id)])
         }
+    }
+
+    @Test func simulatorSurfacesLeaveMacSurfacesWhenTheMacStreamsSimulators() {
+        let simulator = MobileSurfacePreview(
+            id: "surface-simulator",
+            kind: .other("simulator"),
+            title: "Simulator"
+        )
+        let markdown = MobileSurfacePreview(id: "surface-md", kind: .markdown, title: "README")
+        let simulatorPanel = SimulatorStreamPickerRow(Self.simulatorDescriptor(panelID: simulator.id.rawValue))
+        func value(
+            snapshotRows: [TerminalPickerMenuRow],
+            supportsSimulatorStream: Bool,
+            simulatorStreamRows: [SimulatorStreamPickerRow] = []
+        ) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [],
+                liveSurfaces: [simulator, markdown],
+                snapshotRows: snapshotRows,
+                selectedID: nil,
+                canCreateWorkspace: true,
+                hasActiveBrowser: false,
+                isChatMode: false,
+                simulatorStreamRows: simulatorStreamRows,
+                supportsSimulatorStream: supportsSimulatorStream
+            )
+        }
+
+        let snapshot = [TerminalPickerMenuRow(simulator), TerminalPickerMenuRow(markdown)]
+        for rows in [[], snapshot] {
+            let streaming = value(
+                snapshotRows: rows,
+                supportsSimulatorStream: true,
+                simulatorStreamRows: [simulatorPanel]
+            )
+            #expect(streaming.macSurfaceRows.map(\.id) == [.macSurface(markdown.id)])
+            let legacyMac = value(snapshotRows: rows, supportsSimulatorStream: false)
+            #expect(legacyMac.macSurfaceRows.map(\.id) == [.macSurface(simulator.id), .macSurface(markdown.id)])
+        }
+    }
+
+    @Test func supportedStreamsKeepGenericSurfacesVisibleUntilTheirRowsArrive() {
+        let browser = MobileSurfacePreview(id: "surface-web", kind: .browser, title: "cmux.com")
+        let simulator = MobileSurfacePreview(
+            id: "surface-simulator",
+            kind: .other("simulator"),
+            title: "Simulator"
+        )
+        let markdown = MobileSurfacePreview(id: "surface-md", kind: .markdown, title: "README")
+        let value = TerminalPickerMenuValue(
+            liveTerminals: [],
+            liveSurfaces: [browser, simulator, markdown],
+            snapshotRows: [],
+            selectedID: nil,
+            canCreateWorkspace: true,
+            hasActiveBrowser: false,
+            isChatMode: false,
+            supportsBrowserStream: true,
+            supportsSimulatorStream: true
+        )
+
+        #expect(value.macSurfaceRows.map(\.id) == [
+            .macSurface(browser.id),
+            .macSurface(simulator.id),
+            .macSurface(markdown.id),
+        ])
+    }
+
+    private static func browserDescriptor(panelID: String) -> MobileBrowserPanelDescriptor {
+        MobileBrowserPanelDescriptor(
+            panelID: panelID,
+            workspaceID: "workspace-1",
+            url: "https://cmux.com",
+            title: "cmux.com",
+            pageWidth: 800,
+            pageHeight: 600,
+            canGoBack: false,
+            canGoForward: false,
+            isLoading: false
+        )
+    }
+
+    private static func simulatorDescriptor(panelID: String) -> MobileSimulatorPanelDescriptor {
+        MobileSimulatorPanelDescriptor(
+            panelID: panelID,
+            workspaceID: "workspace-1",
+            title: "Simulator",
+            selectedDeviceName: "iPhone 17",
+            selectedDeviceState: "Booted",
+            status: "streaming",
+            isReady: true,
+            supportsTouch: true,
+            supportsKeyboard: true,
+            supportsHardwareButtons: true,
+            supportsRotation: true
+        )
     }
 
     private func menuValue(
