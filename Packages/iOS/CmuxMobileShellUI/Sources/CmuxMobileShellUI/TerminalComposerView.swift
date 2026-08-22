@@ -1260,9 +1260,12 @@ private struct AttachmentChip: View {
                     .foregroundStyle(theme.terminalForegroundColor.opacity(0.6))
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        // Reserve the top-right corner the remove button floats over, so a
+        // long (truncated) file name never runs underneath the ✕.
+        .padding(.trailing, 34)
         .frame(height: side)
-        .frame(maxWidth: 190)
+        .frame(maxWidth: 220)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.terminalForegroundColor.opacity(0.08))
