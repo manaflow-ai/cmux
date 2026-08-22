@@ -16,15 +16,22 @@ import Testing
 @Suite struct WorkspaceDetailViewDefaultSurfaceSelectionTests {
     @Test func simulatorOnlyWorkspaceAutoSelectsItsFirstPanelWhenPanelsArrive() async {
         let workspaceID = "workspace-1"
+        let simulatorSurface = MobileSurfacePreview(
+            id: .init(rawValue: Self.descriptor().panelID),
+            kind: .other("simulator"),
+            title: "Simulator"
+        )
         let initialWorkspace = MobileWorkspacePreview(
             id: .init(rawValue: workspaceID),
             name: "Workspace",
-            terminals: []
+            terminals: [],
+            surfaces: [simulatorSurface]
         )
         let updatedWorkspace = MobileWorkspacePreview(
             id: .init(rawValue: workspaceID),
             name: "Workspace",
             terminals: [],
+            surfaces: [simulatorSurface],
             simulators: [Self.descriptor()]
         )
         let simulatorStore = MobileSimulatorStreamStore()
