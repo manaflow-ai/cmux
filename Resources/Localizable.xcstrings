@@ -145458,13 +145458,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote daemon build output is missing or empty"
+            "value": "The remote daemon files are missing or empty"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンのビルド出力がないか空です"
+            "value": "リモートデーモンのファイルがないか空です"
           }
         }
       }
@@ -145492,13 +145492,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote daemon bootstrap failed"
+            "value": "Could not prepare the remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンのブートストラップに失敗しました"
+            "value": "リモートデーモンを準備できませんでした"
           }
         }
       }
@@ -145509,13 +145509,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote daemon did not return a valid readiness response"
+            "value": "Could not confirm that the remote daemon is ready"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンが有効な準備完了応答を返しませんでした"
+            "value": "リモートデーモンが準備完了したことを確認できませんでした"
           }
         }
       }
@@ -146358,6 +146358,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.proxy.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote proxy unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートプロキシを利用できません"
           }
         }
       }

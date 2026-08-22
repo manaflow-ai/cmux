@@ -476,7 +476,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             requestBootstrapRemoteTTYIfNeededLocked()
             recordHeartbeatActivityLocked()
         case .error(let detail):
-            debugLog("remote.proxy.error detail=\(detail) \(debugConfigSummary())")
             remotePortScanGeneration &+= 1
             remotePortScanBurstTask?.cancel()
             remotePortScanBurstTask = nil
@@ -493,6 +492,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             publishPortsSnapshotLocked()
             let shouldEscalate = Self.shouldEscalateProxyErrorToBootstrap(detail)
             let brokerWillRetry = shouldEscalate || detail.lowercased().contains("retry in")
+            debugLog(
+                "remote.proxy.error escalated=\(shouldEscalate ? 1 : 0) " +
+                    "brokerRetry=\(brokerWillRetry ? 1 : 0) \(debugConfigSummary())"
+            )
             if brokerWillRetry {
                 // Keep transient tunnel churn out of the sidebar.  The
                 // supervisor owns the retry and the eventual parked state
@@ -500,7 +503,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 publishDaemonStatus(.bootstrapping, detail: nil)
                 publishState(.reconnecting, detail: nil)
             } else {
-                publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
+                publishState(
+                    .error,
+                    detail: "\(strings.remoteProxyUnavailable) (\(configuration.displayTarget))"
+                )
             }
             // Keep wait-for-ready PTY requests parked across a transient
             // transport bounce.  The remote PTY is persistent; failing the
@@ -622,7 +628,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         case 24:
             return String(
                 localized: "remoteDaemon.bootstrap.buildOutputEmpty",
-                defaultValue: "Remote daemon build output is missing or empty"
+                defaultValue: "The remote daemon files are missing or empty"
             )
         case 31:
             return String(
@@ -642,7 +648,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         case 41:
             return String(
                 localized: "remoteDaemon.bootstrap.helloFailed",
-                defaultValue: "Remote daemon did not return a valid readiness response"
+                defaultValue: "Could not confirm that the remote daemon is ready"
             )
         case 13:
             return String(
@@ -652,7 +658,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         default:
             return String(
                 localized: "remoteDaemon.bootstrap.failed",
-                defaultValue: "Remote daemon bootstrap failed"
+                defaultValue: "Could not prepare the remote daemon"
             )
         }
     }

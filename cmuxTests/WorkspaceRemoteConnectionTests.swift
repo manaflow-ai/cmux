@@ -773,7 +773,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             strings: .appLocalized
         )
 
-        XCTAssertEqual(message, "Remote daemon did not return a valid readiness response")
+        XCTAssertEqual(message, "Could not confirm that the remote daemon is ready")
         XCTAssertFalse(message.contains("/private/home"))
         XCTAssertFalse(message.contains("/secret/token"))
         XCTAssertFalse(message.contains("raw stderr"))

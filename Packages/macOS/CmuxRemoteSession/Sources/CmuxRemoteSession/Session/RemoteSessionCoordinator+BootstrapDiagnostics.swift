@@ -27,9 +27,10 @@ extension RemoteSessionCoordinator {
             ])
         }
         guard result.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
-                "ssh exited \(result.status)"
-            debugLog("remote.bootstrap.repair.removeFailed detail=\(detail)")
+            debugLog(
+                "remote.bootstrap.repair.removeFailed status=\(result.status) " +
+                    "\(debugConfigSummary())"
+            )
             throw NSError(domain: "cmux.remote.daemon", code: 34, userInfo: [
                 NSLocalizedDescriptionKey: String(
                     localized: "remoteDaemon.bootstrap.removeCorruptFailedWithDetail",
@@ -57,12 +58,14 @@ extension RemoteSessionCoordinator {
         }
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else { return nil }
-        #if DEBUG
-        debugLog(
-            "remote.bootstrap.diagnostics raw=\(String(output.prefix(6_000)))"
+        let sanitized = Self.sanitizedRemoteDaemonDiagnostic(
+            output,
+            fallbackPath: remotePath
         )
+        #if DEBUG
+        debugLog("remote.bootstrap.diagnostics \(sanitized)")
         #endif
-        return Self.sanitizedRemoteDaemonDiagnostic(output, fallbackPath: remotePath)
+        return sanitized
     }
 
     /// Builds the remote diagnostic probe used on bootstrap/hello failures.
