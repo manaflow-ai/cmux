@@ -46,6 +46,10 @@ at `3fbdd078d`.
   - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
   - Exported symbol verified in macOS universal, iOS device, and iOS simulator
     archives.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-64b5767a64acac59dad75d9de606e2e06d118e3e-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `88d0c1af6eaed2db05f327c935ad9c4da4d5cf46b8404f8fd2e14b939a258359`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
