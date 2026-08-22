@@ -178,6 +178,19 @@ class TerminalController {
     nonisolated let socketPathMarkerStore: SocketPathMarkerStore
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
+    /// Bounded async connection admission. The pool owns task lifetimes; an
+    /// admitted connection owns its descriptor until its async handler exits.
+    private nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
+        maximumConcurrentJobs: 32,
+        maximumPendingJobs: 64
+    )
+    /// Latest main-actor-published read results. Socket workers consult this
+    /// mirror synchronously before falling back to a live command path.
+    nonisolated let socketReadSnapshotStore = ControlReadSnapshotStore()
+    /// Coalesced main-actor publication task for topology/read snapshots.
+    var socketReadSnapshotRefreshTask: Task<Void, Never>? = nil
+    /// Topology notifications that invalidate the published read mirror.
+    private var socketReadSnapshotObservers: [NSObjectProtocol] = []
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     // Cross-thread contract (reintroduced by the tranche-B v1 worker lane):
     // the nonisolated seam witness controlSidebarScheduleScopedShellState
@@ -485,10 +498,9 @@ class TerminalController {
             )
         )
         self.socketServer = socketServer
-        // Single consumer of the accepted-connection stream, detached so
-        // accepts never funnel through the main actor. Each connection still
-        // gets a dedicated thread: command bodies block (main-thread sync
-        // hops, semaphore waits), so never the cooperative pool.
+        // Single consumer of the accepted-connection stream. Accepted
+        // descriptors are admitted to the bounded async pool; the listener
+        // itself never creates one detached NSThread per client.
         self.socketConnectionsTask = Task.detached {
             for await connection in socketServer.connections {
                 guard let controller = serverEventTarget.controller else {
@@ -505,6 +517,23 @@ class TerminalController {
         }
         serverEventTarget.controller = self
         controlCommandCoordinator.context = self
+        socketReadSnapshotObservers = [
+            Notification.Name.mainWindowContextsDidChange,
+            Notification.Name.workspaceOrderDidChange,
+            Notification.Name.workspacePaneGeometryDidChange,
+            Notification.Name.workspaceTitleDidChange,
+            Notification.Name.workspaceCurrentDirectoryDidChange,
+        ].map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.scheduleSocketReadSnapshotRefresh()
+                }
+            }
+        }
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -609,11 +638,11 @@ class TerminalController {
         return body()
     }
 
-    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
+    nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
         Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
     }
 
-    private nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
+    nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
         if stack.isEmpty {
             Thread.current.threadDictionary.removeObject(forKey: socketCommandFocusAllowanceStackKey)
         } else {
@@ -621,7 +650,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
@@ -1000,6 +1029,7 @@ class TerminalController {
             self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+        scheduleSocketReadSnapshotRefresh()
     }
 
     func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
@@ -1073,10 +1103,10 @@ class TerminalController {
 
     /// Wire-protocol helpers (parse/encode) shared with the package;
     /// stateless, so single instances serve every thread.
-    private nonisolated static let v2Parser = ControlRequestParser()
-    private nonisolated static let v2Encoder = ControlResponseEncoder()
+    nonisolated static let v2Parser = ControlRequestParser()
+    nonisolated static let v2Encoder = ControlResponseEncoder()
 
-    private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
+    nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
         ControlCommandExecutionPolicy(forMethod: method)
     }
 
@@ -1095,7 +1125,7 @@ class TerminalController {
     /// `surface.report_tty` (cmux-zsh-integration.zsh `_cmux_report_tty_once`)
     /// must see the TTY registration applied before its reply so subsequent
     /// `surface.ports_kick` scans resolve the surface.
-    private nonisolated static let socketWorkerCoordinatorHopMethods: Set<String> = [
+    nonisolated static let socketWorkerCoordinatorHopMethods: Set<String> = [
         "surface.report_pwd",
         "surface.report_git_branch",
         "surface.clear_git_branch",
@@ -1120,7 +1150,7 @@ class TerminalController {
         "workspace.set_auto_title",
     ]
 
-    private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
+    nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
@@ -1214,7 +1244,7 @@ class TerminalController {
     /// worker lane (the dispatcher falls through to the main hop). `response`
     /// stays optional so future fire-and-forget v1 telemetry can reply with
     /// nothing, matching the v2 lane's contract.
-    private nonisolated func socketWorkerV1ResponseIfHandled(cmd: String, args: String) -> (handled: Bool, response: String?) {
+    nonisolated func socketWorkerV1ResponseIfHandled(cmd: String, args: String) -> (handled: Bool, response: String?) {
         guard ControlCommandExecutionPolicy(forV1Command: cmd).runsOnSocketWorker else {
             return (false, nil)
         }
@@ -1653,12 +1683,15 @@ class TerminalController {
             close(clientSocket)
             return
         }
-        Thread.detachNewThread { [weak self] in
+        let submission = await socketClientWorkerPool.submit { [weak self] in
             guard let self else {
                 close(clientSocket)
+                if claimedPreauthorizationSlot {
+                    Task { await preauthorizationLimiter.release() }
+                }
                 return
             }
-            self.handleClient(
+            await self.handleClientAsync(
                 clientSocket,
                 peerPid: peerPid,
                 authorizationGeneration: authorizationGeneration,
@@ -1666,18 +1699,29 @@ class TerminalController {
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
+        } onDrop: {
+            if claimedPreauthorizationSlot {
+                Task { await preauthorizationLimiter.release() }
+            }
+            close(clientSocket)
         }
+        guard submission != .rejected else { return }
     }
 
-    private nonisolated func handleClient(
+    private nonisolated func handleClientAsync(
         _ socket: Int32,
         peerPid: pid_t? = nil,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
-    ) {
-        defer { close(socket) }
+    ) async {
+        // Shut down before close so a DispatchSource callback racing
+        // cancellation observes EOF rather than a recycled descriptor number.
+        defer {
+            shutdown(socket, SHUT_RDWR)
+            close(socket)
+        }
         let pid = peerPid ?? transport.peerProcessID(of: socket)
         let peerHasSameUID = transport.peerHasSameUID(socket)
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
@@ -1688,13 +1732,19 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
-        let lineReader = ControlClientLineReader(
+        let lineReader = ControlClientAsyncLineReader(
             socket: socket,
             initialLimits: initialReadLimits,
             authorizationRevocationSignal: authorizationRevocationSignal
         )
-        while let line = lineReader.nextLine(shouldContinueReading: {
-            socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
+        let writer = ControlClientAsyncWriter(socket: socket)
+        let rateLimiter = ControlClientRateLimiter()
+        defer {
+            lineReader.cancel()
+            writer.cancel()
+        }
+        while let line = await lineReader.nextLine(shouldContinueReading: {
+            self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
@@ -1702,7 +1752,7 @@ class TerminalController {
                 authorizationGeneration,
                 passwordAuthorization: &passwordAuthorization
             ) else {
-                _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
                 return
             }
             guard let trimmed = authorizedSocketCommand(
@@ -1710,59 +1760,54 @@ class TerminalController {
                 peerProcessID: pid,
                 peerHasSameUID: peerHasSameUID
             ) else {
-                _ = writeSocketResponse(
-                    pid == nil ? Self.socketClientVerificationFailedResponse
-                        : Self.socketClientAccessDeniedResponse,
-                    to: socket
+                let response = pid == nil
+                    ? Self.socketClientVerificationFailedResponse
+                    : Self.socketClientAccessDeniedResponse
+                _ = await writer.writeAll(
+                    Data((response + "\n").utf8)
                 )
                 return
             }
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
-                Task { await preauthorizationLimiter.release() }
+                await preauthorizationLimiter.release()
             }
 
-            var shouldCloseSocket = false
-            autoreleasepool {
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(
-                        for: trimmed,
-                        passwordAuthorization: &passwordAuthorization
-                    ) {
-                        if !writeSocketResponse(response, to: socket) {
-                            shouldCloseSocket = true
-                        }
-                        return
-                    }
-                    handleEventsStreamRequest(
-                        trimmed,
-                        socket: socket,
-                        authorizationGeneration: authorizationGeneration,
-                        authorizationRevocationSignal: authorizationRevocationSignal,
-                        passwordAuthorization: passwordAuthorization
-                    )
-                    shouldCloseSocket = true
-                    return
+            if isEventsStreamRequest(trimmed) {
+                if let response = authResponseIfNeeded(
+                    for: trimmed,
+                    passwordAuthorization: &passwordAuthorization
+                ) {
+                    guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
+                    continue
                 }
-
-                let result = processSocketLine(
+                // The event-bus subscription has its own bounded slow-consumer
+                // policy. Keep its legacy stream loop isolated to this admitted
+                // connection task; ordinary command traffic remains async.
+                handleEventsStreamRequest(
                     trimmed,
+                    socket: socket,
+                    authorizationGeneration: authorizationGeneration,
+                    authorizationRevocationSignal: authorizationRevocationSignal,
                     passwordAuthorization: passwordAuthorization
                 )
-                passwordAuthorization = result.passwordAuthorization
-                if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    if !didWriteResponse {
-                        shouldCloseSocket = true
-                    }
-                }
+                return
             }
-            if shouldCloseSocket { return }
+
+            let result = await processSocketLineAsync(
+                trimmed,
+                passwordAuthorization: passwordAuthorization,
+                rateLimiter: rateLimiter
+            )
+            passwordAuthorization = result.passwordAuthorization
+            if let response = result.response {
+                guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
+                publishSocketEvents(command: trimmed, response: response)
+            }
         }
         if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
-            _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+            _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
         }
     }
 
@@ -2132,7 +2177,7 @@ class TerminalController {
         return processCommandUsingSocketExecutionPolicy(line) ?? ""
     }
 
-    private func processCommand(_ command: String) -> String {
+    func processCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Empty command" }
 
@@ -2368,7 +2413,7 @@ class TerminalController {
     /// result whose JSON bridging/serialization runs on the socket-worker
     /// thread after the hop, or a response the legacy switch already encoded
     /// on the main actor (see `v2LegacyMainActorResponse`).
-    private enum V2MainHopOutcome {
+    enum V2MainHopOutcome: Sendable {
         case callResult(ControlCallResult)
         case encoded(String)
     }
@@ -2435,7 +2480,7 @@ class TerminalController {
     /// before `controlCommandCoordinator.handle` here must also be added
     /// there, or the tranche-D worker-lane verbs silently fork from the
     /// main lane.
-    private func v2MainActorResponse(
+    func v2MainActorResponse(
         request: ControlRequest,
         id: Any?,
         method: String,
@@ -3216,7 +3261,7 @@ class TerminalController {
         ]
     }
 
-    private nonisolated func processAggregates(
+    nonisolated func processAggregates(
         from processSnapshot: CmuxTopProcessSnapshot,
         totalPIDs: Set<Int>
     ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
@@ -3333,7 +3378,7 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
+    func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -3830,7 +3875,7 @@ class TerminalController {
         case err(code: String, message: String, data: Any?)
     }
 
-    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
+    nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):
             return v2Ok(id: id, result: payload)
@@ -3839,7 +3884,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
+    nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
         guard method.hasPrefix("workspace."), params.keys.contains("window") else { return nil }
         return .err(
             code: "invalid_params",
