@@ -600,8 +600,6 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
         }
-        relayPolicyEffective = effective
-        relayPolicyDiagnostics = diagnostics
         if let runtime {
             if let refreshTaskID {
                 guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
@@ -611,6 +609,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
         }
+        relayPolicyEffective = effective
+        relayPolicyDiagnostics = diagnostics
         publishIrohSettingsUpdate()
     }
 
