@@ -133,7 +133,13 @@ extension CMUXCLI {
             summary: String(localized: "cli.docs.completion.summary", defaultValue: "Shell completion scripts for zsh, bash, and fish."),
             webURL: "https://cmux.com/docs/api",
             rawResources: [
-                DocsResource(label: "CLI contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
+                DocsResource(
+                    label: String(
+                        localized: "cli.docs.completion.cliContractLabel",
+                        defaultValue: "CLI contract"
+                    ),
+                    url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"
+                ),
             ],
             commands: [
                 "cmux completion zsh",
