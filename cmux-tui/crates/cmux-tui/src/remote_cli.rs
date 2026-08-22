@@ -82,7 +82,7 @@ pub fn run(args: &[String], usage: &str) -> i32 {
     match run_inner(args, usage) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
             1
         }
     }

@@ -1141,7 +1141,9 @@ fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) 
     if let Some(action) = raw.action.as_deref() {
         match parse_sidebar_action(action.trim(), command_ids) {
             Ok(action) => plus.action = Some(action),
-            Err(warning) => eprintln!("{warning} in {owner} plus button"),
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner} plus button");
+            }
         }
     }
     if let Some(menu) = raw.menu {
@@ -1156,11 +1158,14 @@ fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) 
                         .filter(|label| !label.is_empty())
                         .map(str::to_string),
                 }),
-                Ok(_) => eprintln!(
+                Ok(_) => crate::client_log::stderr_log!(
+                    "config",
                     "cmux-tui: ignoring duplicate {owner} plus menu action {:?}",
                     raw_action.action().trim()
                 ),
-                Err(warning) => eprintln!("{warning} in {owner} plus menu"),
+                Err(warning) => {
+                    crate::client_log::stderr_log!("config", "{warning} in {owner} plus menu");
+                }
             }
         }
     }
@@ -1415,7 +1420,10 @@ fn resolve_sidebar_view_specs(
     for view in views {
         let id = view.id.trim();
         if id.is_empty() || ids.contains(id) {
-            eprintln!("cmux-tui: ignoring {owner} view with an empty or duplicate id");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+            );
             continue;
         }
         let mut levels = Vec::with_capacity(view.levels.len());
@@ -1424,7 +1432,7 @@ fn resolve_sidebar_view_specs(
             match parse_sidebar_resource_kind(level.trim()) {
                 Ok(level) => levels.push(level),
                 Err(warning) => {
-                    eprintln!("{warning}");
+                    crate::client_log::stderr_log!("config", "{warning}");
                     valid = false;
                     break;
                 }
@@ -1434,7 +1442,10 @@ fn resolve_sidebar_view_specs(
             continue;
         }
         if let Err(reason) = validate_sidebar_levels(&levels) {
-            eprintln!("cmux-tui: ignoring {owner} view {id:?}: {reason}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+            );
             continue;
         }
         let legacy_kind = SidebarViewSpec {
@@ -1448,7 +1459,8 @@ fn resolve_sidebar_view_specs(
         }
         .legacy_kind();
         if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
             );
             continue;
@@ -1462,7 +1474,8 @@ fn resolve_sidebar_view_specs(
         let actions = if levels == [SidebarResourceKind::Machines]
             && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
         {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
             );
             Vec::new()
@@ -1481,14 +1494,14 @@ fn resolve_sidebar_view_specs(
                                 .map(str::to_string),
                         }),
                         Ok(_) => {
-                            eprintln!(
+                            crate::client_log::stderr_log!("config",
                                 "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
                                 raw_action.action().trim()
                             );
                             None
                         }
                         Err(warning) => {
-                            eprintln!("{warning} in {owner} view {id:?}");
+                            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
                             None
                         }
                     }
@@ -2802,7 +2815,8 @@ impl Keys {
     /// Returns whether the chord was bound.
     fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) -> bool {
         if chord == self.prefix {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
             );
             return false;
@@ -2820,7 +2834,11 @@ impl Keys {
                 self.macos_option_as_alt = value;
             } else {
                 let value = format!("{value:?}");
-                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
+                crate::client_log::stderr_log!(
+                    "config",
+                    "{}",
+                    catalog().config.invalid_macos_option_as_alt(&value)
+                );
             }
         }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
@@ -2844,9 +2862,15 @@ impl Keys {
                     *send_prefix = chord;
                 }
             } else if value.as_str().is_some() {
-                eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unparseable key binding prefix = {value:?}"
+                );
             } else {
-                eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring non-string prefix binding {value:?}"
+                );
             }
         }
         for (name, value) in raw {
@@ -2877,13 +2901,15 @@ impl Keys {
                             continue;
                         }
                         let Some(chord) = parse_chord(raw_chord) else {
-                            eprintln!(
+                            crate::client_log::stderr_log!(
+                                "config",
                                 "cmux-tui: ignoring unparseable key binding {name} = {raw_chord:?}"
                             );
                             continue;
                         };
                         if chord == self.prefix && definition.action != Action::SendPrefix {
-                            eprintln!(
+                            crate::client_log::stderr_log!(
+                                "config",
                                 "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
                             );
                             continue;
@@ -2892,7 +2918,10 @@ impl Keys {
                         self.bindings.push((chord, definition.action));
                     }
                 }
-                None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
+                None => crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unknown key action {name:?}"
+                ),
             }
         }
         let prefix = self.prefix;
@@ -3074,14 +3103,16 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
     let mut segments = Vec::new();
     for segment in raw {
         if segments.len() >= MAX_STATUS_SEGMENTS {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
             );
             break;
         }
         let content = match (segment.text, segment.run) {
             (Some(_), Some(_)) | (None, None) => {
-                eprintln!(
+                crate::client_log::stderr_log!(
+                    "config",
                     "cmux-tui: ignoring status_bar.{side} segment: exactly one of text or run is required"
                 );
                 continue;
@@ -3092,7 +3123,10 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             }
             (None, Some(run)) => {
                 if run.first().is_none_or(|program| program.is_empty()) {
-                    eprintln!("cmux-tui: ignoring status_bar.{side} segment without a run program");
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring status_bar.{side} segment without a run program"
+                    );
                     continue;
                 }
                 let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
@@ -3251,7 +3285,7 @@ pub fn load() -> Config {
     if let Some(view) = raw.sidebar.view {
         match parse_sidebar_view(&view) {
             Ok(view) => config.sidebar.view = view,
-            Err(warning) => eprintln!("{warning}"),
+            Err(warning) => crate::client_log::stderr_log!("config", "{warning}"),
         }
     }
     if let Some(w) = raw.sidebar.max_width {
@@ -3270,7 +3304,8 @@ pub fn load() -> Config {
             // The renderer reserves exactly one cell for the glyph.
             config.sidebar.rail_glyph = glyph;
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
             );
         }
@@ -3289,7 +3324,10 @@ pub fn load() -> Config {
             .filter(|arg| !arg.is_empty())
             .collect::<Vec<_>>();
         if command.is_empty() {
-            eprintln!("cmux-tui: ignoring sidebar.plugin with empty command");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sidebar.plugin with empty command"
+            );
         } else {
             config.sidebar.plugin = Some(SidebarPluginOptions {
                 command,
@@ -3312,7 +3350,8 @@ pub fn load() -> Config {
             let id = source.id.trim().to_string();
             let name = source.name.trim().to_string();
             if id.is_empty() || name.is_empty() || !source_ids.insert(id.clone()) {
-                eprintln!(
+                crate::client_log::stderr_log!(
+                    "config",
                     "cmux-tui: ignoring machine creation source with an empty or duplicate id/name"
                 );
                 continue;
@@ -3333,12 +3372,16 @@ pub fn load() -> Config {
             let kind = match parse_sidebar_column_kind(column.kind.trim()) {
                 Ok(kind) => kind,
                 Err(warning) => {
-                    eprintln!("{warning}");
+                    crate::client_log::stderr_log!("config", "{warning}");
                     continue;
                 }
             };
             if !seen.insert(kind) {
-                eprintln!("cmux-tui: ignoring duplicate sidebar column {:?}", column.kind);
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring duplicate sidebar column {:?}",
+                    column.kind
+                );
                 continue;
             }
             let (default_width, default_max_width) = match kind {
@@ -3355,7 +3398,10 @@ pub fn load() -> Config {
             });
         }
         if resolved.is_empty() {
-            eprintln!("cmux-tui: sidebar.columns had no usable entries; keeping defaults");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.columns had no usable entries; keeping defaults"
+            );
         } else {
             config.sidebar.columns = resolved;
             config.sidebar.columns_explicit = true;
@@ -3393,7 +3439,10 @@ pub fn load() -> Config {
     }
     if let Some(views) = raw.sidebar.views.as_ref() {
         if raw.sidebar.columns.is_some() {
-            eprintln!("cmux-tui: sidebar.views overrides sidebar.columns");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.views overrides sidebar.columns"
+            );
         }
         let resolved = resolve_sidebar_view_specs(
             views,
@@ -3405,7 +3454,10 @@ pub fn load() -> Config {
             &command_ids,
         );
         if resolved.is_empty() {
-            eprintln!("cmux-tui: sidebar.views had no usable entries; keeping defaults");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.views had no usable entries; keeping defaults"
+            );
         } else {
             config.sidebar.columns = resolved
                 .iter()
@@ -3425,14 +3477,20 @@ pub fn load() -> Config {
     config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
     if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
-            eprintln!("cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns"
+            );
         }
         let mut ids = HashSet::new();
         let mut profiles = Vec::new();
         for raw_profile in raw_profiles {
             let id = raw_profile.id.trim();
             if id.is_empty() || !ids.insert(id.to_string()) {
-                eprintln!("cmux-tui: ignoring sidebar profile with an empty or duplicate id");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring sidebar profile with an empty or duplicate id"
+                );
                 continue;
             }
             let owner = format!("sidebar profile {id:?}");
@@ -3446,7 +3504,10 @@ pub fn load() -> Config {
                 &command_ids,
             );
             if views.is_empty() {
-                eprintln!("cmux-tui: ignoring sidebar profile {id:?} with no usable views");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring sidebar profile {id:?} with no usable views"
+                );
                 continue;
             }
             let name = raw_profile
@@ -3459,7 +3520,10 @@ pub fn load() -> Config {
             profiles.push(SidebarProfileSpec { id: id.to_string(), name, views });
         }
         if profiles.is_empty() {
-            eprintln!("cmux-tui: sidebar.profiles had no usable entries; keeping defaults");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.profiles had no usable entries; keeping defaults"
+            );
         } else {
             let requested =
                 raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty());
@@ -3467,7 +3531,7 @@ pub fn load() -> Config {
                 .and_then(|id| profiles.iter().position(|profile| profile.id == id))
                 .unwrap_or_else(|| {
                     if let Some(requested) = requested {
-                        eprintln!(
+                        crate::client_log::stderr_log!("config",
                             "cmux-tui: sidebar.profile {requested:?} was not found; using the first profile"
                         );
                     }
@@ -3492,14 +3556,20 @@ pub fn load() -> Config {
             config.sidebar.profiles = profiles;
         }
     } else if raw.sidebar.profile.is_some() {
-        eprintln!("cmux-tui: ignoring sidebar.profile without sidebar.profiles");
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sidebar.profile without sidebar.profiles"
+        );
     }
     match raw.machine_provider.command {
         Some(command) if command.first().is_some_and(|program| !program.trim().is_empty()) => {
             config.machine_provider.command = Some(command);
         }
         Some(_) => {
-            eprintln!("cmux-tui: ignoring machine_provider.command without a program");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring machine_provider.command without a program"
+            );
         }
         None => {}
     }
@@ -3510,7 +3580,10 @@ pub fn load() -> Config {
     if let Some(host) = cloud.host {
         let host = host.trim();
         if host.is_empty() {
-            eprintln!("cmux-tui: ignoring empty machine_provider.cloud.host");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring empty machine_provider.cloud.host"
+            );
         } else {
             config.machine_provider.cloud.host = host.to_string();
         }
@@ -3519,7 +3592,10 @@ pub fn load() -> Config {
         cloud.user.map(|user| user.trim().to_string()).filter(|user| !user.is_empty());
     config.machine_provider.cloud.port = match cloud.port {
         Some(0) => {
-            eprintln!("cmux-tui: ignoring zero machine_provider.cloud.port");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring zero machine_provider.cloud.port"
+            );
             None
         }
         port => port,
@@ -3534,7 +3610,10 @@ pub fn load() -> Config {
         let id = machine.id.trim().to_string();
         let name = machine.name.trim().to_string();
         if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
-            eprintln!("cmux-tui: ignoring machine with an empty or duplicate id/name");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring machine with an empty or duplicate id/name"
+            );
             continue;
         }
         let target = match machine.target {
@@ -3561,7 +3640,10 @@ pub fn load() -> Config {
                 }
             }
             _ => {
-                eprintln!("cmux-tui: ignoring machine {id:?} with an empty transport target");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring machine {id:?} with an empty transport target"
+                );
                 continue;
             }
         };
@@ -3589,7 +3671,8 @@ pub fn load() -> Config {
         {
             config.browser.max_capture_megapixels = megapixels;
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
             );
         }
@@ -3598,7 +3681,8 @@ pub fn load() -> Config {
         if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
             config.browser.capture_scale = Some(scale);
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
             );
         }
@@ -3672,22 +3756,32 @@ fn resolve_user_command_specs(
     for command in raw {
         let id = command.id.as_deref().unwrap_or("").trim().to_string();
         if id.is_empty() {
-            eprintln!("cmux-tui: ignoring command with a missing or empty id");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command with a missing or empty id"
+            );
             continue;
         }
         if ids.contains(&id) {
-            eprintln!("cmux-tui: ignoring command with duplicate id {id:?}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command with duplicate id {id:?}"
+            );
             continue;
         }
         // Empty positional arguments stay: argv executes directly, and an
         // empty argument is valid there. Only the program itself must exist.
         let run = command.run.unwrap_or_default();
         if run.first().is_none_or(|program| program.is_empty()) {
-            eprintln!("cmux-tui: ignoring command {id:?} without a run program");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command {id:?} without a run program"
+            );
             continue;
         }
         if Action::user_command(commands.len()).is_none() {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
             );
             continue;
@@ -3723,13 +3817,17 @@ fn bind_user_command_chords(
                 continue;
             }
             if bound >= MAX_USER_COMMAND_CHORDS {
-                eprintln!(
+                crate::client_log::stderr_log!(
+                    "config",
                     "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
                 );
                 break;
             }
             let Some(chord) = parse_chord(raw_chord) else {
-                eprintln!("cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
+                );
                 continue;
             };
             // Only a successful bind consumes the limit; rejected chords
@@ -3744,7 +3842,10 @@ fn bind_user_command_chords(
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
     match port {
         Some(0) => {
-            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring zero SSH machine port for {id:?}"
+            );
             None
         }
         port => port,
@@ -3800,7 +3901,11 @@ fn load_raw_config() -> RawConfig {
         Err(e) => {
             // A broken config should not take the TUI down; complain on
             // stderr (visible pre-alternate-screen and in logs).
-            eprintln!("cmux-tui: ignoring invalid config {}: {e}", path.display());
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring invalid config {}: {e}",
+                path.display()
+            );
             RawConfig::default()
         }
     }
@@ -6574,7 +6679,8 @@ mod tests {
             child_exit.wait(Duration::from_secs(2));
             assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "skipped helper child {child_pid} exit postcondition: pidfd_open is unsupported"
             );
         }
@@ -6622,7 +6728,8 @@ mod tests {
                 "descendant process-group child {child_pid} was not killed"
             );
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "skipped descendant process-group child {child_pid} exit postcondition: \
                  pidfd_open is unsupported"
             );
