@@ -252,6 +252,10 @@ final class ComputerUseWatchTargetController {
     private var lastActivatedTargetPIDByDriverSessionID: [String: Int] = [:]
     private var lastObservedActionAtByDriverSessionID: [String: Date] = [:]
     private var proxySessionIDByDriverSessionID: [String: String] = [:]
+    /// The authenticated window id from the newest accepted state file. Focus
+    /// menu actions reuse this value so repinning never needs another helper
+    /// `get_app_state` round-trip.
+    private var targetWindowIDByDriverSessionID: [String: UInt32] = [:]
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseWatchTarget")
@@ -285,6 +289,9 @@ final class ComputerUseWatchTargetController {
         onCursorVisibilityChange:
             @escaping ComputerUseSessionPresentationController
                 .CursorVisibilityEffect = { _, _, _, _ in },
+        onCursorReassert:
+            @escaping ComputerUseSessionPresentationController
+                .CursorReassertEffect = { _, _, _, _, _ in },
         frontmostApplicationProcessIdentifier:
             @escaping @MainActor () -> pid_t? = {
                 NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -316,7 +323,8 @@ final class ComputerUseWatchTargetController {
         self.feed = feed
         presentationController = ComputerUseSessionPresentationController(
             setCursorVisibility: onCursorVisibilityChange,
-            focusTerminal: onFocusTerminal
+            focusTerminal: onFocusTerminal,
+            reassertCursor: onCursorReassert
         )
         self.frontmostApplicationProcessIdentifier =
             frontmostApplicationProcessIdentifier
@@ -358,6 +366,7 @@ final class ComputerUseWatchTargetController {
         lastActivatedTargetPIDByDriverSessionID.removeAll()
         lastObservedActionAtByDriverSessionID.removeAll()
         proxySessionIDByDriverSessionID.removeAll()
+        targetWindowIDByDriverSessionID.removeAll()
         presentationController.stop()
     }
 
@@ -398,7 +407,8 @@ final class ComputerUseWatchTargetController {
             driverSessionID: driverSessionID,
             workspaceID: liveSession.workspaceID,
             surfaceID: liveSession.surfaceID,
-            proxySessionID: cursorProxySessionID
+            proxySessionID: cursorProxySessionID,
+            targetWindowID: targetWindowIDByDriverSessionID[driverSessionID]
         )
         return true
     }
@@ -467,7 +477,8 @@ final class ComputerUseWatchTargetController {
         )
         presentationController.focusComputerUse(
             driverSessionID: driverSessionID,
-            proxySessionID: cursorProxySessionID
+            proxySessionID: cursorProxySessionID,
+            targetWindowID: targetWindowIDByDriverSessionID[driverSessionID]
         ) { [activate] in
             activate(application)
         }
@@ -622,6 +633,8 @@ final class ComputerUseWatchTargetController {
             else {
                 continue
             }
+            targetWindowIDByDriverSessionID[driverSessionID] =
+                activity.state.targetWindowID
             presentationController.proxySessionDidBecomeKnown(
                 driverSessionID: driverSessionID,
                 proxySessionID: proxySessionID
@@ -703,7 +716,8 @@ final class ComputerUseWatchTargetController {
             return
         }
         presentationController.activateTarget(
-            driverSessionID: driverSessionID
+            driverSessionID: driverSessionID,
+            targetWindowID: activity.state.targetWindowID
         ) { [activate] in
             activate(application)
         }
@@ -778,6 +792,10 @@ final class ComputerUseWatchTargetController {
             proxySessionIDByDriverSessionID.filter {
                 liveDriverSessionIDs.contains($0.key)
             }
+        targetWindowIDByDriverSessionID =
+            targetWindowIDByDriverSessionID.filter {
+                liveDriverSessionIDs.contains($0.key)
+            }
         for driverSessionID in replacedDriverSessionIDs {
             lastActivatedTargetPIDByDriverSessionID.removeValue(
                 forKey: driverSessionID
@@ -791,6 +809,9 @@ final class ComputerUseWatchTargetController {
                 forKey: driverSessionID
             )
             proxySessionIDByDriverSessionID.removeValue(
+                forKey: driverSessionID
+            )
+            targetWindowIDByDriverSessionID.removeValue(
                 forKey: driverSessionID
             )
         }

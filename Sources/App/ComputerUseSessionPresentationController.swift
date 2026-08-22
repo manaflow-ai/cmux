@@ -20,6 +20,13 @@ final class ComputerUseSessionPresentationController {
         _ surfaceID: UUID,
         _ isCurrent: @escaping EffectValidity
     ) -> Void
+    typealias CursorReassertEffect = @MainActor @Sendable (
+        _ driverSessionID: String,
+        _ proxySessionID: String?,
+        _ targetWindowID: UInt32?,
+        _ visible: Bool,
+        _ isCurrent: @escaping EffectValidity
+    ) async -> Void
 
     private enum ActivityPhase: Equatable {
         case active
@@ -32,23 +39,28 @@ final class ComputerUseSessionPresentationController {
         var cursorVisible: Bool
         var proxySessionID: String?
         var cursorEffectProxySessionID: String?
+        var targetWindowID: UInt32?
         var focusEpoch: UInt64
         var cursorEpoch: UInt64
     }
 
     private let setCursorVisibility: CursorVisibilityEffect
     private let focusTerminal: TerminalFocusEffect
+    private let reassertCursor: CursorReassertEffect
     private var statesByDriverSessionID: [String: SessionState] = [:]
     private var focusTasksByDriverSessionID: [String: Task<Void, Never>] = [:]
     private var cursorTasksByDriverSessionID: [String: Task<Void, Never>] = [:]
+    private var reassertTasksByDriverSessionID: [String: Task<Void, Never>] = [:]
     private var nextEpoch: UInt64 = 0
 
     init(
         setCursorVisibility: @escaping CursorVisibilityEffect,
-        focusTerminal: @escaping TerminalFocusEffect
+        focusTerminal: @escaping TerminalFocusEffect,
+        reassertCursor: @escaping CursorReassertEffect = { _, _, _, _, _ in }
     ) {
         self.setCursorVisibility = setCursorVisibility
         self.focusTerminal = focusTerminal
+        self.reassertCursor = reassertCursor
     }
 
     func stop() {
@@ -60,6 +72,10 @@ final class ComputerUseSessionPresentationController {
             task.cancel()
         }
         cursorTasksByDriverSessionID.removeAll()
+        for task in reassertTasksByDriverSessionID.values {
+            task.cancel()
+        }
+        reassertTasksByDriverSessionID.removeAll()
         statesByDriverSessionID.removeAll()
     }
 
@@ -97,7 +113,8 @@ final class ComputerUseSessionPresentationController {
         driverSessionID: String,
         workspaceID: UUID,
         surfaceID: UUID,
-        proxySessionID: String? = nil
+        proxySessionID: String? = nil,
+        targetWindowID: UInt32? = nil
     ) {
         var state = activeState(for: driverSessionID)
         state.activityPhase = .active
@@ -106,6 +123,7 @@ final class ComputerUseSessionPresentationController {
         // the existing overlay immediately instead of waiting on a helper RPC.
         state.cursorVisible = true
         state.proxySessionID = proxySessionID ?? state.proxySessionID
+        state.targetWindowID = targetWindowID ?? state.targetWindowID
         assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
         let isCurrent = focusValidity(
@@ -114,6 +132,9 @@ final class ComputerUseSessionPresentationController {
         )
         scheduleFocusEffect(
             driverSessionID: driverSessionID,
+            proxySessionID: state.proxySessionID,
+            targetWindowID: state.targetWindowID,
+            visible: state.cursorVisible,
             isCurrent: isCurrent
         ) { [focusTerminal] in
             focusTerminal(workspaceID, surfaceID, isCurrent)
@@ -123,6 +144,7 @@ final class ComputerUseSessionPresentationController {
     func focusComputerUse(
         driverSessionID: String,
         proxySessionID: String? = nil,
+        targetWindowID: UInt32? = nil,
         activate: @escaping @MainActor () -> Void
     ) {
         var state = activeState(for: driverSessionID)
@@ -131,6 +153,7 @@ final class ComputerUseSessionPresentationController {
         // The active overlay was never disabled while cmux was foregrounded.
         state.cursorVisible = true
         state.proxySessionID = proxySessionID ?? state.proxySessionID
+        state.targetWindowID = targetWindowID ?? state.targetWindowID
         assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
         let isCurrent = focusValidity(
@@ -139,6 +162,9 @@ final class ComputerUseSessionPresentationController {
         )
         scheduleFocusEffect(
             driverSessionID: driverSessionID,
+            proxySessionID: state.proxySessionID,
+            targetWindowID: state.targetWindowID,
+            visible: state.cursorVisible,
             isCurrent: isCurrent
         ) {
             activate()
@@ -163,6 +189,9 @@ final class ComputerUseSessionPresentationController {
         )
         scheduleFocusEffect(
             driverSessionID: driverSessionID,
+            proxySessionID: state.proxySessionID,
+            targetWindowID: state.targetWindowID,
+            visible: state.cursorVisible,
             isCurrent: isCurrent
         ) { [focusTerminal] in
             focusTerminal(workspaceID, surfaceID, isCurrent)
@@ -171,19 +200,24 @@ final class ComputerUseSessionPresentationController {
 
     func activateTarget(
         driverSessionID: String,
+        targetWindowID: UInt32? = nil,
         activate: @MainActor () -> Void
     ) {
-        let state = statesByDriverSessionID[driverSessionID]
+        var state = statesByDriverSessionID[driverSessionID]
             ?? SessionState(
                 activityPhase: .active,
                 focusMode: Self.defaultActiveFocusMode,
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
+                targetWindowID: nil,
                 focusEpoch: 0,
                 cursorEpoch: 0
             )
+        state.targetWindowID = targetWindowID ?? state.targetWindowID
         if statesByDriverSessionID[driverSessionID] == nil {
+            statesByDriverSessionID[driverSessionID] = state
+        } else {
             statesByDriverSessionID[driverSessionID] = state
         }
         guard
@@ -193,6 +227,13 @@ final class ComputerUseSessionPresentationController {
             return
         }
         activate()
+        scheduleCursorReassertion(
+            driverSessionID: driverSessionID,
+            proxySessionID: state.proxySessionID,
+            targetWindowID: state.targetWindowID,
+            visible: state.cursorVisible,
+            epoch: state.focusEpoch
+        )
     }
 
     func driverSessionDidComplete(
@@ -206,6 +247,7 @@ final class ComputerUseSessionPresentationController {
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
+                targetWindowID: nil,
                 focusEpoch: 0,
                 cursorEpoch: 0
             )
@@ -220,11 +262,16 @@ final class ComputerUseSessionPresentationController {
         state.focusMode = .automatic
         state.cursorVisible = false
         state.proxySessionID = resolvedProxySessionID
+        state.targetWindowID = nil
         assignNextFocusEpoch(to: &state)
         focusTasksByDriverSessionID[driverSessionID]?.cancel()
         focusTasksByDriverSessionID.removeValue(
             forKey: driverSessionID
         )
+        cursorTasksByDriverSessionID[driverSessionID]?.cancel()
+        cursorTasksByDriverSessionID.removeValue(forKey: driverSessionID)
+        reassertTasksByDriverSessionID[driverSessionID]?.cancel()
+        reassertTasksByDriverSessionID.removeValue(forKey: driverSessionID)
         guard shouldScheduleCursorEffect else {
             statesByDriverSessionID[driverSessionID] = state
             return
@@ -251,6 +298,7 @@ final class ComputerUseSessionPresentationController {
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
+                targetWindowID: nil,
                 focusEpoch: 0,
                 cursorEpoch: 0
             )
@@ -294,6 +342,7 @@ final class ComputerUseSessionPresentationController {
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
+                targetWindowID: nil,
                 focusEpoch: 0,
                 cursorEpoch: 0
             )
@@ -343,13 +392,52 @@ final class ComputerUseSessionPresentationController {
     /// cannot apply an older focus choice after the newer one.
     private func scheduleFocusEffect(
         driverSessionID: String,
+        proxySessionID: String?,
+        targetWindowID: UInt32?,
+        visible: Bool,
         isCurrent: @escaping EffectValidity,
         effect: @escaping @MainActor () -> Void
     ) {
         focusTasksByDriverSessionID[driverSessionID]?.cancel()
+        reassertTasksByDriverSessionID[driverSessionID]?.cancel()
+        let reassertCursor = self.reassertCursor
         focusTasksByDriverSessionID[driverSessionID] = Task { @MainActor in
             guard !Task.isCancelled, isCurrent() else { return }
             effect()
+            guard !Task.isCancelled, isCurrent() else { return }
+            await reassertCursor(
+                driverSessionID,
+                proxySessionID,
+                targetWindowID,
+                visible,
+                isCurrent
+            )
+        }
+    }
+
+    private func scheduleCursorReassertion(
+        driverSessionID: String,
+        proxySessionID: String?,
+        targetWindowID: UInt32?,
+        visible: Bool,
+        epoch: UInt64
+    ) {
+        guard targetWindowID != nil else { return }
+        reassertTasksByDriverSessionID[driverSessionID]?.cancel()
+        let isCurrent = focusValidity(
+            driverSessionID: driverSessionID,
+            epoch: epoch
+        )
+        let reassertCursor = self.reassertCursor
+        reassertTasksByDriverSessionID[driverSessionID] = Task { @MainActor in
+            guard !Task.isCancelled, isCurrent() else { return }
+            await reassertCursor(
+                driverSessionID,
+                proxySessionID,
+                targetWindowID,
+                visible,
+                isCurrent
+            )
         }
     }
 

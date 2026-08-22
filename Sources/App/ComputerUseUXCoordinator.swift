@@ -148,6 +148,21 @@ final class ComputerUseUXCoordinator {
                     proxySessionID: proxySessionID,
                     while: isCurrent
                 )
+            },
+            onCursorReassert: {
+                [runtimeService]
+                driverSessionID,
+                proxySessionID,
+                targetWindowID,
+                visible,
+                isCurrent in
+                guard visible, let targetWindowID else { return }
+                _ = await runtimeService.reassertDriverCursor(
+                    driverSessionID: driverSessionID,
+                    proxySessionID: proxySessionID,
+                    targetWindowID: targetWindowID,
+                    while: isCurrent
+                )
             }
         )
 

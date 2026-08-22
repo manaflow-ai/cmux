@@ -671,6 +671,116 @@ final class ComputerUseRuntimeService {
         }
     }
 
+    /// Reasserts the helper cursor above the authenticated target window after
+    /// a cmux focus transition. The helper keeps the existing cursor position;
+    /// this is deliberately a single host command rather than another state or
+    /// app snapshot request.
+    func reassertDriverCursor(
+        driverSessionID: String,
+        proxySessionID: String? = nil,
+        targetWindowID: UInt32,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
+    ) async -> Bool {
+        guard
+            ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID),
+            targetWindowID > 0,
+            (proxySessionID.map {
+                ComputerUseSessionScope.isManagedProxySessionID(
+                    $0,
+                    for: driverSessionID
+                )
+            } ?? true),
+            effectIsCurrent()
+        else {
+            return false
+        }
+        return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                effectIsCurrent()
+            else {
+                return false
+            }
+            var updated = false
+            for profile in ComputerUseDaemonProfile.allCases {
+                let cursorSessionIDs: [String]
+                switch profile {
+                case .native:
+                    cursorSessionIDs = [driverSessionID]
+                case .codexCompatibility:
+                    if let proxySessionID,
+                       proxySessionID != driverSessionID {
+                        cursorSessionIDs = [
+                            proxySessionID,
+                            driverSessionID,
+                        ]
+                    } else {
+                        cursorSessionIDs = [driverSessionID]
+                    }
+                }
+                for cursorSessionID in cursorSessionIDs {
+                    guard
+                        effectIsCurrent(),
+                        let request = Self.reassertDriverCursorRequest(
+                            driverSessionID: cursorSessionID,
+                            targetWindowID: targetWindowID,
+                            profile: profile
+                        ),
+                        let expectedPeerIdentity = self.processIdentity(for: profile),
+                        AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                            == expectedPeerIdentity
+                    else {
+                        continue
+                    }
+                    let response = await Self.sendDaemonRequest(
+                        request,
+                        paths: self.paths,
+                        transport: self.transport,
+                        timeout: 3,
+                        expectedPeerIdentity: expectedPeerIdentity,
+                        socketURL: self.socketURL(for: profile)
+                    )
+                    guard effectIsCurrent() else { return false }
+                    updated = response?["ok"] as? Bool == true || updated
+                }
+            }
+            return updated
+        }
+    }
+
+    nonisolated static func reassertDriverCursorRequest(
+        driverSessionID: String,
+        targetWindowID: UInt32,
+        profile: ComputerUseDaemonProfile
+    ) -> [String: Any]? {
+        guard targetWindowID > 0 else { return nil }
+        switch profile {
+        case .native:
+            guard ComputerUseSessionScope.isManagedDriverSessionID(
+                driverSessionID
+            ) else {
+                return nil
+            }
+        case .codexCompatibility:
+            guard ComputerUseSessionScope.driverSessionID(
+                containing: driverSessionID
+            ) != nil else {
+                return nil
+            }
+        }
+        return [
+            "method": "reassert_cursor",
+            "args": [
+                "session": driverSessionID,
+                "window_id": Int(targetWindowID),
+                "enabled": true,
+            ],
+        ]
+    }
+
     nonisolated static func setDriverCursorVisibleRequest(
         _ visible: Bool,
         driverSessionID: String,

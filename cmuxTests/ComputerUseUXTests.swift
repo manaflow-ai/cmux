@@ -1630,6 +1630,39 @@ struct ComputerUseUXTests {
                 as? Bool == false
         )
 
+        let reassertRequest = ComputerUseRuntimeService.reassertDriverCursorRequest(
+            driverSessionID: driverSessionID,
+            targetWindowID: 42,
+            profile: .native
+        )
+        #expect(reassertRequest?["method"] as? String == "reassert_cursor")
+        #expect(
+            (reassertRequest?["args"] as? [String: Any])?["session"]
+                as? String == driverSessionID
+        )
+        #expect(
+            (reassertRequest?["args"] as? [String: Any])?["window_id"]
+                as? Int == 42
+        )
+        #expect(
+            (reassertRequest?["args"] as? [String: Any])?["enabled"]
+                as? Bool == true
+        )
+        #expect(
+            ComputerUseRuntimeService.reassertDriverCursorRequest(
+                driverSessionID: "foreign-session",
+                targetWindowID: 42,
+                profile: .native
+            ) == nil
+        )
+        #expect(
+            ComputerUseRuntimeService.reassertDriverCursorRequest(
+                driverSessionID: driverSessionID,
+                targetWindowID: 0,
+                profile: .native
+            ) == nil
+        )
+
         #expect(ComputerUseSessionScope.isManagedProxySessionID(
             driverSessionID,
             for: driverSessionID
@@ -2983,6 +3016,50 @@ struct ComputerUseUXTests {
         controller.driverSessionDidComplete(driverSessionID)
         controller.driverSessionDidStart(driverSessionID)
         #expect(controller.isRunningInBackground(driverSessionID))
+    }
+
+    @Test @MainActor
+    func focusTransitionsReassertTheExistingCursorTargetWithoutSnapshotFetch() async throws {
+        let driverSessionID = "focus-reassert-session"
+        let targetWindowID: UInt32 = 42
+        let reassertions = AsyncStream.makeStream(
+            of: (targetWindowID: UInt32?, visible: Bool).self,
+            bufferingPolicy: .unbounded
+        )
+        defer { reassertions.continuation.finish() }
+        var activations = 0
+        var terminalFocuses = 0
+        let controller = ComputerUseSessionPresentationController(
+            setCursorVisibility: { _, _, _, _ in },
+            focusTerminal: { _, _, _ in terminalFocuses += 1 },
+            reassertCursor: { _, _, targetWindowID, visible, _ in
+                reassertions.continuation.yield((targetWindowID, visible))
+            }
+        )
+        controller.driverSessionDidStart(driverSessionID)
+        controller.focusCallingTerminal(
+            driverSessionID: driverSessionID,
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            targetWindowID: targetWindowID
+        )
+        var iterator = reassertions.stream.makeAsyncIterator()
+        let terminalReassertion = try #require(await iterator.next())
+        #expect(terminalReassertion.targetWindowID == targetWindowID)
+        #expect(terminalReassertion.visible)
+        #expect(terminalFocuses == 1)
+
+        controller.focusComputerUse(
+            driverSessionID: driverSessionID,
+            targetWindowID: targetWindowID
+        ) {
+            activations += 1
+        }
+        let computerUseReassertion = try #require(await iterator.next())
+        #expect(computerUseReassertion.targetWindowID == targetWindowID)
+        #expect(computerUseReassertion.visible)
+        #expect(activations == 1)
+        #expect(controller.focusMode(for: driverSessionID) == .computerUse)
     }
 
     /// Status-item actions run while AppKit is still tracking the menu. The
