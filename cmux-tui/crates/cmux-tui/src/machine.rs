@@ -955,7 +955,6 @@ impl MachineUiState {
                         .iter()
                         .enumerate()
                         .filter(|(_, machine)| usable(machine))
-                        .map(|(index, machine)| (index, machine))
                         .fold(None::<(usize, &MachineDescriptor)>, |best, (index, machine)| {
                             match best {
                                 Some((chosen, _)) if chosen >= previous_index => best,
