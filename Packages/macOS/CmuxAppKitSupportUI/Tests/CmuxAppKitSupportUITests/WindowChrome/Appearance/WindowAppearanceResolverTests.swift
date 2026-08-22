@@ -119,6 +119,31 @@ import Testing
         #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
     }
 
+    /// Callers that omit the ambient scheme must not have translucent chrome
+    /// resolved against a guessed light window: without an injected ambient
+    /// the resolver fails closed to the terminal authority.
+    @Test(arguments: [
+        ("#101820", ColorScheme.dark),
+        ("#F8F8F2", ColorScheme.light),
+    ])
+    func omittedAmbientSchemeFailsClosedToTerminalAuthority(
+        backgroundHex: String,
+        terminalScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: backgroundHex) ?? .black,
+                backgroundOpacity: 0.3,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: terminalScheme
+            )
+        )
+        let snapshot = resolver.currentFromUserDefaults(defaults: UserDefaults(suiteName: "cmux.tests.omitted-ambient")!)
+
+        #expect(snapshot.resolvedColorScheme == terminalScheme)
+    }
+
     @Test func ghosttyMacOSGlassStyleForcesClearRootAndTerminalTintedGlass() {
         let resolver = WindowAppearanceResolver(
             terminalAppearance: WindowTerminalAppearanceSnapshot(

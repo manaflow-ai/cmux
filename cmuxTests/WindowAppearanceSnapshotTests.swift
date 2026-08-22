@@ -547,6 +547,30 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(cmuxReadableColorScheme(for: opaqueDarkOverLight), .dark)
     }
 
+    /// Callers that omit the ambient scheme (`currentFromUserDefaults`) must
+    /// not have translucent chrome resolved against a guessed light window:
+    /// the resolver fails closed to the terminal authority instead.
+    func testOmittedAmbientSchemeFailsClosedToTerminalAuthority() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#101820") ?? .black,
+                backgroundOpacity: 0.3,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: .dark
+            )
+        )
+        let snapshot = resolver.currentFromUserDefaults(
+            defaults: UserDefaults(suiteName: "cmux.tests.omitted-ambient")!
+        )
+
+        XCTAssertEqual(
+            snapshot.resolvedColorScheme,
+            .dark,
+            "Without an injected ambient scheme, translucent chrome must stay on the terminal authority, not a guessed light window"
+        )
+    }
+
     private func makeUserSettings(colorScheme: ColorScheme) -> WindowAppearanceUserSettingsSnapshot {
         WindowAppearanceUserSettingsSnapshot(
             unifySurfaceBackdrops: true,
