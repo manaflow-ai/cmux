@@ -50,13 +50,15 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
-func sidebarForegroundNSColor(
-    opacity: CGFloat,
-    colorScheme: ColorScheme
-) -> NSColor {
+func sidebarForegroundNSColor(opacity: CGFloat) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
-    let baseColor: NSColor = colorScheme == .dark ? .white : .black
-    return baseColor.withAlphaComponent(clampedOpacity)
+    // Resolved per drawing appearance, not captured at render time: the sidebar
+    // hosting context does not reliably re-render on mid-session system
+    // appearance switches, so a snapshot color goes stale (black-on-dark).
+    return NSColor(name: nil) { appearance in
+        let baseColor: NSColor = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black
+        return baseColor.withAlphaComponent(clampedOpacity)
+    }
 }
 
 func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {

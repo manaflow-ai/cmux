@@ -52,34 +52,63 @@ final class SidebarActiveForegroundColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
-    func testDarkSidebarUsesWhiteWhenTheAppAppearanceIsLight() {
-        guard let color = sidebarForegroundNSColor(
-            opacity: 0.9,
-            colorScheme: .dark
-        ).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
+    func testSidebarForegroundResolvesWhiteUnderDarkAppearance() {
+        guard let darkAppearance = NSAppearance(named: .darkAqua) else {
+            XCTFail("Expected darkAqua appearance")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
-        XCTAssertEqual(color.alphaComponent, 0.9, accuracy: 0.001)
+        darkAppearance.performAsCurrentDrawingAppearance {
+            guard let color = sidebarForegroundNSColor(opacity: 0.9).usingColorSpace(.sRGB) else {
+                XCTFail("Expected sRGB-convertible color")
+                return
+            }
+            XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+            XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
+            XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
+            XCTAssertEqual(color.alphaComponent, 0.9, accuracy: 0.001)
+        }
     }
 
-    func testLightSidebarUsesBlackWhenTheAppAppearanceIsDark() {
-        guard let color = sidebarForegroundNSColor(
-            opacity: 0.8,
-            colorScheme: .light
-        ).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
+    func testSidebarForegroundResolvesBlackUnderLightAppearance() {
+        guard let lightAppearance = NSAppearance(named: .aqua) else {
+            XCTFail("Expected aqua appearance")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
+        lightAppearance.performAsCurrentDrawingAppearance {
+            guard let color = sidebarForegroundNSColor(opacity: 0.8).usingColorSpace(.sRGB) else {
+                XCTFail("Expected sRGB-convertible color")
+                return
+            }
+            XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+            XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+            XCTAssertEqual(color.blueComponent, 0, accuracy: 0.001)
+            XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
+        }
+    }
+
+    func testSidebarForegroundTracksAppearanceSwitchesAtDrawTime() {
+        // Regression: a mid-session light/dark switch must change what the SAME
+        // color instance draws, without any view re-render.
+        guard let darkAppearance = NSAppearance(named: .darkAqua),
+              let lightAppearance = NSAppearance(named: .aqua) else {
+            XCTFail("Expected system appearances")
+            return
+        }
+
+        let color = sidebarForegroundNSColor(opacity: 0.9)
+        var darkRed: CGFloat = -1
+        var lightRed: CGFloat = -1
+        darkAppearance.performAsCurrentDrawingAppearance {
+            darkRed = color.usingColorSpace(.sRGB)?.redComponent ?? -1
+        }
+        lightAppearance.performAsCurrentDrawingAppearance {
+            lightRed = color.usingColorSpace(.sRGB)?.redComponent ?? -1
+        }
+
+        XCTAssertEqual(darkRed, 1, accuracy: 0.001)
+        XCTAssertEqual(lightRed, 0, accuracy: 0.001)
     }
 }
 
