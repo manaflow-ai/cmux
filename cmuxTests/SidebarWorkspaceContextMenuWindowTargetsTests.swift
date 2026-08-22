@@ -59,8 +59,9 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
     @Test
     @MainActor
     func transientDropSessionStateDoesNotInvalidateWorkspaceRowSnapshot() throws {
-        let idleSnapshot = try Self.rowSnapshot()
-        let activeSnapshot = try Self.rowSnapshot()
+        let workspaceId = UUID()
+        let idleSnapshot = try Self.rowSnapshot(workspaceId: workspaceId)
+        let activeSnapshot = try Self.rowSnapshot(workspaceId: workspaceId)
         let planner = SidebarDropPlanner()
 
         #expect(!planner.shouldCollectWorkspaceDropTargets(draggedTabId: nil))
@@ -78,12 +79,12 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
     }
 
     @MainActor
-    private static func rowSnapshot() throws -> SidebarWorkspaceRowSnapshot {
+    private static func rowSnapshot(workspaceId: UUID = UUID()) throws -> SidebarWorkspaceRowSnapshot {
         let suiteName = "SidebarWorkspaceContextMenuWindowTargetsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         return SidebarWorkspaceRowSnapshot(
-            workspaceId: UUID(),
+            workspaceId: workspaceId,
             groupId: nil,
             index: 0,
             workspaceCount: 1,
