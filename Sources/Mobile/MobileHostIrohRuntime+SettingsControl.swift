@@ -373,10 +373,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         now: wakeDate
                     )
                     do {
-                        try await self.applyRelayPolicy(
+                        let didApply = try await self.applyRelayPolicy(
                             expired,
                             refreshTaskID: taskID
                         )
+                        guard didApply else { return }
                         guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
                         relayAuthorityExpired = true
                     } catch {
@@ -403,10 +404,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                               revision: revision
                           ),
                           self.relayPolicyNetworkReachable == true else { return }
-                    try await self.applyRelayPolicy(
+                    let didApply = try await self.applyRelayPolicy(
                         effective,
                         refreshTaskID: taskID
                     )
+                    guard didApply else { return }
                     guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
                     retryAt = nil
                     failureCount = 0
@@ -446,10 +448,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                             now: failureDate
                         )
                         do {
-                            try await self.applyRelayPolicy(
+                            let didApply = try await self.applyRelayPolicy(
                                 expired,
                                 refreshTaskID: taskID
                             )
+                            guard didApply else { return }
                             guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
                             relayAuthorityExpired = true
                         } catch {
@@ -597,29 +600,31 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
     }
 
     /// Installs a policy, optionally fenced to one refresh-task generation.
+    @discardableResult
     private func applyRelayPolicy(
         _ effective: CmxIrohEffectiveRelayPolicy,
         refreshTaskID: UUID? = nil
-    ) async throws {
+    ) async throws -> Bool {
         let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID),
-                  relayPolicyNetworkReachable == true else { return }
+                  relayPolicyNetworkReachable == true else { return false }
         }
         if let runtime {
             if let refreshTaskID {
                 guard ownsRelayPolicyRefreshTask(refreshTaskID),
-                      relayPolicyNetworkReachable == true else { return }
+                      relayPolicyNetworkReachable == true else { return false }
             }
             try await runtime.replaceRelayPolicy(effective)
         }
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID),
-                  relayPolicyNetworkReachable == true else { return }
+                  relayPolicyNetworkReachable == true else { return false }
         }
         relayPolicyEffective = effective
         relayPolicyDiagnostics = diagnostics
         publishIrohSettingsUpdate()
+        return true
     }
 
     /// Cancels relay-policy observers and clears the account-scoped refresh
