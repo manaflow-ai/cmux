@@ -161,6 +161,27 @@ import CmuxMobileShellModel
         #expect(composite.selectedMacSurfaceID == focusedSurface.id)
     }
 
+    @Test func staleMacSelectionDoesNotBlockFocusedNonTerminalFallback() {
+        let focusedSurface = MobileSurfacePreview(
+            id: "browser-1",
+            kind: .browser,
+            title: "Browser",
+            isFocused: true
+        )
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: "workspace-1"),
+            name: "Workspace",
+            terminals: [MobileTerminalPreview(id: "terminal-1", name: "zsh")],
+            surfaces: [focusedSurface]
+        )
+        let composite = MobileShellComposite(workspaces: [workspace])
+        composite.selectedMacSurfaceID = .init(rawValue: "removed-surface")
+
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(composite.selectedMacSurfaceID == focusedSurface.id)
+    }
+
     private static func descriptor() -> MobileSimulatorPanelDescriptor {
         descriptor(panelID: "sim-1")
     }
