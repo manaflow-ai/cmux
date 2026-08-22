@@ -10837,15 +10837,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
-        if selectedMacSurfaceID == nil,
-           selectedWorkspace.focusedNonTerminalSurface != nil {
-            syncDefaultSurfaceForWorkspace()
-            let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
-            if selectedMacSurfaceID != nil
-                || simulatorStreamStore?.activeState(in: workspaceID) != nil
-                || (browserStreamEvents as? BrowserStreamStore)?.activeState(in: workspaceID) != nil {
-                return
-            }
+        // Clear stale Mac selections and promote an active or Mac-focused
+        // non-terminal before assigning a preferred terminal fallback.
+        syncDefaultSurfaceForWorkspace()
+        let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
+        if selectedMacSurfaceID != nil
+            || simulatorStreamStore?.activeState(in: workspaceID) != nil
+            || (browserStreamEvents as? BrowserStreamStore)?.activeState(in: workspaceID) != nil {
+            return
         }
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
         if selectedTerminalID == nil {
