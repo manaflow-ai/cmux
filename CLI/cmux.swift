@@ -40738,12 +40738,20 @@ struct CMUXTermMain {
         while index < arguments.endIndex {
             let argument = arguments[index]
             index = arguments.index(after: index)
+            if argument == "--" {
+                // Everything after a bare `--` is payload, not a global option
+                // or a command name, so there is nothing left to route on.
+                return nil
+            }
+            if argument == "--json" {
+                continue
+            }
+            if let equalsIndex = argument.firstIndex(of: "="), optionsWithValues.contains(String(argument[argument.startIndex..<equalsIndex])) {
+                continue
+            }
             if optionsWithValues.contains(argument) {
                 guard index < arguments.endIndex else { return nil }
                 index = arguments.index(after: index)
-                continue
-            }
-            if argument == "--json" {
                 continue
             }
             return argument

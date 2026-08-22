@@ -732,6 +732,9 @@ the expected text without connecting to a cmux socket.
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux --json list-workspaces --help` -> `List workspaces`
+- `cmux list-workspaces --json --help` -> `List workspaces`
+- `cmux --id-format uuids list-workspaces --help` -> `List workspaces`
 <!-- cli-contract-help-probes:end -->
 
 For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
