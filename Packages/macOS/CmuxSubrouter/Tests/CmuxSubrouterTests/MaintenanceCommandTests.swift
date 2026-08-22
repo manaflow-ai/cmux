@@ -28,14 +28,18 @@ import Testing
         )
     }
 
-    @Test func remoteAddChainsTheServerUpload() {
+    @Test func addPinsTheRequestedDestinationWithoutMutatingRegistry() {
+        #expect(
+            SubrouterMaintenanceCommand.addAccount(provider: .codex)
+                == "SUBROUTER_CODEX_SERVER=local cmux sr add"
+        )
         #expect(
             SubrouterMaintenanceCommand.addAccount(provider: .codex, serverName: "cmux-mac-mini")
-                == "cmux sr add && cmux sr server sync 'cmux-mac-mini' --yes"
+                == "SUBROUTER_CODEX_SERVER='cmux-mac-mini' cmux sr add"
         )
         #expect(
             SubrouterMaintenanceCommand.addAccount(provider: .claude, serverName: "cmux-mac-mini")
-                == "cmux sr claude add && cmux sr claude push"
+                == "SUBROUTER_CODEX_SERVER='cmux-mac-mini' cmux sr claude add"
         )
         #expect(
             SubrouterMaintenanceCommand.addAccount(
