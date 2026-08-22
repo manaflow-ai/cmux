@@ -143,7 +143,6 @@ import Testing
         let deadline = clock.now.advanced(by: .seconds(1))
         while activeID() != expectedID, clock.now < deadline {
             await Task.yield()
-            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 
