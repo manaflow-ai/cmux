@@ -47,8 +47,12 @@ fn jitter() -> f64 {
 /// Worker deploys and network loss without user action.
 pub async fn stay_online(mut config: Config, config_path: &Path, mut state: SessionState) -> ! {
     let mut attempt: u32 = 0;
+    // Outlives every socket: preview proxies (and their console ring) keep
+    // serving across reconnects because the tunnel points at their ports.
+    let workspace_runtime =
+        std::sync::Arc::new(crate::workspace::SharedRuntime::new(config.allowed_roots.clone()));
     loop {
-        match relay_session(&mut config, config_path, &mut state).await {
+        match relay_session(&mut config, config_path, &mut state, &workspace_runtime).await {
             Ok(was_connected) => {
                 if was_connected {
                     attempt = 0;
@@ -79,6 +83,7 @@ async fn relay_session(
     config: &mut Config,
     config_path: &Path,
     state: &mut SessionState,
+    workspace_runtime: &std::sync::Arc<crate::workspace::SharedRuntime>,
 ) -> Result<bool, RelayError> {
     if config.backend.is_empty() {
         return Err(RelayError::fatal(
@@ -114,6 +119,13 @@ async fn relay_session(
     let mut unknown_types: HashSet<String> = HashSet::new();
     let mut heartbeat: Option<tokio::time::Interval> = None;
 
+    // v6 workspace verbs answer through this queue so a slow op never
+    // blocks heartbeats; watches die with this connection (the Worker
+    // re-opens them on the next socket).
+    let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let workspace =
+        crate::workspace::Connection::new(std::sync::Arc::clone(workspace_runtime), outbound_tx);
+
     loop {
         let incoming = tokio::select! {
             _ = async {
@@ -124,6 +136,14 @@ async fn relay_session(
             }, if heartbeat.is_some() => {
                 let frame = heartbeat_frame(now_ms()).to_string();
                 if socket.send(Message::Text(frame.into())).await.is_err() {
+                    return Ok(connected);
+                }
+                continue;
+            }
+            outgoing = outbound_rx.recv() => {
+                if let Some(text) = outgoing
+                    && socket.send(Message::Text(text.into())).await.is_err()
+                {
                     return Ok(connected);
                 }
                 continue;
@@ -191,6 +211,9 @@ async fn relay_session(
                 } else {
                     local_trust.as_str().to_owned()
                 };
+                // Machine-side gate for the mutating workspace ops: the
+                // LOCAL effective trust decides, not the server row.
+                workspace.set_local_observe(shown_trust == Trust::Observe.as_str());
                 println!(
                     "Connected as {display_name} (protocol v{}, trust {shown_trust}, scope {}).",
                     hello.relay_protocol_version, hello.scope,
@@ -265,6 +288,7 @@ async fn relay_session(
                 }
                 config.trust = Some(ack.as_str().to_owned());
                 config.pending_trust = None;
+                workspace.set_local_observe(ack == Trust::Observe);
                 if ack != Trust::Autonomous {
                     config.yolo_confirmed_at = None;
                 }
@@ -325,6 +349,9 @@ async fn relay_session(
                 {
                     return Ok(connected);
                 }
+            }
+            ServerFrame::Workspace { frame } => {
+                workspace.handle_frame(frame);
             }
             ServerFrame::Error { code, message } => {
                 if code == "unauthorized" || code == "machine_mismatch" {

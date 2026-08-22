@@ -122,6 +122,12 @@ pub enum ServerFrame {
         code: String,
         message: Option<String>,
     },
+    /// A v6 workspace frame (workspace_request / fs_watch_open /
+    /// fs_watch_close): routed to the workspace module, which decodes it
+    /// with the vendored generated types (relay_wire.rs).
+    Workspace {
+        frame: Value,
+    },
     /// A newer server may send frame types this build predates; ignoring
     /// them (once, loudly) is the forward half of the tolerance rule.
     Unknown {
@@ -171,6 +177,9 @@ pub fn parse_server_frame(raw: &str) -> Option<ServerFrame> {
             action_id: get_str(&frame, "actionId")?,
             verb: get_str(&frame, "verb")?,
         }),
+        "workspace_request" | "fs_watch_open" | "fs_watch_close" => {
+            Some(ServerFrame::Workspace { frame })
+        }
         "pty_open" | "pty_input" | "pty_resize" | "pty_flow" | "pty_close" | "surface_list" => {
             Some(ServerFrame::Pty {
                 frame_type,

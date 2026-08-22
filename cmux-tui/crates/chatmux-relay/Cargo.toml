@@ -19,8 +19,15 @@ workspace = true
 
 [dependencies]
 base64.workspace = true
+bytes.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+ignore.workspace = true
+notify.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 serde.workspace = true
@@ -29,6 +36,7 @@ sha2.workspace = true
 time.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+tungstenite.workspace = true
 url.workspace = true
 x25519-dalek.workspace = true
 
