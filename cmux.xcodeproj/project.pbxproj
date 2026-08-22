@@ -830,7 +830,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		A7984AC10000000000000001 /* CmuxSettingsFileStore+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */; };
-		A51008100000000000000009 /* CmuxSettingsJSONPathSupport+SupportedPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51008100000000000000010 /* CmuxSettingsJSONPathSupport+SupportedPaths.swift */; };
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
 		CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */; };
 		E3B7A30000000000000000B3 /* CmuxSidebar in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000B2 /* CmuxSidebar */; };
@@ -3672,7 +3671,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureSender.swift; sourceTree = "<group>"; };
 		A9F100000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureSequence.swift; sourceTree = "<group>"; };
 		A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+Live.swift"; sourceTree = "<group>"; };
-		A51008100000000000000010 /* CmuxSettingsJSONPathSupport+SupportedPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsJSONPathSupport+SupportedPaths.swift"; sourceTree = "<group>"; };
 		D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsJSONPathSupport.swift; sourceTree = "<group>"; };
 		DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSidebarActionDispatch.swift; sourceTree = "<group>"; };
 		C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXSidebarExtensionBrowserPanel.swift; sourceTree = "<group>"; };
@@ -6961,7 +6959,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
-				A51008100000000000000010 /* CmuxSettingsJSONPathSupport+SupportedPaths.swift */,
 				A51008100000000000000012 /* SettingsSearchIndex+DeclarativeTerminal.swift */,
 				A51008100000000000000016 /* SessionWorkspaceSnapshot.swift */,
 				C51A740000000000000000A2 /* AppDelegate+SimulatorShortcutRouting.swift */,
@@ -9500,7 +9497,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
 				A9F200000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift in Sources */,
 				A7984AC10000000000000001 /* CmuxSettingsFileStore+Live.swift in Sources */,
-				A51008100000000000000009 /* CmuxSettingsJSONPathSupport+SupportedPaths.swift in Sources */,
 				D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */,
 				DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */,
 				C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */,
