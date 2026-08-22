@@ -344,6 +344,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 let delay = attemptAt.timeIntervalSince(current)
                 if delay > 0 {
                     do {
+                        // This is the bounded retry deadline itself, not a
+                        // polling/settling sleep. Reachability transitions
+                        // cancel it and own the immediate recovery wake.
                         try await clock.sleep(until: attemptAt)
                     } catch {
                         return
@@ -369,12 +372,19 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         trustRoot: trustRoot,
                         now: wakeDate
                     )
-                    try? await self.applyRelayPolicy(
-                        expired,
-                        refreshTaskID: taskID
-                    )
-                    guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
-                    relayAuthorityExpired = true
+                    do {
+                        try await self.applyRelayPolicy(
+                            expired,
+                            refreshTaskID: taskID
+                        )
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        relayAuthorityExpired = true
+                    } catch {
+                        // Keep the next already-armed retry deadline. The
+                        // stale-policy marker is set only after the runtime
+                        // accepts the replacement.
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                    }
                     continue
                 }
                 self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
@@ -435,12 +445,19 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                             trustRoot: trustRoot,
                             now: failureDate
                         )
-                        try? await self.applyRelayPolicy(
-                            expired,
-                            refreshTaskID: taskID
-                        )
-                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
-                        relayAuthorityExpired = true
+                        do {
+                            try await self.applyRelayPolicy(
+                                expired,
+                                refreshTaskID: taskID
+                            )
+                            guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                            relayAuthorityExpired = true
+                        } catch {
+                            // A failed live replacement must not be marked as
+                            // expired authority; the common retry calculation
+                            // below will try the broker again.
+                            guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        }
                     } else {
                         let diagnostics = await service.diagnosticsSnapshot()
                         guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
@@ -579,14 +596,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         _ effective: CmxIrohEffectiveRelayPolicy,
         refreshTaskID: UUID? = nil
     ) async throws {
-        if let refreshTaskID {
-            guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
-        }
-        relayPolicyEffective = effective
         let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID) else { return }
         }
+        relayPolicyEffective = effective
         relayPolicyDiagnostics = diagnostics
         if let runtime {
             if let refreshTaskID {

@@ -343,8 +343,8 @@ import os
     private let filter = TransportSentryEventNoiseFilter()
 
     @Test(arguments: [
-        "socket.listener.start.failed",
         "socket.listener.unhealthy",
+        "socket.listener.accept.failed",
     ])
     func dropsOperationalListenerMessages(_ message: String) {
         #expect(filter.shouldDrop(message: message))
@@ -380,14 +380,20 @@ import os
     @Test func filtersListenerMessagesBeforeLoggerCheck() {
         let event = Event(level: .error)
         event.logger = "cmux.app"
-        event.message = SentryMessage(formatted: "socket.listener.start.failed")
+        event.message = SentryMessage(formatted: "socket.listener.accept.failed")
         // Listener filtering is intentionally message-based even for events
-        // without the transport logger, so this remains operational noise.
+        // without the transport logger.
         #expect(filter.filter(event) == nil)
 
         let crash = Event(level: .error)
         crash.logger = "cmux.app"
         crash.message = SentryMessage(formatted: "EXC_BAD_ACCESS")
         #expect(filter.filter(crash) != nil)
+    }
+
+    @Test func preservesListenerStartFailureForCooldownAdmission() {
+        let event = Event(level: .error)
+        event.message = SentryMessage(formatted: "socket.listener.start.failed")
+        #expect(filter.filter(event) != nil)
     }
 }
