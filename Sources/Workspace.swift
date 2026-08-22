@@ -2947,18 +2947,43 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         case dock
     }
 
-    /// Resolves a terminal surface color against the same concrete scheme the
-    /// live Ghostty app selected. Workspace/Bonsplit objects can be created
-    /// before a SwiftUI `WindowAppearanceSnapshot` is mounted, so they use
-    /// this composition seam instead of AppKit's ambient window appearance.
+    /// Resolves a terminal surface color against the rendered-backdrop
+    /// authority. Opaque themes keep the terminal scheme; translucent themes
+    /// composite over the window base the ambient appearance paints, so the
+    /// resulting hex (and the black/white foregrounds Bonsplit derives from
+    /// it) matches what is actually visible behind the tab strip.
     nonisolated static func resolvedTerminalChromeBackgroundColor(
         backgroundColor: NSColor,
-        backgroundOpacity: Double
+        backgroundOpacity: Double,
+        terminalColorScheme: ColorScheme,
+        ambientColorScheme: ColorScheme
     ) -> NSColor {
         WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
             backgroundColor: backgroundColor,
             opacity: backgroundOpacity,
-            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+            colorScheme: WindowAppearanceSnapshot.resolvedChromeColorScheme(
+                terminalScheme: terminalColorScheme,
+                backgroundColor: backgroundColor,
+                opacity: backgroundOpacity,
+                ambientScheme: ambientColorScheme
+            )
+        )
+    }
+
+    /// Convenience over the injectable seam above for live app state.
+    /// Workspace/Bonsplit objects can be created before a SwiftUI
+    /// `WindowAppearanceSnapshot` is mounted, so they use this composition
+    /// seam instead of AppKit's ambient window appearance.
+    @MainActor
+    static func resolvedTerminalChromeBackgroundColor(
+        backgroundColor: NSColor,
+        backgroundOpacity: Double
+    ) -> NSColor {
+        resolvedTerminalChromeBackgroundColor(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            terminalColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light,
+            ambientColorScheme: AppearanceSettings.currentAmbientColorScheme()
         )
     }
 
