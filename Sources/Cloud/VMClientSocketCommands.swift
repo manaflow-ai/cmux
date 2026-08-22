@@ -10,10 +10,17 @@ extension TerminalController {
         switch method {
         case "vm.list":
             return v2VmCall(id: id) {
-                let items = try await VMClient.shared.list()
-                return [
-                    "vms": items.map(Self.socketWorkerVMSummaryPayload),
+                let page = try await VMClient.shared.listPage()
+                var payload: [String: Any] = [
+                    "vms": page.vms.map(Self.socketWorkerVMSummaryPayload),
                 ]
+                if let limits = page.limits {
+                    payload["limits"] = [
+                        "maxActiveVms": limits.maxActiveVms,
+                        "planId": limits.planId,
+                    ]
+                }
+                return payload
             }
         case "vm.create":
             let image = Self.socketWorkerString(params["image"])
