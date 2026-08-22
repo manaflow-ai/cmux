@@ -5,6 +5,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import CmuxSettings
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -176,7 +177,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
     ) {
         let surface = TerminalSurface(
             id: id,
@@ -190,7 +192,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)

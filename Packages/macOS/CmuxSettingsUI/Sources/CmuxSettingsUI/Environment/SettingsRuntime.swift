@@ -20,6 +20,8 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let userDefaultsStore: UserDefaultsSettingsStore
     /// cmux.json-backed settings store.
     public let jsonStore: JSONConfigStore
+    /// App-scoped owner for synchronous declarative terminal snapshots.
+    public let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
     /// Secret-file-backed settings store.
     public let secretStore: SecretFileStore
     /// Rolling settings error log displayed as alerts.
@@ -50,12 +52,14 @@ public struct SettingsRuntime: @unchecked Sendable {
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
-        searchIndex: SettingsSearchIndex? = nil
+        searchIndex: SettingsSearchIndex? = nil,
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
     ) {
         self.catalog = catalog
         self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
+        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.secretStore = secretStore
         self.errorLog = errorLog
         self.accountFlow = accountFlow

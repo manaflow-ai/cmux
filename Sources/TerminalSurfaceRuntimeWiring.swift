@@ -49,12 +49,23 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 /// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
+    private let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+
+    init(
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+    ) {
+        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
+    }
+
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
-        let declarativeTerminalSettings = DeclarativeTerminalConfiguration().cachedSnapshot()
-        let shellStartupMode: TerminalShellStartupMode = declarativeTerminalSettings.shellStartupMode == .nonLogin
-            ? .nonLogin
-            : .login
+        let declarativeTerminalSettings = declarativeTerminalConfigurationCache.snapshot()
+        let shellStartupMode: TerminalShellStartupMode = switch declarativeTerminalSettings.shellStartupMode {
+        case .login:
+            .login
+        case .nonLogin:
+            .nonLogin
+        }
         return TerminalSurfaceSpawnPolicy(
             socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
             shellStartupMode: shellStartupMode,
@@ -198,6 +209,7 @@ extension TerminalSurface {
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(),
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
         self.init(
@@ -218,7 +230,9 @@ extension TerminalSurface {
             manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies(
+                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
+            )
         )
     }
 }

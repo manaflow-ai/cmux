@@ -402,6 +402,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     private let declarativeTerminalConfigurationFileURL: URL
+    let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
@@ -505,11 +506,13 @@ class TabManager: ObservableObject {
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
+        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
@@ -1041,6 +1044,7 @@ class TabManager: ObservableObject {
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
@@ -1062,6 +1066,7 @@ class TabManager: ObservableObject {
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -1078,6 +1083,7 @@ class TabManager: ObservableObject {
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
         windowDockTitleRoutingStores.setObject(
@@ -1222,7 +1228,7 @@ class TabManager: ObservableObject {
                     hasExternallyManagedWorkingDirectory: initialTerminalStartupRestoreAgent != nil
                 )
             let legacyInheritanceEnabled = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-            let declarativeTerminalSettings = DeclarativeTerminalConfiguration().cachedSnapshot(
+            let declarativeTerminalSettings = declarativeTerminalConfigurationCache.snapshot(
                 fileURL: declarativeTerminalConfigurationFileURL
             )
             let configuredWorkingDirectoryPolicy = declarativeTerminalSettings.effectiveWorkingDirectoryPolicy(
@@ -1762,7 +1768,7 @@ class TabManager: ObservableObject {
 
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
         let legacyInheritanceEnabled = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-        let declarative = DeclarativeTerminalConfiguration().cachedSnapshot(
+        let declarative = declarativeTerminalConfigurationCache.snapshot(
             fileURL: declarativeTerminalConfigurationFileURL
         )
         let policy = declarative.effectiveWorkingDirectoryPolicy(
@@ -6415,6 +6421,7 @@ extension TabManager {
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
                 declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
+                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
@@ -6452,6 +6459,7 @@ extension TabManager {
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
                 declarativeTerminalConfigurationFileURL: declarativeTerminalConfigurationFileURL,
+                declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker

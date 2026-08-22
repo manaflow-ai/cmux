@@ -18,28 +18,20 @@ public enum ShellStartupMode: String, CaseIterable, Sendable, SettingCodable {
     case nonLogin
 }
 
-/// Value-typed declarations and snapshot reader for terminal defaults in `cmux.json`.
+/// Main-actor owner for memoized declarative terminal snapshots.
 ///
-/// These keys are intentionally separate from the legacy UserDefaults catalog.
-/// The values are authored in `cmux.json`, and the runtime reads the same file
-/// that the Settings UI writes. The type conforms to ``SettingCatalogSection``
-/// so the catalog's reflected key list has one source of truth as well.
-public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
-    /// Main-actor memoization for synchronous spawn-path reads. The cache is
-    /// keyed by the configured URL and invalidated by the resolved target,
-    /// modification date, byte count, or inode, so an atomic dotfiles edit or
-    /// symlink retarget is observed without parsing the file on every surface.
-    @MainActor
-    private static var cachedSnapshots: [String: CachedSnapshot] = [:]
-
-    @MainActor
-    private struct CachedSnapshot: Sendable {
+/// The owner is deliberately constructable and instance-scoped. App wiring can
+/// share one owner across workspace, tab, Dock, and runtime-spawn paths, while
+/// tests can create a fresh owner (or call ``reset()``) without touching
+/// process-wide mutable state.
+@MainActor
+public final class DeclarativeTerminalConfigurationCache {
+    private struct CachedSnapshot {
         let signature: SnapshotSignature
-        let value: Snapshot
+        let value: DeclarativeTerminalConfiguration.Snapshot
     }
 
-    @MainActor
-    private struct SnapshotSignature: Equatable, Sendable {
+    private struct SnapshotSignature: Equatable {
         let resolvedPath: String
         let exists: Bool
         let modificationTime: TimeInterval?
@@ -47,6 +39,55 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
         let inode: UInt64?
     }
 
+    private var snapshots: [String: CachedSnapshot] = [:]
+
+    /// Creates an empty snapshot cache.
+    public init() {}
+
+    /// Returns the current snapshot, re-reading the file when its resolved
+    /// path or filesystem signature changes.
+    public func snapshot(
+        configuration: DeclarativeTerminalConfiguration = DeclarativeTerminalConfiguration(),
+        fileURL: URL = CmuxConfigLocation().userConfigFile
+    ) -> DeclarativeTerminalConfiguration.Snapshot {
+        let configuredPath = fileURL.standardizedFileURL.path
+        let signature = Self.snapshotSignature(for: fileURL)
+        if let cached = snapshots[configuredPath], cached.signature == signature {
+            return cached.value
+        }
+        let value = configuration.snapshot(fileURL: fileURL)
+        snapshots[configuredPath] = CachedSnapshot(signature: signature, value: value)
+        return value
+    }
+
+    /// Drops every memoized file snapshot.
+    public func reset() {
+        snapshots.removeAll(keepingCapacity: true)
+    }
+
+    private static func snapshotSignature(for fileURL: URL) -> SnapshotSignature {
+        let resolvedURL = fileURL.resolvingSymlinksInPath().standardizedFileURL
+        let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedURL.path)
+        let modificationTime = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate
+        let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
+        let inode = (attributes?[.systemFileNumber] as? NSNumber).map { $0.uint64Value }
+        return SnapshotSignature(
+            resolvedPath: resolvedURL.path,
+            exists: attributes != nil,
+            modificationTime: modificationTime,
+            byteCount: byteCount,
+            inode: inode
+        )
+    }
+}
+
+/// Value-typed declarations and snapshot reader for terminal defaults in `cmux.json`.
+///
+/// These keys are intentionally separate from the legacy UserDefaults catalog.
+/// The values are authored in `cmux.json`, and the runtime reads the same file
+/// that the Settings UI writes. The type conforms to ``SettingCatalogSection``
+/// so the catalog's reflected key list has one source of truth as well.
+public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
     /// Policy used to choose the working directory of ordinary new surfaces.
     public let workingDirectoryPolicy = JSONKey<NewSurfaceWorkingDirectoryPolicy>(
         id: "terminal.newSurfaceWorkingDirectory.policy",
@@ -111,50 +152,6 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
                 for: shellStartupCommand,
                 in: root
             ).trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-    }
-
-    /// Returns a memoized snapshot for a main-actor creation path.
-    ///
-    /// The first call parses the file synchronously so a caller can choose a
-    /// working directory or shell command before its first suspension point.
-    /// Later calls reuse that parsed value while the file signature is stable;
-    /// edits, atomic replacements, and symlink retargets produce a new
-    /// signature and are parsed on the next creation. Use ``snapshot(fileURL:)``
-    /// directly from tests or off-main code when memoization is not desired.
-    ///
-    /// - Parameter fileURL: Config file to read.
-    /// - Returns: The current declarative terminal snapshot.
-    @MainActor
-    public func cachedSnapshot(
-        fileURL: URL = CmuxConfigLocation().userConfigFile
-    ) -> Snapshot {
-        let configuredPath = fileURL.standardizedFileURL.path
-        let signature = Self.snapshotSignature(for: fileURL)
-        if let cached = Self.cachedSnapshots[configuredPath], cached.signature == signature {
-            return cached.value
-        }
-        let value = snapshot(fileURL: fileURL)
-        Self.cachedSnapshots[configuredPath] = CachedSnapshot(
-            signature: signature,
-            value: value
-        )
-        return value
-    }
-
-    @MainActor
-    private static func snapshotSignature(for fileURL: URL) -> SnapshotSignature {
-        let resolvedURL = fileURL.resolvingSymlinksInPath().standardizedFileURL
-        let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedURL.path)
-        let modificationTime = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate
-        let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
-        let inode = (attributes?[.systemFileNumber] as? NSNumber).map { $0.uint64Value }
-        return SnapshotSignature(
-            resolvedPath: resolvedURL.path,
-            exists: attributes != nil,
-            modificationTime: modificationTime,
-            byteCount: byteCount,
-            inode: inode
         )
     }
 

@@ -9136,7 +9136,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            declarativeTerminalConfigurationCache:
+                settingsRuntime?.declarativeTerminalConfigurationCache
+                ?? DeclarativeTerminalConfigurationCache()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

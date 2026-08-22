@@ -20,9 +20,9 @@ extension Workspace {
         let fixedPath: String?
         if allowsDeclarativeDefaults {
             let legacyInheritanceEnabled = settings.value(
-                for: SettingCatalog().app.workspaceInheritWorkingDirectory
+                for: settingsCatalog.app.workspaceInheritWorkingDirectory
             )
-            let declarative = DeclarativeTerminalConfiguration().cachedSnapshot(
+            let declarative = declarativeTerminalConfigurationCache.snapshot(
                 fileURL: declarativeTerminalConfigurationFileURL
             )
             policy = declarative.effectiveWorkingDirectoryPolicy(

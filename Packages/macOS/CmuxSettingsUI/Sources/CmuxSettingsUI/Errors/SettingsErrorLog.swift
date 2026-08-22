@@ -49,6 +49,23 @@ public final class SettingsErrorLog {
         }
     }
 
+    /// Records a safe, implementation-independent save failure for a setting.
+    /// Raw filesystem and JSON errors stay in internal diagnostics rather than
+    /// being rendered in the user-facing alert.
+    public func recordSaveFailure(keyID: String) {
+        let entry = Entry(
+            keyID: keyID,
+            message: String(
+                localized: "settings.error.alert.title",
+                defaultValue: "Couldn't save setting"
+            )
+        )
+        entries.append(entry)
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+    }
+
     /// Removes the entry with the given id. No-op if not present.
     public func dismiss(_ id: UUID) {
         entries.removeAll { $0.id == id }

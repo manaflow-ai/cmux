@@ -181,44 +181,8 @@ public actor JSONConfigStore {
     ///   of file events coalesce, since we only care that *something*
     ///   changed and re-read the typed value on each consumed signal.
     public nonisolated func values<Value>(for key: JSONKey<Value>) -> AsyncStream<Value> {
-        AsyncStream<Value> { continuation in
-            let task = Task { [weak self] in
-                guard let self else {
-                    continuation.finish()
-                    return
-                }
-
-                // bufferingNewest(1): the signal carries no payload, so under
-                // burst file changes we only care that *something* changed.
-                // Dropping intermediate signals is correct because the typed
-                // value is re-read on every consumed signal and deduped below.
-                // Bounded buffering prevents unbounded growth under load.
-                let id = UUID()
-                let (signal, signalContinuation) = AsyncStream<Void>.makeStream(
-                    bufferingPolicy: .bufferingNewest(1)
-                )
-                await self.addSubscriber(id: id, continuation: signalContinuation)
-
-                // Register before taking the initial snapshot. A write can
-                // happen immediately after subscription starts; taking the
-                // snapshot first would leave a gap in which that write's
-                // notification is lost and the stream remains stale.
-                let initial = await self.value(for: key)
-                continuation.yield(initial)
-
-                var last = initial
-                for await _ in signal {
-                    if Task.isCancelled { break }
-                    let current = await self.value(for: key)
-                    if current != last {
-                        last = current
-                        continuation.yield(current)
-                    }
-                }
-                await self.removeSubscriber(id: id)
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        makeValueStream { store in
+            await store.value(for: key)
         }
     }
 
@@ -232,7 +196,21 @@ public actor JSONConfigStore {
     /// key. Values are deduplicated after decoding, and file-event bursts are
     /// coalesced exactly like the defaulting stream.
     public nonisolated func valuesIfPresent<Value>(for key: JSONKey<Value>) -> AsyncStream<Value?> {
-        AsyncStream<Value?> { continuation in
+        makeValueStream { store in
+            await store.valueIfPresent(for: key)
+        }
+    }
+
+    // MARK: - Private
+
+    /// Builds the shared subscription pipeline for both defaulting and
+    /// presence-preserving streams. Registration precedes the initial read so
+    /// writes cannot fall into a notification gap; the bounded signal stream
+    /// coalesces bursts and typed equality suppresses duplicate values.
+    private nonisolated func makeValueStream<Element: Equatable & Sendable>(
+        read: @escaping @Sendable (JSONConfigStore) async -> Element
+    ) -> AsyncStream<Element> {
+        AsyncStream<Element> { continuation in
             let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
@@ -244,18 +222,13 @@ public actor JSONConfigStore {
                     bufferingPolicy: .bufferingNewest(1)
                 )
                 await self.addSubscriber(id: id, continuation: signalContinuation)
-
-                // Register before taking the initial snapshot. Otherwise a
-                // store write between the first yield and subscriber
-                // registration can be missed, leaving a dotfiles-backed UI
-                // stale until a later edit.
-                let initial = await self.valueIfPresent(for: key)
+                let initial = await read(self)
                 continuation.yield(initial)
 
                 var last = initial
                 for await _ in signal {
                     if Task.isCancelled { break }
-                    let current = await self.valueIfPresent(for: key)
+                    let current = await read(self)
                     if current != last {
                         last = current
                         continuation.yield(current)
@@ -267,8 +240,6 @@ public actor JSONConfigStore {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
-
-    // MARK: - Private
 
     private func addSubscriber(id: UUID, continuation: AsyncStream<Void>.Continuation) {
         subscribers[id] = continuation

@@ -6,6 +6,49 @@ import Testing
 struct TerminalShellStartupPolicyTests {
     private let policy = TerminalShellStartupPolicy()
 
+    @Test("declarative startup resolves the configured mode when no owner suppresses it")
+    func declarativeStartupIsAllowed() {
+        let resolution = TerminalShellStartupPolicy.resolve(
+            configuredMode: .nonLogin,
+            hasExplicitCommand: false,
+            hasExplicitInput: false,
+            hasGhosttyCommand: false,
+            isRestoreSurface: false,
+            isManualSurface: false
+        )
+        #expect(resolution.allowsDeclarativeShellStartup)
+        #expect(resolution.mode == .nonLogin)
+    }
+
+    @Test(arguments: [
+        (true, false, false, false, false, false),
+        (false, true, false, false, false, false),
+        (false, false, true, false, false, false),
+        (false, false, false, true, false, false),
+        (false, false, false, false, true, false),
+        (false, false, false, false, false, true),
+    ])
+    func startupOwnersSuppressDeclarativeMode(
+        explicitCommand: Bool,
+        explicitInput: Bool,
+        ghosttyCommand: Bool,
+        restore: Bool,
+        manual: Bool,
+        managedIntegration: Bool
+    ) {
+        let resolution = TerminalShellStartupPolicy.resolve(
+            configuredMode: .nonLogin,
+            hasExplicitCommand: explicitCommand,
+            hasExplicitInput: explicitInput,
+            hasGhosttyCommand: ghosttyCommand,
+            isRestoreSurface: restore,
+            isManualSurface: manual,
+            hasManagedShellIntegration: managedIntegration
+        )
+        #expect(!resolution.allowsDeclarativeShellStartup)
+        #expect(resolution.mode == .login)
+    }
+
     @Test func nonLoginModeUsesInteractiveShellOverride() {
         let result = policy.commandOverride(
             shell: "/bin/zsh",

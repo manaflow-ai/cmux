@@ -18,6 +18,20 @@ import WebKit
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
+    /// Returns whether a tmux command owns startup for a new Dock surface.
+    static func hasTmuxStartup(_ command: String?) -> Bool {
+        command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    /// Returns whether ordinary declarative defaults may select startup values
+    /// for a Dock surface. Restore and tmux paths retain their own provenance.
+    static func allowsDeclarativeDefaults(
+        startupRestoreAgent: SessionRestorableAgentSnapshot?,
+        tmuxStartCommand: String?
+    ) -> Bool {
+        startupRestoreAgent == nil && !hasTmuxStartup(tmuxStartCommand)
+    }
+
     private struct PanelSurfaceMapping {
         var primarySurfaceId: TabID
         var surfaceIds: Set<TabID>
@@ -137,6 +151,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     let settings: any SettingsReading
     let settingsCatalog = SettingCatalog()
     let declarativeTerminalConfigurationFileURL: URL
+    let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
     let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Weak registry of every live Dock store. Lets control-surface routing
@@ -296,6 +311,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         declarativeTerminalConfigurationFileURL: URL = CmuxConfigLocation().userConfigFile,
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
@@ -311,6 +327,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.declarativeTerminalConfigurationFileURL = declarativeTerminalConfigurationFileURL
+        self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,
@@ -578,8 +595,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 kind: kind,
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: source,
-                allowsDeclarativeDefaults: startupRestoreAgent == nil
-                    && tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                allowsDeclarativeDefaults: Self.allowsDeclarativeDefaults(
+                    startupRestoreAgent: startupRestoreAgent,
+                    tmuxStartCommand: tmuxStartCommand
+                )
             ),
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -662,8 +681,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 kind: kind,
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: source,
-                allowsDeclarativeDefaults: startupRestoreAgent == nil
-                    && tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                allowsDeclarativeDefaults: Self.allowsDeclarativeDefaults(
+                    startupRestoreAgent: startupRestoreAgent,
+                    tmuxStartCommand: tmuxStartCommand
+                )
             ),
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -1033,8 +1054,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             willRunStartupCommand: false,
             willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
         )
-        let hasTmuxStartup = tmuxStartCommand?
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasTmuxStartup = Self.hasTmuxStartup(tmuxStartCommand)
         let effectiveRuntimeSpawnPolicy = requestedRuntimeSpawnPolicy
             .resolvingDeclarativeDefaults(
                 isRestoredSurface: startupRestoreAgent != nil,
@@ -1056,7 +1076,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             initialInput: initialInput,
             initialEnvironmentOverrides: resolvedEnvironment,
             focusPlacement: .rightSidebarDock,
-            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy
+            runtimeSpawnPolicy: effectiveRuntimeSpawnPolicy,
+            declarativeTerminalConfigurationCache: declarativeTerminalConfigurationCache
         )
     }
 
