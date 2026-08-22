@@ -445,7 +445,7 @@ enum TerminalSSHSessionDetector {
     /// process. Managed `cmux ssh` wrappers are excluded because their stable
     /// remote PTY binding is authoritative; this path is only the muscle-memory
     /// `ssh host` command typed into a local pane.
-    static func resumeBindingForTesting(
+    static func resumeBinding(
         processName: String,
         processPath: String?,
         arguments: [String],

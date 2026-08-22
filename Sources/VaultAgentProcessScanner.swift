@@ -671,7 +671,7 @@ extension SurfaceResumeBindingIndex {
                 resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
                 continue
             }
-            guard let binding = TerminalSSHSessionDetector.resumeBindingForTesting(
+            guard let binding = TerminalSSHSessionDetector.resumeBinding(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments.arguments,
@@ -709,7 +709,7 @@ extension SurfaceResumeBindingIndex {
         environment: [String: String],
         capturedAt: TimeInterval = Date().timeIntervalSince1970
     ) -> SurfaceResumeBindingSnapshot? {
-        TerminalSSHSessionDetector.resumeBindingForTesting(
+        TerminalSSHSessionDetector.resumeBinding(
             processName: processName,
             processPath: processPath,
             arguments: arguments,
