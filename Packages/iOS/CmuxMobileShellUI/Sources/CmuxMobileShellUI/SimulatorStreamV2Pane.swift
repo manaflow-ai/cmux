@@ -268,6 +268,13 @@ struct SimulatorStreamV2Pane: View {
 
     private var deviceMenu: some View {
         Menu {
+            // Rows live-update in place: entering the submenu re-fetches, so
+            // an inventory raced ahead of the menu-open refresh corrects
+            // itself, and stale selects already fail safe on the host
+            // (unknown devices reject, the current device is a no-op).
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onAppear { refreshDevices() }
             ForEach(devices) { device in
                 Button {
                     switchDevice(to: device.udid)
