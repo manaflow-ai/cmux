@@ -51,7 +51,7 @@ struct BrowserSnapshotAfterOptions: ParsableArguments {
 struct BrowserSnapshotOptions: ParsableArguments {
     @OptionGroup var target: BrowserTargetOptions
     @Option(name: .customLong("selector")) var selector: String?
-    @Option(name: .customLong("max-depth")) var maxDepth: Int?
+    @Option(name: .customLong("max-depth")) var maxDepth: String?
     @Flag(name: [.customLong("interactive"), .customShort("i")]) var interactive = false
     @Flag(name: .customLong("cursor")) var cursor = false
     @Flag(name: .customLong("compact")) var compact = false
@@ -63,7 +63,7 @@ struct BrowserWaitOptions: ParsableArguments {
     @Option(name: .customLong("selector")) var selector: String?
     @Option(name: .customLong("url-contains")) var urlContains: String?
     @Option(name: .customLong("text")) var text: String?
-    @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: Int?
+    @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: String?
     @Option(name: .customLong("timeout")) var timeout: Double?
     @Option(name: .customLong("load-state"), completion: .list(["interactive", "complete"])) var loadState: String?
     @Option(name: .customLong("function")) var function: String?
@@ -265,8 +265,8 @@ struct BrowserSelectCommand: LegacyBrowserCommand {
 struct BrowserScrollCommand: LegacyBrowserCommand {
     @OptionGroup var options: BrowserSnapshotAfterOptions
     @Option(name: .customLong("selector")) var selector: String?
-    @Option(name: .customLong("dx")) var dx: Int?
-    @Option(name: .customLong("dy")) var dy: Int?
+    @Option(name: .customLong("dx")) var dx: String?
+    @Option(name: .customLong("dy")) var dy: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "scroll", helpNames: [])
 }
@@ -478,35 +478,9 @@ private enum BrowserDisable: BrowserLeafName { static let commandName = "disable
 private enum BrowserEnable: BrowserLeafName { static let commandName = "enable" }
 private enum BrowserStatus: BrowserLeafName { static let commandName = "status" }
 private enum BrowserNew: BrowserLeafName { static let commandName = "new" }
-private enum BrowserBack: BrowserLeafName { static let commandName = "back" }
-private enum BrowserForward: BrowserLeafName { static let commandName = "forward" }
-private enum BrowserReload: BrowserLeafName { static let commandName = "reload" }
-private enum BrowserReactGrab: BrowserLeafName { static let commandName = "react-grab"; static let aliases = ["reactgrab"] }
-private enum BrowserDevtools: BrowserLeafName { static let commandName = "devtools"; static let aliases = ["dev-tools"] }
-private enum BrowserFocusMode: BrowserLeafName { static let commandName = "focus-mode" }
-private enum BrowserZoom: BrowserLeafName { static let commandName = "zoom" }
-private enum BrowserHistory: BrowserLeafName { static let commandName = "history" }
 private enum BrowserURL: BrowserLeafName { static let commandName = "url"; static let aliases = ["get-url"] }
 private enum BrowserFocusWebview: BrowserLeafName { static let commandName = "focus-webview"; static let aliases = ["focus_webview"] }
 private enum BrowserWebviewFocused: BrowserLeafName { static let commandName = "is-webview-focused"; static let aliases = ["is_webview_focused"] }
-private enum BrowserGet: BrowserLeafName { static let commandName = "get" }
-private enum BrowserIs: BrowserLeafName { static let commandName = "is" }
-private enum BrowserFind: BrowserLeafName { static let commandName = "find" }
-private enum BrowserFrame: BrowserLeafName { static let commandName = "frame" }
-private enum BrowserDialog: BrowserLeafName { static let commandName = "dialog" }
-private enum BrowserDownload: BrowserLeafName { static let commandName = "download" }
-private enum BrowserProfiles: BrowserLeafName { static let commandName = "profiles"; static let aliases = ["profile"] }
-private enum BrowserImport: BrowserLeafName { static let commandName = "import" }
-private enum BrowserCookies: BrowserLeafName { static let commandName = "cookies" }
-private enum BrowserStorage: BrowserLeafName { static let commandName = "storage" }
-private enum BrowserTab: BrowserLeafName { static let commandName = "tab" }
-private enum BrowserConsole: BrowserLeafName { static let commandName = "console" }
-private enum BrowserErrors: BrowserLeafName { static let commandName = "errors" }
-private enum BrowserHighlight: BrowserLeafName { static let commandName = "highlight" }
-private enum BrowserState: BrowserLeafName { static let commandName = "state" }
-private enum BrowserAddInitScript: BrowserLeafName { static let commandName = "addinitscript" }
-private enum BrowserAddScript: BrowserLeafName { static let commandName = "addscript" }
-private enum BrowserAddStyle: BrowserLeafName { static let commandName = "addstyle" }
 private enum BrowserViewport: BrowserLeafName { static let commandName = "viewport" }
 private enum BrowserGeolocation: BrowserLeafName { static let commandName = "geolocation"; static let aliases = ["geo"] }
 private enum BrowserOffline: BrowserLeafName { static let commandName = "offline" }
@@ -517,7 +491,6 @@ private enum BrowserInput: BrowserLeafName { static let commandName = "input" }
 private enum BrowserInputMouse: BrowserLeafName { static let commandName = "input_mouse" }
 private enum BrowserInputKeyboard: BrowserLeafName { static let commandName = "input_keyboard" }
 private enum BrowserInputTouch: BrowserLeafName { static let commandName = "input_touch" }
-private enum BrowserIdentify: BrowserLeafName { static let commandName = "identify" }
 
 private typealias BrowserDisableCommand = BrowserLeaf<BrowserDisable>
 private typealias BrowserEnableCommand = BrowserLeaf<BrowserEnable>

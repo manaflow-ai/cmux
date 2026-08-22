@@ -38,7 +38,7 @@ struct DiffCommand: SystemTargetCommand {
     @Option(name: .customLong("base")) var base: String?
     @Option(name: .customLong("title")) var title: String?
     @Option(name: .customLong("layout"), completion: .list(["split", "unified"])) var layout: String?
-    @Option(name: .customLong("font-size")) var fontSize: Double?
+    @Option(name: .customLong("font-size")) var fontSize: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "diff", helpNames: [])
 }
