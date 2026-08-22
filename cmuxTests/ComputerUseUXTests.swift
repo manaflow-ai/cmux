@@ -1622,12 +1622,24 @@ struct ComputerUseUXTests {
             )
         #expect(
             (proxyCursorRequest?["args"] as? [String: Any])?["session"]
-                as? String == proxyCursorSessionID,
-            "Turn completion must be able to hide the exact proxy-generation cursor that owns the visible overlay"
+                as? String == driverSessionID,
+            "Compatibility cursor visibility must target the stable surface session"
         )
         #expect(
             (proxyCursorRequest?["args"] as? [String: Any])?["enabled"]
                 as? Bool == false
+        )
+
+        let compatReassertRequest =
+            ComputerUseRuntimeService.reassertDriverCursorRequest(
+                driverSessionID: proxyCursorSessionID,
+                targetWindowID: 42,
+                profile: .codexCompatibility
+            )
+        #expect(
+            (compatReassertRequest?["args"] as? [String: Any])?["session"]
+                as? String == driverSessionID,
+            "Compatibility reassertion must use the stable surface cursor key"
         )
 
         let reassertRequest = ComputerUseRuntimeService.reassertDriverCursorRequest(

@@ -135,6 +135,7 @@ final class ComputerUseSessionPresentationController {
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
             visible: state.cursorVisible,
+            epoch: state.focusEpoch,
             isCurrent: isCurrent
         ) { [focusTerminal] in
             focusTerminal(workspaceID, surfaceID, isCurrent)
@@ -165,6 +166,7 @@ final class ComputerUseSessionPresentationController {
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
             visible: state.cursorVisible,
+            epoch: state.focusEpoch,
             isCurrent: isCurrent
         ) {
             activate()
@@ -194,6 +196,7 @@ final class ComputerUseSessionPresentationController {
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
             visible: state.cursorVisible,
+            epoch: state.focusEpoch,
             isCurrent: isCurrent
         ) { [focusTerminal] in
             focusTerminal(workspaceID, surfaceID, isCurrent)
@@ -399,22 +402,28 @@ final class ComputerUseSessionPresentationController {
         proxySessionID: String?,
         targetWindowID: UInt32?,
         visible: Bool,
+        epoch: UInt64,
         isCurrent: @escaping EffectValidity,
         effect: @escaping @MainActor () -> Void
     ) {
         focusTasksByDriverSessionID[driverSessionID]?.cancel()
         reassertTasksByDriverSessionID[driverSessionID]?.cancel()
-        let reassertCursor = self.reassertCursor
         focusTasksByDriverSessionID[driverSessionID] = Task { @MainActor in
             guard !Task.isCancelled, isCurrent() else { return }
             effect()
             guard !Task.isCancelled, isCurrent() else { return }
-            await reassertCursor(
-                driverSessionID,
-                proxySessionID,
-                targetWindowID,
-                visible,
-                isCurrent
+            // Focus activation is the visible part of this interaction. Do
+            // not hold the menu/focus task open while the helper processes
+            // several authenticated socket requests (native + compatibility
+            // profiles). Queue the repair independently so returning focus is
+            // immediate; its epoch guard still prevents an older selection
+            // from repinning a newer target.
+            self.scheduleCursorReassertion(
+                driverSessionID: driverSessionID,
+                proxySessionID: proxySessionID,
+                targetWindowID: targetWindowID,
+                visible: visible,
+                epoch: epoch
             )
         }
     }

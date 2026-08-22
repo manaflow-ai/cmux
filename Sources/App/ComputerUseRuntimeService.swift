@@ -629,15 +629,12 @@ final class ComputerUseRuntimeService {
                 case .native:
                     cursorSessionIDs = [driverSessionID]
                 case .codexCompatibility:
-                    if let proxySessionID,
-                       proxySessionID != driverSessionID {
-                        cursorSessionIDs = [
-                            proxySessionID,
-                            driverSessionID,
-                        ]
-                    } else {
-                        cursorSessionIDs = [driverSessionID]
-                    }
+                    // Compatibility calls are normalized by the proxy to the
+                    // stable `_host_session`. Reassert only that surface key;
+                    // sending a proxy-generation key as well can lazily create
+                    // a second cursor that disappears when that generation is
+                    // reaped.
+                    cursorSessionIDs = [driverSessionID]
                 }
                 for cursorSessionID in cursorSessionIDs {
                     guard
@@ -695,60 +692,72 @@ final class ComputerUseRuntimeService {
         else {
             return false
         }
-        return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
-            guard
-                let self,
-                self.desiredEnabled,
-                self.acceptsNewLaunches,
-                effectIsCurrent()
-            else {
-                return false
-            }
-            var updated = false
-            for profile in ComputerUseDaemonProfile.allCases {
-                let cursorSessionIDs: [String]
-                switch profile {
-                case .native:
-                    cursorSessionIDs = [driverSessionID]
-                case .codexCompatibility:
-                    if let proxySessionID,
-                       proxySessionID != driverSessionID {
-                        cursorSessionIDs = [
-                            proxySessionID,
-                            driverSessionID,
-                        ]
-                    } else {
-                        cursorSessionIDs = [driverSessionID]
-                    }
-                }
-                for cursorSessionID in cursorSessionIDs {
-                    guard
-                        effectIsCurrent(),
-                        let request = Self.reassertDriverCursorRequest(
-                            driverSessionID: cursorSessionID,
-                            targetWindowID: targetWindowID,
-                            profile: profile
-                        ),
-                        let expectedPeerIdentity = self.processIdentity(for: profile),
-                        AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
-                            == expectedPeerIdentity
-                    else {
-                        continue
-                    }
-                    let response = await Self.sendDaemonRequest(
-                        request,
-                        paths: self.paths,
-                        transport: self.transport,
-                        timeout: 3,
-                        expectedPeerIdentity: expectedPeerIdentity,
-                        socketURL: self.socketURL(for: profile)
-                    )
-                    guard effectIsCurrent() else { return false }
-                    updated = response?["ok"] as? Bool == true || updated
-                }
-            }
-            return updated
+        guard desiredEnabled, acceptsNewLaunches, effectIsCurrent() else {
+            return false
         }
+
+        // Reassertion is a best-effort presentation repair, not a lifecycle
+        // mutation. Keep it out of the serialized start/stop chain and probe
+        // both helper profiles concurrently; each request is still bound to
+        // the exact authenticated peer generation below, so a replacement
+        // helper cannot receive a stale command.
+        let paths = self.paths
+        let transport = self.transport
+        let nativeIdentity = processIdentity(for: .native)
+        let compatibilityIdentity = processIdentity(for: .codexCompatibility)
+        async let nativeUpdated = Self.reassertProfileCursor(
+            driverSessionID: driverSessionID,
+            targetWindowID: targetWindowID,
+            profile: .native,
+            paths: paths,
+            transport: transport,
+            expectedPeerIdentity: nativeIdentity
+        )
+        async let compatibilityUpdated = Self.reassertProfileCursor(
+            driverSessionID: driverSessionID,
+            targetWindowID: targetWindowID,
+            profile: .codexCompatibility,
+            paths: paths,
+            transport: transport,
+            expectedPeerIdentity: compatibilityIdentity
+        )
+        let updated = await (nativeUpdated, compatibilityUpdated)
+        guard effectIsCurrent() else { return false }
+        return updated.0 || updated.1
+    }
+
+    /// Sends one typed cursor-order request without crossing a task boundary
+    /// with an untyped `[String: Any]` payload. Peer identity validation keeps
+    /// this lifecycle-independent fast path fail-closed during helper swaps.
+    nonisolated private static func reassertProfileCursor(
+        driverSessionID: String,
+        targetWindowID: UInt32,
+        profile: ComputerUseDaemonProfile,
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport,
+        expectedPeerIdentity: AgentPIDProcessIdentity?
+    ) async -> Bool {
+        guard
+            let request = reassertDriverCursorRequest(
+                driverSessionID: driverSessionID,
+                targetWindowID: targetWindowID,
+                profile: profile
+            ),
+            let expectedPeerIdentity,
+            AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                == expectedPeerIdentity
+        else {
+            return false
+        }
+        let response = await sendDaemonRequest(
+            request,
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: expectedPeerIdentity,
+            socketURL: socketURL(for: profile, paths: paths)
+        )
+        return response?["ok"] as? Bool == true
     }
 
     nonisolated static func reassertDriverCursorRequest(
@@ -757,6 +766,7 @@ final class ComputerUseRuntimeService {
         profile: ComputerUseDaemonProfile
     ) -> [String: Any]? {
         guard targetWindowID > 0 else { return nil }
+        let session: String
         switch profile {
         case .native:
             guard ComputerUseSessionScope.isManagedDriverSessionID(
@@ -764,17 +774,19 @@ final class ComputerUseRuntimeService {
             ) else {
                 return nil
             }
+            session = driverSessionID
         case .codexCompatibility:
-            guard ComputerUseSessionScope.driverSessionID(
+            guard let stableSession = ComputerUseSessionScope.driverSessionID(
                 containing: driverSessionID
-            ) != nil else {
+            ) else {
                 return nil
             }
+            session = stableSession
         }
         return [
             "method": "reassert_cursor",
             "args": [
-                "session": driverSessionID,
+                "session": session,
                 "window_id": Int(targetWindowID),
                 "enabled": true,
             ],
@@ -804,17 +816,15 @@ final class ComputerUseRuntimeService {
                 ],
             ]
         case .codexCompatibility:
-            guard
-                ComputerUseSessionScope.driverSessionID(
-                    containing: driverSessionID
-                ) != nil
-            else {
+            guard let stableSession = ComputerUseSessionScope.driverSessionID(
+                containing: driverSessionID
+            ) else {
                 return nil
             }
             return [
                 "method": "set_cursor_enabled",
                 "args": [
-                    "session": driverSessionID,
+                    "session": stableSession,
                     "enabled": visible,
                 ],
             ]
