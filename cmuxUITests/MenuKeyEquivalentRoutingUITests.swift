@@ -342,6 +342,16 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
                 "Expected inactive action \(identifier) to remain available in BrowserOverflowMenu"
             )
         }
+        XCTAssertEqual(
+            app.menuItems.matching(identifier: "BrowserOverflowFocusModeButton").firstMatch.label,
+            "Focus Mode",
+            "Focus Mode should use the compact menu label"
+        )
+        XCTAssertEqual(
+            app.menuItems.matching(identifier: "BrowserScreenshotPageButton").firstMatch.label,
+            "Screenshot Page",
+            "Screenshot should use the compact menu label"
+        )
         XCTAssertFalse(
             app.menuItems.matching(identifier: "BrowserOverflowDesignModeButton").firstMatch.exists,
             "Design Mode should remain directly available in the browser toolbar"
