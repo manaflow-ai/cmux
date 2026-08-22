@@ -10361,6 +10361,7 @@ impl App {
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
+        crate::client_log::info("machine", &format!("dispatching machine request {request:?}"));
         if let MachineRequest::Switch(machine) = &request {
             self.select_machine_intent(*machine);
         }
@@ -10527,6 +10528,7 @@ impl App {
     }
 
     fn fail_machine_action(&mut self, request: Option<&MachineRequest>) {
+        crate::client_log::info("machine", &format!("machine request failed: {request:?}"));
         if let Some(MachineRequest::Switch(machine)) = request
             && let Some(ui) = self.machine_ui.as_mut()
         {
@@ -10892,9 +10894,9 @@ impl App {
             // provider link is demonstrably alive (this update just arrived
             // over it), and reconnecting would only reopen the deleted
             // machine. Let the failover below aim somewhere usable instead.
-            Some(MachineRequest::ReconnectProvider) => self
-                .machine_presented
-                .is_some_and(|presented| !machine_usable(&update, presented)),
+            Some(MachineRequest::ReconnectProvider) => {
+                self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented))
+            }
             _ => false,
         };
         if doomed_request {
