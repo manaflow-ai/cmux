@@ -16564,7 +16564,13 @@ private struct SidebarMetadataRows: View {
                 }
                 .buttonStyle(.plain)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(
+                    isActive
+                        ? activeSecondaryForegroundColor
+                        : Color(nsColor: sidebarForegroundNSColor(
+                            opacity: 0.9
+                        ))
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -16719,7 +16725,13 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 }
                 .buttonStyle(.plain)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(
+                    isActive
+                        ? activeSecondaryForegroundColor
+                        : Color(nsColor: sidebarForegroundNSColor(
+                            opacity: 0.9
+                        ))
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

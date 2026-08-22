@@ -182,7 +182,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .accessibilityHidden(true)
                 Text(name)
                     .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                    .foregroundStyle(Color(nsColor: sidebarForegroundNSColor(
+                        opacity: isAnchorActive ? 1.0 : 0.9
+                    )))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
