@@ -540,6 +540,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "chatmux-relay"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "futures-util",
+ "getrandom 0.3.4",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "time",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4038,6 +4058,8 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
