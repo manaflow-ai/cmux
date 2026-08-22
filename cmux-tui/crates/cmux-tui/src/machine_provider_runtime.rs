@@ -826,12 +826,26 @@ impl ProviderMachineRuntime {
                         // reopening it would wake the machine the user just
                         // deleted (or hang behind its teardown). Reselect the
                         // next available machine before opening.
+                        // Usable = listed and not a Recoverable leftover:
+                        // recovery-capable providers may keep soft-deleted
+                        // machines in the catalog, and reopening one would
+                        // resurrect what the user just deleted.
+                        let recoverable = |id: &protocol::OpaqueId| {
+                            runtime.machine_lifecycle_snapshot.machines.iter().any(
+                                |descriptor| {
+                                    &descriptor.id == id
+                                        && descriptor.status
+                                            == protocol::MachineLifecycleStatus::Recoverable
+                                },
+                            )
+                        };
                         let selection_stale = runtime
                             .snapshot
                             .selected_machine_id
                             .as_ref()
                             .is_none_or(|selected| {
                                 *selected == deleted_id
+                                    || recoverable(selected)
                                     || !runtime
                                         .snapshot
                                         .machines
@@ -839,13 +853,17 @@ impl ProviderMachineRuntime {
                                         .any(|descriptor| &descriptor.id == selected)
                             });
                         if deletes_open_session && selection_stale {
-                            runtime.snapshot.selected_machine_id = runtime
+                            let usable: Vec<protocol::OpaqueId> = runtime
                                 .snapshot
                                 .machines
-                                .get(deleted_slot.min(
-                                    runtime.snapshot.machines.len().saturating_sub(1),
-                                ))
-                                .map(|descriptor| descriptor.id.clone());
+                                .iter()
+                                .filter(|descriptor| {
+                                    descriptor.id != deleted_id && !recoverable(&descriptor.id)
+                                })
+                                .map(|descriptor| descriptor.id.clone())
+                                .collect();
+                            runtime.snapshot.selected_machine_id =
+                                usable.get(deleted_slot.min(usable.len().saturating_sub(1))).cloned();
                         }
                         crate::client_log::info(
                             "machine",

@@ -10361,7 +10361,10 @@ impl App {
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
-        crate::client_log::info("machine", &format!("dispatching machine request {request:?}"));
+        crate::client_log::info(
+            "machine",
+            &format!("dispatching machine request: {}", request.kind()),
+        );
         if let MachineRequest::Switch(machine) = &request {
             self.select_machine_intent(*machine);
         }
@@ -10528,7 +10531,13 @@ impl App {
     }
 
     fn fail_machine_action(&mut self, request: Option<&MachineRequest>) {
-        crate::client_log::info("machine", &format!("machine request failed: {request:?}"));
+        crate::client_log::info(
+            "machine",
+            &format!(
+                "machine request failed: {}",
+                request.map(MachineRequest::kind).unwrap_or("none")
+            ),
+        );
         if let Some(MachineRequest::Switch(machine)) = request
             && let Some(ui) = self.machine_ui.as_mut()
         {

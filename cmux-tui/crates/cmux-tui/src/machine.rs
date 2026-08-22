@@ -409,6 +409,33 @@ pub enum MachineRequest {
     },
 }
 
+impl MachineRequest {
+    /// Redacted label for logs: request payloads can carry hosts, pairing
+    /// codes, and action values that must never reach the client log.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            MachineRequest::Switch(_) => "switch",
+            MachineRequest::ReconnectProvider => "reconnect-provider",
+            MachineRequest::Create => "create",
+            MachineRequest::CreateFrom { .. } => "create-from",
+            MachineRequest::Connect { .. } => "connect",
+            MachineRequest::SelectProviderScope(_) => "select-provider-scope",
+            MachineRequest::InvokeProviderAction { .. } => "invoke-provider-action",
+            MachineRequest::RenameManagedMachine { .. } => "rename-managed-machine",
+            MachineRequest::RenameClientMachine { .. } => "rename-client-machine",
+            MachineRequest::DeleteManagedMachine { .. } => "delete-managed-machine",
+            MachineRequest::RestoreManagedMachine { .. } => "restore-managed-machine",
+            MachineRequest::PurgeManagedMachine { .. } => "purge-managed-machine",
+            MachineRequest::CreateManagedIsolatedWorkspace(_) => "create-managed-isolated-workspace",
+            MachineRequest::CreateManagedHostWorkspace(_) => "create-managed-host-workspace",
+            MachineRequest::RenameManagedWorkspace { .. } => "rename-managed-workspace",
+            MachineRequest::DeleteManagedWorkspace { .. } => "delete-managed-workspace",
+            MachineRequest::RestoreManagedWorkspace { .. } => "restore-managed-workspace",
+            MachineRequest::PurgeManagedWorkspace { .. } => "purge-managed-workspace",
+        }
+    }
+}
+
 /// Nested mux mutation applied only after the provider durably accepts it.
 pub(crate) enum ManagedWorkspaceSessionMutation {
     Rename { workspace_key: String, name: String },
