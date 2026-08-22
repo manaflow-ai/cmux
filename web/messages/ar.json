@@ -1008,6 +1008,16 @@
           "globalFontMagnification": "يضبط بهذا المقدار النسبي أحجام الخطوط في الطرفيات وعناوين التبويبات والأشرطة الجانبية والإعدادات والتراكبات وواجهة التطبيق التي يملكها cmux. لا يشمل محتوى صفحات المتصفح المعروض."
         },
         "terminal": {
+          "newSurfaceWorkingDirectory": {
+            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
+            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
+            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+          },
+          "shellStartup": {
+            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
+            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
+            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+          },
           "sessionContentMaxWidth": "حد أقصى اختياري للعرض، بالنقاط، لمحتوى الطرفية ودردشة الوكيل المضمنة. عيّن false لاستخدام عرض الجزء بالكامل.",
           "sessionContentAlignment": "الموضع الأفقي لمحتوى الطرفية ودردشة الوكيل المضمنة عند تفعيل sessionContentMaxWidth.",
           "copyOnSelect": "عند true، ينسخ النص المحدد في الطرفية إلى حافظة النظام عند تثبيت التحديد. عند false، لا يصدر cmux تجاوز Ghostty copy-on-select؛ وتتحكم إعدادات Ghostty وقيمه الافتراضية في سلوك حافظة التحديد.",

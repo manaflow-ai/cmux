@@ -1008,6 +1008,16 @@
           "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
         },
         "terminal": {
+          "newSurfaceWorkingDirectory": {
+            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
+            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
+            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+          },
+          "shellStartup": {
+            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
+            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
+            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+          },
           "sessionContentMaxWidth": "Largura máxima opcional, em pontos, para o conteúdo do terminal e do chat integrado do agente. Defina como false para usar toda a largura do painel.",
           "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",

@@ -328,11 +328,45 @@ def test_generator_documents_structural_rows_without_placeholder_properties() ->
         assert all(not line.endswith("| — |") for line in reference_rows)
 
 
+def test_generator_terminates_for_recursive_composition_schema() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        schema = root / "schema.json"
+        output = root / "configuration.md"
+        schema.write_text(
+            json.dumps(
+                {
+                    "$defs": {
+                        "node": {
+                            "type": "object",
+                            "description": "A recursive node.",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Node name.",
+                                }
+                            },
+                            "allOf": [{"$ref": "#/$defs/node"}],
+                        }
+                    },
+                    "type": "object",
+                    "properties": {
+                        "tree": {
+                            "$ref": "#/$defs/node",
+                            "description": "A recursive tree.",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = run_generator("--write", "--schema", str(schema), "--output", str(output))
+        assert result.returncode == 0, result.stderr
+        text = output.read_text(encoding="utf-8")
+        assert "`tree.name`" in text
+
+
 if __name__ == "__main__":
-    test_generator_resolves_refs_and_documents_dynamic_shapes()
-    test_check_fails_closed_when_generated_section_is_stale()
-    test_generator_walks_any_of_and_all_of_child_properties()
-    test_generator_walks_conditional_only_properties()
-    test_generator_preserves_content_after_generated_section()
-    test_generator_rejects_an_undocumented_explicit_key()
-    test_generator_documents_structural_rows_without_placeholder_properties()
+    for _name, _test in sorted(globals().items()):
+        if _name.startswith("test_") and callable(_test):
+            _test()

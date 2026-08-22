@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 /// Behavioral XCUITests for the Settings **App** section.
@@ -303,6 +304,23 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             original = "Inherit Active Pane"
         }
         let alternate = original == "Workspace Root" ? "Fixed Path" : "Workspace Root"
+        let configFile = isolatedHome
+            .appendingPathComponent(".config/cmux/cmux.json", isDirectory: false)
+        let policyRawValue: [String: String] = [
+            "Inherit Active Pane": "inheritActivePane",
+            "Workspace Root": "workspaceRoot",
+            "Fixed Path": "fixedPath",
+        ]
+        func storedPolicy() -> String? {
+            guard let data = try? Data(contentsOf: configFile),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let terminal = root["terminal"] as? [String: Any],
+                  let directory = terminal["newSurfaceWorkingDirectory"] as? [String: Any]
+            else {
+                return nil
+            }
+            return directory["policy"] as? String
+        }
 
         picker.click()
         let alternateItem = requireElement(
@@ -315,6 +333,10 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             poll(timeout: 5.0) { self.pickerDisplay(picker).contains(alternate) },
             "Selecting (alternate) should update the policy picker"
         )
+        XCTAssertTrue(
+            poll(timeout: 5.0) { storedPolicy() == policyRawValue[alternate] },
+            "Selecting a policy should write terminal.newSurfaceWorkingDirectory.policy to cmux.json"
+        )
 
         picker.click()
         let originalItem = requireElement(
@@ -326,6 +348,10 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         XCTAssertTrue(
             poll(timeout: 5.0) { self.pickerDisplay(picker).contains(original) },
             "Restoring (original) should round-trip the policy picker"
+        )
+        XCTAssertTrue(
+            poll(timeout: 5.0) { storedPolicy() == policyRawValue[original] },
+            "Restoring a policy should write the original value back to cmux.json"
         )
     }
 
