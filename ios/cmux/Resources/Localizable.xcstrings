@@ -1885,6 +1885,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ファイル添付" } }
       }
     },
+    "mobile.composer.attachment.image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Image attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像添付" } }
+      }
+    },
     "mobile.composer.attachment.limit": {
       "extractionState": "manual",
       "localizations": {
@@ -1907,6 +1914,20 @@
             "value": "添付を削除"
           }
         }
+      }
+    },
+    "mobile.composer.attachment.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付をプレビュー" } }
+      }
+    },
+    "mobile.composer.attachment.previewFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This attachment couldn’t be previewed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この添付はプレビューできませんでした。" } }
       }
     },
     "mobile.composer.attachment.tooLarge": {

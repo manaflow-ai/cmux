@@ -62,6 +62,9 @@ struct TerminalComposerView: View {
     /// Failure feedback for a paste that could not stage (unreadable item,
     /// over-cap file, host without file-attachment support).
     @State private var attachmentAlertMessage: String?
+    /// The staged attachment currently open in the Quick Look preview sheet
+    /// (a chip's primary tap), mirroring the task composer's chip behavior.
+    @State private var previewedAttachment: MobilePendingAttachment?
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
     @State private var pickerSelection: [PhotosPickerItem] = []
@@ -455,6 +458,13 @@ struct TerminalComposerView: View {
         } message: {
             Text(attachmentAlertMessage ?? "")
         }
+        .sheet(
+            item: $previewedAttachment,
+            onDismiss: photoPickerDidDismiss
+        ) { attachment in
+            TerminalComposerAttachmentPreviewSheet(attachment: attachment)
+                .onAppear(perform: photoPickerDidPresent)
+        }
     }
 
     @ViewBuilder
@@ -585,12 +595,20 @@ struct TerminalComposerView: View {
                     AttachmentChip(
                         attachment: attachment,
                         thumbnail: thumbnailCache.image(for: attachment.id),
-                        theme: store.activeTerminalTheme
-                    ) {
-                        store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
-                        thumbnailCache.remove(attachment.id)
-                        requestHeightRemeasure()
-                    }
+                        theme: store.activeTerminalTheme,
+                        onPreview: {
+                            // The preview sheet is a modal over the composer;
+                            // route the same responder boundary the photo
+                            // picker uses so the keyboard hands off cleanly.
+                            photoPickerWillPresent()
+                            previewedAttachment = attachment
+                        },
+                        onRemove: {
+                            store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
+                            thumbnailCache.remove(attachment.id)
+                            requestHeightRemeasure()
+                        }
+                    )
                 }
             }
             .padding(.leading, controlHeight + 8)
@@ -1094,26 +1112,45 @@ final class AttachmentThumbnailCache {
     }
 }
 
-/// A removable chip for one staged attachment: images render a pre-built,
-/// downsampled thumbnail (cached by the composer at stage time, so the view
-/// body never decodes the full encoded `Data` on a re-render); files render a
-/// document glyph with the file name and size.
+/// A staged-attachment chip: images render a pre-built, downsampled thumbnail
+/// (cached by the composer at stage time, so the view body never decodes the
+/// full encoded `Data` on a re-render); files render a document glyph with the
+/// file name and size. The primary tap previews the staged bytes (mirroring
+/// the task composer's chips); removal remains a separate corner action.
 private struct AttachmentChip: View {
     let attachment: MobilePendingAttachment
     let thumbnail: UIImage?
     let theme: TerminalTheme
+    let onPreview: () -> Void
     let onRemove: () -> Void
 
     private let side: CGFloat = 56
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            chipContent
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
-                )
+            Button(action: onPreview) {
+                chipContent
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityName)
+            .accessibilityHint(L10n.string(
+                "mobile.composer.attachment.preview",
+                defaultValue: "Preview Attachment"
+            ))
+            .accessibilityIdentifier(
+                "MobileComposerAttachmentPreview-\(attachment.id.uuidString)"
+            )
+            .accessibilityAction(named: L10n.string(
+                "mobile.composer.attachment.remove",
+                defaultValue: "Remove Attachment"
+            )) {
+                onRemove()
+            }
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
@@ -1126,6 +1163,13 @@ private struct AttachmentChip: View {
             .accessibilityIdentifier("MobileComposerAttachmentRemove")
             .accessibilityLabel(L10n.string("mobile.composer.attachment.remove", defaultValue: "Remove Attachment"))
         }
+    }
+
+    private var accessibilityName: String {
+        attachment.displayName ?? L10n.string(
+            "mobile.composer.attachment.image",
+            defaultValue: "Image attachment"
+        )
     }
 
     @ViewBuilder
@@ -1178,9 +1222,6 @@ private struct AttachmentChip: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.terminalForegroundColor.opacity(0.08))
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(fileFallbackName)
-        .accessibilityValue(attachment.displayName ?? "")
     }
 
     private var fileFallbackName: String {
