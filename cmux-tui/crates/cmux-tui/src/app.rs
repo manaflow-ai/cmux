@@ -10947,22 +10947,41 @@ impl App {
             update.request = None;
         }
         // The presented machine was deleted (gone from the catalog, or left
-        // behind as a Recoverable row): switch to the next available machine
-        // instead of leaving a dead session on screen. "Next" is the usable
-        // machine at or after its old list slot, else the last usable one.
-        // Skipped while the user is already aiming somewhere else usable, or
-        // while another request is queued.
+        // behind as a Recoverable row): its session is dead, so input must
+        // never route into it, whatever else is queued or in flight.
+        let presented_deleted =
+            self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented));
+        if presented_deleted {
+            update.session_available = false;
+        }
+        // Switch to the next available machine instead of leaving the dead
+        // session on screen. "Next" is the usable machine at or after its
+        // old list slot, else the last usable one. Deferred (input stays
+        // gated above) while another request occupies the queue slot or the
+        // user is already aiming somewhere else usable; the next update
+        // with a free slot re-enters this path.
         let mut failover_rail_target = None;
-        if let Some(presented) = self.machine_presented
-            && update.snapshot.active.is_none()
+        if presented_deleted
+            && let Some(presented) = self.machine_presented
             && update.request.is_none()
             && self
                 .machine_selection_intent
                 .is_none_or(|intent| intent == presented || !machine_usable(&update, intent))
-            && let Some(previous) = self.machine_ui.as_ref()
-            && let Some(previous_index) =
-                previous.snapshot.machines.iter().position(|machine| machine.key == presented)
         {
+            let previous_index = self
+                .machine_ui
+                .as_ref()
+                .and_then(|previous| {
+                    previous.snapshot.machines.iter().position(|machine| machine.key == presented)
+                })
+                .or_else(|| {
+                    // A deferred failover can outlive the machine's last
+                    // appearance in the previous snapshot: fall back to its
+                    // slot in the current catalog (soft delete keeps the
+                    // Recoverable row there), else to the front.
+                    update.snapshot.machines.iter().position(|machine| machine.key == presented)
+                })
+                .unwrap_or(0);
             let next_key = update
                 .snapshot
                 .machines
@@ -17090,9 +17109,11 @@ impl App {
                     machine.select_rail_target(target);
                 }
                 None
-            } else if key.code == KeyCode::Char('m') {
+            } else if key.code == KeyCode::Char('m') && key.modifiers.is_empty() {
                 // Keyboard twin of right-clicking "+ new vm" or the rail
-                // pad: provider scope switching and provider actions.
+                // pad: provider scope switching and provider actions. Plain
+                // `m` only: Alt/Ctrl-m keep their normal routing (Ctrl-m is
+                // an Enter equivalent in terminal input).
                 Some(MachineRailCommand::ProviderMenu)
             } else if let Some(MachineRailTarget::Machine(machine_key)) =
                 targets.get(current).copied()
@@ -37291,6 +37312,20 @@ mod tests {
     }
 
     #[test]
+    fn modified_m_on_the_machine_rail_does_not_open_the_provider_menu() {
+        let mux = Mux::new("provider-menu-modified-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)).unwrap();
+        assert!(app.menu.is_none(), "Alt-m must not open the provider menu");
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL)).unwrap();
+        assert!(app.menu.is_none(), "Ctrl-m must not open the provider menu");
+    }
+
+    #[test]
     fn soft_deleting_the_presented_machine_switches_to_the_next_usable_one() {
         // Recovery-capable providers (Freestyle) keep a deleted machine in
         // the catalog as a Recoverable row; failover must treat that exactly
@@ -37342,6 +37377,78 @@ mod tests {
         // was already gone), which is not a Switch and must equally not
         // block the failover.
         app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+        assert!(!ui.session_available);
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
+        );
+    }
+
+    #[test]
+    fn deleting_the_presented_machine_behind_a_queued_request_gates_input_then_fails_over() {
+        // The failover cannot use the request slot while an unrelated
+        // request occupies it, but input must be gated away from the deleted
+        // machine's dead session immediately, and the switch must happen on
+        // the next free-slot update.
+        let mux = Mux::new("machine-delete-queued-request-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let snapshot = || MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        };
+        let recoverable_cedar = || ManagedMachineDescriptor {
+            key: MachineKey(2),
+            id: "vm-2".into(),
+            name: "vm-2".into(),
+            status: ManagedMachineStatus::Recoverable,
+            version: 1,
+            recoverable_until: None,
+            capabilities: ManagedMachineCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar is soft deleted while a scope selection is still queued.
+        let mut update = MachineUiState::new(snapshot());
+        update.set_managed_machines(vec![recoverable_cedar()]);
+        update.request = Some(MachineRequest::SelectProviderScope("personal".into()));
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(
+            ui.request,
+            Some(MachineRequest::SelectProviderScope("personal".into())),
+            "the queued request keeps the slot"
+        );
+        assert!(!ui.session_available, "input must not reach the deleted machine's session");
+        assert_eq!(app.machine_presented, Some(MachineKey(2)));
+
+        // The queued request settles; the next update has a free slot and
+        // the deferred failover fires.
+        let mut update = MachineUiState::new(snapshot());
+        update.set_managed_machines(vec![recoverable_cedar()]);
+        update.session_available = true;
         app.apply_machine_ui_update(update);
         let ui = app.machine_ui.as_ref().unwrap();
         assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
