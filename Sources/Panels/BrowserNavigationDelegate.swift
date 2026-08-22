@@ -608,7 +608,8 @@ import WebKit
         let replacedNavigation = activeMainFrameNavigation
         let reportReplacementWillStart = willReplaceNavigationForUserAgentPolicy
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            navigationAction,
+            request: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
             decisionHandler: decisionHandler,
             willRestart: {
                 reportReplacementWillStart?(webView, replacedNavigation)

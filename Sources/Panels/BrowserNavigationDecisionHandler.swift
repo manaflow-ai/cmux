@@ -17,6 +17,7 @@ final class BrowserNavigationDecisionHandler<Policy> {
     private let fallbackPolicy: Policy
     private let label: String
 
+    /// Creates a guard that forwards the first policy and cancels an abandoned one.
     init(
         _ decisionHandler: @escaping (Policy) -> Void,
         fallbackPolicy: Policy,
@@ -34,6 +35,7 @@ final class BrowserNavigationDecisionHandler<Policy> {
         }
     }
 
+    /// Forwards one policy decision and ignores any later completion attempts.
     func callAsFunction(_ policy: Policy) {
         guard let pendingHandler else {
             log("decision callback invoked more than once")
@@ -49,6 +51,7 @@ final class BrowserNavigationDecisionHandler<Policy> {
         pendingHandler(fallbackPolicy)
     }
 
+    /// Emits a diagnostic without coupling callback cleanup to an actor.
     private func log(_ message: String) {
         browserNavigationDecisionHandlerLogger.error(
             "\(message, privacy: .public) label=\(self.label, privacy: .public)"
