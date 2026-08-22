@@ -55,8 +55,22 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
         #expect(resolvedTopologies == [[firstWindowId, laterWindowId]])
     }
 
+    @Test
     @MainActor
-    private static func rowSnapshot() throws -> SidebarWorkspaceRowSnapshot {
+    func transientDropSessionStateDoesNotInvalidateWorkspaceRowSnapshot() throws {
+        let idleSnapshot = try Self.rowSnapshot(isBonsplitWorkspaceDropActive: false)
+        let activeSnapshot = try Self.rowSnapshot(isBonsplitWorkspaceDropActive: true)
+
+        #expect(
+            idleSnapshot == activeSnapshot,
+            "A parent-owned drop session must not invalidate every workspace row."
+        )
+    }
+
+    @MainActor
+    private static func rowSnapshot(
+        isBonsplitWorkspaceDropActive: Bool = false
+    ) throws -> SidebarWorkspaceRowSnapshot {
         let suiteName = "SidebarWorkspaceContextMenuWindowTargetsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -84,7 +98,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: false,
+            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropActive,
             settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
