@@ -210,9 +210,7 @@ struct ComputerUseOnboardingView: View {
         VStack(spacing: 0) {
             ZStack {
                 Circle()
-                    .fill(Color.green.gradient)
-                Circle()
-                    .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
+                    .fill(Color.green)
                 Image(systemName: "checkmark")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.white)
@@ -248,19 +246,12 @@ struct ComputerUseOnboardingView: View {
         .padding(.horizontal, 48)
     }
 
-    /// The cmux brand gradient shared with the live agent cursor
-    /// (#12C7F5 → #2D8CFF → #6C5CFF).
-    static var brandGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0x12 / 255.0, green: 0xC7 / 255.0, blue: 0xF5 / 255.0),
-                Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0),
-                Color(red: 0x6C / 255.0, green: 0x5C / 255.0, blue: 0xFF / 255.0),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
+    /// The flat cmux brand blue (#2D8CFF) — the midpoint of the cursor
+    /// artwork's palette, used as a solid fill. Onboarding chrome stays flat;
+    /// gradients live only inside the icon artwork itself.
+    static let brandBlue = Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0)
+    /// The flat cmux brand violet (#6C5CFF), the palette's far endpoint.
+    static let brandViolet = Color(red: 0x6C / 255.0, green: 0x5C / 255.0, blue: 0xFF / 255.0)
 
     private var helperHeroIcon: some View {
         Group {
@@ -273,7 +264,7 @@ struct ComputerUseOnboardingView: View {
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Self.brandGradient)
+                        .fill(Self.brandBlue)
                     Image(systemName: "cursorarrow.motionlines")
                         .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(.white)
@@ -360,30 +351,13 @@ struct ComputerUseOnboardingView: View {
         }
     }
 
-    /// System-Settings-style permission tiles: rounded squares carrying the two
-    /// halves of the cmux brand gradient, so the pair reads as one family.
+    /// System-Settings-style permission tiles: flat rounded squares in the two
+    /// solid brand hues, so the pair reads as one family without any gradient.
     @ViewBuilder
     private func permissionIcon(for permissionStep: ComputerUseOnboardingStep) -> some View {
-        let colors: [Color] = permissionStep == .accessibility
-            ? [
-                Color(red: 0x12 / 255.0, green: 0xC7 / 255.0, blue: 0xF5 / 255.0),
-                Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0),
-            ]
-            : [
-                Color(red: 0x2D / 255.0, green: 0x8C / 255.0, blue: 0xFF / 255.0),
-                Color(red: 0x6C / 255.0, green: 0x5C / 255.0, blue: 0xFF / 255.0),
-            ]
         ZStack {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: colors,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(.white.opacity(0.22), lineWidth: 0.5)
+                .fill(permissionStep == .accessibility ? Self.brandBlue : Self.brandViolet)
             Image(
                 systemName: permissionStep == .accessibility
                     ? "accessibility"
@@ -434,10 +408,7 @@ struct ComputerUseOnboardingView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 62, height: 26)
                 .foregroundStyle(.white)
-                .background(Self.brandGradient, in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
-                }
+                .background(Self.brandBlue, in: Capsule())
                 .opacity(isButtonEnabled ? 1 : 0.5)
             }
             .buttonStyle(.plain)
@@ -777,7 +748,7 @@ struct ComputerUsePermissionCompanionView: View {
             HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(ComputerUseOnboardingView.brandGradient)
+                    .foregroundStyle(ComputerUseOnboardingView.brandBlue)
                     .frame(width: 30, height: 30)
                     .background(
                         Color.accentColor.opacity(0.12),
