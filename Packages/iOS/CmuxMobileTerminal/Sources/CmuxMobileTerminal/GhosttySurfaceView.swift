@@ -306,6 +306,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var lastFallbackLogTime: CFTimeInterval = 0
         #if DEBUG
         var lastApplied: (row: UInt64, remainderPx: Double, revision: UInt64, total: UInt64)?
+        /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
+        var lastPerfLogTime: CFTimeInterval = 0
         #endif
     }
     nonisolated let localPixelScrollState =
@@ -2831,11 +2833,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
                 ghostty_config_free(preparedConfig)
             }
+            #if DEBUG
+            let outputApplyStartedAt = CACurrentMediaTime()
+            #endif
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
+            #if DEBUG
+            // Perf probe for the scroll-hitch investigation: a VT apply on this
+            // serial queue delays any queued scroll-position batch by its full
+            // duration (head-of-line blocking). Log slow applies, rate-limited.
+            let outputApplyMs = (CACurrentMediaTime() - outputApplyStartedAt) * 1000
+            if outputApplyMs > 8 {
+                let perfNow = CACurrentMediaTime()
+                if perfNow - workQueue.lastOutputPerfLogTime >= 0.25 {
+                    workQueue.lastOutputPerfLogTime = perfNow
+                    MobileDebugLog.anchormux(
+                        "perf.process_output ms=\(Int(outputApplyMs)) bytes=\(forwarded.count)"
+                    )
+                }
+            }
+            #endif
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed

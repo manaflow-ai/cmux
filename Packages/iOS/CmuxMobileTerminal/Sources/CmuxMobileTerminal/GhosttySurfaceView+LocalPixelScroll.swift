@@ -51,7 +51,13 @@ extension GhosttySurfaceView {
         let workQueue = outputQueue
         let gate = viewportRestoreGate
         let pixelState = localPixelScrollState
+        #if DEBUG
+        let enqueuedAt = CACurrentMediaTime()
+        #endif
         workQueue.async { [weak self] in
+            #if DEBUG
+            let batchStartedAt = CACurrentMediaTime()
+            #endif
             Self.applyPixelScrollBatch(
                 operation: operation,
                 deltaPixels: deltaPixels,
@@ -63,8 +69,33 @@ extension GhosttySurfaceView {
                     interactionGeneration
                 )
             }
+            #if DEBUG
+            // Perf probe for the scroll-hitch investigation: `wait` is
+            // head-of-line blocking on this serial queue (a VT apply or render
+            // ahead of us), `apply` is the batch itself, `hop` is the
+            // main-actor round-trip that gates the next batch.
+            let batchEndedAt = CACurrentMediaTime()
+            let waitMs = (batchStartedAt - enqueuedAt) * 1000
+            let applyMs = (batchEndedAt - batchStartedAt) * 1000
+            #endif
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                #if DEBUG
+                if waitMs > 8 || applyMs > 8 {
+                    let hopMs = (CACurrentMediaTime() - batchEndedAt) * 1000
+                    let shouldLogPerf = pixelState.withLock { state -> Bool in
+                        let now = CACurrentMediaTime()
+                        guard now - state.lastPerfLogTime >= 0.25 else { return false }
+                        state.lastPerfLogTime = now
+                        return true
+                    }
+                    if shouldLogPerf {
+                        MobileDebugLog.anchormux(
+                            "perf.pixel_scroll wait_ms=\(Int(waitMs)) apply_ms=\(Int(applyMs)) hop_ms=\(Int(hopMs))"
+                        )
+                    }
+                }
+                #endif
                 guard self.localPixelScrollApplyToken == operation.token else { return }
                 self.localPixelScrollApplyInFlight = false
                 self.localPixelScrollApplyInFlightGeneration = nil
