@@ -2759,6 +2759,31 @@ final class UpdateTitlebarAccessoryController {
             pointSizes: dropdownSizes,
             weight: .bold
         )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["arrow.down.to.line"],
+            pointSizes: [10],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["iphone"],
+            pointSizes: [12],
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.right"],
+            pointSizes: [9],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["xmark"],
+            pointSizes: [9],
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell.slash", "bell.badge"],
+            pointSizes: [30],
+            weight: .light
+        )
     }
 
     func attach(to window: NSWindow) {

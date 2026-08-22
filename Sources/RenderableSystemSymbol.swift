@@ -207,7 +207,6 @@ enum RenderableSystemSymbol {
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
         let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         guard let image = materializedImage(configuredImage, size: imageSize) else {
-            renderabilityCache.cacheRenderability(false, for: systemName)
             return nil
         }
         // Keep the template contract used by the SwiftUI and AppKit callers,
