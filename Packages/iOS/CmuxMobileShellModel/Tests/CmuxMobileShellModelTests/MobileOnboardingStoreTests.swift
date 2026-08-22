@@ -74,4 +74,19 @@ import Testing
 
         #expect(defaults.string(forKey: MobileOnboardingStore.progressKey) == nil)
     }
+
+    @Test func persistedProgressIgnoresForceCompleteBypass() {
+        let defaults = makeDefaults()
+        defaults.set(
+            MobileOnboardingProgress.connect.rawValue,
+            forKey: MobileOnboardingStore.progressKey
+        )
+        let store = MobileOnboardingStore(defaults: defaults, forceComplete: true)
+
+        #expect(store.progress == .complete)
+        #expect(store.persistedProgress == .connect)
+
+        defaults.removeObject(forKey: MobileOnboardingStore.progressKey)
+        #expect(store.persistedProgress == .welcome)
+    }
 }

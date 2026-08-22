@@ -19420,13 +19420,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Example cmux notification: the agent claude asks for approval, and you reply from the notification without opening the app."
+            "value": "Example cmux notification: the agent claude finished and asks about merging, and you reply from the notification without opening the app."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux通知の例：エージェントclaudeが承認を求め、アプリを開かずに通知から返信します。"
+            "value": "cmux通知の例：エージェントclaudeが完了してマージについて質問し、アプリを開かずに通知から返信します。"
           }
         }
       }
@@ -19437,30 +19437,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "Tests are green and the PR is ready for review. Want me to merge it?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "承認が必要です"
+            "value": "テストはグリーンで、PRはレビューの準備ができています。マージしますか？"
           }
         }
       }
     },
-    "mobile.onboarding.push.previewSent": {
+    "mobile.onboarding.push.previewSubtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sent to your Mac"
+            "value": "Completed in issue-4821"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macに送信済み"
+            "value": "issue-4821 で完了"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.previewTimeSensitive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TIME SENSITIVE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間指定"
           }
         }
       }

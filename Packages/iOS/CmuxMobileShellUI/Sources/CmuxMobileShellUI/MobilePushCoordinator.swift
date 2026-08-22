@@ -387,7 +387,14 @@ public final class MobilePushCoordinator {
 
     /// Requests or recovers push only after the authenticated workspace shell
     /// is mounted. An explicit app opt-out remains authoritative.
-    public func workspaceListDidBecomeVisible() async {
+    /// `allowsAuthorizationPrompt` gates only the never-asked (`notDetermined`)
+    /// OS prompt: until first-run onboarding truly completes, that one prompt
+    /// belongs to the onboarding Enable button, so bypass launches (dogfood
+    /// attach, mock harnesses) must not pre-burn it. Recovery of an already
+    /// authorized or denied registration always runs.
+    public func workspaceListDidBecomeVisible(
+        allowsAuthorizationPrompt: Bool = true
+    ) async {
         let initialSettingsGeneration = settingsIntentGeneration
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
@@ -409,6 +416,7 @@ public final class MobilePushCoordinator {
             // a later foreground return can recover without another app launch.
             persistEnabledIntent()
         case .notDetermined:
+            guard allowsAuthorizationPrompt else { return }
             // Someone who just said "Not Now" in onboarding must not be
             // re-prompted the moment the workspace list appears.
             guard !didDeclinePushDuringOnboarding else { return }

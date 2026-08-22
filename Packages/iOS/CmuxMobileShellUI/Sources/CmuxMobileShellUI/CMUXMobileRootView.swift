@@ -526,7 +526,13 @@ struct CMUXMobileRootView: View {
                     ),
                     reconnectStoredMac: reconnectStoredMacIfNeeded,
                     workspaceListDidBecomeVisible: {
-                        await pushCoordinator.workspaceListDidBecomeVisible()
+                        // The real persisted milestone, not the bypassed one:
+                        // a dogfood/mock launch must not pre-burn the OS push
+                        // prompt that onboarding's Enable button owns.
+                        await pushCoordinator.workspaceListDidBecomeVisible(
+                            allowsAuthorizationPrompt:
+                                onboardingStore.persistedProgress == .complete
+                        )
                     }
                 )
             }

@@ -26,13 +26,6 @@ struct OnboardingConnectionView: View {
         }
     }
 
-    /// The transport introduction stays visible while there is still a
-    /// decision to act on; once connected it disappears (Settings keeps the
-    /// full controls).
-    private var showsMechanisms: Bool {
-        phase != .ready
-    }
-
     private var visual: some View {
         ViewThatFits(in: .vertical) {
             connectionVisual(density: .regular)
@@ -42,7 +35,7 @@ struct OnboardingConnectionView: View {
 
     @ViewBuilder
     private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
-        if verticalSizeClass == .compact, showsMechanisms {
+        if verticalSizeClass == .compact {
             HStack(alignment: .center, spacing: density.sectionSpacing) {
                 OnboardingConnectionPreview(phase: phase, density: density)
                     .frame(maxWidth: .infinity)
@@ -59,15 +52,15 @@ struct OnboardingConnectionView: View {
         } else {
             VStack(spacing: density.sectionSpacing) {
                 OnboardingConnectionPreview(phase: phase, density: density)
-                if showsMechanisms {
-                    OnboardingConnectionMechanismsView(
-                        method: connectionMethod,
-                        density: density,
-                        condensed: false,
-                        onSelect: onSelectConnectionMethod,
-                        onStartTailscalePairing: onStartTailscalePairing
-                    )
-                }
+                // Stays visible even once connected, so a change of heart
+                // about the transport never requires digging into Settings.
+                OnboardingConnectionMechanismsView(
+                    method: connectionMethod,
+                    density: density,
+                    condensed: false,
+                    onSelect: onSelectConnectionMethod,
+                    onStartTailscalePairing: onStartTailscalePairing
+                )
             }
             .fixedSize(horizontal: false, vertical: true)
         }

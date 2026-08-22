@@ -55,6 +55,20 @@ public final class MobileOnboardingStore {
         }
     }
 
+    /// The milestone actually persisted for this install, unaffected by the
+    /// `forceComplete` bypass used by automated and dogfood launches. Gates
+    /// behaviors that must respect the real first-run state even inside a
+    /// bypass launch, like the workspace list's automatic push authorization
+    /// request: the one OS prompt belongs to the onboarding Enable button
+    /// until this install truly finished onboarding.
+    public var persistedProgress: MobileOnboardingProgress {
+        guard let rawValue = defaults.string(forKey: Self.progressKey),
+              let progress = MobileOnboardingProgress(rawValue: rawValue) else {
+            return .welcome
+        }
+        return progress
+    }
+
     /// Persist that the welcome pitch is complete and connection setup remains.
     public func markReadyToConnect() {
         setProgress(.connect)

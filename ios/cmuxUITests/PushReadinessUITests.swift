@@ -5,8 +5,14 @@ final class PushReadinessUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The one OS authorization prompt belongs to onboarding's Enable button:
+    /// while this install's persisted onboarding progress is incomplete, the
+    /// workspace list must not auto-request (a dogfood/mock bypass launch
+    /// otherwise pre-burns the prompt before the push scene can ask). Once the
+    /// install's onboarding is truly complete, the workspace list may recover
+    /// or request as before.
     @MainActor
-    func testAuthorizationPromptWaitsForAuthenticatedWorkspaceList() {
+    func testAuthorizationPromptWaitsForCompletedOnboarding() {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let app = XCUIApplication()
         app.launchArguments = [
@@ -25,10 +31,30 @@ final class PushReadinessUITests: XCTestCase {
         )
         XCTAssertFalse(springboard.buttons["Allow"].waitForExistence(timeout: 1))
 
+        // A bypass launch (mock workspace shell) with incomplete persisted
+        // onboarding must not surface the OS prompt.
         app.terminate()
         app.launchArguments = [
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.v3.progress.v1", "welcome",
+        ]
+        app.launchEnvironment = ["CMUX_UITEST_MOCK_DATA": "1"]
+        app.launch()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceShell"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertFalse(
+            springboard.buttons["Allow"].waitForExistence(timeout: 3),
+            "The workspace list must not auto-request before onboarding completes"
+        )
+
+        app.terminate()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.v3.progress.v1", "complete",
         ]
         app.launchEnvironment = ["CMUX_UITEST_MOCK_DATA": "1"]
         app.launch()
@@ -39,7 +65,7 @@ final class PushReadinessUITests: XCTestCase {
         let allow = springboard.buttons["Allow"]
         XCTAssertTrue(
             allow.waitForExistence(timeout: 5),
-            "Notification authorization must wait until the workspace list is visible"
+            "A completed install keeps the workspace list authorization request"
         )
         allow.tap()
     }

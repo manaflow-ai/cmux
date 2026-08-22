@@ -2,72 +2,60 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// An in-app vignette of a cmux push notification and its inline reply,
-/// matching the real payload shape (title = agent, subtitle = workspace,
-/// body = status) and the real reply action strings. Loops through banner →
-/// typing → sent; Reduce Motion shows the completed reply statically.
+/// A replica of the real lock-screen moment: an expanded cmux notification
+/// (Time Sensitive header, app icon, agent title, completion subtitle, body)
+/// with the inline-reply field open beneath it, exactly as iOS renders it
+/// during a reply. The vignette loops a typed reply; Reduce Motion shows the
+/// completed reply statically. Always rendered dark, like Notification Center.
 struct OnboardingPushPreview: View {
     private enum Phase {
-        case banner
-        case replying
+        case idle
+        case typing
         case sent
     }
 
-    @State private var phase: Phase = .banner
+    @State private var phase: Phase = .idle
     @State private var typedCharacterCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let replyText = "Run it"
+    private static let replyText = "Merge it"
     private let clock = ContinuousClock()
 
     var body: some View {
-        VStack(spacing: 14) {
-            notificationBanner
-            // Always laid out so the vignette's frame stays stable while the
-            // loop animates; only visibility changes.
+        VStack(spacing: 10) {
+            notificationCard
             replyField
-                .opacity(showsReplyField ? 1 : 0)
-                .offset(y: showsReplyField ? 0 : 6)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 24)
-        .frame(maxWidth: .infinity)
-        .background(
-            .regularMaterial,
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.string(
             "mobile.onboarding.push.previewAccessibility",
-            defaultValue: "Example cmux notification: the agent claude asks for approval, and you reply from the notification without opening the app."
+            defaultValue: "Example cmux notification: the agent claude finished and asks about merging, and you reply from the notification without opening the app."
         ))
         .accessibilityIdentifier("MobileOnboardingPushPreview")
         .task {
             guard !reduceMotion else {
                 typedCharacterCount = Self.replyText.count
-                phase = .replying
+                phase = .typing
                 return
             }
             await runLoop()
         }
     }
 
-    private var showsReplyField: Bool {
-        phase != .banner
-    }
-
-    private var notificationBanner: some View {
-        HStack(alignment: .top, spacing: 12) {
+    private var notificationCard: some View {
+        HStack(alignment: .center, spacing: 12) {
             appIcon
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(verbatim: "claude")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                    Text(L10n.string(
+                        "mobile.onboarding.push.previewTimeSensitive",
+                        defaultValue: "TIME SENSITIVE"
+                    ))
+                    .font(.caption2.weight(.medium))
+                    .kerning(0.6)
+                    .foregroundStyle(.secondary)
                     Spacer(minLength: 8)
                     Text(L10n.string(
                         "mobile.onboarding.push.previewTime",
@@ -76,48 +64,58 @@ struct OnboardingPushPreview: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                Text(verbatim: "issue-4821")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Text(verbatim: "claude")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(L10n.string(
+                    "mobile.onboarding.push.previewSubtitle",
+                    defaultValue: "Completed in issue-4821"
+                ))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
                 Text(L10n.string(
                     "mobile.onboarding.push.previewBody",
-                    defaultValue: "Approval needed"
+                    defaultValue: "Tests are green and the PR is ready for review. Want me to merge it?"
                 ))
-                .font(.footnote)
-                .foregroundStyle(.primary)
+                .font(.subheadline)
+                .foregroundStyle(.primary.opacity(0.9))
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
         .background(
-            .thinMaterial,
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .regularMaterial,
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.10), radius: 14, y: 6)
+        .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
     }
 
     private var appIcon: some View {
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(Color.black.gradient)
-            .frame(width: 38, height: 38)
+            .fill(.white)
+            .frame(width: 40, height: 40)
             .overlay {
-                Text(verbatim: ">_")
-                    .font(.system(size: 15, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white)
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 19, weight: .black))
+                    .foregroundStyle(Color.accentColor)
             }
     }
 
     private var replyField: some View {
         HStack(spacing: 10) {
-            Group {
+            HStack(spacing: 1) {
                 if typedCharacterCount > 0 {
                     Text(String(Self.replyText.prefix(typedCharacterCount)))
                         .foregroundStyle(.primary)
-                } else {
-                    // Reuses the real reply action's placeholder from this
+                }
+                if phase != .sent {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.accentColor)
+                        .frame(width: 2, height: 20)
+                        .accessibilityHidden(true)
+                }
+                if typedCharacterCount == 0 {
+                    // Reuses the real reply action's strings from this
                     // package's catalog, so the vignette matches the actual
                     // notification text field.
                     Text(String(
@@ -125,66 +123,51 @@ struct OnboardingPushPreview: View {
                         defaultValue: "Message the agent…",
                         bundle: .module
                     ))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                 }
             }
-            .font(.subheadline)
+            .font(.body)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Group {
-                if phase == .sent {
-                    Label(
-                        L10n.string(
-                            "mobile.onboarding.push.previewSent",
-                            defaultValue: "Sent to your Mac"
-                        ),
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .labelStyle(.titleAndIcon)
-                } else {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(
-                            typedCharacterCount > 0 ? Color.accentColor : Color.secondary.opacity(0.4)
-                        )
-                }
-            }
-            .frame(height: 24)
+            Text(String(
+                localized: "mobile.push.reply.send",
+                defaultValue: "Send",
+                bundle: .module
+            ))
+            .font(.body)
+            .foregroundStyle(
+                typedCharacterCount > 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+            )
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 11)
         .background(
             .thinMaterial,
-            in: Capsule()
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
-        .overlay {
-            Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        }
     }
 
     private func runLoop() async {
         while !Task.isCancelled {
-            setPhase(.banner, typedCharacters: 0)
+            setPhase(.idle, typedCharacters: 0)
             guard await pause(for: .seconds(1.4)) else { return }
 
-            setPhase(.replying, typedCharacters: 0)
-            guard await pause(for: .seconds(0.6)) else { return }
+            setPhase(.typing, typedCharacters: 0)
+            guard await pause(for: .seconds(0.5)) else { return }
             for count in 1...Self.replyText.count {
                 typedCharacterCount = count
                 guard await pause(for: .milliseconds(110)) else { return }
             }
-            guard await pause(for: .seconds(0.4)) else { return }
+            guard await pause(for: .seconds(0.5)) else { return }
 
             setPhase(.sent, typedCharacters: Self.replyText.count)
-            guard await pause(for: .seconds(1.8)) else { return }
+            guard await pause(for: .seconds(1.6)) else { return }
         }
     }
 
     private func setPhase(_ newPhase: Phase, typedCharacters: Int) {
-        withAnimation(.smooth(duration: 0.3)) {
+        withAnimation(.smooth(duration: 0.25)) {
             phase = newPhase
             typedCharacterCount = typedCharacters
         }
