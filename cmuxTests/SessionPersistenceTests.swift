@@ -7155,6 +7155,17 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding)
     }
 
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommandOption() {
+        let binding = SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "-o", "RemoteCommand=uname -a", "tinybox"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

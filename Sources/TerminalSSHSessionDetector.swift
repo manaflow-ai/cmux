@@ -538,6 +538,10 @@ enum TerminalSSHSessionDetector {
                valueArgumentFlags.contains(option) {
                 // -W host:port is a stream forward, not an interactive shell.
                 if option == "W" { return false }
+                if option == "o",
+                   isNonInteractiveSSHOption(String(argument.dropFirst(2))) {
+                    return false
+                }
                 index += 1
                 continue
             }
@@ -545,6 +549,11 @@ enum TerminalSSHSessionDetector {
                let option = argument.dropFirst().first,
                valueArgumentFlags.contains(option) {
                 if option == "W" { return false }
+                if option == "o",
+                   index + 1 < arguments.count,
+                   isNonInteractiveSSHOption(arguments[index + 1]) {
+                    return false
+                }
                 index += 2
                 continue
             }
@@ -559,6 +568,16 @@ enum TerminalSSHSessionDetector {
             index += 1
         }
         return false
+    }
+
+    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
+        let key = rawOption
+            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return key == "remotecommand" ||
+            (key == "sessiontype" && rawOption.lowercased().contains("none"))
     }
 
     private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {

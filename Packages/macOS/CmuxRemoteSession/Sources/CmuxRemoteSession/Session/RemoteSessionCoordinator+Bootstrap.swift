@@ -55,6 +55,10 @@ extension RemoteSessionCoordinator {
             let diagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
             Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: diagnostic)
             guard hadExistingBinary else {
+                // The just-installed artifact passed transport verification but
+                // failed its hello contract; do not leave it to strand the next
+                // reconnect behind a path-only probe.
+                try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
                 throw Self.annotatedRemoteDaemonBootstrapError(
                     error,
                     remotePath: remotePath,
@@ -68,6 +72,7 @@ extension RemoteSessionCoordinator {
                 hello = try helloRemoteDaemonLocked(remotePath: remotePath)
             } catch {
                 let retryDiagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+                Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: retryDiagnostic)
                 throw Self.annotatedRemoteDaemonBootstrapError(
                     error,
                     remotePath: remotePath,
@@ -92,6 +97,7 @@ extension RemoteSessionCoordinator {
                 hello = try helloRemoteDaemonLocked(remotePath: remotePath)
             } catch {
                 let retryDiagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+                Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: retryDiagnostic)
                 throw Self.annotatedRemoteDaemonBootstrapError(
                     error,
                     remotePath: remotePath,
@@ -223,7 +229,7 @@ extension RemoteSessionCoordinator {
         let binarySize = lines.first { $0.hasPrefix(Self.remotePlatformProbeSizeMarker) }
             .flatMap { Int64(String($0.dropFirst(Self.remotePlatformProbeSizeMarker.count)).trimmingCharacters(in: .whitespacesAndNewlines)) }
         let binaryExists = binaryExistsMarker.map { marker in
-            marker && (binarySize.map { $0 > 0 } ?? true)
+            marker && (binarySize.map { $0 > 0 } ?? false)
         }
         if result.status != 0, binaryExists == nil {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
