@@ -36,12 +36,13 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   `codex-cua.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
 - The wrappers keep the signed, app-bundled skill discoverable in both agent
-  pickers: they repair `~/.agents/skills/cmux-cua` (migrating any older
-  cmux-owned `cmux-computer-use` link) before launching. Only when that repair
-  fails do they fall back to Codex's invocation-scoped `skills.config` entry or
-  Claude's session-only `--plugin-dir`, so the picker normally shows one plain
-  `cmux-cua` entry. A user-owned directory or unrelated symlink at
-  that path is never replaced. Set
+  pickers: each repairs the link in its agent's own root before launching —
+  `~/.claude/skills/cmux-cua` for Claude, `~/.agents/skills/cmux-cua` for
+  Codex (migrating any older cmux-owned `cmux-computer-use` link). Only when
+  that repair fails do they fall back to Codex's invocation-scoped
+  `skills.config` entry or Claude's session-only `--plugin-dir`, so the picker
+  normally shows one plain `cmux-cua` entry. A user-owned directory or
+  unrelated symlink at that path is never replaced. Set
   `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` when a strictly session-local
   launch is required.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux

@@ -22,9 +22,10 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-cua` skill. Both agent wrappers (Claude and Codex) repair the
-app-bundled skill link at `~/.agents/skills/cmux-cua` before launching
-(migrating any older cmux-owned `cmux-computer-use` link), so both pickers see
+`$cmux-cua` skill. Each agent wrapper repairs the app-bundled skill link in
+its agent's own discovery root before launching — `~/.claude/skills/cmux-cua`
+for Claude, `~/.agents/skills/cmux-cua` for Codex (migrating any older
+cmux-owned `~/.agents/skills/cmux-computer-use` link) — so both pickers see
 the same skill as a single plain `cmux-cua` entry. The session-scoped plugin /
 `skills.config` injection is only a fallback for when that link cannot be
 installed. No `npx skills add` step is required; a

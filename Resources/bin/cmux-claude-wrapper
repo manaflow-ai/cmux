@@ -1032,11 +1032,12 @@ cmux_claude_global_skill_install_enabled() {
 }
 
 cmux_claude_install_computer_use_skill() {
-    # Claude discovers user-wide skills under ~/.agents/skills. Keep the source
-    # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns. Returns 0 only
-    # when the cmux-cua link now points at this app bundle, so callers can skip
-    # the namespaced session-scoped fallback.
+    # Claude surfaces personal skills from ~/.claude/skills with a plain
+    # unqualified name; ~/.agents/skills is Codex's discovery root, not
+    # Claude's. Keep the source inside the signed cmux app and link it instead
+    # of copying stale versions. Never replace a real directory or a symlink
+    # the user owns. Returns 0 only when the cmux-cua link now points at this
+    # app bundle, so callers can skip the namespaced session-scoped fallback.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
     local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
@@ -1045,14 +1046,15 @@ cmux_claude_install_computer_use_skill() {
     source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
 
-    skills_root="$home/.agents/skills"
+    skills_root="$home/.claude/skills"
     destination="$skills_root/cmux-cua"
     /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
 
-    # Retire the pre-rename cmux-computer-use link so pickers do not show two
-    # copies of the same skill. Only a symlink into a cmux app bundle is
-    # removed; user-owned paths at that name are left alone.
-    legacy="$skills_root/cmux-computer-use"
+    # Retire the pre-rename cmux-computer-use link (written by older wrappers
+    # into Codex's shared root) so pickers do not show two copies of the same
+    # skill. Only a symlink into a cmux app bundle is removed; user-owned
+    # paths at that name are left alone.
+    legacy="$home/.agents/skills/cmux-computer-use"
     if [[ -L "$legacy" ]]; then
         legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
         case "$legacy_target" in

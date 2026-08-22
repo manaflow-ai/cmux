@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
 Regression tests for cmux-claude-wrapper keeping the bundled cmux-cua skill
-picker-visible: the durable ~/.agents/skills/cmux-cua link is the primary
-path (shown unqualified in the picker), the session-scoped --plugin-dir is a
-fallback used only when that link cannot be installed, and the legacy
-cmux-computer-use link is migrated away. Global discovery can be explicitly
-disabled.
+picker-visible: the durable ~/.claude/skills/cmux-cua link is the primary
+path (Claude shows personal skills there unqualified; ~/.agents/skills is
+Codex's root, which Claude does not scan), the session-scoped --plugin-dir is
+a fallback used only when that link cannot be installed, and the legacy
+~/.agents/skills/cmux-computer-use link is migrated away. Global discovery can
+be explicitly disabled.
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ exit 1
 """,
     )
 
-    destination = home / ".agents" / "skills" / "cmux-cua"
+    destination = home / ".claude" / "skills" / "cmux-cua"
     if preexisting_link_target is not None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.symlink_to(preexisting_link_target)
@@ -122,7 +123,7 @@ exit 1
         destination.mkdir(parents=True, exist_ok=True)
         (destination / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
     if preexisting_legacy_link_target is not None:
-        legacy = destination.parent / "cmux-computer-use"
+        legacy = home / ".agents" / "skills" / "cmux-computer-use"
         legacy.parent.mkdir(parents=True, exist_ok=True)
         legacy.symlink_to(preexisting_legacy_link_target)
 
@@ -207,7 +208,7 @@ def test_claude_migrates_legacy_computer_use_link(failures: list[str]) -> None:
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
         failures,
     )
-    legacy = link.parent / "cmux-computer-use"
+    legacy = link.parents[2] / ".agents" / "skills" / "cmux-computer-use"
     expect(
         not legacy.exists() and not legacy.is_symlink(),
         f"expected the cmux-owned legacy link removed, found {legacy}",
@@ -236,7 +237,7 @@ def test_claude_leaves_user_owned_legacy_links_alone(failures: list[str]) -> Non
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
         failures,
     )
-    legacy = link.parent / "cmux-computer-use"
+    legacy = link.parents[2] / ".agents" / "skills" / "cmux-computer-use"
     expect(
         legacy.is_symlink() and os.readlink(legacy) == str(foreign),
         "expected a user-owned cmux-computer-use link untouched by migration",
