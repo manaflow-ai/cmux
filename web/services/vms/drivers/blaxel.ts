@@ -736,7 +736,10 @@ export class BlaxelProvider implements VMProvider {
     if (prefixUrl && customDomain) {
       created = await blaxelFetch<BlaxelPreview>("POST", base, {
         metadata: { name: previewName },
-        spec: { port, public: false, customDomain: `${prefixUrl}.${customDomain}` },
+        // Blaxel's API takes the bare verified domain in customDomain and composes the
+        // host from prefixUrl: {prefixUrl: "noble-wren", customDomain: "vm.cmux.sh"} →
+        // https://noble-wren.vm.cmux.sh. Passing the full host 404s ("Custom domain not found").
+        spec: { port, public: false, prefixUrl, customDomain },
       }).catch(() => null);
     }
     if (!created && prefixUrl) {
