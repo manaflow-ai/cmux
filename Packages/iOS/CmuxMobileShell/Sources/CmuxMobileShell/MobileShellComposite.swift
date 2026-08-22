@@ -10852,13 +10852,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// empty terminal frame when only Mac surfaces or streamed panels exist.
     private func syncDefaultSurfaceForWorkspace() {
         guard let selectedWorkspace else { return }
+        let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
         if let selectedMacSurfaceID,
-           selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
-            return
-        } else if selectedMacSurfaceID != nil {
+           !selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
             self.selectedMacSurfaceID = nil
         }
-        let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
         if simulatorStreamStore?.activeState(in: workspaceID) != nil {
             return
         }
@@ -10866,9 +10864,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            browserStore.activeState(in: workspaceID) != nil {
             return
         }
-        if let selectedSurface = selectedWorkspace.selectedMacSurface(id: nil) {
-            selectedMacSurfaceID = selectedSurface.id
-            return
+        if let selectedMacSurfaceID {
+            if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID)
+                .first(where: { $0.panelID == selectedMacSurfaceID.rawValue })?.panelID {
+                _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
+                return
+            }
+            if let browserStore = browserStreamEvents as? BrowserStreamStore,
+               let browserPanelID = browserStore.panels(in: workspaceID)
+                .first(where: { $0.panelID == selectedMacSurfaceID.rawValue })?.panelID {
+                _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
+                return
+            }
+            if selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
+                return
+            }
         }
         if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID).first?.panelID {
             _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
@@ -10877,6 +10887,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let browserStore = browserStreamEvents as? BrowserStreamStore,
            let browserPanelID = browserStore.panels(in: workspaceID).first?.panelID {
             _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
+            return
+        }
+        if let selectedSurface = selectedWorkspace.selectedMacSurface(id: nil) {
+            selectedMacSurfaceID = selectedSurface.id
         }
     }
 
