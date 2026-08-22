@@ -3981,6 +3981,55 @@ final class SocketClient {
         source.cancel()
     }
 
+    static func waitForFilesystemPathAbsence(_ path: String, timeout: TimeInterval) throws {
+        if !FileManager.default.fileExists(atPath: path) {
+            return
+        }
+
+        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
+            throw CLIError(message: "Timed out waiting for \(path) to be removed")
+        }
+        let watchFD = open(watchDirectory, O_EVTONLY)
+        guard watchFD >= 0 else {
+            throw CLIError(message: "Timed out waiting for \(path) to be removed")
+        }
+
+        let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
+        let semaphore = DispatchSemaphore(value: 0)
+        var removed = false
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: watchFD,
+            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
+            queue: queue
+        )
+
+        func checkPath() {
+            guard !removed else { return }
+            if !FileManager.default.fileExists(atPath: path) {
+                removed = true
+                semaphore.signal()
+            }
+        }
+
+        source.setEventHandler {
+            checkPath()
+        }
+        source.setCancelHandler {
+            Darwin.close(watchFD)
+        }
+        source.resume()
+        queue.async {
+            checkPath()
+        }
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            source.cancel()
+            throw CLIError(message: "Timed out waiting for \(path) to be removed")
+        }
+
+        source.cancel()
+    }
+
     private static func existingWatchDirectory(forPath path: String) -> String? {
         let fileManager = FileManager.default
         var candidate = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
@@ -4270,6 +4319,10 @@ struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+
+    /// Value-taking global options recognized before the command token, shared
+    /// with `CMUXTermMain.firstNonGlobalArgument` so the two option lists cannot drift.
+    static let valueTakingGlobalOptionNames: Set<String> = ["--socket", "--password", "--window", "--id-format"]
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     // Internal (not private): `vm run` in CMUXCLI+VMTransfer.swift provisions
@@ -4929,41 +4982,25 @@ struct CMUXCLI {
         var index = 1
         while index < args.count {
             let arg = args[index]
-            if arg == "--socket" {
+            if Self.valueTakingGlobalOptionNames.contains(arg) {
                 guard index + 1 < args.count else {
-                    throw CLIError(message: "--socket requires a path")
+                    let requirement = arg == "--id-format" ? "a value (refs|uuids|both)" : arg == "--window" ? "a window id" : arg == "--socket" ? "a path" : "a value"
+                    throw CLIError(message: "\(arg) requires \(requirement)")
                 }
-                explicitSocketPath = args[index + 1]
+                let value = args[index + 1]
+                switch arg {
+                case "--socket": explicitSocketPath = value
+                case "--id-format": idFormatArg = value
+                case "--window": windowId = value
+                case "--password": socketPasswordArg = value
+                default: break
+                }
                 index += 2
                 continue
             }
             if arg == "--json" {
                 jsonOutput = true
                 index += 1
-                continue
-            }
-            if arg == "--id-format" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
-                }
-                idFormatArg = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--window" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--window requires a window id")
-                }
-                windowId = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--password" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--password requires a value")
-                }
-                socketPasswordArg = args[index + 1]
-                index += 2
                 continue
             }
             if arg == "-v" || arg == "--version" {
@@ -26771,6 +26808,12 @@ struct CMUXCLI {
         return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).sig")
     }
 
+    private func tmuxWaitForLockURL(name: String) -> URL {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let sanitized = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
+        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).lock")
+    }
+
     private func runTmuxCompatCommand(
         command: String,
         commandArgs: [String],
@@ -26888,6 +26931,8 @@ struct CMUXCLI {
 
         case "wait-for":
             let signal = commandArgs.contains("-S") || commandArgs.contains("--signal")
+            let lock = commandArgs.contains("-L")
+            let unlock = commandArgs.contains("-U")
             let timeoutRaw = optionValue(commandArgs, name: "--timeout")
             let timeout = timeoutRaw.flatMap { Double($0) } ?? 30.0
             let name = commandArgs.first(where: { !$0.hasPrefix("-") }) ?? ""
@@ -26897,6 +26942,23 @@ struct CMUXCLI {
             let signalURL = tmuxWaitForSignalURL(name: name)
             if signal {
                 FileManager.default.createFile(atPath: signalURL.path, contents: Data())
+                print("OK")
+                return
+            }
+            if unlock {
+                try? FileManager.default.removeItem(at: tmuxWaitForLockURL(name: name))
+                print("OK")
+                return
+            }
+            if lock {
+                let lockURL = tmuxWaitForLockURL(name: name)
+                let deadline = Date().addingTimeInterval(timeout)
+                do {
+                    try SocketClient.waitForFilesystemPathAbsence(lockURL.path, timeout: max(0, deadline.timeIntervalSinceNow))
+                } catch {
+                    throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                }
+                FileManager.default.createFile(atPath: lockURL.path, contents: Data())
                 print("OK")
                 return
             }
@@ -40735,14 +40797,16 @@ struct CMUXTermMain {
         guard CmuxCommand.declaredCommandNames.contains(command) else {
             return false
         }
-        if CommandLine.arguments.dropFirst().contains("--help") {
+        let allArguments = Array(CommandLine.arguments.dropFirst())
+        let preSeparatorArguments = allArguments.firstIndex(of: "--").map { Array(allArguments[..<$0]) } ?? allArguments
+        if preSeparatorArguments.contains(where: { $0 == "--help" || $0 == "-h" }) {
             return CmuxCommand.facadeNativeCommandNames.contains(command)
         }
         return true
     }
 
     private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {
-        let optionsWithValues: Set<String> = ["--socket", "--password", "--window", "--id-format"]
+        let optionsWithValues = CMUXCLI.valueTakingGlobalOptionNames
         var index = arguments.startIndex
         while index < arguments.endIndex {
             let argument = arguments[index]

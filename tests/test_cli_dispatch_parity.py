@@ -139,11 +139,16 @@ def main() -> int:
         if normalized_alias_help == target_help:
             continue
         # A handful of legacy aliases intentionally print a short-form
-        # "this is an alias" summary (see docs/cli-contract.md) instead of
-        # repeating the target's full help body. That is legitimate as long
-        # as it actually names the correct target; anything else is a real
-        # divergence (e.g. an alias pointing at the wrong command).
-        if f"cmux {target}" in alias_help:
+        # "this is an alias" banner (see docs/cli-contract.md) instead of
+        # repeating the target's full help body. Match that banner
+        # structurally, in either of its two wordings, so an unrelated
+        # example mentioning the target elsewhere in the help body cannot
+        # pass this check.
+        alias_banner_patterns = (
+            rf"^Legacy alias for 'cmux {re.escape(target)}'\.",
+            rf"^Alias for `cmux {re.escape(target)}`\.",
+        )
+        if any(re.search(pattern, alias_help, flags=re.MULTILINE) for pattern in alias_banner_patterns):
             continue
         alias_failures.append((alias, target))
 

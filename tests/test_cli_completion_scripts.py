@@ -17,6 +17,11 @@ SHELL_PARSE_COMMANDS = {
     "fish": ["fish", "--no-execute"],
 }
 
+# Representative tokens that must survive generation: a top-level leaf
+# command, a nested subcommand family, and an option shared across commands.
+# A script that parses but omits all of these has silently dropped commands.
+REQUIRED_TOKENS = ["list-workspaces", "browser", "--json"]
+
 
 def resolve_cmux_cli() -> str:
     cli = os.environ.get("CMUX_CLI_BIN")
@@ -107,6 +112,13 @@ def main() -> int:
             failures.append(
                 f"cmux completion {shell}: generated script did not parse\n"
                 f"stdout={parser.stdout!r}\nstderr={parser.stderr!r}"
+            )
+            continue
+
+        missing_tokens = [token for token in REQUIRED_TOKENS if token not in completion.stdout]
+        if missing_tokens:
+            failures.append(
+                f"cmux completion {shell}: generated script is missing expected tokens {missing_tokens}"
             )
             continue
 

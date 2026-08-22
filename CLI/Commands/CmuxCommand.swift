@@ -217,7 +217,7 @@ struct CmuxCommand: ParsableCommand {
 
     /// Runs the facade while preserving the legacy CLI's exit-status contract
     /// for command-specific validation. ArgumentParser uses EX_USAGE (64) for
-    /// `ValidationError`; cmux historically reports these selector errors as 2.
+    /// `ValidationError`; cmux historically reports these selector errors as 1.
     static func runFacade() {
         do {
             var command = try parseAsRoot()

@@ -1,25 +1,7 @@
 import ArgumentParser
 import Foundation
 
-/// Routes notification and sidebar metadata facade declarations through the
-/// established CLI implementation.
-private protocol LegacyNotificationCommand: ParsableCommand {}
-
-extension LegacyNotificationCommand {
-    func run() throws {
-        try GlobalOptions().makeCLI().run()
-    }
-}
-
-private protocol NotificationTargetCommand: LegacyNotificationCommand {}
-
-extension NotificationTargetCommand {
-    static var workspaceCompletion: CompletionKind { .custom(CompletionCandidates.workspaces) }
-    static var surfaceCompletion: CompletionKind { .custom(CompletionCandidates.surfaces) }
-    static var windowCompletion: CompletionKind { .custom(CompletionCandidates.windows) }
-}
-
-struct NotifyCommand: NotificationTargetCommand {
+struct NotifyCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("title")) var title: String?
     @Option(name: .customLong("subtitle")) var subtitle: String?
     @Option(name: .customLong("body")) var body: String?
@@ -31,12 +13,12 @@ struct NotifyCommand: NotificationTargetCommand {
     static let configuration = CommandConfiguration(commandName: "notify", helpNames: [])
 }
 
-struct ListNotificationsCommand: LegacyNotificationCommand {
+struct ListNotificationsCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "list-notifications", helpNames: [])
 }
 
-struct DismissNotificationCommand: LegacyNotificationCommand {
+struct DismissNotificationCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("id")) var id: String?
     @Flag(name: .customLong("all-read")) var allRead = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -57,7 +39,7 @@ struct DismissNotificationCommand: LegacyNotificationCommand {
     }
 }
 
-struct MarkNotificationReadCommand: NotificationTargetCommand {
+struct MarkNotificationReadCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("id")) var id: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surface: String?
@@ -91,30 +73,30 @@ struct MarkNotificationReadCommand: NotificationTargetCommand {
     }
 }
 
-struct OpenNotificationCommand: LegacyNotificationCommand {
+struct OpenNotificationCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("id")) var id: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "open-notification", helpNames: [])
 }
 
-struct JumpToUnreadCommand: LegacyNotificationCommand {
+struct JumpToUnreadCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "jump-to-unread", helpNames: [])
 }
 
-struct ClearNotificationsCommand: NotificationTargetCommand {
+struct ClearNotificationsCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "clear-notifications", helpNames: [])
 }
 
-struct FeedCommand: LegacyNotificationCommand {
+struct FeedCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "feed", helpNames: [])
 }
 
-struct EventsCommand: LegacyNotificationCommand {
+struct EventsCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("after")) var after: Int?
     @Option(name: .customLong("cursor-file"), completion: .file()) var cursorFile: String?
     @Option(name: .customLong("name")) var names: [String] = []
@@ -129,7 +111,7 @@ struct EventsCommand: LegacyNotificationCommand {
     static let configuration = CommandConfiguration(commandName: "events", helpNames: [])
 }
 
-struct LogCommand: NotificationTargetCommand {
+struct LogCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("level"), completion: .list(["info", "progress", "success", "warning", "error"])) var level: String?
     @Option(name: .customLong("source")) var source: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
@@ -138,7 +120,7 @@ struct LogCommand: NotificationTargetCommand {
     static let configuration = CommandConfiguration(commandName: "log", helpNames: [])
 }
 
-struct ListLogCommand: NotificationTargetCommand {
+struct ListLogCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Option(name: .customLong("limit")) var limit: Int?
@@ -146,14 +128,14 @@ struct ListLogCommand: NotificationTargetCommand {
     static let configuration = CommandConfiguration(commandName: "list-log", helpNames: [])
 }
 
-struct ClearLogCommand: NotificationTargetCommand {
+struct ClearLogCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "clear-log", helpNames: [])
 }
 
-struct SetStatusCommand: NotificationTargetCommand {
+struct SetStatusCommand: SharedLegacyFacadeCommand {
     @Argument var key: String?
     @Argument var value: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
@@ -165,14 +147,14 @@ struct SetStatusCommand: NotificationTargetCommand {
     static let configuration = CommandConfiguration(commandName: "set-status", helpNames: [])
 }
 
-struct ListStatusCommand: NotificationTargetCommand {
+struct ListStatusCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "list-status", helpNames: [])
 }
 
-struct ClearStatusCommand: NotificationTargetCommand {
+struct ClearStatusCommand: SharedLegacyFacadeCommand {
     @Argument var key: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
@@ -180,7 +162,7 @@ struct ClearStatusCommand: NotificationTargetCommand {
     static let configuration = CommandConfiguration(commandName: "clear-status", helpNames: [])
 }
 
-struct SetProgressCommand: NotificationTargetCommand {
+struct SetProgressCommand: SharedLegacyFacadeCommand {
     @Argument var progress: String?
     @Option(name: .customLong("label")) var label: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
@@ -189,7 +171,7 @@ struct SetProgressCommand: NotificationTargetCommand {
     static let configuration = CommandConfiguration(commandName: "set-progress", helpNames: [])
 }
 
-struct ClearProgressCommand: NotificationTargetCommand {
+struct ClearProgressCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []

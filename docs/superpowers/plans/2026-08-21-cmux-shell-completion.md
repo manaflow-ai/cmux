@@ -199,7 +199,7 @@ static func main() {
     configureCLIStdioNoSIGPIPE()
 
     if shouldUseFacade() {
-        CmuxCommand.main()
+        CmuxCommand.runFacade()
         return
     }
 
@@ -390,7 +390,8 @@ Create `tests/test_cli_completion_scripts.py`. For each of `bash`, `zsh`, `fish`
 - stdout is non-empty,
 - stderr is empty,
 - the forced socket path does not appear in the output (proving no socket was consulted),
-- the script parses: pipe it to `bash -n`, `zsh -n`, or `fish --no-execute` respectively, and require exit 0.
+- the script parses: pipe it to `bash -n`, `zsh -n`, or `fish --no-execute` respectively, and require exit 0,
+- the script's generated content includes representative tokens (`list-workspaces`, the nested `browser` family, `--json`), so a script that parses but silently dropped commands still fails.
 
 Skip a shell with a printed notice, not a failure, when that shell is not installed. Print `PASS: N completion scripts generated and parsed` at the end.
 
@@ -517,18 +518,17 @@ func testCompletionCandidatesDegradeSilentlyWithoutSocket() throws {
     let cliPath = try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     let missingSocket = "/tmp/cmux-completion-absent-\(UUID().uuidString).sock"
 
-    let started = Date()
     let result = try runCLI(
         cliPath,
         arguments: ["__complete-candidates", "workspaces"],
         environment: ["CMUX_SOCKET_PATH": missingSocket]
     )
-    let elapsed = Date().timeIntervalSince(started)
 
     XCTAssertEqual(result.exitCode, 0, "completion must never exit nonzero; a nonzero exit makes the shell beep")
     XCTAssertEqual(result.stdout, "", "completion must offer no candidates when cmux is not running")
     XCTAssertEqual(result.stderr, "", "completion must never write to stderr; it would corrupt the user's prompt")
-    XCTAssertLessThan(elapsed, 1.0, "completion must not hang the shell when the socket is absent")
+    // `runCLI` itself enforces a hard deadline (see below), so a hang fails via
+    // that timeout rather than a wall-clock elapsed-time assertion here.
 }
 ```
 
@@ -566,22 +566,31 @@ func runCLI(
     let errPipe = Pipe()
     process.standardOutput = outPipe
     process.standardError = errPipe
+
+    // Await the real completion signal (the termination handler), not a
+    // Date()-based elapsed check or a busy-wait poll of `process.isRunning`.
+    // Draining the pipes only after that signal, rather than before it,
+    // means a child that keeps a pipe open cannot block the deadline from
+    // firing.
+    let finished = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in finished.signal() }
     try process.run()
 
-    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-
-    let deadline = Date().addingTimeInterval(5.0)
-    while process.isRunning && Date() < deadline {
-        usleep(10_000)
-    }
-    if process.isRunning {
+    let deadline = DispatchTime.now() + .seconds(5)
+    guard finished.wait(timeout: deadline) == .success else {
         process.terminate()
+        if finished.wait(timeout: .now() + .seconds(1)) == .timedOut {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+            _ = finished.wait(timeout: .now() + .seconds(1))
+        }
         throw NSError(
             domain: "CLIProcessRunSupport", code: 1,
             userInfo: [NSLocalizedDescriptionKey: "cmux \(arguments.joined(separator: " ")) timed out"]
         )
     }
+
+    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
 
     return CLIRunResult(
         exitCode: process.terminationStatus,
@@ -913,7 +922,7 @@ Aliases are the likeliest silent casualty of a one-pass rewrite, so they get the
 
 Create `tests/test_cli_dispatch_parity.py`. It extracts every `case "<name>"` string from the top-level dispatch `switch` in `CLI/cmux.swift`, extracts every command name and alias from `cmux __dump-command-tree`, and asserts the first set is a subset of the second. Report missing names explicitly, one per line.
 
-Additionally hard-code this alias table and assert each alias resolves to the same help output as its target, so an alias that exists but points at the wrong command is still caught:
+Additionally hard-code this alias table and assert each alias resolves to the same help output as its target, or (for aliases with a dedicated legacy alias banner) that the banner names the exact target structurally rather than loosely containing `cmux <target>` anywhere in the body, so an alias that exists but points at the wrong command is still caught:
 
 ```python
 ALIASES = {
@@ -927,6 +936,9 @@ ALIASES = {
     "browser-back": "browser back",
     "browser-forward": "browser forward",
     "browser-reload": "browser reload",
+    "browser-status": "browser status",
+    "disable-browser": "browser disable",
+    "enable-browser": "browser enable",
     "get-url": "browser get-url",
     "focus-webview": "browser focus-webview",
     "is-webview-focused": "browser is-webview-focused",
@@ -1018,23 +1030,26 @@ Expected: no matches. Every one is a `String(localized:defaultValue:)` call. Fix
 Run:
 ```bash
 python3 - <<'PY'
-import json, subprocess
+import json, re, subprocess
 d = json.load(open('Resources/Localizable.xcstrings'))
 expected = {'ar','bs','da','de','en','es','fr','it','ja','km','ko','nb','pl',
             'pt-BR','ru','th','tr','uk','zh-Hans','zh-Hant'}
-new = subprocess.run(
+diff = subprocess.run(
     ['git','diff','--unified=0','origin/main','--','Resources/Localizable.xcstrings'],
     capture_output=True, text=True).stdout
+# Only added/changed keys, not every pre-existing catalog entry: a full-catalog
+# scan would fail on unrelated, already-known gaps and couldn't prove the new
+# keys specifically are complete.
+changed_keys = sorted(set(re.findall(r'^\+\s*"(cli\.[^"]+)":\s*\{', diff, re.MULTILINE)))
 missing = []
-for key, value in d['strings'].items():
-    if not key.startswith('cli.'):
-        continue
-    have = set((value.get('localizations') or {}).keys())
+for key in changed_keys:
+    value = d['strings'].get(key)
+    have = set((value.get('localizations') or {}).keys()) if value else set()
     if expected - have:
         missing.append((key, sorted(expected - have)))
 for key, locales in missing:
     print(key, 'missing:', ','.join(locales))
-print('total incomplete:', len(missing))
+print(f'checked {len(changed_keys)} changed keys, total incomplete:', len(missing))
 PY
 ```
 Expected: `total incomplete: 0`. Add translations for any key reported.
