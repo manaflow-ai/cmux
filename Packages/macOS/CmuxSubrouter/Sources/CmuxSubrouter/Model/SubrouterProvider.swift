@@ -1,10 +1,9 @@
 /// An AI-agent provider namespace known to the subrouter daemon.
 ///
-/// Modeled as a raw-value struct (not an `enum`) so accounts from a newer
-/// daemon with providers this build does not know about decode losslessly
-/// instead of failing. The daemon currently reports ``codex`` and ``claude``;
-/// Gemini profiles are listable via `sr gemini` only and never appear in the
-/// daemon's HTTP responses.
+/// Modeled as a raw-value struct (not an `enum`) so provider values added by a
+/// newer daemon decode losslessly instead of failing the whole response. The
+/// transport can therefore carry providers that do not yet have a first-class
+/// cmux account-management surface.
 public struct SubrouterProvider: RawRepresentable, Hashable, Sendable, Codable {
     /// The OpenAI Codex provider (`"codex"`). Switching a Codex account also
     /// syncs OpenCode and pi credential files on the daemon side.
@@ -35,5 +34,17 @@ public struct SubrouterProvider: RawRepresentable, Hashable, Sendable, Codable {
     /// `sr` CLI (`sr switch` for Codex, `sr claude switch` for Claude).
     public var supportsSwitching: Bool {
         self == .codex || self == .claude
+    }
+
+    /// Whether cmux has a first-class account-management surface for this
+    /// provider. Unknown daemon providers remain available in the raw
+    /// snapshot for diagnostics, but are not presented as incomplete account
+    /// sections in the panel or footer switcher.
+    ///
+    /// The current account-management actions and switching path cover the
+    /// same provider set, so this capability intentionally follows
+    /// ``supportsSwitching`` as the shared policy source.
+    public var supportsAccountManagement: Bool {
+        supportsSwitching
     }
 }

@@ -43,8 +43,12 @@ public struct SubrouterSnapshot: Sendable, Equatable {
 }
 
 extension SubrouterSnapshot {
-    /// The providers present in ``usageStatuses``, Codex first, then Claude,
-    /// then any unknown providers in order of first appearance.
+    /// The providers present in ``usageStatuses`` that have a first-class
+    /// account-management surface, Codex first and Claude second.
+    ///
+    /// Unknown daemon providers stay in ``usageStatuses`` so transport data is
+    /// not discarded, but they do not leak into the account UI's provider
+    /// lists until cmux gives them deliberate controls and presentation.
     public var providers: [SubrouterProvider] {
         var seen = Set<SubrouterProvider>()
         var ordered: [SubrouterProvider] = []
@@ -52,7 +56,8 @@ extension SubrouterSnapshot {
             seen.insert(known)
             ordered.append(known)
         }
-        for status in usageStatuses where !seen.contains(status.provider) {
+        for status in usageStatuses
+            where status.provider.supportsAccountManagement && !seen.contains(status.provider) {
             seen.insert(status.provider)
             ordered.append(status.provider)
         }
@@ -60,14 +65,16 @@ extension SubrouterSnapshot {
     }
 
     /// The providers to render as panel sections: the supported set always
-    /// (each agent type stays visible with its icon and add path even
-    /// before any account exists), then unknown daemon-reported extras.
+    /// (each agent type stays visible with its icon and add path even before
+    /// any account exists), plus any newly supported provider values reported
+    /// by the daemon.
     /// The footer popover keeps using ``providers`` — a compact popover
     /// has no room for empty sections.
     public var sectionProviders: [SubrouterProvider] {
         var seen: Set<SubrouterProvider> = [.codex, .claude]
         var ordered: [SubrouterProvider] = [.codex, .claude]
-        for status in usageStatuses where !seen.contains(status.provider) {
+        for status in usageStatuses
+            where status.provider.supportsAccountManagement && !seen.contains(status.provider) {
             seen.insert(status.provider)
             ordered.append(status.provider)
         }
