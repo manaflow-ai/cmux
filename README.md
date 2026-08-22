@@ -120,7 +120,7 @@ On first launch, macOS may ask you to confirm opening an app from an identified 
 
 ### Shell completion
 
-Add the line for your shell, then start a new shell:
+Add the matching line to your shell startup file, then start a new shell:
 
 ```bash
 # zsh
