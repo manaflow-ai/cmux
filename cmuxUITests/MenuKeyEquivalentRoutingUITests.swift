@@ -317,10 +317,16 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
                 "Expected the wide browser toolbar to expose \(identifier)"
             )
         }
+        XCTAssertGreaterThan(
+            toolbarElement(app, identifier: "BrowserOverflowMenu").frame.minX,
+            toolbarElement(app, identifier: "BrowserThemeModeButton").frame.maxX,
+            "More should be the rightmost accessory control"
+        )
 
         let inlineOverflowActionIdentifiers = [
             "BrowserFocusModeButton",
             "BrowserScreenshotPageButton",
+            "BrowserScreenshotSectionButton",
         ]
         for identifier in inlineOverflowActionIdentifiers {
             XCTAssertFalse(
@@ -335,6 +341,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         let overflowActionIdentifiers = [
             "BrowserOverflowFocusModeButton",
             "BrowserScreenshotPageButton",
+            "BrowserScreenshotSectionButton",
         ]
         for identifier in overflowActionIdentifiers {
             XCTAssertTrue(
@@ -351,6 +358,11 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             app.menuItems.matching(identifier: "BrowserScreenshotPageButton").firstMatch.label,
             "Screenshot Page",
             "Screenshot should use the compact menu label"
+        )
+        XCTAssertEqual(
+            app.menuItems.matching(identifier: "BrowserScreenshotSectionButton").firstMatch.label,
+            "Screenshot Section",
+            "Screenshot Section should use the concise menu label"
         )
         XCTAssertFalse(
             app.menuItems.matching(identifier: "BrowserOverflowDesignModeButton").firstMatch.exists,
