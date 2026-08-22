@@ -9,23 +9,7 @@ public enum SimStreamPixelBufferError: Error, Equatable {
     case scaleFailed(Int)
 }
 
-/// Encode dimensions for a source frame under a long-side cap, rounded to
-/// even values for codec friendliness. Pure so tests pin the math.
-public func simStreamEncodeSize(
-    sourceWidth: Int, sourceHeight: Int, maximumLongSide: Int
-) -> (width: Int, height: Int) {
-    let longSide = max(sourceWidth, sourceHeight)
-    var width = sourceWidth
-    var height = sourceHeight
-    if maximumLongSide > 0, longSide > maximumLongSide {
-        let ratio = Double(maximumLongSide) / Double(longSide)
-        width = Int((Double(sourceWidth) * ratio).rounded())
-        height = Int((Double(sourceHeight) * ratio).rounded())
-    }
-    width = max(2, width & ~1)
-    height = max(2, height & ~1)
-    return (width, height)
-}
+
 
 /// Pools BGRA pixel buffers and fills them from packed-BGRA frame bytes.
 ///
@@ -33,7 +17,29 @@ public func simStreamEncodeSize(
 /// shared-memory ring and VideoToolbox (the ring's stable slots must never be
 /// aliased by encoder-retained buffers). Pooling keeps it allocation-free in
 /// steady state.
+/// Checked `Sendable`: the pool cache must be reachable synchronously from
+/// the encode path (an actor hop per frame would serialize pixel copies
+/// behind unrelated actor work), so a private lock guards the three cache
+/// fields instead of actor isolation. Every access is inside `pool(width:height:)`.
 public final class SimStreamPixelBufferFactory: @unchecked Sendable {
+    /// Encode dimensions for a source frame under a long-side cap, rounded to
+    /// even values for codec friendliness. Pure so tests pin the math.
+    public static func encodeSize(
+        sourceWidth: Int, sourceHeight: Int, maximumLongSide: Int
+    ) -> (width: Int, height: Int) {
+        let longSide = max(sourceWidth, sourceHeight)
+        var width = sourceWidth
+        var height = sourceHeight
+        if maximumLongSide > 0, longSide > maximumLongSide {
+            let ratio = Double(maximumLongSide) / Double(longSide)
+            width = Int((Double(sourceWidth) * ratio).rounded())
+            height = Int((Double(sourceHeight) * ratio).rounded())
+        }
+        width = max(2, width & ~1)
+        height = max(2, height & ~1)
+        return (width, height)
+    }
+
     private let lock = NSLock()
     private var pool: CVPixelBufferPool?
     private var poolWidth = 0
@@ -55,7 +61,7 @@ public final class SimStreamPixelBufferFactory: @unchecked Sendable {
         else {
             throw SimStreamPixelBufferError.geometryMismatch
         }
-        let target = simStreamEncodeSize(
+        let target = Self.encodeSize(
             sourceWidth: width, sourceHeight: height, maximumLongSide: maximumLongSide)
         if target.width != width || target.height != height {
             return try makeScaledPixelBuffer(

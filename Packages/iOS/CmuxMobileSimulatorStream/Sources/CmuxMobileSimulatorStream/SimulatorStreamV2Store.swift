@@ -34,6 +34,7 @@ public final class SimulatorStreamV2Store {
 
     @ObservationIgnored private var lifecycle = SimStreamViewerLifecycle()
     @ObservationIgnored private var engine: SimStreamViewerEngine?
+    @ObservationIgnored private var inputRelayTask: Task<Void, Never>?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
@@ -104,7 +105,14 @@ public final class SimulatorStreamV2Store {
 
     public func send(_ event: SimStreamInputEvent) {
         guard let engine else { return }
-        Task { await engine.send(event) }
+        // One chained task per event: independent Tasks hopping to the same
+        // actor are not ordered, and a reordered began/moved/ended would
+        // corrupt the injected touch sequence.
+        let previous = inputRelayTask
+        inputRelayTask = Task {
+            await previous?.value
+            await engine.send(event)
+        }
     }
 
     public func sendText(_ text: String) {
@@ -165,6 +173,8 @@ public final class SimulatorStreamV2Store {
     }
 
     private func teardown() {
+        inputRelayTask?.cancel()
+        inputRelayTask = nil
         runTask?.cancel()
         runTask = nil
         watchdogTask?.cancel()
@@ -209,9 +219,10 @@ public final class SimulatorStreamV2Store {
                     guard self.lifecycle.phase == .streaming
                         || self.lifecycle.phase == .starting
                     else { return false }
+                    let timeoutSeconds = Double(timeout.components.seconds)
+                        + Double(timeout.components.attoseconds) * 1e-18
                     if let last = self.lastPresentedFrameAt,
-                        Date().timeIntervalSince(last)
-                            < Double(timeout.components.seconds)
+                        Date().timeIntervalSince(last) < timeoutSeconds
                     {
                         return false
                     }

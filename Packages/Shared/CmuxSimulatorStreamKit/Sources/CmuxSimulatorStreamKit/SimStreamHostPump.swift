@@ -70,6 +70,7 @@ public actor SimStreamHostPump {
     private var needsKeyframe = true
     private var consecutiveEncodeFailures = 0
     private var lastFrameSentAt: TimeInterval?
+    private var streamStartedAt: TimeInterval?
     private var started = false
     private var shutDown = false
 
@@ -110,6 +111,7 @@ public actor SimStreamHostPump {
         // to show something: re-deliver the newest existing frame.
         lastCopiedSourceSequence = nil
         started = true
+        streamStartedAt = now()
         if drainTask == nil {
             drainTask = Task { [weak self] in
                 guard let self else { return }
@@ -165,11 +167,17 @@ public actor SimStreamHostPump {
     /// and forcing a keyframe.
     public func isStalled(olderThan interval: TimeInterval) -> Bool {
         guard started, !shutDown, source != nil, gate.hasCredit else { return false }
-        guard let lastFrameSentAt else { return true }
-        return now() - lastFrameSentAt > interval
+        // Grace from the last progress marker: the most recent frame, or the
+        // stream start when nothing has been sent yet.
+        guard let reference = lastFrameSentAt ?? streamStartedAt else { return false }
+        return now() - reference > interval
     }
 
     public func shutdown() async {
+        await performShutdown()
+    }
+
+    private func performShutdown() async {
         guard !shutDown else { return }
         shutDown = true
         drainTask?.cancel()
@@ -193,7 +201,7 @@ public actor SimStreamHostPump {
 
     private func encodeAndSend(_ frame: SimStreamSourceFrame) async {
         do {
-            let target = simStreamEncodeSize(
+            let target = SimStreamPixelBufferFactory.encodeSize(
                 sourceWidth: frame.width, sourceHeight: frame.height,
                 maximumLongSide: maximumLongSide)
             let encoder = try await currentEncoder(width: target.width, height: target.height)
@@ -235,7 +243,19 @@ public actor SimStreamHostPump {
                 presentationMicroseconds: timestampMicroseconds,
                 payload: encoded.data
             )
-            try await sink.send(SimStreamWireCodec.encodeFramed(.frame(message)))
+            do {
+                try await sink.send(SimStreamWireCodec.encodeFramed(.frame(message)))
+            } catch {
+                // The frame never reached the viewer, so its credit must not
+                // stay consumed (the viewer can never ack it). Self-settling
+                // the sequence keeps the window honest; the session's read
+                // loop surfaces the dead lane if the failure was terminal.
+                gate.acknowledge(wireSequence)
+                sendTimesBySequence.removeValue(forKey: wireSequence)
+                needsKeyframe = true
+                lastCopiedSourceSequence = frame.sequence == 0 ? nil : frame.sequence - 1
+                return
+            }
             lastFrameSentAt = now()
             needsKeyframe = false
             consecutiveEncodeFailures = 0
@@ -252,7 +272,9 @@ public actor SimStreamHostPump {
             // Re-deliver the same frame on the next wake.
             lastCopiedSourceSequence = frame.sequence == 0 ? nil : frame.sequence - 1
             if consecutiveEncodeFailures >= 3 {
-                shutDown = true
+                // Full shutdown, not just the flag: a fatal pump must still
+                // release its encoder, drain task, and signal stream.
+                await performShutdown()
                 onFatal("encoding failed repeatedly: \(error)")
             }
         }

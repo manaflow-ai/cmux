@@ -187,13 +187,13 @@ struct SimStreamVideoRoundTripTests {
 
     @Test
     func encodeSizeClampsLongSideAndKeepsAspectEven() {
-        let clamped = simStreamEncodeSize(
+        let clamped = SimStreamPixelBufferFactory.encodeSize(
             sourceWidth: 2048, sourceHeight: 2732, maximumLongSide: 1366)
         #expect(clamped == (width: 1024, height: 1366))
-        let untouched = simStreamEncodeSize(
+        let untouched = SimStreamPixelBufferFactory.encodeSize(
             sourceWidth: 1179, sourceHeight: 2556, maximumLongSide: 2556)
         #expect(untouched == (width: 1178, height: 2556))  // even-rounded width
-        let uncapped = simStreamEncodeSize(
+        let uncapped = SimStreamPixelBufferFactory.encodeSize(
             sourceWidth: 320, sourceHeight: 640, maximumLongSide: 0)
         #expect(uncapped == (width: 320, height: 640))
     }

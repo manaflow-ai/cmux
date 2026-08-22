@@ -148,7 +148,7 @@ private final class EventLog: @unchecked Sendable {
 @Suite
 struct SimStreamViewerEngineTests {
     /// A real H.264 keyframe + delta so sample-buffer creation succeeds.
-    private static func encodedFixture() throws -> (
+    private static func encodedFixture() async throws -> (
         config: SimStreamConfig, keyframe: SimStreamFrame, delta: SimStreamFrame
     ) {
         let width = 96
@@ -157,33 +157,17 @@ struct SimStreamViewerEngineTests {
             codec: .h264, width: width, height: height, bitsPerSecond: 1_000_000)
         let factory = SimStreamPixelBufferFactory()
 
-        func pixels(_ fill: UInt8) -> Data {
-            Data(repeating: fill, count: width * 4 * height)
+        var encodedFrames: [SimStreamEncodedFrame] = []
+        for step in 0..<2 {
+            let buffer = try factory.makePixelBuffer(
+                pixels: Data(repeating: UInt8(40 + step * 60), count: width * 4 * height),
+                width: width, height: height, bytesPerRow: width * 4)
+            encodedFrames.append(
+                try await encoder.encode(
+                    buffer, presentationMicroseconds: UInt64(step) * 16_666,
+                    forceKeyframe: step == 0))
         }
-        var config: SimStreamConfig?
-        var frames: [SimStreamFrame] = []
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = FixtureBox()
-        Task {
-            do {
-                for step in 0..<2 {
-                    let buffer = try factory.makePixelBuffer(
-                        pixels: pixels(UInt8(40 + step * 60)), width: width,
-                        height: height, bytesPerRow: width * 4)
-                    let encoded = try await encoder.encode(
-                        buffer, presentationMicroseconds: UInt64(step) * 16_666,
-                        forceKeyframe: step == 0)
-                    box.append(encoded)
-                }
-            } catch {
-                box.fail(error)
-            }
-            semaphore.signal()
-        }
-        semaphore.wait()
-        if let error = box.error { throw error }
-        let encodedFrames = box.frames
-        config = SimStreamConfig(
+        let config = SimStreamConfig(
             codec: .h264,
             pixelWidth: UInt32(width),
             pixelHeight: UInt32(height),
@@ -192,7 +176,7 @@ struct SimStreamViewerEngineTests {
             parameterSets: encodedFrames[0].parameterSets,
             nalUnitHeaderLength: encodedFrames[0].nalUnitHeaderLength
         )
-        frames = encodedFrames.enumerated().map { index, encoded in
+        let frames = encodedFrames.enumerated().map { index, encoded in
             SimStreamFrame(
                 sequence: UInt64(index + 1),
                 flags: encoded.isKeyframe ? [.keyframe] : [],
@@ -200,12 +184,12 @@ struct SimStreamViewerEngineTests {
                 payload: encoded.data
             )
         }
-        return (config!, frames[0], frames[1])
+        return (config, frames[0], frames[1])
     }
 
     @Test
     func startsThenConfiguresThenAcksPresentedFrames() async throws {
-        let fixture = try Self.encodedFixture()
+        let fixture = try await Self.encodedFixture()
         let lane = FakeLane()
         let presenter = FakePresenter()
         let log = EventLog()
@@ -246,7 +230,7 @@ struct SimStreamViewerEngineTests {
 
     @Test
     func rejectedFramesAreNeverAckedAndTriggerKeyframeRequest() async throws {
-        let fixture = try Self.encodedFixture()
+        let fixture = try await Self.encodedFixture()
         let lane = FakeLane()
         let presenter = FakePresenter()
         presenter.acceptFrames = false
@@ -283,7 +267,7 @@ struct SimStreamViewerEngineTests {
 
     @Test
     func sixConsecutivePresentFailuresEndTheAttempt() async throws {
-        let fixture = try Self.encodedFixture()
+        let fixture = try await Self.encodedFixture()
         let lane = FakeLane()
         let presenter = FakePresenter()
         presenter.acceptFrames = false
@@ -343,7 +327,7 @@ struct SimStreamViewerEngineTests {
 
     @Test
     func frameBeforeConfigFailsClosed() async throws {
-        let fixture = try Self.encodedFixture()
+        let fixture = try await Self.encodedFixture()
         let lane = FakeLane()
         let presenter = FakePresenter()
         let log = EventLog()
@@ -362,31 +346,3 @@ struct SimStreamViewerEngineTests {
     }
 }
 
-private final class FixtureBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _frames: [SimStreamEncodedFrame] = []
-    private var _error: Error?
-
-    var frames: [SimStreamEncodedFrame] {
-        lock.lock()
-        defer { lock.unlock() }
-        return _frames
-    }
-    var error: Error? {
-        lock.lock()
-        defer { lock.unlock() }
-        return _error
-    }
-
-    func append(_ frame: SimStreamEncodedFrame) {
-        lock.lock()
-        _frames.append(frame)
-        lock.unlock()
-    }
-
-    func fail(_ error: Error) {
-        lock.lock()
-        _error = error
-        lock.unlock()
-    }
-}
