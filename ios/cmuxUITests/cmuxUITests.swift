@@ -6056,6 +6056,77 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Regression: the floating New Task button must not track the keyboard's
+    /// safe-area inset. The composer sheet auto-focuses its prompt, and that
+    /// sheet keyboard used to shrink the tab scaffold underneath it, dragging
+    /// the bottom-anchored compose button toward mid-screen. The shift showed
+    /// through during sheet dismissal and stranded the button mid-screen
+    /// whenever the keyboard-hide update was missed.
+    @MainActor
+    func testTaskComposerButtonIgnoresComposerKeyboardInset() async throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The floating compose control requires iOS 26.")
+        }
+        let server = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            workspaceCreateSelectsCreatedWorkspace: false
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedAppViaManualPairing(port: port)
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+                .waitForExistence(timeout: 4)
+        )
+
+        let composerButton = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
+        guard let restingFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task button had no usable frame before the composer opened")
+            return
+        }
+        tap(composerButton, in: app)
+
+        let prompt = taskComposerPrompt(in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForKeyboardFocus(of: prompt, timeout: 3),
+            "Opening New Task must focus the prompt without an extra tap."
+        )
+        XCTAssertTrue(
+            waitForSoftwareKeyboardKeyPlane(in: app, minimumOverlap: 120, timeout: 3) != nil,
+            "Opening New Task must raise the software keyboard without an extra tap."
+        )
+
+        // The button sits behind the sheet but stays in the element tree; the
+        // sheet keyboard must not have dragged it up.
+        guard let coveredFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task button left the element tree while the composer was presented")
+            return
+        }
+        XCTAssertEqual(
+            coveredFrame.midY, restingFrame.midY, accuracy: 2,
+            "New Task moved from \(restingFrame) to \(coveredFrame) while the composer keyboard was up"
+        )
+
+        tap(app.buttons["MobileTaskComposerCancelButton"], in: app)
+        XCTAssertTrue(prompt.waitForNonExistence(timeout: 4))
+        guard let settledFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task button had no usable frame after the composer dismissed")
+            return
+        }
+        XCTAssertEqual(
+            settledFrame.midY, restingFrame.midY, accuracy: 2,
+            "New Task must settle back to \(restingFrame), got \(settledFrame)"
+        )
+    }
+
     /// Regression: the production composer must route a Claude task through
     /// the connected host and select the exact workspace returned by that RPC.
     @MainActor
