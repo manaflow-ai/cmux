@@ -2749,12 +2749,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    /// Removes proxy-only daemon log entries appended by
-    /// `applyRemoteDaemonStatusUpdate`, without touching the connection-state
-    /// artifacts owned by `applyRemoteConnectionStateUpdate`.
-    func clearProxyOnlyRemoteDaemonSidebarArtifacts() {
-        logEntries.removeAll { entry in
-            entry.source == "remote-daemon" && Self.isProxyOnlyRemoteError(entry.message)
+    /// Retracts daemon/bootstrap failures after the daemon has become healthy.
+    ///
+    /// Bootstrap failures are published through both the daemon-status and
+    /// connection-state seams.  A persistent PTY can reattach as soon as the
+    /// daemon is ready, before the proxy publishes `.connected`, so leaving
+    /// either seam's old entry in place makes the sidebar report a failure
+    /// after recovery.  Keep an active `.error`/`.suspended` connection state
+    /// visible until the proxy confirms that the transport is healthy.
+    func clearRecoveredRemoteDaemonSidebarArtifacts() {
+        guard remoteConnectionState != .error,
+              remoteConnectionState != .suspended else {
+            return
+        }
+        logEntries.removeAll { $0.source == "remote-daemon" }
+        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+        remoteLastErrorFingerprint = nil
+        remoteLastDaemonErrorFingerprint = nil
+        if let key = remoteNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, correlationKey: key)
         }
     }
 
@@ -7074,6 +7087,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         if state == .connected {
             clearProxyOnlyRemoteSidebarArtifacts()
+            clearRecoveredRemoteDaemonSidebarArtifacts()
         }
     }
 
@@ -7083,10 +7097,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
             if status.state == .ready {
-                // #8917: a transport bounce that re-bootstrapped successfully is
-                // not a workspace failure, so retract its sidebar error the same
-                // way the connection-state path retracts on `.connected`.
-                clearProxyOnlyRemoteDaemonSidebarArtifacts()
+                // #8917/#10541: a transport bounce or bootstrap retry that
+                // succeeds is not a workspace failure.  Retract both the
+                // daemon log and any stale connection-state entry; a live
+                // `.error`/`.suspended` state remains until proxy readiness.
+                clearRecoveredRemoteDaemonSidebarArtifacts()
             }
             return
         }
