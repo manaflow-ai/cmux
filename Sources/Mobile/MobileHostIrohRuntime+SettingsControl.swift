@@ -307,9 +307,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         relayPolicyRefreshTaskID = taskID
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
             defer {
-                guard let self, self.relayPolicyRefreshTaskID == taskID else { return }
-                self.relayPolicyRefreshTask = nil
-                self.relayPolicyRefreshTaskID = nil
+                if let self, self.relayPolicyRefreshTaskID == taskID {
+                    self.relayPolicyRefreshTask = nil
+                    self.relayPolicyRefreshTaskID = nil
+                }
             }
             var retryAt: Date?
             var failureCount = 0
