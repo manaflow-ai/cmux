@@ -99,7 +99,7 @@ extension TerminalController {
         case "mobile.simulator.input.button":
             return v2MobileSimulatorButtonInput(params: params, connectionID: connectionID)
         case "mobile.simulator.devices.list":
-            return v2MobileSimulatorDevicesList(params: params, connectionID: connectionID)
+            return await v2MobileSimulatorDevicesList(params: params, connectionID: connectionID)
         case "mobile.simulator.device.select":
             return v2MobileSimulatorDeviceSelect(params: params, connectionID: connectionID)
         default:
@@ -117,7 +117,7 @@ extension TerminalController {
     private func v2MobileSimulatorDevicesList(
         params: [String: Any],
         connectionID: UUID?
-    ) -> V2CallResult {
+    ) async -> V2CallResult {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
             return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
         }
@@ -127,6 +127,10 @@ extension TerminalController {
             return mobileSimulatorPanelResolutionError(params: params)
         }
         let coordinator = resolved.panel.coordinator
+        // The inventory is discovery-time state; refresh it like the Mac
+        // pane's picker does on open, so simulators created after the panel
+        // started still appear.
+        await coordinator.reloadDevices()
         let selectedID = coordinator.selectedDeviceID
         let devices = coordinator.devices.map { device -> [String: Any] in
             [
