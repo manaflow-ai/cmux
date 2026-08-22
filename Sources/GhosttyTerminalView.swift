@@ -5394,10 +5394,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private struct CaretAccessibilityToken: Equatable {
         let row: Int
         let column: Int
+        // Width participates in identity because the frame reports it: a glyph
+        // change under a stationary cursor (say, `r` plus a double-width
+        // character in vim) resizes the caret without moving it.
+        let widthCells: Int
         let inViewport: Bool
     }
 
-    /// True when the caret cell moved since the last post.
+    /// True when the caret cell moved or resized since the last post.
     ///
     /// Ghostty requests a render for cursor blinks as well as real movement, so
     /// posting on every request would spam AX clients and make Zoom jitter.
@@ -5406,6 +5410,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let token = CaretAccessibilityToken(
             row: snapshot?.cursorRow ?? -1,
             column: snapshot?.cursorColumn ?? -1,
+            widthCells: snapshot?.cursorWidthCells ?? 0,
             inViewport: snapshot?.cursorInViewport ?? false
         )
         guard token != lastAnnouncedCaretAccessibilityToken else { return false }

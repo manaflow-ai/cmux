@@ -6,6 +6,13 @@ import AppKit
 final class TerminalSelectionAccessibilitySignal: Sendable {
     let events: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
+    // `forcedPending` crosses an isolation boundary by design: Ghostty's action
+    // callback sets it synchronously from a non-main thread via
+    // `requestForcingPost()`, and the notifier's main-actor debounce drains it
+    // in `consumeForcedPost()`. Neither side can take an actor hop — the C
+    // callback must return without suspending, and the flag has to be readable
+    // at the moment of posting — so a lock-guarded flag rides alongside the
+    // AsyncStream continuation this class already uses for the same crossing.
     private let forcedLock = NSLock()
     // SAFETY: guarded by `forcedLock`.
     nonisolated(unsafe) private var forcedPending = false
