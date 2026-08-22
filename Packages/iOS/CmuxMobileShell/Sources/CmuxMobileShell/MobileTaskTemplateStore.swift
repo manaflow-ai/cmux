@@ -36,11 +36,35 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private static let recentDirectoryLimit = 20
     private static let composerDraftLimit = 20
 
+    /// Draft-owned attachment bytes live under this directory, one
+    /// subdirectory per draft id, so deleting a draft is one folder removal.
+    private let attachmentFilesRootDirectory: URL
+
     /// Creates a task template store backed by `defaults`.
-    /// - Parameter defaults: The `UserDefaults` instance to persist into.
-    public init(defaults: UserDefaults, diagnosticLog: DiagnosticLog? = nil) {
+    /// - Parameters:
+    ///   - defaults: The `UserDefaults` instance to persist into.
+    ///   - attachmentFilesRootDirectory: Root for preserved draft attachment
+    ///     files; defaults to Application Support.
+    public init(
+        defaults: UserDefaults,
+        diagnosticLog: DiagnosticLog? = nil,
+        attachmentFilesRootDirectory: URL =
+            UserDefaultsMobileTaskTemplateStore.defaultComposerAttachmentsRootDirectory()
+    ) {
         self.defaults = defaults
         self.diagnosticLog = diagnosticLog
+        self.attachmentFilesRootDirectory = attachmentFilesRootDirectory
+    }
+
+    /// The production location for preserved draft attachment files.
+    public static func defaultComposerAttachmentsRootDirectory() -> URL {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return base
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("composer-draft-attachments", isDirectory: true)
     }
 
     /// Returns all stored templates, seeding defaults on the first read.
@@ -166,25 +190,82 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     }
 
     /// Inserts or replaces one draft by id at the front of the collection,
-    /// dropping the oldest entries beyond the bounded storage limit.
+    /// dropping the oldest entries (and their attachment files) beyond the
+    /// bounded storage limit.
     public func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft) {
         var drafts = composerDrafts()
         drafts.removeAll { $0.id == draft.id }
         drafts.insert(draft, at: 0)
         if drafts.count > Self.composerDraftLimit {
+            let evicted = drafts.suffix(from: Self.composerDraftLimit)
             drafts.removeLast(drafts.count - Self.composerDraftLimit)
+            removeAttachmentDirectories(draftIDs: Set(evicted.map(\.id)))
         }
         saveComposerDrafts(drafts)
     }
 
-    /// Deletes the drafts with the provided ids in one persistence update.
+    /// Deletes the drafts with the provided ids in one persistence update,
+    /// including any preserved attachment files they own.
     public func deleteComposerDrafts(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
+        removeAttachmentDirectories(draftIDs: ids)
         var drafts = composerDrafts()
         let countBefore = drafts.count
         drafts.removeAll { ids.contains($0.id) }
         guard drafts.count != countBefore else { return }
         saveComposerDrafts(drafts)
+    }
+
+    /// Copies staged attachment bytes into draft-owned storage. An existing
+    /// copy of the same attachment is reused so per-leave persists stay cheap.
+    public func persistComposerAttachmentFile(
+        draftID: UUID,
+        attachmentID: UUID,
+        preferredExtension: String,
+        from sourceURL: URL
+    ) throws -> String {
+        let sanitizedExtension = preferredExtension
+            .filter { $0.isLetter || $0.isNumber }
+            .lowercased()
+        let fileName = attachmentID.uuidString
+            + "." + (sanitizedExtension.isEmpty ? "bin" : sanitizedExtension)
+        let relativePath = draftID.uuidString + "/" + fileName
+        let draftDirectory = attachmentFilesRootDirectory
+            .appendingPathComponent(draftID.uuidString, isDirectory: true)
+        let destination = draftDirectory.appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            return relativePath
+        }
+        try FileManager.default.createDirectory(
+            at: draftDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        return relativePath
+    }
+
+    /// Returns the location of preserved attachment bytes, or `nil` when the
+    /// path is invalid or the file no longer exists.
+    public func composerAttachmentFileURL(relativePath: String) -> URL? {
+        let components = relativePath.split(separator: "/")
+        guard components.count == 2,
+              !relativePath.contains(".."),
+              !relativePath.hasPrefix("/") else {
+            return nil
+        }
+        let url = attachmentFilesRootDirectory
+            .appendingPathComponent(String(components[0]), isDirectory: true)
+            .appendingPathComponent(String(components[1]))
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    private func removeAttachmentDirectories(draftIDs: Set<UUID>) {
+        for draftID in draftIDs {
+            let directory = attachmentFilesRootDirectory
+                .appendingPathComponent(draftID.uuidString, isDirectory: true)
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 
     /// Adopts the pre-collection single draft as the newest saved draft so an
@@ -241,6 +322,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.recentDirectoriesPrefix) {
             defaults.removeObject(forKey: key)
         }
+        try? FileManager.default.removeItem(at: attachmentFilesRootDirectory)
     }
 
     private func seedIfNeeded() {

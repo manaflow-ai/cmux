@@ -7,6 +7,7 @@ import SwiftUI
 /// session is not listed; resuming a row replaces that session after its
 /// content is saved as a draft of its own.
 struct TaskComposerDraftsSheet: View {
+    @Environment(\.dismiss) private var dismiss
     let drafts: [MobileTaskComposerSavedDraft]
     let templates: [MobileTaskTemplate]
     let resume: (UUID) -> Void
@@ -58,17 +59,23 @@ struct TaskComposerDraftsSheet: View {
             ))
             .mobileInlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button(action: startNew) {
                         Label(
                             L10n.string(
                                 "mobile.taskComposer.drafts.new",
                                 defaultValue: "New Draft"
                             ),
-                            systemImage: "square.and.pencil"
+                            systemImage: "plus"
                         )
                     }
                     .accessibilityIdentifier("MobileTaskComposerNewDraftButton")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("MobileTaskComposerDraftsDoneButton")
                 }
             }
         }
@@ -100,11 +107,23 @@ private struct TaskComposerDraftRow: View {
                     .foregroundStyle(.secondary)
                     .layoutPriority(1)
             }
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            if !subtitle.isEmpty || !draft.content.attachments.isEmpty {
+                HStack(spacing: 6) {
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .lineLimit(1)
+                    }
+                    if !draft.content.attachments.isEmpty {
+                        Label(
+                            "\(draft.content.attachments.count)",
+                            systemImage: "paperclip"
+                        )
+                        .labelStyle(.titleAndIcon)
+                        .layoutPriority(1)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         .contentShape(Rectangle())

@@ -23,11 +23,13 @@ public struct MobileTaskComposerSavedDraft: Codable, Equatable, Sendable, Identi
 extension MobileTaskComposerDraft {
     /// Whether persisting this draft would keep nothing the user prepared.
     /// Selections alone (template, Mac, directory) are re-derived from
-    /// last-used defaults, but a completed-operation anchor must survive so
-    /// recovery can still prevent a duplicate task.
+    /// last-used defaults, but attachments are prepared work and a
+    /// completed-operation anchor must survive so recovery can still prevent
+    /// a duplicate task.
     public var isEffectivelyEmpty: Bool {
         prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (workspaceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && attachments.isEmpty
             && completedOperationID == nil
     }
 }

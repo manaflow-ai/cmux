@@ -33,8 +33,21 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     /// Inserts or replaces one draft by its stable id and promotes it to the
     /// front of the collection.
     func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft)
-    /// Deletes the drafts with the provided ids in one persistence update.
+    /// Deletes the drafts with the provided ids in one persistence update,
+    /// including any preserved attachment files they own.
     func deleteComposerDrafts(ids: Set<UUID>)
+    /// Copies staged attachment bytes into draft-owned storage and returns
+    /// the stable relative path, reusing an existing copy of the same
+    /// attachment instead of copying again.
+    func persistComposerAttachmentFile(
+        draftID: UUID,
+        attachmentID: UUID,
+        preferredExtension: String,
+        from sourceURL: URL
+    ) throws -> String
+    /// Returns the location of preserved attachment bytes, or `nil` when the
+    /// path is invalid or the file no longer exists.
+    func composerAttachmentFileURL(relativePath: String) -> URL?
     /// Removes all templates and composer state owned by the signed-out user.
     func clearAllUserData()
 }

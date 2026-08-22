@@ -67,4 +67,65 @@ struct MobileTaskComposerSavedDraftTests {
         )
         #expect(!draft.isEffectivelyEmpty)
     }
+
+    @Test func attachmentsAloneKeepADraft() {
+        let draft = MobileTaskComposerDraft(
+            prompt: "",
+            templateID: nil,
+            macDeviceID: nil,
+            directory: "~",
+            didEditDirectory: false,
+            attachments: [MobileTaskComposerDraftAttachment(
+                id: UUID(),
+                kind: "image",
+                displayName: "screenshot.png",
+                relativePath: "d/a.png",
+                byteCount: 42
+            )]
+        )
+        #expect(!draft.isEffectivelyEmpty)
+    }
+
+    @Test func legacyDraftJSONWithoutAttachmentsDecodesAsEmpty() throws {
+        let legacyJSON = """
+        {"prompt":"Old build draft","directory":"~","didEditDirectory":true}
+        """
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: Data(legacyJSON.utf8)
+        )
+        #expect(decoded.attachments.isEmpty)
+        #expect(decoded.prompt == "Old build draft")
+        #expect(decoded.didEditDirectory)
+    }
+
+    @Test func draftAttachmentsRoundTripThroughCodable() throws {
+        let attachment = MobileTaskComposerDraftAttachment(
+            id: UUID(),
+            kind: TaskComposerAttachment.Kind.image.persistedValue,
+            displayName: "IMG_0001.heic",
+            relativePath: "draft-id/attachment-id.heic",
+            byteCount: 1_234,
+            thumbnailData: Data([1, 2, 3])
+        )
+        let draft = MobileTaskComposerDraft(
+            prompt: "With attachment",
+            templateID: nil,
+            macDeviceID: nil,
+            directory: "~",
+            didEditDirectory: false,
+            attachments: [attachment]
+        )
+
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: JSONEncoder().encode(draft)
+        )
+
+        #expect(decoded == draft)
+        #expect(decoded.attachments == [attachment])
+        #expect(TaskComposerAttachment.Kind(persistedValue: decoded.attachments[0].kind) == .image)
+        #expect(TaskComposerAttachment.Kind(persistedValue: "file") == .file)
+        #expect(TaskComposerAttachment.Kind(persistedValue: "unknown-future-kind") == .file)
+    }
 }

@@ -12552,6 +12552,57 @@
         }
       }
     },
+    "mobile.taskComposer.drafts.leaveDialog.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save this task as a draft?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタスクを下書きとして保存しますか？"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.drafts.leaveDialog.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Draft"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書きを保存"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.drafts.leaveDialog.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Draft"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書きを削除"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.drafts.untitled": {
       "extractionState": "manual",
       "localizations": {

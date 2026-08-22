@@ -733,6 +733,91 @@ import CmuxMobileShellModel
         #expect(templateStore.composerDrafts().map(\.content) == [content])
     }
 
+    @Test func draftAttachmentFilesPersistRestoreAndDeleteWithTheirDraft() throws {
+        let root = Self.attachmentsRoot()
+        let store = UserDefaultsMobileTaskTemplateStore(
+            defaults: Self.defaults(),
+            attachmentFilesRootDirectory: root
+        )
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("draft-attachment-source-\(UUID().uuidString).txt")
+        try Data("attached bytes".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let draftID = UUID()
+        let attachmentID = UUID()
+
+        let relativePath = try store.persistComposerAttachmentFile(
+            draftID: draftID,
+            attachmentID: attachmentID,
+            preferredExtension: "TXT",
+            from: source
+        )
+
+        let preserved = try #require(store.composerAttachmentFileURL(relativePath: relativePath))
+        #expect(try Data(contentsOf: preserved) == Data("attached bytes".utf8))
+        // Persisting the same attachment again reuses the existing copy.
+        #expect(try store.persistComposerAttachmentFile(
+            draftID: draftID,
+            attachmentID: attachmentID,
+            preferredExtension: "TXT",
+            from: source
+        ) == relativePath)
+        // Paths cannot escape the attachment root.
+        #expect(store.composerAttachmentFileURL(relativePath: "../\(relativePath)") == nil)
+
+        var content = Self.draftContent(prompt: "With attachment")
+        content.attachments = [MobileTaskComposerDraftAttachment(
+            id: attachmentID,
+            kind: "file",
+            displayName: "notes.txt",
+            relativePath: relativePath,
+            byteCount: 14
+        )]
+        store.saveComposerDraft(MobileTaskComposerSavedDraft(
+            id: draftID,
+            updatedAt: Date(),
+            content: content
+        ))
+
+        store.deleteComposerDrafts(ids: [draftID])
+        #expect(store.composerDrafts().isEmpty)
+        #expect(store.composerAttachmentFileURL(relativePath: relativePath) == nil)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    @Test func clearAllUserDataRemovesPreservedAttachmentFiles() throws {
+        let root = Self.attachmentsRoot()
+        let defaults = Self.defaults()
+        let store = UserDefaultsMobileTaskTemplateStore(
+            defaults: defaults,
+            attachmentFilesRootDirectory: root
+        )
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("draft-attachment-source-\(UUID().uuidString).png")
+        try Data([9, 9, 9]).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let relativePath = try store.persistComposerAttachmentFile(
+            draftID: UUID(),
+            attachmentID: UUID(),
+            preferredExtension: "png",
+            from: source
+        )
+        #expect(store.composerAttachmentFileURL(relativePath: relativePath) != nil)
+
+        store.clearAllUserData()
+
+        #expect(store.composerAttachmentFileURL(relativePath: relativePath) == nil)
+        #expect(!FileManager.default.fileExists(atPath: root.path))
+    }
+
+    private static func attachmentsRoot() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent(
+            "MobileTaskTemplateStoreTests-attachments-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    }
+
     private static func draftContent(prompt: String) -> MobileTaskComposerDraft {
         MobileTaskComposerDraft(
             prompt: prompt,

@@ -96,6 +96,47 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
 
     func deleteComposerDrafts(ids: Set<UUID>) {
         drafts.removeAll { ids.contains($0.id) }
+        for id in ids {
+            try? FileManager.default.removeItem(at: attachmentDirectory(draftID: id))
+        }
+    }
+
+    func persistComposerAttachmentFile(
+        draftID: UUID,
+        attachmentID: UUID,
+        preferredExtension: String,
+        from sourceURL: URL
+    ) throws -> String {
+        let sanitizedExtension = preferredExtension
+            .filter { $0.isLetter || $0.isNumber }
+            .lowercased()
+        let fileName = attachmentID.uuidString
+            + "." + (sanitizedExtension.isEmpty ? "bin" : sanitizedExtension)
+        let directory = attachmentDirectory(draftID: draftID)
+        let destination = directory.appendingPathComponent(fileName)
+        if !FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.copyItem(at: sourceURL, to: destination)
+        }
+        return draftID.uuidString + "/" + fileName
+    }
+
+    func composerAttachmentFileURL(relativePath: String) -> URL? {
+        let url = attachmentsRoot.appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    private var attachmentsRoot: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-accessibility-draft-attachments", isDirectory: true)
+    }
+
+    private func attachmentDirectory(draftID: UUID) -> URL {
+        attachmentsRoot.appendingPathComponent(draftID.uuidString, isDirectory: true)
     }
 
     func clearAllUserData() {
@@ -105,6 +146,7 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
         directoriesByMacDeviceID.removeAll()
         recentsByMacDeviceID.removeAll()
         drafts.removeAll()
+        try? FileManager.default.removeItem(at: attachmentsRoot)
     }
 }
 #endif
