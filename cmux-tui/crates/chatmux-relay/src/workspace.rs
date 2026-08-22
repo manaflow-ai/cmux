@@ -576,7 +576,10 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
     }))
 }
 
-pub(crate) fn run_delete(scope: &Scope, op: &wire::FsDeleteOp) -> Result<wire::WorkspaceResultBody, Refusal> {
+pub(crate) fn run_delete(
+    scope: &Scope,
+    op: &wire::FsDeleteOp,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
     let path = scope.resolve(&op.path, false).map_err(|refusal| {
         if refusal.code == wire::WorkspaceErrorCode::NotFound {
             Refusal::not_found(format!("{} does not exist", op.path))
