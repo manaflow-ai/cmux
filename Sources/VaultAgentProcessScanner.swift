@@ -649,16 +649,31 @@ extension SurfaceResumeBindingIndex {
     static func processDetectedTmuxBindings(
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
+        capturedAt: TimeInterval,
+        ttyDeviceBindings: [PanelKey: Int64] = [:],
+        processArgumentsProvider: @Sendable (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
         _ = fileManager
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  process.isTerminalForegroundProcessGroup,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+        // A child such as `/usr/bin/ssh` is not guaranteed to retain the
+        // CMUX_* environment after the user's shell/launch tooling runs it.
+        // The terminal's controlling TTY is the authoritative pane identity,
+        // so use it as a fail-closed fallback when exactly one live panel owns
+        // the device. This keeps process detection scoped without guessing
+        // from titles or global process names.
+        let panelKeysByTTYDevice = Dictionary(grouping: ttyDeviceBindings) { $0.value }
+            .mapValues { $0.map(\.key) }
+
+        for process in processSnapshot.processesByPID.values.sorted(by: { $0.pid < $1.pid }) {
+            guard process.isTerminalForegroundProcessGroup,
+                  let panelKey = processDetectedPanelKey(
+                      for: process,
+                      panelKeysByTTYDevice: panelKeysByTTYDevice
+                  ),
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             if let binding = TmuxResumeParser.binding(
@@ -668,7 +683,7 @@ extension SurfaceResumeBindingIndex {
                 environment: processArguments.environment,
                 capturedAt: capturedAt
             ) {
-                resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+                resolved[panelKey] = (binding: binding, updatedAt: capturedAt)
                 continue
             }
             guard let binding = TerminalSSHSessionDetector.resumeBinding(
@@ -680,10 +695,26 @@ extension SurfaceResumeBindingIndex {
             ) else {
                 continue
             }
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+            resolved[panelKey] = (binding: binding, updatedAt: capturedAt)
         }
 
         return resolved
+    }
+
+    private static func processDetectedPanelKey(
+        for process: CmuxTopProcessInfo,
+        panelKeysByTTYDevice: [Int64: [PanelKey]]
+    ) -> PanelKey? {
+        if let workspaceId = process.cmuxWorkspaceID,
+           let panelId = process.cmuxSurfaceID {
+            return PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }
+        guard let ttyDevice = process.ttyDevice,
+              let candidates = panelKeysByTTYDevice[ttyDevice],
+              candidates.count == 1 else {
+            return nil
+        }
+        return candidates[0]
     }
 
     static func tmuxResumeBindingForTesting(

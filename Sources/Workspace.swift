@@ -1312,7 +1312,14 @@ extension Workspace {
             }
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                    // A plain SSH process is expected to disappear while the
+                    // app is restoring its local PTY. Keep its safe,
+                    // process-detected command through that observation gap;
+                    // otherwise the first post-restore autosave erases the
+                    // only instruction that could reconnect it next time.
+                    if !storedBinding.isPlainSSHProcessDetectedBinding {
+                        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                    }
                 } else if isStaleAgentHookBinding(
                     storedBinding,
                     panelId: panelId,
@@ -1348,7 +1355,11 @@ extension Workspace {
 
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else { return detectedBinding }
-        guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
+        guard let detectedBinding else {
+            return storedBinding.isPlainSSHProcessDetectedBinding
+                ? storedBinding
+                : (storedBinding.isProcessDetected ? nil : storedBinding)
+        }
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
         if storedBinding.isProcessDetected { return nil }
         return storedBinding
