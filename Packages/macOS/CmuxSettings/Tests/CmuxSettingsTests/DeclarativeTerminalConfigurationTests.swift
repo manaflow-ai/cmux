@@ -104,9 +104,9 @@ struct DeclarativeTerminalConfigurationTests {
         #expect(snapshot.shellStartupCommand == "mise activate zsh")
     }
 
-    @Test("memoized snapshots refresh after an atomic config edit")
+    @Test("published snapshots update after an authoritative config edit")
     @MainActor
-    func memoizedSnapshotRefreshesAfterEdit() throws {
+    func publishedSnapshotUpdatesAfterEdit() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-declarative-cache-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -117,14 +117,21 @@ struct DeclarativeTerminalConfigurationTests {
         ).write(to: file, options: [.atomic])
 
         let configuration = DeclarativeTerminalConfiguration()
-        let cache = DeclarativeTerminalConfigurationCache()
-        #expect(cache.snapshot(configuration: configuration, fileURL: file).shellStartupMode == .login)
+        let cache = DeclarativeTerminalConfigurationCache(
+            initialSnapshot: configuration.snapshot(fileURL: file),
+            fileURL: file
+        )
+        #expect(cache.snapshot(fileURL: file).shellStartupMode == .login)
 
         try Data(
             #"{"terminal":{"shellStartup":{"mode":"nonLogin","command":"echo startup"}}}"#.utf8
         ).write(to: file, options: [.atomic])
 
-        let refreshed = cache.snapshot(configuration: configuration, fileURL: file)
+        // The cache never performs a synchronous filesystem read on a spawn
+        // path; the observer publishes the newly parsed value explicitly.
+        #expect(cache.snapshot(fileURL: file).shellStartupMode == .login)
+        cache.replace(configuration.snapshot(fileURL: file), fileURL: file)
+        let refreshed = cache.snapshot(fileURL: file)
         #expect(refreshed.shellStartupMode == .nonLogin)
         #expect(refreshed.shellStartupCommand == "echo startup")
     }

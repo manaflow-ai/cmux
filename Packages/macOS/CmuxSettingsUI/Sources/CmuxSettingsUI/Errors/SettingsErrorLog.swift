@@ -56,8 +56,8 @@ public final class SettingsErrorLog {
         let entry = Entry(
             keyID: keyID,
             message: String(
-                localized: "settings.error.alert.title",
-                defaultValue: "Couldn't save setting"
+                localized: "settings.error.alert.message",
+                defaultValue: "Couldn't save setting. Check that the configuration file is writable, then try again."
             )
         )
         entries.append(entry)

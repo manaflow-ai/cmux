@@ -73,6 +73,10 @@ public struct SettingsRuntime: @unchecked Sendable {
         )
         self.accountFlow = accountFlow
         self.hostActions = hostActions
+        // Keep the shared JSON observer alive for the runtime lifetime, not
+        // only while a Settings card is mounted. Spawn consumers therefore see
+        // dotfiles edits after Settings closes as well.
+        self.declarativeTerminalConfigurationModel.startObserving()
     }
 }
 

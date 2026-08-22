@@ -130,7 +130,9 @@ public struct TerminalShellStartupPolicy: Sendable {
 
     /// Returns the one-shot input sent after the ordinary shell starts.
     /// Explicit commands/inputs and restored/manual surfaces are never
-    /// modified by the declarative default.
+    /// modified by the declarative default. Managed shell integration owns
+    /// only the launch command; its shell can still receive this one-shot
+    /// input after integration finishes startup.
     ///
     /// - Parameters:
     ///   - configuration: Declarative shell-startup values.
@@ -150,8 +152,7 @@ public struct TerminalShellStartupPolicy: Sendable {
         hasExplicitInput: Bool,
         hasGhosttyCommand: Bool,
         isRestoreSurface: Bool,
-        isManualSurface: Bool,
-        hasManagedShellIntegration: Bool = false
+        isManualSurface: Bool
     ) -> String? {
         let resolution = Self.resolve(
             configuredMode: configuration.mode,
@@ -159,8 +160,7 @@ public struct TerminalShellStartupPolicy: Sendable {
             hasExplicitInput: hasExplicitInput,
             hasGhosttyCommand: hasGhosttyCommand,
             isRestoreSurface: isRestoreSurface,
-            isManualSurface: isManualSurface,
-            hasManagedShellIntegration: hasManagedShellIntegration
+            isManualSurface: isManualSurface
         )
         guard resolution.allowsDeclarativeShellStartup,
               let command = configuration.command else {
