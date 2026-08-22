@@ -990,6 +990,13 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "Strategija koja se koristi za izdvajanje identifikatora sesije: iz argv opcije ili Pi datoteke sesije."
+        },
+        "customSidebars": {
+          "description": "Politika renderiranja za prilagođene bočne trake koje su autorizirali korisnici i agenti.",
+          "renderer": "Odaberite SwiftUI renderer u procesu za izvorno lebdenje, fokus i unos tastature ili izolirani udaljeni renderer za suzbijanje pada."
+        },
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida."
         },
         "app": {
+          "devWindowDisplay": "DEBUG samo grade: preferirani prikaz lokaliziranog imena za novokreirane prozore. Ostavite prazno da biste koristili zadane postavke sistema.",
+          "workspaceInheritWorkingDirectory": "Naslijeđena kompatibilnost se koristi samo kada terminal.newSurfaceWorkingDirectory.policy nema. Preferirajte trosmjernu politiku terminala za nove konfiguracije.",
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "Verzija formata snimanja. Verzija 1 je trenutno podržana.",
+            "id": "Stabilni identifikator za ovo odobrenje potpisanog životopisa.",
+            "name": "Opcionalna naljepnica okrenuta prema korisniku za odobrenje ovog životopisa.",
+            "environmentKeys": "Nazivi varijabli okruženja uključeni u potpisanu naredbu za nastavak poklapaju se.",
+            "source": "Opciona oznaka porekla koja opisuje gde je ovo odobrenje kreirano.",
+            "policy": "Kako cmux može koristiti odobrenje: ručno, nakon upita ili automatski.",
+            "createdAt": "Vrijeme kreiranja u sekundama od Unix epohe.",
+            "updatedAt": "Vrijeme posljednje izmjene u sekundama od Unix epohe.",
+            "lastUsedAt": "Najnovije korištenje vremena u sekundama od Unix epohe, kada je dostupno."
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Zadane postavke radnog direktorija za obična nova lokalna okna, kartice, podjele i radne prostore. Eksplicitni radni direktoriji, udaljene komande i vraćene površine uvijek imaju prednost.",
             "policy": "Odaberite hoće li nove lokalne površine naslijediti direktorij aktivnog okna, koristiti direktorij snimljen kada je radni prostor kreiran ili koristiti konfiguriranu fiksnu stazu.",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Omogućite kontrole za dodavanje stavki kontrolne liste i promjenu statusa zadataka radnog prostora.",
+                "enabled": "Prikaži kontrole za dodavanje stavki kontrolne liste i promjenu statusa zadataka radnog prostora."
+              }
+            }
+          },
+          "stackBranchDirectory": "Kada je omogućeno, renderirajte granu git i radni direktorij u odvojenim redovima u kompaktnim izgledima bočne trake.",
+          "pathLastSegmentOnly": "Kada je omogućeno, prikažite onoliko zadnje staze radnog direktorija koliko odgovara, skraćujući njegove vodeće komponente.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "Boolean izraz koji obuhvata odgovarajuću prečicu do UI konteksta.",
           "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }

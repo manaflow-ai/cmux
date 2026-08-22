@@ -990,6 +990,13 @@
       "exampleConfig": "Configuración de ejemplo",
       "metaTitle": "Configuración",
       "schemaDescriptions": {
+        "vault": {
+          "sessionIdSourceType": "Estrategia utilizada para extraer el identificador de sesión: de una opción argv o de un archivo de sesión Pi."
+        },
+        "customSidebars": {
+          "description": "Política de representación para barras laterales personalizadas creadas por usuarios y agentes.",
+          "renderer": "Elija el procesador SwiftUI en proceso para el desplazamiento nativo, el enfoque y la entrada del teclado, o el procesador remoto aislado para contener fallas."
+        },
         "paneBorderColor": "Sobrescribe el color del divisor de paneles de cmux en workspaces divididos. Afecta a los límites de paneles de cmux, no a las divisiones internas de Ghostty.",
         "activePaneBorderColor": "Color de borde opcional que se dibuja alrededor del panel de cmux enfocado en workspaces divididos.",
         "automation": {
@@ -999,6 +1006,8 @@
           "autoNamingAgent": "Qué agente genera los nombres automáticos en cada sesión. «auto» (predeterminado) nombra cada sesión con su propio agente; cualquier identificador de agente (claude, codex, grok, opencode, pi, omp, …) anula el nombrado de todas las sesiones, incluso las de otros agentes. Los agentes no compatibles o no instalados recurren al agente propio de la sesión, por lo que el nombrado nunca falla."
         },
         "app": {
+          "devWindowDisplay": "Solo compilaciones DEBUG: se prefiere mostrar el nombre localizado para las ventanas recién creadas. Déjelo vacío para usar el valor predeterminado del sistema.",
+          "workspaceInheritWorkingDirectory": "El respaldo de compatibilidad heredado se usa solo cuando terminal.newSurfaceWorkingDirectory.policy está ausente. Prefiera la política de terminal de tres vías para nuevas configuraciones.",
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
           "windowTitleTemplate": "Plantilla opcional para el título de NSWindow. En blanco conserva el comportamiento de título predeterminado existente de cmux, incluida la alternativa del directorio actual. Marcadores admitidos: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
@@ -1008,6 +1017,17 @@
           "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
+          "resumeCommands": {
+            "version": "Versión del formato de registro. Actualmente se admite la versión 1.",
+            "id": "Identificador estable para la aprobación de este currículum firmado.",
+            "name": "Etiqueta opcional orientada al usuario para la aprobación de este currículum.",
+            "environmentKeys": "Nombres de las variables de entorno incluidas en la coincidencia del comando de currículum firmado.",
+            "source": "Etiqueta de procedencia opcional que describe dónde se creó esta aprobación.",
+            "policy": "Cómo cmux puede utilizar la aprobación: manualmente, después de solicitarla o automáticamente.",
+            "createdAt": "Tiempo de creación en segundos desde la época Unix.",
+            "updatedAt": "Hora de la última modificación en segundos desde la época de Unix.",
+            "lastUsedAt": "Tiempo de uso más reciente en segundos desde la época Unix, cuando esté disponible."
+          },
           "newSurfaceWorkingDirectory": {
             "description": "Valores predeterminados del directorio de trabajo para nuevos paneles, pestañas, divisiones y espacios de trabajo locales ordinarios. Los directorios de trabajo explícitos, los comandos remotos y las superficies restauradas siempre tienen prioridad.",
             "policy": "Elija si las nuevas superficies locales heredan el directorio del panel activo, usan el directorio capturado cuando se creó el espacio de trabajo o usan la ruta fija configurada.",
@@ -1046,6 +1066,16 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "workspaceTodos": {
+              "controls": {
+                "description": "Habilite controles para agregar elementos de la lista de verificación y cambiar el estado de las tareas pendientes del espacio de trabajo.",
+                "enabled": "Muestre controles para agregar elementos de la lista de verificación y cambiar el estado de las tareas pendientes en el espacio de trabajo."
+              }
+            }
+          },
+          "stackBranchDirectory": "Cuando esté habilitado, represente la rama de git y el directorio de trabajo en filas separadas en diseños de barra lateral compactos.",
+          "pathLastSegmentOnly": "Cuando está habilitado, muestra la mayor cantidad posible de la ruta del directorio de trabajo final, abreviando sus componentes principales.",
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
@@ -1057,6 +1087,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
+          "whenExpression": "Expresión booleana que limita el acceso directo correspondiente a un contexto de interfaz de usuario.",
           "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
         }
