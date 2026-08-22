@@ -255,13 +255,22 @@ public struct CampaignCatalog: Sendable, Equatable, Decodable {
         return try decoder.decode(CampaignCatalog.self, from: data)
     }
 
+    /// `ISO8601DateFormatter` is documented thread-safe, so shared instances
+    /// avoid two allocations per campaign date during catalog decodes.
+    private nonisolated(unsafe) static let fractionalInstantFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private nonisolated(unsafe) static let plainInstantFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
     private static func parseISOInstant(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
+        fractionalInstantFormatter.date(from: value) ?? plainInstantFormatter.date(from: value)
     }
 }
 

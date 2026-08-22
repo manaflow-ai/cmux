@@ -293,6 +293,15 @@ struct CMUXMobileRootView: View {
         .onChange(of: campaignCenter?.pendingModal?.id) { _, _ in
             presentCampaignModalIfPossible()
         }
+        .onChange(of: campaignsEnabled) { _, enabled in
+            guard !enabled else { return }
+            // The remote kill switch must also take down surfaces that are
+            // already on screen. Clearing the active record first keeps the
+            // teardown from being counted as a user dismissal.
+            activeCampaignModal = nil
+            presentedCampaignSheet = nil
+            presentedCampaignFullScreen = nil
+        }
         .onChange(of: rootPresentation) { _, _ in
             // The shared modal slot freeing up is a presentation opportunity.
             presentCampaignModalIfPossible()

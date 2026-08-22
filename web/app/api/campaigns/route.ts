@@ -20,6 +20,7 @@ const MAX_BUTTONS = 2;
 const ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const VERSION_RE = /^\d+(\.\d+)*$/;
 const ACCENT_RE = /^#[0-9a-fA-F]{6}$/;
+const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 const PAYLOAD = JSON.stringify(validateCampaignCatalog(campaignCatalog));
 const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
@@ -201,10 +202,12 @@ function optionalInstant(input: unknown, path: string): string | undefined {
   return isoInstant(input, path);
 }
 
+/** Requires a full date-time with timezone; clients reject date-only values,
+ * so accepting them here would silently drop the campaign on device. */
 function isoInstant(input: unknown, path: string): string {
   const value = nonemptyString(input, path);
-  if (Number.isNaN(Date.parse(value))) {
-    throw new Error(`${path} must be an ISO-8601 instant`);
+  if (!ISO_INSTANT_RE.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new Error(`${path} must be an ISO-8601 instant with a timezone`);
   }
   return value;
 }

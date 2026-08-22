@@ -28,7 +28,10 @@ public enum CampaignEligibility {
     /// presented/dismissed state (used for both live surfaces and What's New).
     public static func isTargeted(_ campaign: Campaign, context: CampaignEligibilityContext) -> Bool {
         guard campaign.platforms.contains(context.platform) else { return false }
-        if let appVersion = context.appVersion {
+        if campaign.minAppVersion != nil || campaign.maxAppVersion != nil {
+            // Version-bounded campaigns fail closed on an unparseable app
+            // version rather than showing on a build they never targeted.
+            guard let appVersion = context.appVersion else { return false }
             if let minVersion = campaign.minAppVersion, appVersion < minVersion { return false }
             if let maxVersion = campaign.maxAppVersion, maxVersion < appVersion { return false }
         }

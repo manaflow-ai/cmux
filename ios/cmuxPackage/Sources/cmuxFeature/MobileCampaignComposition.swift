@@ -1,4 +1,4 @@
-import CmuxMobileAnalytics
+import CMUXMobileCore
 @_exported import CmuxMobileCampaigns
 public import Foundation
 

@@ -16,7 +16,9 @@ public struct CampaignAppVersion: Sendable, Equatable, Comparable, Decodable, Cu
             parsed.append(value)
         }
         components = parsed
-        description = trimmed
+        // Canonical form, so persisted reshow history compares stably
+        // ("1.00" and "1.0" are the same version).
+        description = parsed.map(String.init).joined(separator: ".")
     }
 
     public init(from decoder: any Decoder) throws {

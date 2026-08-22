@@ -84,6 +84,7 @@ describe("campaigns route", () => {
       { patch: { platforms: [] }, message: /platforms must be a nonempty array/ },
       { patch: { reshowPolicy: "always" }, message: /reshowPolicy/ },
       { patch: { minAppVersion: "v1.2" }, message: /dotted numeric version/ },
+      { patch: { startsAt: "2026-08-01" }, message: /ISO-8601 instant with a timezone/ },
       { patch: { startsAt: "2026-12-01T00:00:00.000Z", endsAt: "2026-08-01T00:00:00.000Z" }, message: /endsAt must be after startsAt/ },
       { patch: { rolloutPercent: 150 }, message: /rolloutPercent/ },
       { patch: { title: { en: "English only" } }, message: /title\.ja/ },

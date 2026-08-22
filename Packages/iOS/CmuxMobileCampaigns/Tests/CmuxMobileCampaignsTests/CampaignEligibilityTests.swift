@@ -52,6 +52,17 @@ struct CampaignEligibilityTests {
         ))
     }
 
+    @Test func versionBoundedCampaignsFailClosedWithoutAnAppVersion() {
+        let noVersion = CampaignEligibilityContext(
+            appVersion: nil,
+            rolloutKey: "install-a",
+            now: august
+        )
+        #expect(!CampaignEligibility.isTargeted(campaign(minAppVersion: "1.0"), context: noVersion))
+        #expect(!CampaignEligibility.isTargeted(campaign(maxAppVersion: "9.0"), context: noVersion))
+        #expect(CampaignEligibility.isTargeted(campaign(), context: noVersion))
+    }
+
     @Test func enforcesInclusiveVersionBounds() {
         let bounded = campaign(minAppVersion: "1.0.5", maxAppVersion: "1.1")
         #expect(CampaignEligibility.isTargeted(bounded, context: context(version: "1.0.5")))
