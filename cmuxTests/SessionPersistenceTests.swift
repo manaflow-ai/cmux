@@ -7133,6 +7133,21 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.startupInput, binding.command + "\n")
     }
 
+    func testPlainSSHProcessDetectedResumeBindingUsesResolvedExecutablePath() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/opt/company/bin/ssh",
+                arguments: ["ssh", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/company/bin/ssh' 'tinybox'")
+        XCTAssertEqual(binding.launchCommand?.executablePath, "/opt/company/bin/ssh")
+        XCTAssertEqual(binding.launchCommand?.arguments, ["/opt/company/bin/ssh", "tinybox"])
+    }
+
     func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommand() {
         let binding = TerminalSSHSessionDetector.resumeBinding(
             processName: "ssh",
@@ -7164,6 +7179,43 @@ extension SessionPersistenceTests {
         )
 
         XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsNonInteractiveSSHFlags() {
+        let invocations = [
+            ["ssh", "-n", "tinybox"],
+            ["ssh", "-T", "tinybox"],
+            ["ssh", "-G", "tinybox"],
+            ["ssh", "-V"],
+            ["ssh", "-o", "RequestTTY=no", "tinybox"],
+            ["ssh", "-o", "StdinNull=yes", "tinybox"],
+        ]
+
+        for arguments in invocations {
+            XCTAssertNil(
+                TerminalSSHSessionDetector.resumeBinding(
+                    processName: "ssh",
+                    processPath: "/usr/bin/ssh",
+                    arguments: arguments,
+                    environment: [:]
+                ),
+                "Expected non-interactive invocation to be rejected: \(arguments)"
+            )
+        }
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingAllowsRemoteCommandNone() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: ["ssh", "-o", "RemoteCommand=none", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' '-o' 'RemoteCommand=none' 'tinybox'")
     }
 
     func testPlainSSHProcessDetectedBindingFallsBackToPaneTTYWhenScopeIsMissing() throws {

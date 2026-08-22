@@ -657,6 +657,7 @@ extension SurfaceResumeBindingIndex {
     ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
         _ = fileManager
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
+        var selectedPIDByPanel: [PanelKey: Int] = [:]
 
         // A child such as `/usr/bin/ssh` is not guaranteed to retain the
         // CMUX_* environment after the user's shell/launch tooling runs it.
@@ -667,7 +668,10 @@ extension SurfaceResumeBindingIndex {
         let panelKeysByTTYDevice = Dictionary(grouping: ttyDeviceBindings) { $0.value }
             .mapValues { $0.map(\.key) }
 
-        for process in processSnapshot.processesByPID.values.sorted(by: { $0.pid < $1.pid }) {
+        // The process snapshot is already indexed by PID.  Select the newest
+        // candidate per panel in one pass instead of sorting the entire system
+        // process table on every autosave.
+        for process in processSnapshot.processesByPID.values {
             guard process.isTerminalForegroundProcessGroup,
                   let panelKey = processDetectedPanelKey(
                       for: process,
@@ -676,25 +680,29 @@ extension SurfaceResumeBindingIndex {
                   let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
-            if let binding = TmuxResumeParser.binding(
+            let binding: SurfaceResumeBindingSnapshot?
+            if let tmuxBinding = TmuxResumeParser.binding(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments.arguments,
                 environment: processArguments.environment,
                 capturedAt: capturedAt
             ) {
-                resolved[panelKey] = (binding: binding, updatedAt: capturedAt)
+                binding = tmuxBinding
+            } else {
+                binding = TerminalSSHSessionDetector.resumeBinding(
+                    processName: process.name,
+                    processPath: process.path,
+                    arguments: processArguments.arguments,
+                    environment: processArguments.environment,
+                    capturedAt: capturedAt
+                )
+            }
+            guard let binding else { continue }
+            guard process.pid > (selectedPIDByPanel[panelKey] ?? Int.min) else {
                 continue
             }
-            guard let binding = TerminalSSHSessionDetector.resumeBinding(
-                processName: process.name,
-                processPath: process.path,
-                arguments: processArguments.arguments,
-                environment: processArguments.environment,
-                capturedAt: capturedAt
-            ) else {
-                continue
-            }
+            selectedPIDByPanel[panelKey] = process.pid
             resolved[panelKey] = (binding: binding, updatedAt: capturedAt)
         }
 

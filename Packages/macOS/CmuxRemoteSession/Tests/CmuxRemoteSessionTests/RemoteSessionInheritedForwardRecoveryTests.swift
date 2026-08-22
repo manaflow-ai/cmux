@@ -295,9 +295,9 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         #expect(await statuses.next() == readyStatus)
         #expect(await clock.nextRequestedDelay() == 2_000)
         await clock.resumeNextSleep()
-        #expect(await statuses.next()?.state == .error)
+        #expect(await statuses.next()?.state != .error)
         #expect(await clock.nextRequestedDelay() == 2_000)
-        #expect(await statuses.next()?.state == .error)
+        #expect(await statuses.next()?.state != .error)
 
         let requests = runner.requests
         #expect(

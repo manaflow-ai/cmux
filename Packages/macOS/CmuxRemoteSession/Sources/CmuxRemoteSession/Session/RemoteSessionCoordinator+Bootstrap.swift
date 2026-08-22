@@ -39,6 +39,7 @@ extension RemoteSessionCoordinator {
         )
 
         let hadExistingBinary = bootstrapState.binaryExists
+        var installedThisAttempt = false
         debugLog(
             "remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0) " +
             "size=\(bootstrapState.binarySize.map(String.init) ?? "unknown")"
@@ -46,6 +47,7 @@ extension RemoteSessionCoordinator {
         if forceExplicitOverrideInstall || !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
+            installedThisAttempt = true
         }
 
         var hello: DaemonHello
@@ -54,9 +56,9 @@ extension RemoteSessionCoordinator {
         } catch {
             let diagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
             Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: diagnostic)
-            guard hadExistingBinary else {
-                // The just-installed artifact passed transport verification but
-                // failed its hello contract; do not leave it to strand the next
+            if installedThisAttempt || !hadExistingBinary {
+                // A just-installed artifact passed transport verification but
+                // failed its hello contract. Never leave it to strand the next
                 // reconnect behind a path-only probe.
                 try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
                 throw Self.annotatedRemoteDaemonBootstrapError(
@@ -65,14 +67,16 @@ extension RemoteSessionCoordinator {
                     diagnostic: diagnostic
                 )
             }
-            try removeRemoteDaemonInstallLocked(remotePath: remotePath)
+            try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
+            installedThisAttempt = true
             do {
                 hello = try helloRemoteDaemonLocked(remotePath: remotePath)
             } catch {
                 let retryDiagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
                 Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: retryDiagnostic)
+                try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
                 throw Self.annotatedRemoteDaemonBootstrapError(
                     error,
                     remotePath: remotePath,
@@ -80,8 +84,8 @@ extension RemoteSessionCoordinator {
                 )
             }
         }
-        let missingCapabilities = Self.missingRequiredCapabilities(requiredCapabilities, in: hello.capabilities)
-        if hadExistingBinary, !missingCapabilities.isEmpty {
+        var missingCapabilities = Self.missingRequiredCapabilities(requiredCapabilities, in: hello.capabilities)
+        if !missingCapabilities.isEmpty, !installedThisAttempt {
             debugLog(
                 "remote.bootstrap.capabilityMissing remotePath=\(remotePath) " +
                 "missing=\(missingCapabilities.joined(separator: ",")) capabilities=\(hello.capabilities.joined(separator: ","))"
@@ -90,20 +94,39 @@ extension RemoteSessionCoordinator {
             Self.logHelloRetry(remotePath: remotePath, error: NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon missing required capabilities: \(missingCapabilities.joined(separator: ","))",
             ]), diagnostic: diagnostic)
-            try removeRemoteDaemonInstallLocked(remotePath: remotePath)
+            try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
+            installedThisAttempt = true
             do {
                 hello = try helloRemoteDaemonLocked(remotePath: remotePath)
             } catch {
                 let retryDiagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
                 Self.logHelloRetry(remotePath: remotePath, error: error, diagnostic: retryDiagnostic)
+                try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
                 throw Self.annotatedRemoteDaemonBootstrapError(
                     error,
                     remotePath: remotePath,
                     diagnostic: retryDiagnostic ?? diagnostic
                 )
             }
+            missingCapabilities = Self.missingRequiredCapabilities(
+                requiredCapabilities,
+                in: hello.capabilities
+            )
+        }
+        if !missingCapabilities.isEmpty {
+            let capabilityError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon missing required capabilities: \(missingCapabilities.joined(separator: ","))",
+            ])
+            let diagnostic = remoteDaemonDiagnosticsLocked(remotePath: remotePath, version: version)
+            Self.logHelloRetry(remotePath: remotePath, error: capabilityError, diagnostic: diagnostic)
+            try? removeRemoteDaemonInstallLocked(remotePath: remotePath)
+            throw Self.annotatedRemoteDaemonBootstrapError(
+                capabilityError,
+                remotePath: remotePath,
+                diagnostic: diagnostic
+            )
         }
 
         debugLog(
@@ -345,7 +368,7 @@ extension RemoteSessionCoordinator {
             throw NSError(domain: "cmux.remote.daemon", code: 24, userInfo: [
                 NSLocalizedDescriptionKey: String(
                     localized: "remoteDaemon.bootstrap.buildOutputEmpty",
-                    defaultValue: "cmuxd-remote build output is missing or empty"
+                    defaultValue: "remote daemon build output is missing or empty"
                 ),
             ])
         }

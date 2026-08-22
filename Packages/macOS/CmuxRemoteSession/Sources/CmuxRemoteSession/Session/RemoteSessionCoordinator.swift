@@ -76,6 +76,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var isStopping = false
     var proxyLease: RemoteProxyLease?
     var proxyLeaseGeneration: UInt64 = 0
+    /// Whether this connection attempt still needs a proxy tunnel.  Keeping
+    /// the intent separate from relay readiness lets a standalone relay start
+    /// asynchronously without losing the eventual proxy acquisition.
+    var proxyConnectionDesired = false
     var proxyEndpoint: BrowserProxyEndpoint?
     var daemonReady = false
     var daemonBootstrapVersion: String?
@@ -84,6 +88,12 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var controlMasterReapState = ControlMasterReapState()
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
+    /// True only after the reverse listener and its authenticated remote
+    /// metadata are both installed.  The proxy/PTY bridge must not be
+    /// advertised before this invariant holds: a ControlMaster recovery can
+    /// leave the daemon hello ready while the old reverse port is still
+    /// draining.
+    var reverseRelayReady = false
     var resolvedControlMasterSSHOptions: [String]?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
@@ -282,6 +292,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             try prepareControlMasterOwnershipLocked()
+            proxyConnectionDesired = !configuration.skipDaemonBootstrap ||
+                configuration.daemonWebSocketEndpoint != nil
             let requiredCapabilities = requiredDaemonCapabilities
             let hello: DaemonHello
             if configuration.skipDaemonBootstrap {
@@ -326,6 +338,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 } else {
                     // SSH-only cloud VM fallback cannot use ssh-exec or local socket forwarding
                     // through provider gateways. Keep the shell connected and leave proxy off.
+                    resetBootstrapFailureTrackingLocked()
                     publishState(
                         .connected,
                         detail: String(format: strings.connectedVMNoProxyFormat, configuration.displayTarget)
@@ -353,10 +366,17 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             switch evaluation.decision {
             case .retry:
                 let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
-                let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-                let detail = "Remote daemon bootstrap failed: \(failureMessage)\(retrySuffix)"
-                publishDaemonStatus(.error, detail: detail)
-                publishState(.error, detail: detail)
+                // A retryable bootstrap failure is supervisor state, not a
+                // user-visible terminal error.  Publishing `.error` here
+                // makes the sidebar flash red even when the very next retry
+                // succeeds; the bounded `.suspend` branch below is the only
+                // place that parks and surfaces a bootstrap failure.
+                debugLog(
+                    "remote.session.bootstrap.retry failure=\(failureMessage.debugLogSnippet(limit: 240)) " +
+                    "retry=\(retrySchedule.retry) delay=\(Int(retrySchedule.delay))"
+                )
+                publishDaemonStatus(.bootstrapping, detail: nil)
+                publishState(.reconnecting, detail: nil)
             case .suspend:
                 cancelReconnectRetryLocked()
                 reconnectSuspended = true
@@ -379,14 +399,20 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     func startProxyLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard proxyConnectionDesired else { return }
+        guard configuration.relayPort == nil || reverseRelayReady else {
+            debugLog(
+                "remote.proxy.waitingForRelay \(debugConfigSummary())"
+            )
+            return
+        }
         guard proxyLease == nil else { return }
         guard let remotePath = daemonRemotePath,
               !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
-            let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            let detail = "Remote daemon did not provide a valid remote path\(retrySuffix)"
-            publishDaemonStatus(.error, detail: detail)
-            publishState(.error, detail: detail)
+            _ = scheduleReconnectLocked(baseDelay: 4.0)
+            debugLog("remote.session.proxy.missingPath \(debugConfigSummary())")
+            publishDaemonStatus(.bootstrapping, detail: nil)
+            publishState(.reconnecting, detail: nil)
             return
         }
 
@@ -424,9 +450,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             cancelReconnectRetryLocked()
             reconnectRetryCount = 0
             consecutiveUnreachableProbeCount = 0
-            bootstrapFailureFingerprint = nil
-            bootstrapFailureCount = 0
-            bootstrapFailureTotal = 0
+            resetBootstrapFailureTrackingLocked()
             // A live connection ends any suspension; without this a future
             // failure would hit the suspended guard and never reschedule.
             reconnectSuspended = false
@@ -467,24 +491,36 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             proxyEndpoint = nil
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
-            publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
+            let shouldEscalate = Self.shouldEscalateProxyErrorToBootstrap(detail)
+            let brokerWillRetry = shouldEscalate || detail.lowercased().contains("retry in")
+            if brokerWillRetry {
+                // Keep transient tunnel churn out of the sidebar.  The
+                // supervisor owns the retry and the eventual parked state
+                // carries the actionable failure if it cannot recover.
+                publishDaemonStatus(.bootstrapping, detail: nil)
+                publishState(.reconnecting, detail: nil)
+            } else {
+                publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
+            }
             // Keep wait-for-ready PTY requests parked across a transient
             // transport bounce.  The remote PTY is persistent; failing the
             // local bridge here forces a noisy shell retry even though the
             // supervisor is already reconnecting the daemon/proxy.
-            guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
+            guard shouldEscalate else { return }
 
+            // The proxy broker can lose its daemon tunnel while the reverse
+            // relay's local state still claims ownership of the old forward.
+            // Clear that transport lease before the next bootstrap; otherwise
+            // `startReverseRelayLocked` sees a non-nil forward spec and the
+            // proxy/PTY bridge remains parked forever after a reconnect.
+            _ = stopReverseRelayLocked(cleanupScope: .transport)
             releaseProxyLeaseLocked()
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
 
-            let retrySchedule = scheduleReconnectLocked(baseDelay: 2.0)
-            let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            publishDaemonStatus(
-                .error,
-                detail: "Remote daemon transport needs re-bootstrap after proxy failure\(retrySuffix)"
-            )
+            _ = scheduleReconnectLocked(baseDelay: 2.0)
+            publishDaemonStatus(.bootstrapping, detail: nil)
         }
     }
 
@@ -571,7 +607,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         _ error: any Error,
         strings: RemoteDaemonStrings
     ) -> String {
-        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nsError = error as NSError
+        let message = nsError.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = message.lowercased()
         if lowered.contains("missing required capability") ||
             lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionCapability) ||
@@ -581,7 +618,43 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 RemoteDaemonRPCClient.requiredPTYSessionCapability,
             ])
         }
-        return message.isEmpty ? "remote daemon bootstrap failed" : message
+        switch nsError.code {
+        case 24:
+            return String(
+                localized: "remoteDaemon.bootstrap.buildOutputEmpty",
+                defaultValue: "Remote daemon build output is missing or empty"
+            )
+        case 31:
+            return String(
+                localized: "remoteDaemon.upload.transferFailed",
+                defaultValue: "Failed to upload remote daemon"
+            )
+        case 33:
+            return String(
+                localized: "remoteDaemon.upload.verifyFailed",
+                defaultValue: "Remote daemon integrity verification failed"
+            )
+        case 32, 34:
+            return String(
+                localized: "remoteDaemon.upload.installFailed",
+                defaultValue: "Failed to install remote daemon"
+            )
+        case 41:
+            return String(
+                localized: "remoteDaemon.bootstrap.helloFailed",
+                defaultValue: "Remote daemon did not return a valid readiness response"
+            )
+        case 13:
+            return String(
+                localized: "remoteDaemon.bootstrap.probeFailed",
+                defaultValue: "Could not inspect the remote daemon installation"
+            )
+        default:
+            return String(
+                localized: "remoteDaemon.bootstrap.failed",
+                defaultValue: "Remote daemon bootstrap failed"
+            )
+        }
     }
 
     // MARK: - Debug logging

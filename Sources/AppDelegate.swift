@@ -1990,7 +1990,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty
-        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2021,6 +2020,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
                 self.terminateCleanupPhase = .freshSnapshot
+                let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
                 let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
                     ttyDeviceBindings: ttyDeviceBindings
                 )
@@ -4636,9 +4636,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Synchronous lifecycle backstops cannot wait for the authoritative off-main load.
         // Revalidate only the already-cached process generations and argv, and fail closed
         // with an empty index when startup has not populated that cache yet.
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
-            cachedRestorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty,
-            ttyDeviceBindings: currentSurfaceTTYDeviceBindings()
+        let resumeIndexes = ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,

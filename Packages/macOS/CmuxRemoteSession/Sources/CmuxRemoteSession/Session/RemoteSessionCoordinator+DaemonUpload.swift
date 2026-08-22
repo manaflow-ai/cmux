@@ -59,6 +59,7 @@ extension RemoteSessionCoordinator {
             )
         } catch {
             let detail = Self.safeRemoteProcessFailureDetail(error)
+            debugLog("remote.bootstrap.upload.failed detail=\(detail ?? "unknown")")
             let message: String
             if let detail {
                 message = String(
@@ -142,22 +143,16 @@ extension RemoteSessionCoordinator {
             )
         } catch {
             let detail = Self.safeRemoteProcessFailureDetail(error)
+            debugLog("remote.bootstrap.upload.failed detail=\(detail ?? "unknown")")
             cleanupRemoteDaemonTemporaryUploadsLocked(
                 remotePath: remotePath,
                 currentTemporaryPath: remoteTempPath
             )
             let message: String
-            if let detail {
-                message = String(
-                    localized: "remoteDaemon.upload.transferFailedWithDetail",
-                    defaultValue: "failed to upload cmuxd-remote: \(detail)"
-                )
-            } else {
-                message = String(
-                    localized: "remoteDaemon.upload.transferFailed",
-                    defaultValue: "failed to upload cmuxd-remote"
-                )
-            }
+            message = String(
+                localized: "remoteDaemon.upload.transferFailed",
+                defaultValue: "failed to upload remote daemon"
+            )
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
                 NSLocalizedDescriptionKey: message,
             ])
@@ -169,10 +164,11 @@ extension RemoteSessionCoordinator {
             )
             let detail = Self.bestErrorLine(stderr: uploadResult.stderr, stdout: uploadResult.stdout) ??
                 "ssh exited \(uploadResult.status)"
+            debugLog("remote.bootstrap.upload.failed status=\(uploadResult.status) detail=\(detail)")
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
                 NSLocalizedDescriptionKey: String(
-                    localized: "remoteDaemon.upload.transferFailedWithDetail",
-                    defaultValue: "failed to upload cmuxd-remote: \(detail)"
+                    localized: "remoteDaemon.upload.transferFailed",
+                    defaultValue: "failed to upload remote daemon"
                 ),
             ])
         }
@@ -192,11 +188,12 @@ extension RemoteSessionCoordinator {
             )
         } catch {
             let detail = Self.safeRemoteProcessFailureDetail(error)
+            debugLog("remote.bootstrap.install.failed detail=\(detail ?? "unknown")")
             cleanupRemoteDaemonTemporaryUploadsLocked(
                 remotePath: remotePath,
                 currentTemporaryPath: remoteTempPath
             )
-            let message = Self.remoteDaemonInstallFailureMessage(detail: detail)
+            let message = Self.remoteDaemonInstallFailureMessage(detail: nil)
             throw NSError(domain: "cmux.remote.daemon", code: 32, userInfo: [
                 NSLocalizedDescriptionKey: message,
             ])
@@ -208,10 +205,11 @@ extension RemoteSessionCoordinator {
             )
             let detail = Self.bestErrorLine(stderr: finalizeResult.stderr, stdout: finalizeResult.stdout) ??
                 "ssh exited \(finalizeResult.status)"
+            debugLog("remote.bootstrap.install.failed status=\(finalizeResult.status) detail=\(detail)")
             let integrityFailure = Self.isRemoteDaemonIntegrityFailure(finalizeResult)
             let message = integrityFailure
-                ? Self.remoteDaemonIntegrityFailureMessage(detail: detail)
-                : Self.remoteDaemonInstallFailureMessage(detail: detail)
+                ? Self.remoteDaemonIntegrityFailureMessage(detail: nil)
+                : Self.remoteDaemonInstallFailureMessage(detail: nil)
             throw NSError(domain: "cmux.remote.daemon", code: integrityFailure ? 33 : 32, userInfo: [
                 NSLocalizedDescriptionKey: message,
             ])
@@ -286,9 +284,9 @@ extension RemoteSessionCoordinator {
         return LocalDaemonArtifact(byteCount: Int64(data.count), sha256: digest)
     }
 
-    private static func remoteDaemonIntegrityFailure(detail: String) -> NSError {
+    private static func remoteDaemonIntegrityFailure(detail _: String) -> NSError {
         NSError(domain: "cmux.remote.daemon", code: 33, userInfo: [
-            NSLocalizedDescriptionKey: remoteDaemonIntegrityFailureMessage(detail: detail),
+            NSLocalizedDescriptionKey: remoteDaemonIntegrityFailureMessage(detail: nil),
         ])
     }
 
@@ -316,15 +314,15 @@ extension RemoteSessionCoordinator {
     }
 
     private static func remoteDaemonInstallFailureMessage(detail: String?) -> String {
-        if let detail {
+        if detail != nil {
             return String(
                 localized: "remoteDaemon.upload.installFailedWithDetail",
-                defaultValue: "failed to install remote daemon binary: \(detail)"
+                defaultValue: "failed to install remote daemon"
             )
         }
         return String(
             localized: "remoteDaemon.upload.installFailed",
-            defaultValue: "failed to install remote daemon binary"
+            defaultValue: "failed to install remote daemon"
         )
     }
 

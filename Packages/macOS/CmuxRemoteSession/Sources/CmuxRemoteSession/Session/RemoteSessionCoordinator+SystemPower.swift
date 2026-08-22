@@ -44,9 +44,7 @@ extension RemoteSessionCoordinator {
         cancelReconnectRetryLocked()
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
-        bootstrapFailureFingerprint = nil
-        bootstrapFailureCount = 0
-        bootstrapFailureTotal = 0
+        resetBootstrapFailureTrackingLocked()
         reconnectSuspended = false
         reachabilityProbeGeneration &+= 1
         debugLog(

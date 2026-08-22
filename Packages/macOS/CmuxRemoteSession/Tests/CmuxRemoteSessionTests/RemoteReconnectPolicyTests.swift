@@ -153,6 +153,36 @@ struct RemoteReconnectPolicyTests {
         #expect(changed.totalFailures == 2)
     }
 
+    @Test("Bootstrap diagnostics do not change retry fingerprints")
+    func bootstrapDiagnosticsDoNotAffectFingerprint() {
+        let underlying = NSError(
+            domain: "cmux.remote.daemon",
+            code: 41,
+            userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon hello returned invalid JSON",
+            ]
+        )
+        let first = RemoteSessionCoordinator.annotatedRemoteDaemonBootstrapError(
+            underlying,
+            remotePath: "/home/test/.cmux/bin/cmuxd-remote/1/linux-amd64/cmuxd-remote",
+            diagnostic: "daemon log tail: authentication failed"
+        )
+        let second = RemoteSessionCoordinator.annotatedRemoteDaemonBootstrapError(
+            underlying,
+            remotePath: "/home/test/.cmux/bin/cmuxd-remote/1/linux-amd64/cmuxd-remote",
+            diagnostic: "daemon log tail: checksum mismatch"
+        )
+
+        #expect(
+            RemoteBootstrapRetryPolicy.fingerprint(for: first) ==
+                "cmux.remote.daemon:41:hello"
+        )
+        #expect(
+            RemoteBootstrapRetryPolicy.fingerprint(for: second) ==
+                "cmux.remote.daemon:41:hello"
+        )
+    }
+
     @Test("Blocked bootstrap failures park immediately")
     func blockedBootstrapFailureDoesNotSpin() {
         let policy = RemoteBootstrapRetryPolicy()

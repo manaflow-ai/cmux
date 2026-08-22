@@ -76,7 +76,7 @@ extension RemoteDaemonUploadTests {
         #expect(largeUpload.timeout > smallUpload.timeout)
     }
 
-    @Test("Upload timeout exposes the process detail and cleans remote temporary files directly")
+    @Test("Upload timeout reports a safe error and cleans remote temporary files directly")
     func uploadTimeoutSurfacesDetailAndCleansRemoteTemporaryFiles() throws {
         let fileManager = FileManager.default
         let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
@@ -122,7 +122,7 @@ extension RemoteDaemonUploadTests {
             }
             Issue.record("Expected the timed-out upload to fail")
         } catch {
-            #expect(error.localizedDescription.contains("ssh timed out after 222s"))
+            #expect(error.localizedDescription == "failed to upload remote daemon")
         }
 
         let requests = runner.requests

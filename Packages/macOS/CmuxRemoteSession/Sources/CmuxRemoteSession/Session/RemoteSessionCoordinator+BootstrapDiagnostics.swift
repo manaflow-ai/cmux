@@ -29,10 +29,11 @@ extension RemoteSessionCoordinator {
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
                 "ssh exited \(result.status)"
+            debugLog("remote.bootstrap.repair.removeFailed detail=\(detail)")
             throw NSError(domain: "cmux.remote.daemon", code: 34, userInfo: [
                 NSLocalizedDescriptionKey: String(
                     localized: "remoteDaemon.bootstrap.removeCorruptFailedWithDetail",
-                    defaultValue: "failed to remove corrupt remote daemon install: \(detail)"
+                    defaultValue: "failed to remove corrupt remote daemon install"
                 ),
             ])
         }
@@ -56,7 +57,12 @@ extension RemoteSessionCoordinator {
         }
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else { return nil }
-        return String(output.prefix(6_000))
+        #if DEBUG
+        debugLog(
+            "remote.bootstrap.diagnostics raw=\(String(output.prefix(6_000)))"
+        )
+        #endif
+        return Self.sanitizedRemoteDaemonDiagnostic(output, fallbackPath: remotePath)
     }
 
     /// Builds the remote diagnostic probe used on bootstrap/hello failures.
@@ -85,7 +91,7 @@ extension RemoteSessionCoordinator {
         printf 'remote_path=%s\\nremote_size=%s\\n' "$remote_path" "$remote_size"
         if [ -n "$log_path" ] && [ -r "$log_path" ]; then
           printf '%s\\n' 'daemon_log_tail:'
-          tail -n 80 "$log_path" 2>/dev/null || true
+          tail -n 80 "$log_path" 2>/dev/null | tail -c 6000 || true
         else
           printf '%s\\n' 'daemon_log_tail: unavailable'
         fi
@@ -100,12 +106,18 @@ extension RemoteSessionCoordinator {
     ) -> NSError {
         let nsError = error as NSError
         var detail = nsError.localizedDescription
-        detail += " (remote path: \(remotePath)"
+        detail += " (remote path: \(sanitizedRemoteDaemonPath(remotePath))"
         if let diagnostic, !diagnostic.isEmpty {
             detail += "; diagnostics: \(diagnostic)"
         }
         detail += ")"
         var userInfo: [String: Any] = [NSLocalizedDescriptionKey: detail]
+        if let stableClass = RemoteBootstrapRetryPolicy
+            .fingerprint(for: nsError)
+            .split(separator: ":")
+            .last {
+            userInfo[RemoteBootstrapRetryPolicy.stableFailureClassKey] = String(stableClass)
+        }
         if let underlying = nsError.userInfo[NSUnderlyingErrorKey] {
             userInfo[NSUnderlyingErrorKey] = underlying
         }
@@ -118,8 +130,47 @@ extension RemoteSessionCoordinator {
     /// Emits hello-retry diagnostics through the release-visible bootstrap logger.
     static func logHelloRetry(remotePath: String, error: any Error, diagnostic: String?) {
         let diagnosticText = diagnostic?.replacingOccurrences(of: "\n", with: "\\n") ?? "none"
+        let errorClass = RemoteBootstrapRetryPolicy.fingerprint(for: error)
+            .split(separator: ":")
+            .last
+            .map(String.init) ?? "bootstrap"
         remoteBootstrapLogger.error(
-            "remote.bootstrap.helloRetry remotePath=\(remotePath) detail=\(error.localizedDescription) diagnostic=\(diagnosticText)"
+            "remote.bootstrap.helloRetry class=\(errorClass, privacy: .public) remotePath=\(sanitizedRemoteDaemonPath(remotePath), privacy: .private(mask: .hash)) diagnostic=\(diagnosticText, privacy: .private(mask: .hash))"
         )
+    }
+
+    /// Keeps user-visible diagnostics useful without exposing a home path,
+    /// host-specific username, or arbitrary daemon-log content.
+    private static func sanitizedRemoteDaemonPath(_ path: String) -> String {
+        let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let marker = normalized.range(of: "/.cmux/bin/cmuxd-remote/") else {
+            return "~/.cmux/bin/cmuxd-remote"
+        }
+        return "~/.cmux/bin/cmuxd-remote/" + normalized[marker.upperBound...]
+    }
+
+    private static func sanitizedRemoteDaemonDiagnostic(
+        _ output: String,
+        fallbackPath: String
+    ) -> String {
+        var path = sanitizedRemoteDaemonPath(fallbackPath)
+        var size = "unknown"
+        var hasLogTail = false
+        for line in output.split(whereSeparator: \.isNewline) {
+            let value = String(line)
+            if value.hasPrefix("remote_path=") {
+                path = sanitizedRemoteDaemonPath(String(value.dropFirst("remote_path=".count)))
+            } else if value.hasPrefix("remote_size=") {
+                let candidate = String(value.dropFirst("remote_size=".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if Int64(candidate) != nil || candidate == "missing" || candidate == "unknown" {
+                    size = candidate
+                }
+            } else if value == "daemon_log_tail:" {
+                hasLogTail = true
+            }
+        }
+        let logSummary = hasLogTail ? "daemon log tail captured" : "daemon log unavailable"
+        return "remote path: \(path); remote size: \(size) bytes; \(logSummary)"
     }
 }

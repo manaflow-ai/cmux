@@ -53858,6 +53858,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.recovered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH が再接続されました（試行 %s/%s）。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.stopHint": {
       "extractionState": "manual",
       "localizations": {
@@ -55280,6 +55297,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.reconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY reconnected (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY が再接続されました（試行 %s/%s）。"
           }
         }
       }
@@ -145424,35 +145458,17 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxd-remote build output is missing or empty"
+            "value": "Remote daemon build output is missing or empty"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxd-remote のビルド出力がないか空です"
+            "value": "リモートデーモンのビルド出力がないか空です"
           }
-        },
-        "ar": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "bs": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "da": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "de": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "es": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "fr": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "it": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "km": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "ko": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "nb": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "pl": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "pt-BR": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "ru": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "th": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "tr": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "uk": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "zh-Hans": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } },
-        "zh-Hant": { "stringUnit": { "state": "new", "value": "cmuxd-remote build output is missing or empty" } }
         }
-      },
+      }
+    },
     "remoteDaemon.bootstrap.reconnectPaused": {
       "extractionState": "manual",
       "localizations": {
@@ -145467,27 +145483,60 @@
             "state": "translated",
             "value": "ブートストラップを続行できないため自動再接続を一時停止しました。表示されたリモートの問題を修復して「再接続」を実行してください。"
           }
-        },
-        "ar": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "bs": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "da": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "de": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "es": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "fr": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "it": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "km": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "ko": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "nb": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "pl": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "pt-BR": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "ru": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "th": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "tr": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "uk": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "zh-Hans": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } },
-        "zh-Hant": { "stringUnit": { "state": "new", "value": "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again." } }
         }
-      },
+      }
+    },
+    "remoteDaemon.bootstrap.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote daemon bootstrap failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのブートストラップに失敗しました"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.helloFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote daemon did not return a valid readiness response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンが有効な準備完了応答を返しませんでした"
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not inspect the remote daemon installation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのインストールを検査できませんでした"
+          }
+        }
+      }
+    },
     "remoteDaemon.bootstrap.removeCorruptFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -145502,27 +145551,9 @@
             "state": "translated",
             "value": "破損したリモートデーモンのインストールを削除できませんでした"
           }
-        },
-        "ar": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "bs": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "da": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "de": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "es": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "fr": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "it": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "km": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "ko": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "nb": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "pl": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "pt-BR": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "ru": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "th": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "tr": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "uk": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "zh-Hans": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } },
-        "zh-Hant": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install" } }
         }
-      },
+      }
+    },
     "remoteDaemon.bootstrap.removeCorruptFailedWithDetail": {
       "extractionState": "manual",
       "localizations": {
@@ -145537,27 +145568,9 @@
             "state": "translated",
             "value": "破損したリモートデーモンのインストールを削除できませんでした：%@"
           }
-        },
-        "ar": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "bs": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "da": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "de": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "es": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "fr": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "it": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "km": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "ko": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "nb": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "pl": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "pt-BR": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "ru": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "th": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "tr": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "uk": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "zh-Hans": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } },
-        "zh-Hant": { "stringUnit": { "state": "new", "value": "failed to remove corrupt remote daemon install: %@" } }
         }
-      },
+      }
+    },
     "remoteDaemon.upload.createDirectoryFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -145598,13 +145611,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to install remote daemon binary"
+            "value": "failed to install remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートデーモンのバイナリをインストールできませんでした"
+            "value": "リモートデーモンをインストールできませんでした"
           }
         }
       }
@@ -145640,27 +145653,9 @@
             "state": "translated",
             "value": "リモートデーモンの整合性検証に失敗しました"
           }
-        },
-        "ar": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "bs": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "da": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "de": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "es": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "fr": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "it": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "km": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "ko": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "nb": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "pl": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "pt-BR": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "ru": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "th": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "tr": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "uk": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "zh-Hans": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } },
-        "zh-Hant": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed" } }
         }
-      },
+      }
+    },
     "remoteDaemon.upload.verifyFailedWithDetail": {
       "extractionState": "manual",
       "localizations": {
@@ -145675,40 +145670,22 @@
             "state": "translated",
             "value": "リモートデーモンの整合性検証に失敗しました：%@"
           }
-        },
-        "ar": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "bs": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "da": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "de": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "es": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "fr": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "it": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "km": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "ko": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "nb": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "pl": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "pt-BR": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "ru": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "th": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "tr": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "uk": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "zh-Hans": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } },
-        "zh-Hant": { "stringUnit": { "state": "new", "value": "remote daemon integrity verification failed: %@" } }
         }
-      },
+      }
+    },
     "remoteDaemon.upload.transferFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "failed to upload cmuxd-remote"
+            "value": "failed to upload remote daemon"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxd-remote をアップロードできませんでした"
+            "value": "リモートデーモンをアップロードできませんでした"
           }
         }
       }

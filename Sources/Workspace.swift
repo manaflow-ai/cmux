@@ -218,6 +218,9 @@ extension Workspace {
 #endif
         terminalStartupRestoreCoordinator.removeAllRestores()
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        pendingPlainSSHRestorePanelIds.removeAll(keepingCapacity: false)
+        observedPlainSSHPanelIds.removeAll(keepingCapacity: false)
+        plainSSHDetectionMissesByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredPanelTitleBoundariesByPanelId.removeAll(keepingCapacity: false)
         panelShellActivityStates.removeAll(keepingCapacity: false)
@@ -1304,6 +1307,16 @@ extension Workspace {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
 
+            if let detectedBinding, detectedBinding.isPlainSSHProcessDetectedBinding {
+                // A fresh process observation is authoritative evidence that
+                // the SSH child is still alive.  It also closes the restore
+                // observation gap so later misses can be interpreted as an
+                // actual exit rather than startup churn.
+                observedPlainSSHPanelIds.insert(panelId)
+                pendingPlainSSHRestorePanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId[panelId] = 0
+            }
+
             guard let storedBinding else {
                 if let detectedBinding, detectedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId[panelId] = detectedBinding
@@ -1311,15 +1324,32 @@ extension Workspace {
                 continue
             }
             guard let detectedBinding else {
-                if storedBinding.isProcessDetected {
-                    // A plain SSH process is expected to disappear while the
-                    // app is restoring its local PTY. Keep its safe,
-                    // process-detected command through that observation gap;
-                    // otherwise the first post-restore autosave erases the
-                    // only instruction that could reconnect it next time.
-                    if !storedBinding.isPlainSSHProcessDetectedBinding {
-                        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                if storedBinding.isPlainSSHProcessDetectedBinding {
+                    if pendingPlainSSHRestorePanelIds.contains(panelId) {
+                        // The restored PTY may not have exec'd `ssh` yet. Keep
+                        // the binding for a bounded restore observation gap;
+                        // the shell activity transition below retires it if
+                        // SSH never starts.
+                        let restoreMisses = (plainSSHDetectionMissesByPanelId[panelId] ?? 0) + 1
+                        plainSSHDetectionMissesByPanelId[panelId] = restoreMisses
+                        if restoreMisses >= Self.plainSSHRestoreObservationMissLimit {
+                            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                            pendingPlainSSHRestorePanelIds.remove(panelId)
+                            plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+                        }
+                        continue
                     }
+                    let misses = (plainSSHDetectionMissesByPanelId[panelId] ?? 0) + 1
+                    plainSSHDetectionMissesByPanelId[panelId] = misses
+                    if misses >= 2 {
+                        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                        observedPlainSSHPanelIds.remove(panelId)
+                        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+                    }
+                    continue
+                }
+                if storedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 } else if isStaleAgentHookBinding(
                     storedBinding,
                     panelId: panelId,
@@ -1340,6 +1370,9 @@ extension Workspace {
                 surfaceResumeBindingsByPanelId[panelId] = detectedBinding
             } else if storedBinding.isProcessDetected {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                observedPlainSSHPanelIds.remove(panelId)
+                pendingPlainSSHRestorePanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
             }
         }
     }
@@ -1356,9 +1389,14 @@ extension Workspace {
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else {
-            return storedBinding.isPlainSSHProcessDetectedBinding
-                ? storedBinding
-                : (storedBinding.isProcessDetected ? nil : storedBinding)
+            if storedBinding.isPlainSSHProcessDetectedBinding {
+                let misses = plainSSHDetectionMissesByPanelId[panelId] ?? 0
+                if pendingPlainSSHRestorePanelIds.contains(panelId) || misses < 2 {
+                    return storedBinding
+                }
+                return nil
+            }
+            return storedBinding.isProcessDetected ? nil : storedBinding
         }
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
         if storedBinding.isProcessDetected { return nil }
@@ -1680,13 +1718,20 @@ extension Workspace {
                 )
             }
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
+                let restoredBinding = storedResumeBinding.retargetingRemoteOwner(
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
                     workspaceID: id,
                     surfaceID: terminalPanel.id,
                     persistentPTYSessionID: restoredRemotePTYSessionID
                 )
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
+                if restoredBinding.isPlainSSHProcessDetectedBinding,
+                   restoredBindingLaunch != nil {
+                    pendingPlainSSHRestorePanelIds.insert(terminalPanel.id)
+                    observedPlainSSHPanelIds.remove(terminalPanel.id)
+                    plainSSHDetectionMissesByPanelId[terminalPanel.id] = 0
+                }
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -2642,6 +2687,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Plain SSH restore bindings survive the short interval in which a new
+    /// local PTY exists but its `ssh` child has not become foreground yet.
+    /// These indexes make that exception explicit and bounded: once a shell
+    /// has been observed after SSH exits, the binding is retired instead of
+    /// being replayed forever.
+    var pendingPlainSSHRestorePanelIds: Set<UUID> = []
+    var observedPlainSSHPanelIds: Set<UUID> = []
+    var plainSSHDetectionMissesByPanelId: [UUID: Int] = [:]
+    private static let plainSSHRestoreObservationMissLimit = 3
     var restoredGuardedWorkingDirectoriesByPanelId: [UUID: RestoredWorkingDirectoryGuard] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the resumed run so split/new-tab cwd inheritance can rescue a
@@ -5141,6 +5195,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
+
+        if surfaceResumeBindingsByPanelId[panelId]?.isPlainSSHProcessDetectedBinding == true {
+            switch state {
+            case .commandRunning:
+                // The restored/manual SSH command reached the foreground.
+                observedPlainSSHPanelIds.insert(panelId)
+                pendingPlainSSHRestorePanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId[panelId] = 0
+            case .promptIdle where observedPlainSSHPanelIds.contains(panelId)
+                && !pendingPlainSSHRestorePanelIds.contains(panelId):
+                // The SSH child has exited and the pane is back at its local
+                // shell.  Retaining this binding would relaunch a connection
+                // the user has intentionally left.
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                observedPlainSSHPanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+            default:
+                break
+            }
+        }
         if previousState == state {
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
@@ -5313,12 +5387,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        if binding.isPlainSSHProcessDetectedBinding {
+            observedPlainSSHPanelIds.insert(panelId)
+            pendingPlainSSHRestorePanelIds.remove(panelId)
+            plainSSHDetectionMissesByPanelId[panelId] = 0
+        } else {
+            observedPlainSSHPanelIds.remove(panelId)
+            pendingPlainSSHRestorePanelIds.remove(panelId)
+            plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+        }
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        pendingPlainSSHRestorePanelIds.remove(panelId)
+        observedPlainSSHPanelIds.remove(panelId)
+        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+        return removed
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
@@ -5579,6 +5666,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             refreshTrackedAgentPorts()
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        pendingPlainSSHRestorePanelIds = pendingPlainSSHRestorePanelIds.intersection(validSurfaceIds)
+        observedPlainSSHPanelIds = observedPlainSSHPanelIds.intersection(validSurfaceIds)
+        plainSSHDetectionMissesByPanelId = plainSSHDetectionMissesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentLifecycle.retainSessionRestores(for: validSurfaceIds)
@@ -7009,6 +7101,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
+        if effectiveState == .connecting || effectiveState == .reconnecting {
+            // A retry has ownership of the failure now.  Retract any prior
+            // red sidebar entry immediately; only a bounded parked state may
+            // recreate it.
+            clearRecoveredRemoteDaemonSidebarArtifacts()
+        }
         if state == .connected,
            (remoteSessionController != nil || !reconnectWasInFlight) {
             _ = reattachPersistentRemotePTYPanels()
@@ -9951,6 +10049,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            pendingPlainSSHRestorePanelIds.remove(detached.panelId)
+            observedPlainSSHPanelIds.remove(detached.panelId)
+            plainSSHDetectionMissesByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)

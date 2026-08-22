@@ -461,7 +461,18 @@ enum TerminalSSHSessionDetector {
             return nil
         }
 
-        let command = arguments
+        // libproc's argv[0] is often the bare `ssh` name even when the
+        // process was launched from a company wrapper or an absolute path.
+        // Preserve the resolved executable path so restore does not silently
+        // switch binaries (or fail when that bare name is not on PATH).
+        let resolvedExecutable = processPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let launchArguments: [String] = {
+            guard let resolvedExecutable, !arguments.isEmpty else { return arguments }
+            return [resolvedExecutable] + arguments.dropFirst()
+        }()
+        let command = launchArguments
             .map(SurfaceResumeBindingSnapshot.shellSingleQuoted)
             .joined(separator: " ")
         guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(command) else {
@@ -476,8 +487,8 @@ enum TerminalSSHSessionDetector {
             source: "process-detected",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: nil,
-                executablePath: arguments.first,
-                arguments: arguments,
+                executablePath: resolvedExecutable ?? launchArguments.first,
+                arguments: launchArguments,
                 workingDirectory: cwd,
                 environment: nil,
                 capturedAt: capturedAt,
@@ -490,6 +501,7 @@ enum TerminalSSHSessionDetector {
 
     private static let psPath = "/bin/ps"
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let nonInteractiveFlags = Set("nTGV")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
     private static func normalizeTTYName(_ ttyName: String) -> String {
@@ -562,7 +574,7 @@ enum TerminalSSHSessionDetector {
             guard !flags.isEmpty, flags.allSatisfy({ noArgumentFlags.contains($0) }) else {
                 return false
             }
-            if flags.contains("N") {
+            if flags.contains(where: { nonInteractiveFlags.contains($0) }) {
                 return false
             }
             index += 1
@@ -571,13 +583,26 @@ enum TerminalSSHSessionDetector {
     }
 
     private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
-        let key = rawOption
+        let parts = rawOption
             .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            .first?
+        let key = parts.first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return key == "remotecommand" ||
-            (key == "sessiontype" && rawOption.lowercased().contains("none"))
+        let value = parts.count == 2
+            ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            : nil
+        if key == "remotecommand" {
+            // `RemoteCommand=none` is OpenSSH's explicit request for the
+            // normal interactive shell and is safe to resume.
+            return value != "none"
+        }
+        if key == "requesttty" {
+            return value == "no" || value == "false"
+        }
+        if key == "stdinnull" {
+            return value == "yes" || value == "true"
+        }
+        return key == "sessiontype" && value == "none"
     }
 
     private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {

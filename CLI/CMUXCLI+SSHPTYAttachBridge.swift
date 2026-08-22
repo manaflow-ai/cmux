@@ -19,7 +19,7 @@ extension CMUXCLI {
               let exitCode = SSHPTYAttachExitCode(rawValue: cliError.exitCode) else {
             return false
         }
-        return exitCode.isWrapperRetryable
+        return sshPTYAttachWrapperWillRetry(exitCode)
     }
 
     /// True when a persistent attach wrapper has another general retry available.

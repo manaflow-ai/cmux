@@ -73,7 +73,7 @@ struct RemoteDaemonUploadTests {
         #expect(finalizeRequest.arguments.last?.contains(location.absolutePath) == true)
     }
 
-    @Test("Upload reports SSH exec failures with their remote detail")
+    @Test("Upload reports SSH exec failures with a safe transfer error")
     func uploadReportsExecFailureDetail() throws {
         let fileManager = FileManager.default
         let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
@@ -117,8 +117,7 @@ struct RemoteDaemonUploadTests {
             #expect(nsError.domain == "cmux.remote.daemon")
             #expect(nsError.code == 31)
             #expect(
-                nsError.localizedDescription ==
-                    "failed to upload cmuxd-remote: cat: remote path: Permission denied"
+                nsError.localizedDescription == "failed to upload remote daemon"
             )
         }
 
@@ -141,7 +140,7 @@ struct RemoteDaemonUploadTests {
         #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
     }
 
-    @Test("Finalization failure cleans the temporary upload and reports install detail")
+    @Test("Finalization failure cleans the temporary upload and reports a safe install error")
     func finalizationFailureCleansTemporaryUpload() throws {
         let fileManager = FileManager.default
         let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
@@ -185,8 +184,7 @@ struct RemoteDaemonUploadTests {
             #expect(nsError.domain == "cmux.remote.daemon")
             #expect(nsError.code == 32)
             #expect(
-                nsError.localizedDescription ==
-                    "failed to install remote daemon binary: chmod: remote helper: Operation not permitted"
+                nsError.localizedDescription == "failed to install remote daemon"
             )
         }
 
@@ -254,8 +252,8 @@ struct RemoteDaemonUploadTests {
             let nsError = error as NSError
             #expect(nsError.domain == "cmux.remote.daemon")
             #expect(nsError.code == 33)
-            #expect(nsError.localizedDescription.contains("verification"))
-            #expect(nsError.localizedDescription.contains("size mismatch"))
+            #expect(nsError.localizedDescription == "remote daemon integrity verification failed")
+            #expect(!nsError.localizedDescription.contains("size mismatch"))
         }
 
         let finalizeRequest = try #require(
@@ -385,7 +383,7 @@ struct RemoteDaemonUploadTests {
         try assertProcessFailureIsSanitized(
             at: .upload,
             expectedCode: 31,
-            expectedDescription: "failed to upload cmuxd-remote"
+            expectedDescription: "failed to upload remote daemon"
         )
     }
 
@@ -403,7 +401,7 @@ struct RemoteDaemonUploadTests {
         try assertProcessFailureIsSanitized(
             at: .finalize,
             expectedCode: 32,
-            expectedDescription: "failed to install remote daemon binary"
+            expectedDescription: "failed to install remote daemon"
         )
     }
 

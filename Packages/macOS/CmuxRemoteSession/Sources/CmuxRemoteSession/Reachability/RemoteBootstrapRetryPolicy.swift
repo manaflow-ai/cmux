@@ -7,6 +7,7 @@ import Foundation
 /// those decisions separate prevents a reachable host with a corrupt install
 /// from consuming an unbounded reconnect loop.
 struct RemoteBootstrapRetryPolicy: Sendable {
+    static let stableFailureClassKey = "cmux.remote.bootstrap.failureClass"
     /// The decision after one bootstrap failure.
     enum Decision: Equatable, Sendable {
         /// Schedule another centrally-owned reconnect attempt.
@@ -58,27 +59,35 @@ struct RemoteBootstrapRetryPolicy: Sendable {
     /// excluded. A truncated payload must remain the same failure class across
     /// attempts even when each temporary path or diagnostic count changes.
     static func fingerprint(for error: any Error) -> String {
-        let nsError = error as NSError
+        let annotatedError = error as NSError
+        // Bootstrap diagnostics are intentionally appended after the real
+        // failure.  Retry accounting must classify that underlying failure,
+        // never a changing log tail/path/byte count.
+        let nsError = (annotatedError.userInfo[NSUnderlyingErrorKey] as? NSError)
+            ?? annotatedError
         let domain = nsError.domain.trimmingCharacters(in: .whitespacesAndNewlines)
         let code = nsError.code
-        let message = nsError.localizedDescription.lowercased()
-        let className: String
+        let className = (nsError.userInfo[stableFailureClassKey] as? String)
+            ?? failureClass(for: nsError.localizedDescription)
+        return "\(domain):\(code):\(className)"
+    }
+
+    private static func failureClass(for rawMessage: String) -> String {
+        let message = rawMessage.lowercased()
         if message.contains("permission denied") ||
             message.contains("authentication") ||
             message.contains("host key") ||
             message.contains("access denied") {
-            className = "blocked"
+            return "blocked"
         } else if message.contains("verification") || message.contains("checksum") || message.contains("hash") {
-            className = "integrity"
+            return "integrity"
         } else if message.contains("hello") || message.contains("json") {
-            className = "hello"
+            return "hello"
         } else if message.contains("upload") || message.contains("transfer") {
-            className = "transfer"
+            return "transfer"
         } else if message.contains("directory") || message.contains("install") {
-            className = "install"
-        } else {
-            className = "bootstrap"
+            return "install"
         }
-        return "\(domain):\(code):\(className)"
+        return "bootstrap"
     }
 }

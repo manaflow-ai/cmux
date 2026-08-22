@@ -138,8 +138,47 @@ struct WorkspaceIsStaleAgentHookBindingTests {
             workspace.effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: .empty
-            ) == binding
+        ) == binding
         )
+    }
+
+    @Test
+    func plainSSHProcessBindingIsRetiredAfterTheSSHChildExits() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        // One empty scan is a process-scan hiccup; the second is authoritative
+        // absence after the observed SSH process has ended.
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) != nil)
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
+    }
+
+    @Test
+    func plainSSHProcessBindingIsClearedWhenShellReturnsToPrompt() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
     }
 
     @Test
