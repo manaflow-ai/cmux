@@ -3406,6 +3406,16 @@ struct CMUXCLI {
             )
     }
 
+    private static func browserURLAllowlistPolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> BrowserURLAllowlistPolicy {
+        BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: managedDevicePolicy(defaults: defaults, domain: domain)
+        )
+    }
+
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
@@ -3511,6 +3521,7 @@ struct CMUXCLI {
             defaults: defaults,
             domain: domain
         )
+        let urlAllowlist = Self.browserURLAllowlistPolicy(defaults: defaults, domain: domain)
 
         switch action {
         case "disable", "disable-browser":
@@ -3543,7 +3554,10 @@ struct CMUXCLI {
             "disabled": disabled,
             "managed": managedByProfile,
             "domain": domain,
-            "key": Self.browserDisabledDefaultsKey
+            "key": Self.browserDisabledDefaultsKey,
+            "url_allowlist": urlAllowlist.patterns.map(\.rawValue),
+            "url_allowlist_active": urlAllowlist.isActive,
+            "url_allowlist_managed": urlAllowlist.isManaged
         ]
         if effectiveJSONOutput {
             print(jsonString(payload))

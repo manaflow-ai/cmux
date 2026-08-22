@@ -26691,6 +26691,41 @@
         }
       }
     },
+    "browser.error.urlAllowlist.attemptedURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attempted URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "試行したURL" } }
+      }
+    },
+    "browser.error.urlAllowlist.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by your organization's embedded-browser policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは組織の内蔵ブラウザポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.userMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This URL is not allowed by the embedded-browser URL policy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このURLは内蔵ブラウザのURLポリシーで許可されていません。" } }
+      }
+    },
+    "browser.error.urlAllowlist.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織のポリシーによりブロックされました" } }
+      }
+    },
+    "browser.error.urlAllowlist.userTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
+      }
+    },
     "browser.error.insecure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -35102,6 +35137,20 @@
             "value": "信頼済み差分ビューアのセッションがありません"
           }
         }
+      }
+    },
+    "cli.browser.error.urlBlockedByPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by your organization's browser policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "組織のブラウザポリシーによりブロックされました" } }
+      }
+    },
+    "cli.browser.error.urlBlockedByUserPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked by the embedded-browser URL policy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザのURLポリシーによりブロックされました" } }
       }
     },
     "cli.browser.error.operationFailed": {
@@ -171657,7 +171706,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."
           }
         },
         "es": {
@@ -171681,7 +171730,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。エントリを削除するとそのホストをブロックし、リセットでデフォルトに戻せます。"
           }
         },
         "ko": {
@@ -171776,7 +171825,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line. Remove entries to block them."
           }
         },
         "es": {
@@ -171800,7 +171849,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード。エントリを削除するとそのホストをブロックします。"
           }
         },
         "ko": {
@@ -171982,6 +172031,80 @@
             "value": "儲存"
           }
         }
+      }
+    },
+    "settings.browser.httpAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.browser.urlAllowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Embedded Browser URL Allowlist" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザURL許可リスト" } }
+      }
+    },
+    "settings.browser.urlAllowlist.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザの移動を、一致するホストまたはURLパターンに制限します。localhostの候補リストが表示され、保存すると制限が有効になります。エントリを削除するとそのURLをブロックし、管理ポリシーがない場合にリストを空にするとすべてのWebオリジンを許可します。無効なルールだけの値は安全側でブロックされます。cmux内部ドキュメントは引き続き利用できます。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1行に1ルール: localhost、*.localhost、example.com、https://git.example.com、または http://localhost:3000。エントリを削除するとそのURLをブロックします。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なルールがあります。無効なルールだけの値は安全側でブロックされます。ホストまたはHTTP(S) URLパターンを使用してください。" } }
+      }
+    },
+    "settings.browser.urlAllowlist.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "settings.browser.urlAllowlist.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Defaults" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "settings.search.alias.setting.browser.url-allowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist قائمة سماح URL localhost حرف بدل مخطط منفذ سياسة المؤسسة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozvoljenih URL-ova localhost zamjenski znak shema port organizacijska politika" } },
+        "da": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tilladelsesliste localhost jokertegn skema port organisationspolitik" } },
+        "de": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-Zulassungsliste localhost Wildcard Schema Port Organisationsrichtlinie" } },
+        "en": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "es": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URL permitidas localhost comodín esquema puerto política de la organización" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist liste d’autorisation URL localhost caractère générique schéma port politique de l’organisation" } },
+        "it": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist elenco URL consentiti localhost carattere jolly schema porta criterio organizzativo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL許可リスト localhost ワイルドカード スキーム ポート 組織 ポリシー" } },
+        "km": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 허용 목록 localhost 와일드카드 스킴 포트 조직 정책" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL-tillatelsesliste localhost jokertegn skjema port organisasjonspolicy" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista dozwolonych URL localhost wildcard schemat port polityka organizacji" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist lista de URLs permitidas localhost curinga esquema porta política da organização" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список разрешённых URL localhost подстановочный знак схема порт политика организации" } },
+        "th": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist รายการ URL ที่อนุญาต localhost wildcard รูปแบบ พอร์ต นโยบายองค์กร" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL izin listesi localhost joker karakter şema bağlantı noktası kuruluş politikası" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist список дозволених URL localhost шаблон схема порт політика організації" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允许列表 localhost 通配符 协议 端口 组织策略" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "browser.urlAllowlist URL 允許清單 localhost 萬用字元 通訊協定 連接埠 組織政策" } }
       }
     },
     "settings.browser.import": {
