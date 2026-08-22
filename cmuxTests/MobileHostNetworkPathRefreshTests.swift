@@ -124,6 +124,12 @@ import Testing
         ) == true)
     }
 
+    @Test func pathStatusMapsToReachabilityForTransportTelemetry() {
+        #expect(MobileHostNetworkPathMonitor.isOnline(statusDescription: "satisfied"))
+        #expect(!MobileHostNetworkPathMonitor.isOnline(statusDescription: "unsatisfied"))
+        #expect(!MobileHostNetworkPathMonitor.isOnline(statusDescription: "requiresConnection"))
+    }
+
     // MARK: - Resolver cache invalidation
 
     private func tailscaleHosts(in snapshot: MobileHostRouteSnapshot) -> [String] {

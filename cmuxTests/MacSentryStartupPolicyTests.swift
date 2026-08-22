@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Sentry
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -161,5 +162,46 @@ private var appHostIsolationRequiredByBuild: Bool {
                 telemetryEnabled: true
             ).shouldStart == true
         )
+    }
+}
+
+@Suite struct SentryEventNoiseFilterTests {
+    @Test(arguments: [
+        "socket.listener.start.failed",
+        "socket.listener.unhealthy",
+        "Scroll lag detected",
+    ])
+    func dropsOperationalNoise(_ message: String) {
+        #expect(SentryEventNoiseFilter.shouldDrop(message: message))
+    }
+
+    @Test(arguments: [
+        "App Hanging: App hanging for at least 8000 ms.",
+        "EXC_BAD_ACCESS",
+        "Failed to write to socket",
+    ])
+    func keepsCrashesAndActionableErrors(_ message: String) {
+        #expect(!SentryEventNoiseFilter.shouldDrop(message: message))
+    }
+
+    @Test func samplesTransportFailuresDeterministically() {
+        #expect(SentryEventNoiseFilter.shouldKeepTransportEvent(
+            incident: "failure",
+            failure: "policyUnavailable",
+            bucket: "sample-a",
+            sampleRate: 1
+        ))
+        #expect(!SentryEventNoiseFilter.shouldKeepTransportEvent(
+            incident: "failure",
+            failure: "offline",
+            bucket: "sample-a",
+            sampleRate: 1
+        ))
+        #expect(SentryEventNoiseFilter.shouldKeepTransportEvent(
+            incident: "outage",
+            failure: "unknown",
+            bucket: "sample-a",
+            sampleRate: 1
+        ))
     }
 }

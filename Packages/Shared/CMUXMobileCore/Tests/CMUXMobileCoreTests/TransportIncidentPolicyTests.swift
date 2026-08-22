@@ -81,7 +81,52 @@ import Testing
 
     @Test func offlineReportedWhenReachabilityUnknown() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
-        #expect(policy.decide(dialFailed(at: 10, failure: .offline)) != nil)
+        #expect(policy.decide(dialFailed(at: 10, failure: .offline)) == nil)
+    }
+
+    @Test func offlinePathSuppressesTransientPolicyAndEndpointFailures() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
+
+        #expect(policy.decide(dialFailed(at: 10, failure: .policyUnavailable)) == nil)
+        #expect(policy.decide(dialFailed(at: 11, failure: .endpointUnavailable)) == nil)
+        #expect(policy.decide(dialFailed(at: 12, failure: .unknown)) == nil)
+    }
+
+    @Test func offlineFailuresDoNotEscalateAnOutage() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
+
+        for second in stride(from: UInt64(10), through: 200, by: 30) {
+            #expect(policy.decide(dialFailed(at: second, failure: .policyUnavailable)) == nil)
+        }
+    }
+
+    @Test func macHostConfigurationUsesSamplingAndLongerGates() {
+        let configuration = TransportIncidentPolicy.Configuration.macHost
+        #expect(configuration.signatureCooldown >= 3_600)
+        #expect(configuration.hourlyCaptureLimit <= 10)
+        #expect(configuration.failureSampleRate < 1)
+        #expect(configuration.outageSampleRate <= 0.5)
+        #expect(configuration.suppressOfflineFailures)
+    }
+
+    @Test func zeroFailureSampleRateKeepsBreadcrumbOnlySemantics() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 0,
+                hourlyCaptureLimit: 30,
+                outageFailureThreshold: 100,
+                outageMinimumDuration: 10_000,
+                outageRearmInterval: 3_600,
+                failureSampleRate: 0,
+                outageSampleRate: 0
+            ),
+            locale: englishLocale
+        )
+
+        #expect(policy.decide(dialFailed(at: 10)) == nil)
+        #expect(policy.decide(dialFailed(at: 20)) == nil)
     }
 
     @Test func idleTimeoutSuppressedInBackground() {
