@@ -31420,14 +31420,22 @@ export default CMUXSessionRestore;
             if let strictPiTarget {
                 return strictPiTarget
             }
+            /// Re-homes a known surface only when the hook supplied no explicit target.
+            func tryLiveSurfaceBinding() -> (workspaceId: String, surfaceId: String)? {
+                guard hookWsFlag == nil, explicitSurfaceFlag == nil,
+                      let liveSurfaceTarget = liveAgentHookSurfaceBinding(
+                          mappedSurfaceId: mapped?.surfaceId,
+                          directSurfaceId: directSurfaceArg,
+                          claimedWorkspaceId: mapped?.workspaceId ?? directWorkspaceArg,
+                          client: client
+                      ) else {
+                    return nil
+                }
+                return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
+            }
             if hookWsFlag == nil, explicitSurfaceFlag == nil,
                processBindingResolution().rejectsAmbientClaim {
-                if let liveSurfaceTarget = liveAgentHookSurfaceBinding(
-                    mappedSurfaceId: mapped?.surfaceId,
-                    directSurfaceId: directSurfaceArg,
-                    claimedWorkspaceId: mapped?.workspaceId ?? directWorkspaceArg,
-                    client: client
-                ) {
+                if let liveSurfaceTarget = tryLiveSurfaceBinding() {
                     return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
                 }
 #if DEBUG
@@ -31481,12 +31489,7 @@ export default CMUXSessionRestore;
                 }
             }
 
-            if let liveSurfaceTarget = liveAgentHookSurfaceBinding(
-                mappedSurfaceId: mapped?.surfaceId,
-                directSurfaceId: directSurfaceArg,
-                claimedWorkspaceId: mapped?.workspaceId ?? directWorkspaceArg,
-                client: client
-            ) {
+            if let liveSurfaceTarget = tryLiveSurfaceBinding() {
                 return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
             }
 

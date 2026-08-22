@@ -2298,6 +2298,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             liveRequests.contains { ($0["method"] as? String) == "surface.resume.set" },
             "A resolved Grok SessionStart must persist the live target, saw \(successState.snapshot())"
         )
+        let resumeRequest = try XCTUnwrap(
+            liveRequests.first { ($0["method"] as? String) == "surface.resume.set" }
+        )
+        let resumeParams = try XCTUnwrap(resumeRequest["params"] as? [String: Any])
+        XCTAssertEqual(resumeParams["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(resumeParams["surface_id"] as? String, surfaceId)
+        let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        let storeJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let liveRecord = try XCTUnwrap(sessions["grok-live-session"] as? [String: Any])
+        XCTAssertEqual(liveRecord["workspaceId"] as? String, workspaceId)
+        XCTAssertEqual(liveRecord["surfaceId"] as? String, surfaceId)
 
         let failureSocketPath = makeSocketPath("grok-live-failure")
         let failureListenerFD = try bindUnixSocket(at: failureSocketPath)
@@ -2338,9 +2352,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(failedStart.stdout, "{}\n")
         let capturedError = try String(contentsOfFile: probePath, encoding: .utf8)
         XCTAssertTrue(
-            capturedError.contains("Agent hook target resolution failed for Grok session-start."),
+            capturedError.contains("Grok") && capturedError.contains("session-start"),
             "Target-resolution telemetry must describe the failure, saw \(capturedError)"
         )
+        XCTAssertFalse(capturedError.contains("(null)"), capturedError)
     }
 
     func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {

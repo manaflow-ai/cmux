@@ -38,6 +38,7 @@ extension CMUXCLI {
         return .resolved(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
     }
 
+    /// Resolves a generic hook's process identity with live evidence first.
     func resolveAgentHookProcessBinding(
         pid: Int?,
         resolution: AgentProcessBindingResolution,
@@ -50,10 +51,11 @@ extension CMUXCLI {
             case .unsupported:
                 return corroboratedAgentHookProcessBinding(pid: pid, client: client)
             case .failed:
-                // Keep the pre-live-resolver process-tree evidence as a
-                // compatibility path for nested PTYs whose controlling TTY
-                // is not visible in the app's surface registry yet.
-                return corroboratedAgentHookProcessBinding(pid: pid, client: client)
+                return AgentHookProcessBindingResult(
+                    binding: nil,
+                    source: nil,
+                    rejectsAmbientClaim: true
+                )
             case .notAttempted:
                 return corroboratedAgentHookProcessBinding(pid: pid, client: client)
             }

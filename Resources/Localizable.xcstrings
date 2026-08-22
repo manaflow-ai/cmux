@@ -4116,35 +4116,51 @@
     "cli.agentHook.error.notificationDelivery": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent hook notification delivery failed for %@ %@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ %@ のエージェントフック通知を配信できませんでした。"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل تسليم إشعار خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dostava obavijesti agentske kuke nije uspjela za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Levering af agent-hook-notifikationen mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Zustellung der Agent-Hook-Benachrichtigung ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook notification delivery failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo entregar la notificación del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la livraison de la notification du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile recapitare la notifica dell’hook dell’agente per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック通知を配信できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការបញ្ជូនការជូនដំណឹង agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 알림을 전달하지 못했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Levering av agent-hook-varslingen mislyktes for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dostarczyć powiadomienia haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao entregar a notificação do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось доставить уведомление хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ส่งการแจ้งเตือน agent hook สำหรับ %@ %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası bildirimi teslim edilemedi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося доставити сповіщення хуку агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法传递 %@ %@ 的代理钩子通知。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法傳遞 %@ %@ 的代理程式掛鉤通知。" } }
       }
     },
     "cli.agentHook.error.targetResolution": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent hook target resolution failed for %@ %@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ %@ のエージェントフック配信先を解決できませんでした。"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل حل هدف خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Rješavanje odredišta agentske kuke nije uspjelo za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Agent-hook-målløsning mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Zielauflösung des Agent-Hooks ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook target resolution failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo resolver el destino del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la résolution de la cible du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Risoluzione della destinazione dell’hook dell’agente non riuscita per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフック配信先を解決できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការដោះស្រាយគោលដៅ agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 대상을 확인하지 못했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke målet for agent-hooken for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się rozpoznać celu haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao resolver o destino do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось определить цель хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถแก้ไขปลายทาง agent hook สำหรับ %@ %@ ได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası hedefi çözülemedi." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося визначити ціль хуку агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法解析 %@ %@ 的代理钩子目标。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法解析 %@ %@ 的代理程式掛鉤目標。" } }
       }
     },
     "agent.generic.notification.body.approvalNeeded": {
