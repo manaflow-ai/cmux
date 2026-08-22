@@ -108,7 +108,7 @@ extension WorkspaceDetailView {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
         } else {
-            Color.clear
+            chatWaitingSurfacePlaceholder()
                 .task(id: session.id) {
                     _ = ensureChatConversationStore(for: session)
                 }
