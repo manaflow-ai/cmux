@@ -123,6 +123,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let simulatorStreamCapability = MobileSimulatorStreamCapability.current.identifier
     static let simulatorInputCapability = MobileSimulatorStreamCapability.current.inputIdentifier
     static let simulatorKeepaliveCapability = MobileSimulatorStreamCapability.current.keepaliveIdentifier
+    static let simulatorStreamV2Capability = MobileSimulatorStreamCapability.current.streamV2Identifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256

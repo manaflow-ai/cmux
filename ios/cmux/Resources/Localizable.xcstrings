@@ -1191,6 +1191,23 @@
         }
       }
     },
+    "mobile.simulatorStream.disabledDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator panes are disabled on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacでSimulatorペインが無効になっています。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.home": {
       "extractionState": "manual",
       "localizations": {
@@ -1310,6 +1327,23 @@
         }
       }
     },
+    "mobile.simulatorStream.panelClosedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator pane was closed on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacでSimulatorペインが閉じられました。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.sendText": {
       "extractionState": "manual",
       "localizations": {
@@ -1378,6 +1412,23 @@
         }
       }
     },
+    "mobile.simulatorStream.supersededDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device took over this Simulator stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のデバイスがこのSimulatorストリームを引き継ぎました。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.textPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -1391,6 +1442,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキスト"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorを利用できません"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.unavailableDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac closed this Simulator stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacがこのSimulatorストリームを終了しました。"
           }
         }
       }
