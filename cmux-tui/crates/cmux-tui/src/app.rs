@@ -10901,6 +10901,26 @@ impl App {
         // while another request is queued.
         let mut failover_rail_target = None;
         if let Some(presented) = self.machine_presented
+            && !machine_usable(&update, presented)
+        {
+            crate::client_log::info(
+                "machine",
+                &format!(
+                    "presented {} unusable: active={:?} req={:?} intent={:?} prev_has={} managed={:?}",
+                    presented.0,
+                    update.snapshot.active.map(|k| k.0),
+                    update.request.as_ref().map(std::mem::discriminant),
+                    self.machine_selection_intent.map(|k| k.0),
+                    self.machine_ui.as_ref().is_some_and(|p| p
+                        .snapshot
+                        .machines
+                        .iter()
+                        .any(|m| m.key == presented)),
+                    update.managed_machine(presented).map(|m| m.status),
+                ),
+            );
+        }
+        if let Some(presented) = self.machine_presented
             && update.snapshot.active.is_none()
             && update.request.is_none()
             && self
