@@ -10945,6 +10945,15 @@ impl App {
                 "dropped a queued request aimed at a deleted machine",
             );
             update.request = None;
+            // An intent left aiming at the deleted machine would fail the
+            // input-routing gate forever (intent != presented with nothing
+            // queued to repair it): fall back to the still-usable presented
+            // machine, or clear it so the failover below takes over.
+            if self.machine_selection_intent.is_some_and(|intent| !machine_usable(&update, intent))
+            {
+                self.machine_selection_intent =
+                    self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+            }
         }
         // The presented machine was deleted (gone from the catalog, or left
         // behind as a Recoverable row): its session is dead, so input must
@@ -37385,6 +37394,44 @@ mod tests {
             ui.rail_target(),
             Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
         );
+    }
+
+    #[test]
+    fn deleting_a_switch_target_falls_back_to_the_still_usable_presented_machine() {
+        // A queued switch whose target is deleted before it dispatches must
+        // not strand the selection intent on the dead machine: input would
+        // stay gated forever (intent != presented, nothing queued).
+        let mux = Mux::new("machine-doomed-switch-intent-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar vanishes while its switch is still queued; ash stays healthy.
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash")],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        update.request = Some(MachineRequest::Switch(MachineKey(2)));
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, None);
+        assert_eq!(app.machine_selection_intent, Some(MachineKey(1)));
+        assert_eq!(app.machine_presented, Some(MachineKey(1)));
+        assert!(ui.session_available, "input keeps flowing to the presented machine");
     }
 
     #[test]
