@@ -441,6 +441,53 @@ enum TerminalSSHSessionDetector {
         return nil
     }
 
+    /// Builds a restore binding for a foreground, interactive plain-SSH
+    /// process. Managed `cmux ssh` wrappers are excluded because their stable
+    /// remote PTY binding is authoritative; this path is only the muscle-memory
+    /// `ssh host` command typed into a local pane.
+    static func resumeBindingForTesting(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = Date().timeIntervalSince1970
+    ) -> SurfaceResumeBindingSnapshot? {
+        let executableName = processPath ?? processName
+        guard let transport = RemoteShellTransport(executableName: executableName),
+              case .ssh = transport,
+              !isManagedSSHWrapper(environment: environment),
+              isInteractiveSSHArguments(arguments),
+              let session = parseSSHCommandLine(arguments) else {
+            return nil
+        }
+
+        let command = arguments
+            .map(SurfaceResumeBindingSnapshot.shellSingleQuoted)
+            .joined(separator: " ")
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(command) else {
+            return nil
+        }
+        let cwd = environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]
+        return SurfaceResumeBindingSnapshot(
+            name: "ssh \(session.destination)",
+            kind: "ssh",
+            command: command,
+            cwd: cwd,
+            source: "process-detected",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: nil,
+                executablePath: arguments.first,
+                arguments: arguments,
+                workingDirectory: cwd,
+                environment: nil,
+                capturedAt: capturedAt,
+                source: "process-detected"
+            ),
+            autoResume: true,
+            updatedAt: capturedAt
+        )
+    }
+
     private static let psPath = "/bin/ps"
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
@@ -460,6 +507,58 @@ enum TerminalSSHSessionDetector {
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
+    }
+
+    private static func isManagedSSHWrapper(environment: [String: String]) -> Bool {
+        [
+            "CMUX_SSH_PTY_SESSION_ID",
+            "CMUX_REMOTE_PTY_SESSION_ID",
+            "CMUX_SSH_ATTEMPT_ID",
+            "CMUX_SSH_STARTUP_PID",
+        ].contains { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private static func isInteractiveSSHArguments(_ arguments: [String]) -> Bool {
+        guard !arguments.isEmpty else { return false }
+        var index = RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "ssh" ? 1 : 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return index + 2 >= arguments.count
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return index == arguments.count - 1
+            }
+
+            if argument.count > 2,
+               let option = argument.dropFirst().first,
+               valueArgumentFlags.contains(option) {
+                // -W host:port is a stream forward, not an interactive shell.
+                if option == "W" { return false }
+                index += 1
+                continue
+            }
+            if argument.count == 2,
+               let option = argument.dropFirst().first,
+               valueArgumentFlags.contains(option) {
+                if option == "W" { return false }
+                index += 2
+                continue
+            }
+
+            let flags = Array(argument.dropFirst())
+            guard !flags.isEmpty, flags.allSatisfy({ noArgumentFlags.contains($0) }) else {
+                return false
+            }
+            if flags.contains("N") {
+                return false
+            }
+            index += 1
+        }
+        return false
     }
 
     private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {

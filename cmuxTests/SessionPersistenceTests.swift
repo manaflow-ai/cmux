@@ -7107,6 +7107,54 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
     }
 
+    func testPlainSSHProcessDetectedResumeBindingRerunsInteractiveCommand() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: [
+                    "/usr/bin/ssh",
+                    "-p", "2222",
+                    "-i", "/Users/test/.ssh/id_ed25519",
+                    "tinybox",
+                ],
+                environment: ["PWD": "/Users/test/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertTrue(binding.allowsAutomaticResume)
+        XCTAssertEqual(binding.cwd, "/Users/test/project")
+        XCTAssertEqual(
+            binding.command,
+            "'/usr/bin/ssh' '-p' '2222' '-i' '/Users/test/.ssh/id_ed25519' 'tinybox'"
+        )
+        XCTAssertEqual(binding.startupInput, binding.command + "\n")
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommand() {
+        let binding = SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox", "uname", "-a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingDoesNotReplaceManagedPTYBinding() {
+        let binding = SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox"],
+            environment: ["CMUX_SSH_PTY_SESSION_ID": "ssh-managed"]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

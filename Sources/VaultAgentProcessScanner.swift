@@ -661,7 +661,17 @@ extension SurfaceResumeBindingIndex {
                   let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
                 continue
             }
-            guard let binding = TmuxResumeParser.binding(
+            if let binding = TmuxResumeParser.binding(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment,
+                capturedAt: capturedAt
+            ) {
+                resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+                continue
+            }
+            guard let binding = TerminalSSHSessionDetector.resumeBindingForTesting(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments.arguments,
@@ -684,6 +694,22 @@ extension SurfaceResumeBindingIndex {
         capturedAt: TimeInterval = 1_777_777_777
     ) -> SurfaceResumeBindingSnapshot? {
         TmuxResumeParser.binding(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func sshResumeBindingForTesting(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = Date().timeIntervalSince1970
+    ) -> SurfaceResumeBindingSnapshot? {
+        TerminalSSHSessionDetector.resumeBindingForTesting(
             processName: processName,
             processPath: processPath,
             arguments: arguments,
