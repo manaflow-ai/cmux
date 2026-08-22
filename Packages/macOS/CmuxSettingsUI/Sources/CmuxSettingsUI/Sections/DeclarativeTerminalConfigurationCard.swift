@@ -39,7 +39,7 @@ public struct DeclarativeTerminalConfigurationCard: View {
             configurationModel?.startObserving()
             synchronizeDrafts(currentSnapshot)
         }
-        .onChange(of: configurationModel?.snapshot) { _, newValue in
+        .onChange(of: configurationModel?.values) { _, newValue in
             guard let newValue else { return }
             synchronizeDrafts(newValue)
         }
@@ -240,7 +240,7 @@ public struct DeclarativeTerminalConfigurationCard: View {
     }
 
     private var currentSnapshot: DeclarativeTerminalConfigurationModel.Snapshot {
-        configurationModel?.snapshot ?? fallbackSnapshot
+        configurationModel?.values ?? fallbackSnapshot
     }
 
     private func commitDraft(for oldValue: FocusedField?, whenMovingTo newValue: FocusedField?) {

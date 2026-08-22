@@ -55,10 +55,10 @@ public final class DeclarativeTerminalConfigurationModel {
     private var saveTasks = MainActorTaskStore<String>()
     private var snapshotRevision: UInt64 = 0
 
-    /// The single presence-preserving state consumed by the Settings card.
-    /// JSON values come from the shared cache; only the legacy fallback is
+    /// The single presence-preserving view of the shared JSON authority.
+    /// JSON values come from the injected cache; only the legacy fallback is
     /// maintained locally until its UserDefaults stream changes.
-    public var snapshot: Snapshot {
+    public var values: Snapshot {
         _ = snapshotRevision
         let raw = cache.snapshot(fileURL: fileURL)
         return Snapshot(
