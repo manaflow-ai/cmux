@@ -4,8 +4,13 @@ extension CMUXCLI {
     func runDumpCommandTree() throws {
         let data = Data(CmuxCommand._dumpHelp().utf8)
         let toolInfo = try JSONDecoder().decode(CommandTreeToolInfo.self, from: data)
+        // ArgumentParser synthesizes its own "help" subcommand alongside any
+        // explicitly declared one with the same name, so the same path can
+        // appear twice; keep one entry per path.
+        var seenPaths: Set<String> = []
         let entries = commandTreeEntries(from: toolInfo.command)
             .sorted { $0.path < $1.path }
+            .filter { seenPaths.insert($0.path).inserted }
 
         for entry in entries {
             print("command  \(entry.path)  aliases=\(entry.aliases)")
@@ -17,7 +22,6 @@ extension CMUXCLI {
 
     private func commandTreeEntries(from root: CommandTreeCommandInfo) -> [CommandTreeEntry] {
         root.subcommands
-            .filter { $0.commandName != "help" }
             .flatMap { commandTreeEntries(from: $0, path: []) }
     }
 
