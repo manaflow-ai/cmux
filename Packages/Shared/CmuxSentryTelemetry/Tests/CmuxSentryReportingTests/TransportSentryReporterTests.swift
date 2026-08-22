@@ -319,7 +319,7 @@ import os
         #expect(recorder.events.withLock { $0.isEmpty })
     }
 
-    @Test func zeroFailureSampleRateKeepsLogsWithoutEvents() async {
+    @Test func zeroFailureSampleRateKeepsLogsWithoutEventsAcrossAnOutage() async {
         let recorder = Recorder()
         let reporter = makeReporter(
             recorder: recorder,
@@ -329,10 +329,65 @@ import os
             )
         )
 
-        reporter.ingest(dialFailed(at: 10))
+        for second in stride(from: UInt64(10), through: 70, by: 15) {
+            reporter.ingest(dialFailed(at: second))
+        }
         await Task.yield()
 
         #expect(recorder.events.withLock { $0.isEmpty })
-        #expect(recorder.logs.withLock { $0.count } == 1)
+        #expect(recorder.logs.withLock { $0.count } == 5)
+    }
+}
+
+@Suite struct TransportSentryEventNoiseFilterTests {
+    private let filter = TransportSentryEventNoiseFilter()
+
+    @Test(arguments: [
+        "socket.listener.start.failed",
+        "socket.listener.unhealthy",
+    ])
+    func dropsOperationalListenerMessages(_ message: String) {
+        #expect(filter.shouldDrop(message: message))
+    }
+
+    @Test(arguments: [
+        "App Hanging: App hanging for at least 8000 ms.",
+        "EXC_BAD_ACCESS",
+        "Failed to write to socket",
+    ])
+    func keepsCrashesAndActionableErrors(_ message: String) {
+        #expect(!filter.shouldDrop(message: message))
+    }
+
+    @Test func dropsOfflineTransportEventsButKeepsOtherSampledEvents() {
+        let offline = Event(level: .warning)
+        offline.logger = "cmux.transport"
+        offline.tags = [
+            "transport.failure": "offline",
+            "transport.incident": "failure",
+        ]
+        #expect(filter.filter(offline) == nil)
+
+        let actionable = Event(level: .warning)
+        actionable.logger = "cmux.transport"
+        actionable.tags = [
+            "transport.failure": "policyUnavailable",
+            "transport.incident": "failure",
+        ]
+        #expect(filter.filter(actionable) != nil)
+    }
+
+    @Test func filtersListenerMessagesBeforeLoggerCheck() {
+        let event = Event(level: .error)
+        event.logger = "cmux.app"
+        event.message = SentryMessage(formatted: "socket.listener.start.failed")
+        // Listener filtering is intentionally message-based even for events
+        // without the transport logger, so this remains operational noise.
+        #expect(filter.filter(event) == nil)
+
+        let crash = Event(level: .error)
+        crash.logger = "cmux.app"
+        crash.message = SentryMessage(formatted: "EXC_BAD_ACCESS")
+        #expect(filter.filter(crash) != nil)
     }
 }

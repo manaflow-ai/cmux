@@ -107,8 +107,8 @@ import Testing
         let configuration = TransportIncidentPolicy.Configuration.macHost
         #expect(configuration.signatureCooldown >= 3_600)
         #expect(configuration.hourlyCaptureLimit <= 10)
-        #expect(configuration.failureSampleRate < 1)
-        #expect(configuration.outageSampleRate <= 0.5)
+        #expect(configuration.failureSampleRate == 0.05)
+        #expect(configuration.outageSampleRate == 0.25)
         #expect(configuration.suppressOfflineFailures)
     }
 

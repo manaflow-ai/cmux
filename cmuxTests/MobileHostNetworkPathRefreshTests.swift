@@ -135,9 +135,17 @@ import Testing
             failure: .offline,
             networkReachable: nil
         ))
+        #expect(!MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .offline,
+            networkReachable: true
+        ))
         #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
             failure: .policyUnavailable,
             networkReachable: false
+        ))
+        #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .policyUnavailable,
+            networkReachable: nil
         ))
         #expect(!MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
             failure: .policyUnavailable,

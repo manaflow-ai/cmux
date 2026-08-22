@@ -316,6 +316,7 @@ final class MobileHostIrohRuntime {
               !Task.isCancelled,
               !signOutIntentActive,
               desiredActive,
+              relayPolicyNetworkReachable != false,
               let targetAccountID,
               runtime == nil else { return }
 

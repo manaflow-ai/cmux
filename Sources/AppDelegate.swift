@@ -1536,7 +1536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // if tracing is ever re-enabled) child performance span before
                 // it leaves the device.
                 let scrubber = SentryEventScrubber()
-                let noiseFilter = SentryEventNoiseFilter()
+                let noiseFilter = TransportSentryEventNoiseFilter()
                 options.beforeSend = { event in
                     noiseFilter.filter(scrubber.scrub(event))
                 }

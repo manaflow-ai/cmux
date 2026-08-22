@@ -864,6 +864,7 @@ class TerminalController {
         transport.isProcessDescendant(pid, of: myPid)
     }
 
+    /// Applies the listener-failure cooldown before invoking Sentry capture.
     private nonisolated static func shouldCaptureSocketListenerFailure(
         message: String,
         stage: String,

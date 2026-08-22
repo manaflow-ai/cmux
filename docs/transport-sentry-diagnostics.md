@@ -42,8 +42,9 @@ coalesces repeats behind a per-signature cooldown, caps failure captures per
 hour, and escalates a sustained no-success failure streak into one
 error-severity `transport-outage` event. The long-lived macOS host uses a
 one-hour signature gate, a six-ordinary-failure hourly cap, and deterministic
-sampling of ordinary failures/outages so a process restart cannot recreate a
-retry flood; sustained outage escalation has its own rearm interval.
+sampling of ordinary failures/outages within each process lifetime; sustained
+outage escalation has its own rearm interval. The SDK-side operational filter
+also protects quota across process restarts.
 Environment (reachability, app lifecycle phase, seconds since last success,
 consecutive-failure count) rides on every capture.
 
@@ -58,9 +59,10 @@ consecutive-failure count) rides on every capture.
 - macOS: `AppDelegate` sets the tap on
   `MobileHostIrohRuntime.hostDiagnosticLog` (role `macHost`) after
   `SentrySDK.start`, gated by `MacSentryStartupPolicy` as before. The SDK
-  `beforeSend` hook drops listener-start operational noise and applies a
-  transport-only sampling backstop; crashes, hangs, and other loggers are
-  unaffected. The host pauses relay-policy retries while `NWPathMonitor`
+  `beforeSend` hook drops listener-start and offline operational noise;
+  deterministic transport sampling is owned by the incident policy, while
+  crashes, hangs, and other loggers are unaffected. The host pauses
+  relay-policy retries while `NWPathMonitor`
   reports no usable path and wakes one refresh when the path returns.
 
 ## Reading an issue

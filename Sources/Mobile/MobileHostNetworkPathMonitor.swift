@@ -41,6 +41,7 @@ final class MobileHostNetworkPathMonitor {
     /// Called on the monitor queue, off-main.
     private let localIPv4Addresses: @Sendable () -> [String]
 
+    /// Creates a monitor with separate route-refresh and reachability sinks.
     init(
         onPathChange: @escaping @MainActor () -> Void,
         onReachabilityChange: @escaping @MainActor (Bool) -> Void = { _ in },
@@ -77,6 +78,7 @@ final class MobileHostNetworkPathMonitor {
         monitor.cancel()
     }
 
+    /// Applies one deduplicated monitor observation on the main actor.
     private func handleObservation(signature: String, isOnline: Bool) {
         let changed = Self.shouldReportPathChange(
             previousSignature: lastSignature,

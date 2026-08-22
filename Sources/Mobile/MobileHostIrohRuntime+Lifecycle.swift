@@ -262,11 +262,12 @@ extension MobileHostIrohRuntime {
         scheduleReconcile(eraseAccountState: false)
     }
 
+    /// Re-evaluates failed host state after an authoritative path transition.
     func retryIfNeeded() {
         guard !signOutIntentActive,
               desiredActive,
               observedAccountID != nil,
-              relayPolicyNetworkReachable != false else { return }
+              relayPolicyNetworkReachable == true else { return }
         if preparedSignOut?.wasPersisted == false {
             scheduleReconcile(eraseAccountState: true)
             return
@@ -331,7 +332,7 @@ extension MobileHostIrohRuntime {
               desiredActive,
               !signOutIntentActive,
               observedAccountID != nil,
-              relayPolicyNetworkReachable != false else { return }
+              relayPolicyNetworkReachable == true else { return }
         let delay = failureRecoverySchedule.delay(
             failureCount: failureRecoveryFailureCount,
             retryAfterSeconds: nil,
@@ -363,7 +364,7 @@ extension MobileHostIrohRuntime {
               !signOutIntentActive,
               observedAccountID != nil,
               transitionTask == nil,
-              relayPolicyNetworkReachable != false else { return }
+              relayPolicyNetworkReachable == true else { return }
         guard let activeRuntime = runtime else {
             scheduleReconcile(eraseAccountState: false)
             return

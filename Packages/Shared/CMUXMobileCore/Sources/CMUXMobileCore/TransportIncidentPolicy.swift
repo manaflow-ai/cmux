@@ -270,6 +270,7 @@ public struct TransportIncidentPolicy: Sendable {
         return nil
     }
 
+    /// Determines whether a classified failure may enter incident capture.
     private func isReportable(event: DiagnosticEvent, failure: DiagnosticFailureKind?) -> Bool {
         if configuration.suppressOfflineFailures,
            reachable == false,
@@ -316,6 +317,7 @@ public struct TransportIncidentPolicy: Sendable {
         .noRoute,
     ]
 
+    /// Attempts one sampled sustained-outage incident.
     private mutating func decideOutage(
         event: DiagnosticEvent,
         signature: String,
@@ -362,6 +364,7 @@ public struct TransportIncidentPolicy: Sendable {
         )
     }
 
+    /// Attempts one sampled per-signature failure incident.
     private mutating func decideFailureCapture(
         event: DiagnosticEvent,
         signature: String,
