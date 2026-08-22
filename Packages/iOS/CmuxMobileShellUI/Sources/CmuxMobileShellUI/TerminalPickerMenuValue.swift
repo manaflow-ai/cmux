@@ -6,6 +6,8 @@ struct TerminalPickerMenuValue: Equatable {
     let selectedID: MobileTerminalPreview.ID?
     let selectedMacSurfaceID: MobileSurfacePreview.ID?
     let selectedName: String?
+    let checkedRowID: TerminalPickerMenuRow.ID?
+    let macSurfaceRows: [TerminalPickerMenuRow]
     let canCreateWorkspace: Bool
     let hasActiveBrowser: Bool
     let isChatMode: Bool
@@ -52,35 +54,30 @@ struct TerminalPickerMenuValue: Equatable {
         self.simulatorStreamRows = simulatorStreamRows
         self.supportsSimulatorStream = supportsSimulatorStream
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
-    }
 
-    /// The single row that carries the checkmark. Nil while the phone-local
-    /// browser or a Mac browser stream overlays the workspace (the stream row
-    /// draws its own check from `activeBrowserStreamPanelID`); a Mac-surface
-    /// selection whose row has disappeared falls back to the resolved
-    /// terminal, matching `selectedName`.
-    var checkedRowID: TerminalPickerMenuRow.ID? {
-        if hasActiveBrowser || activeBrowserStreamPanelID != nil || activeSimulatorStreamPanelID != nil { return nil }
-        if let selectedMacSurfaceID,
-           rows.contains(where: { $0.id == .macSurface(selectedMacSurfaceID) }) {
-            return .macSurface(selectedMacSurfaceID)
+        var streamBackedSurfaceIDs: Set<MobileSurfacePreview.ID> = []
+        if supportsBrowserStream {
+            streamBackedSurfaceIDs.formUnion(browserStreamRows.map { .init(rawValue: $0.id) })
         }
-        return selectedID.map(TerminalPickerMenuRow.ID.terminal)
+        if supportsSimulatorStream {
+            streamBackedSurfaceIDs.formUnion(simulatorStreamRows.map { .init(rawValue: $0.id) })
+        }
+        let filteredMacSurfaceRows = resolvedRows.filter {
+            guard let surfaceID = $0.macSurfaceID else { return false }
+            return !streamBackedSurfaceIDs.contains(surfaceID)
+        }
+        macSurfaceRows = filteredMacSurfaceRows
+        if hasActiveBrowser || activeBrowserStreamPanelID != nil || activeSimulatorStreamPanelID != nil {
+            checkedRowID = nil
+        } else if let selectedMacSurfaceID,
+                  filteredMacSurfaceRows.contains(where: { $0.id == .macSurface(selectedMacSurfaceID) }) {
+            checkedRowID = .macSurface(selectedMacSurfaceID)
+        } else {
+            checkedRowID = selection.map { .terminal($0.id) }
+        }
     }
 
     var terminalRows: [TerminalPickerMenuRow] {
         rows.filter { if case .terminal = $0.id { true } else { false } }
-    }
-
-    /// Mac-surface rows for the "Mac Surfaces" section. Browser panes are
-    /// excluded whenever the Mac supports browser streaming — they get their
-    /// own "Mac Browsers" section — and only fall back to a surface row on
-    /// Macs without streaming. Filtered here (not at row construction) so
-    /// snapshot-built rows obey the same policy as live ones.
-    var macSurfaceRows: [TerminalPickerMenuRow] {
-        rows.filter {
-            guard case .macSurface = $0.id else { return false }
-            return !(supportsBrowserStream && $0.surfaceKind == .browser)
-        }
     }
 }
