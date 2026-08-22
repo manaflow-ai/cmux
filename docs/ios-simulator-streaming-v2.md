@@ -79,22 +79,34 @@ send-window so a fast drag cannot backlog; down/up never coalesce.
 
 ## Wire contract
 
-A dedicated lane (`simulator-stream`) carrying length-prefixed binary
-messages, plus reuse of existing mobile RPC only for discovery:
+A dedicated client-opened bidirectional iroh lane
+(`CmxIrohLane.simulatorStream`, lane code 5, resource `simstream:<panel-uuid>`)
+carrying length-prefixed binary messages (`CmuxSimulatorStreamKit`,
+`SimStreamWireCodec`). Existing mobile RPC is reused only for discovery
+(`mobile.simulator.list` and workspace state sync). Send priorities: Mac
+video at −5 (below terminal PTY bytes at 0, above artifact bulk at −10) so
+video can never delay typing; phone start/ack/input at +5.
 
-- `sim.stream.start {device_udid, max_dimension, format_prefs, epoch}` —
-  opens/reopens a stream; host responds with `config` then a keyframe.
-- `config {pixel_size, point_size, orientation, format}` — re-sent whenever
-  geometry changes (rotate, device switch); geometry changes force keyframes.
-- `frame {seq, flags(keyframe), pts, payload}` — encoded video.
-- `ack {seq}` — flow-control credit + bitrate feedback.
-- `input {seq, events[]}` — touch/key/button events (viewer → host).
+- `start {version, epoch, max_long_side, codec_prefs}` — opens/reopens a
+  stream; the host answers with `config` then a keyframe. Re-sendable on the
+  same lane; a `start` on a NEW lane supersedes the panel's previous session
+  (last-writer-wins ownership, so a dead connection can never hold a panel).
+- `config {codec, pixel_size, display_scale, orientation, parameter_sets,
+  nal_unit_header_length}` — re-sent whenever geometry or the encoder
+  changes; the next frame after a config is always a keyframe.
+- `frame {seq, flags(keyframe), pts_us, payload}` — HVCC/AVCC encoded video.
+- `ack {seq, receipt_us}` — flow-control credit + bitrate feedback, sent only
+  after the frame actually displayed.
+- `input {seq, events[]}` — touch/text/key/button events (viewer → host),
+  replay-guarded by the monotonic batch sequence.
 - `keyframe_request {}` — decoder loss recovery.
 - `stop {}` — idempotent.
+- `state {status, detail}` — host status changes (never a keepalive clock).
 
-Capability `simulator.stream.v2` is advertised by the host; phones that see
-it use this pipeline, others keep v1. v1 host code stays until the capability
-has shipped in a release, then dies.
+Capability `simulator.stream.v2` is advertised by the host
+(`MobileSimulatorStreamCapability.streamV2Identifier`); phones that see it
+use this pipeline and gate v1 off, others keep v1. v1 host code stays until
+the capability has shipped in a release, then dies.
 
 ## Lifecycle
 

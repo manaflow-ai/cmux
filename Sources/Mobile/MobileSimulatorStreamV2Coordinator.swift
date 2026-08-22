@@ -71,7 +71,7 @@ final class MobileSimulatorStreamV2Coordinator {
         sessionsByPanelID[session.panelID] = nil
     }
 
-    static func panelID(from resourceID: CmxIrohResourceID) -> UUID? {
+    nonisolated static func panelID(from resourceID: CmxIrohResourceID) -> UUID? {
         let value = resourceID.value
         let raw =
             value.hasPrefix("simstream:")
