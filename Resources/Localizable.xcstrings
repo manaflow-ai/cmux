@@ -51707,6 +51707,41 @@
         }
       }
     },
+    "cli.sessions.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "da": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "es": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sessions [list] [options]"
+          }
+        },
+        "km": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "th": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "sessions [list] [options]" } }
+      }
+    },
     "cli.sessions.error.agentRequiresValue": {
       "extractionState": "manual",
       "localizations": {
