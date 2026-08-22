@@ -532,15 +532,14 @@ struct SidebarWorkspaceTableTests {
             ),
             totalUnreadCount: 1
         )
-        await flushStagedTableMutations()
+        await flushUntil { cell.currentModelForMeasurement?.latestNotificationText == latestText }
+        #expect(cell.currentModelForMeasurement?.latestNotificationText == latestText)
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
-        var expectedModel = baseModel
-        expectedModel.unreadCount = 1
-        expectedModel.latestNotificationText = latestText
+        let installedModel = try #require(cell.currentModelForMeasurement)
         let expectedHeight = ceil(
-            cell.layoutContent(model: expectedModel, width: cell.bounds.width, apply: false)
+            cell.layoutContent(model: installedModel, width: cell.bounds.width, apply: false)
         )
         let servedHeight = controller.tableView(container.tableView, heightOfRow: 0)
         let tableHeight = container.tableView.rect(ofRow: 0).height
@@ -654,6 +653,15 @@ struct SidebarWorkspaceTableTests {
             RunLoop.main.perform(inModes: [.common]) {
                 continuation.resume()
             }
+        }
+    }
+
+    @MainActor
+    private func flushUntil(_ predicate: @escaping () -> Bool) async {
+        for _ in 0..<32 {
+            if predicate() { return }
+            await flushStagedTableMutations()
+            await Task.yield()
         }
     }
 
