@@ -4113,13 +4113,6 @@
         }
       }
     },
-    "cli.agentHook.error.journalAppend": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Agent journal append failed for %@ %@." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントジャーナルに追記できませんでした。" } }
-      }
-    },
     "cli.agentHook.error.notificationDelivery": {
       "extractionState": "manual",
       "localizations": {
