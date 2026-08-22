@@ -1029,7 +1029,7 @@
             "lastUsedAt": "Seneste brugstid som sekunder siden Unix-epoken, når den er tilgængelig."
           },
           "newSurfaceWorkingDirectory": {
-            "description": "Arbejdsbiblioteksstandarder for almindelige nye lokale ruder, faner, opdelinger og arbejdsområder. Eksplicitte arbejdsmapper, fjernkommandoer og gendannede overflader har altid forrang.",
+            "description": "Standarder for arbejdsmapper for almindelige nye lokale ruder, faner, opdelinger og arbejdsområder. Eksplicitte arbejdsmapper, fjernkommandoer og gendannede overflader har altid forrang.",
             "policy": "Vælg, om nye lokale overflader skal arve den aktive rude-mappe, bruge den mappe, der blev registreret, da arbejdsområdet blev oprettet, eller bruge den konfigurerede faste sti.",
             "path": "Sti brugt af fixedPath. Brug en absolut sti eller en, der begynder med en tilde. Hvis stien mangler eller ikke er en mappe, falder cmux sikkert tilbage til arbejdsområdets rod."
           },

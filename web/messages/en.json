@@ -1881,7 +1881,7 @@
           "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
           "newSurfaceWorkingDirectory": {
             "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
-            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
+            "policy": "Choose whether new local surfaces inherit the active pane directory, use the workspace root captured when the workspace was created, or use the configured fixed path.",
             "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
           },
           "shellStartup": {

@@ -1030,7 +1030,7 @@
           },
           "newSurfaceWorkingDirectory": {
             "description": "Zadane postavke radnog direktorija za obična nova lokalna okna, kartice, podjele i radne prostore. Eksplicitni radni direktoriji, udaljene komande i vraćene površine uvijek imaju prednost.",
-            "policy": "Odaberite hoće li nove lokalne površine naslijediti direktorij aktivnog okna, koristiti direktorij snimljen kada je radni prostor kreiran ili koristiti konfiguriranu fiksnu stazu.",
+            "policy": "Odaberite hoće li nove lokalne površine naslijediti direktorij aktivnog okna, koristiti direktorij snimljen kada je radni prostor kreiran ili koristiti konfiguriranu fiksnu putanju.",
             "path": "Putanja koju koristi fixedPath. Koristite apsolutnu putanju ili put koji počinje tildom. Ako putanja nedostaje ili nije direktorij, cmux se sigurno vraća u korijen radnog prostora."
           },
           "shellStartup": {
