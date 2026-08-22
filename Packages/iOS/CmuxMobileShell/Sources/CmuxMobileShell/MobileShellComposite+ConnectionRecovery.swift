@@ -635,6 +635,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        knownPairing: MobilePairedMac? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -647,6 +648,7 @@ extension MobileShellComposite {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            knownPairing: knownPairing,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -661,9 +663,13 @@ extension MobileShellComposite {
         instanceTagExpectation: MobileMacInstanceTagExpectation,
         automaticReconnectAccountID: String?,
         recordsPairingAttempt: Bool,
+        knownPairing: MobilePairedMac?,
         ifStillCurrent: (() -> Bool)?
     ) async -> StoredMacReconnectOutcome {
-        let pairing = pairedMacs.first {
+        // During startup restore the published `pairedMacs` list is not
+        // loaded yet, so the caller's freshly loaded row is authoritative;
+        // the in-memory lookup is only a fallback for late callers.
+        let pairing = knownPairing ?? pairedMacs.first {
             $0.macDeviceID == pairedMacDeviceID
                 && (instanceTagExpectation.expectedTag == nil
                     || $0.instanceTag == instanceTagExpectation.expectedTag)
@@ -729,20 +735,27 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        knownPairing: MobilePairedMac? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
+        // The caller's freshly loaded row is authoritative for the method:
+        // during startup restore the published `pairedMacs` list backing the
+        // by-ID resolver is not loaded yet and would silently fall back to
+        // the app default, dialing the wrong lane.
+        let resolvedMethod = knownPairing.map { connectionMethod(for: $0) }
+            ?? connectionMethod(
+                forMacDeviceID: pairedMacDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag
+            )
         // Temporary Direct-lane diagnostics for dogfood; remove before merge.
         MobileDebugLog.anchormux(
-            "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(connectionMethod(forMacDeviceID: pairedMacDeviceID, instanceTag: instanceTagExpectation.expectedTag).rawValue) routes=\(routes.count)"
+            "storedMac.dial mac=\(pairedMacDeviceID) expectedTag=\(instanceTagExpectation.expectedTag ?? "nil") method=\(resolvedMethod.rawValue) knownPairing=\(knownPairing != nil) routes=\(routes.count)"
         )
         // The Direct method dials ONLY the user-enabled direct addresses,
         // through the same Stack-authenticated manual-host lane as the raw
         // candidates below. No advertised route of any kind participates.
-        if connectionMethod(
-            forMacDeviceID: pairedMacDeviceID,
-            instanceTag: instanceTagExpectation.expectedTag
-        ) == .direct {
+        if resolvedMethod == .direct {
             return await connectDirectCandidatesOutcome(
                 name: name,
                 routes: routes,
@@ -750,6 +763,7 @@ extension MobileShellComposite {
                 instanceTagExpectation: instanceTagExpectation,
                 automaticReconnectAccountID: automaticReconnectAccountID,
                 recordsPairingAttempt: recordsPairingAttempt,
+                knownPairing: knownPairing,
                 ifStillCurrent: ifStillCurrent
             )
         }
@@ -758,10 +772,7 @@ extension MobileShellComposite {
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: connectionMethod(
-                forMacDeviceID: pairedMacDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag
-            ) == .tailscale
+            tailscaleRequirement: resolvedMethod == .tailscale
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes

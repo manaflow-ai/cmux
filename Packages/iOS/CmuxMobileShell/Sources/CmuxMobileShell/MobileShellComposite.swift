@@ -2910,6 +2910,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: mac.instanceTag,
                     legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                     automaticReconnectAccountID: scope.userID,
+                    knownPairing: mac,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
@@ -2932,6 +2933,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         instanceTag: mac.instanceTag,
                         legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                         automaticReconnectAccountID: scope.userID,
+                        knownPairing: mac,
                         ifStillCurrent: { [weak self] in
                             self?.storedMacReconnectGeneration == generation
                         }
@@ -2991,6 +2993,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: mac.instanceTag,
                     legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                     automaticReconnectAccountID: scope.userID,
+                    knownPairing: mac,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
