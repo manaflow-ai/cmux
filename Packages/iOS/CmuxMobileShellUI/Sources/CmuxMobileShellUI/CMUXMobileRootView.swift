@@ -1,6 +1,7 @@
 import Foundation
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileCampaigns
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -42,6 +43,18 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    /// Optional so previews and package hosts render without campaigns wired.
+    @Environment(MobileCampaignCenter.self) private var campaignCenter:
+        MobileCampaignCenter?
+    /// The remote campaigns kill switch (PostHog, defaults on).
+    @Environment(\.campaignsEnabled) private var campaignsEnabled
+    /// The campaign modal currently on screen, one slot per template kind so
+    /// SwiftUI keeps sheet and full-screen presentation state separate.
+    @State private var presentedCampaignSheet: Campaign?
+    @State private var presentedCampaignFullScreen: Campaign?
+    /// The campaign behind whichever modal slot is up, kept for the dismiss
+    /// callback (the item bindings are already nil when `onDismiss` runs).
+    @State private var activeCampaignModal: Campaign?
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -262,6 +275,37 @@ struct CMUXMobileRootView: View {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
+        .overlay(alignment: .top) {
+            campaignBannerOverlay
+        }
+        .sheet(
+            item: $presentedCampaignSheet,
+            onDismiss: { campaignModalDidClose() }
+        ) { campaign in
+            campaignSheetContent(campaign)
+        }
+        .fullScreenCover(
+            item: $presentedCampaignFullScreen,
+            onDismiss: { campaignModalDidClose() }
+        ) { campaign in
+            campaignFullScreenContent(campaign)
+        }
+        .onChange(of: campaignCenter?.pendingModal?.id) { _, _ in
+            presentCampaignModalIfPossible()
+        }
+        .onChange(of: campaignsEnabled) { _, enabled in
+            guard !enabled else { return }
+            // The remote kill switch must also take down surfaces that are
+            // already on screen. Clearing the active record first keeps the
+            // teardown from being counted as a user dismissal.
+            activeCampaignModal = nil
+            presentedCampaignSheet = nil
+            presentedCampaignFullScreen = nil
+        }
+        .onChange(of: rootPresentation) { _, _ in
+            // The shared modal slot freeing up is a presentation opportunity.
+            presentCampaignModalIfPossible()
+        }
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet(initialPresentation: pairingPresentation)
@@ -284,6 +328,7 @@ struct CMUXMobileRootView: View {
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            presentCampaignModalIfPossible()
             #endif
         }
         .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
@@ -355,6 +400,9 @@ struct CMUXMobileRootView: View {
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            if phase == .active {
+                presentCampaignModalIfPossible()
+            }
             #endif
         }
         .onChange(of: tailscaleStatusMonitor?.status, initial: true) { _, status in
@@ -397,6 +445,7 @@ struct CMUXMobileRootView: View {
             )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            presentCampaignModalIfPossible()
             #endif
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -437,6 +486,7 @@ struct CMUXMobileRootView: View {
             )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            presentCampaignModalIfPossible()
         }
         .onChange(of: store.isReconnectingStoredMac) { _, isReconnecting in
             if isReconnecting {
@@ -578,6 +628,73 @@ struct CMUXMobileRootView: View {
         .presentationDragIndicator(.visible)
         #endif
     }
+
+    #if os(iOS)
+    /// Whether remote campaign surfaces may render right now. Campaigns never
+    /// cover sign-in or onboarding, and honor the remote kill switch.
+    private var campaignSurfacesAllowed: Bool {
+        campaignsEnabled && isAuthenticated && !shouldShowOnboarding
+    }
+
+    @ViewBuilder
+    private var campaignBannerOverlay: some View {
+        if let campaignCenter, campaignSurfacesAllowed,
+           let banner = campaignCenter.activeBanner {
+            CampaignBannerView(campaign: banner, center: campaignCenter)
+                .onAppear {
+                    campaignCenter.recordPresented(banner)
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.snappy(duration: 0.2), value: banner.id)
+        }
+    }
+
+    /// Presents the highest-priority eligible campaign modal when the shared
+    /// modal slot is free. The center enforces one modal per foreground; this
+    /// guard keeps campaigns from fighting pairing, settings, or migration
+    /// sheets over the root presentation slot.
+    private func presentCampaignModalIfPossible() {
+        guard let campaignCenter, campaignSurfacesAllowed,
+              rootPresentation.presentation == nil,
+              presentedCampaignSheet == nil,
+              presentedCampaignFullScreen == nil,
+              let campaign = campaignCenter.takePendingModal() else { return }
+        activeCampaignModal = campaign
+        if campaign.template == .fullscreen {
+            presentedCampaignFullScreen = campaign
+        } else {
+            presentedCampaignSheet = campaign
+        }
+        campaignCenter.recordPresented(campaign)
+    }
+
+    @ViewBuilder
+    private func campaignSheetContent(_ campaign: Campaign) -> some View {
+        if let campaignCenter {
+            CampaignSheetView(campaign: campaign, center: campaignCenter) {
+                presentedCampaignSheet = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func campaignFullScreenContent(_ campaign: Campaign) -> some View {
+        if let campaignCenter {
+            CampaignFullScreenView(campaign: campaign, center: campaignCenter) {
+                presentedCampaignFullScreen = nil
+            }
+        }
+    }
+
+    /// Runs on any campaign modal teardown, including interactive swipes that
+    /// never touched a button; those still count as an explicit dismissal.
+    private func campaignModalDidClose() {
+        if let campaign = activeCampaignModal {
+            campaignCenter?.recordClosedIfNeeded(campaign, source: "closed")
+        }
+        activeCampaignModal = nil
+    }
+    #endif
 
     #if os(iOS)
     /// Drives one stable sheet host from the root presentation state.

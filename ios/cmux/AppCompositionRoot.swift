@@ -31,6 +31,10 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
+    /// Remote in-app campaigns (banners, sheets, full-screen takeovers)
+    /// fetched from the public campaign catalog and gated by the
+    /// `campaignsEnabled` feature flag at the render layer.
+    let campaignCenter: MobileCampaignCenter
     let displaySettings: MobileDisplaySettings
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
@@ -149,6 +153,11 @@ final class AppCompositionRoot {
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
             request: analytics.anonymousClientConfigRequest
+        )
+        self.campaignCenter = MobileCampaignComposition.makeCenter(
+            apiBaseURL: auth.config.apiBaseURL,
+            rolloutKey: analytics.anonymousID,
+            analytics: analytics.emitter
         )
         #if DEBUG
         let pushNotificationSettings:
@@ -293,6 +302,7 @@ final class AppCompositionRoot {
         // accepted events in the in-memory ring but absent from cmux-app.log.
         auth.start()
         featureFlags.start()
+        campaignCenter.start()
     }
 
     isolated deinit {
@@ -347,6 +357,7 @@ final class AppCompositionRoot {
             Task { await pushCoordinator.refreshReadiness() }
             guard isFullForegroundReturn else { return }
             featureFlags.refreshOnForeground()
+            campaignCenter.didBecomeActive()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,

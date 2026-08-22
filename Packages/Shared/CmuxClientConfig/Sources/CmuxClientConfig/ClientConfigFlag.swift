@@ -44,6 +44,12 @@ public extension ClientConfigFlag where Value == Bool {
         booleanKey: "ios-artifact-chip-enabled-release",
         defaultValue: true
     )
+    /// Global kill switch for remote in-app campaigns. Defaults on so an
+    /// unavailable control plane keeps showing the reviewed catalog content.
+    static let iosCampaignsEnabledRelease = Self(
+        booleanKey: "ios-campaigns-enabled-release",
+        defaultValue: true
+    )
 }
 
 /// Multivariate feature flag declarations.

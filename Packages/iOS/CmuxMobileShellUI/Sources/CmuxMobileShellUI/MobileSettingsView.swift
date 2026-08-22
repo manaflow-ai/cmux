@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileCampaigns
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -24,6 +25,10 @@ struct MobileSettingsView: View {
     /// Connection Method section is hidden when absent.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
+    /// Optional so previews render without campaigns wired; the What's New
+    /// row is hidden when absent.
+    @Environment(MobileCampaignCenter.self) private var campaignCenter:
+        MobileCampaignCenter?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
@@ -450,6 +455,17 @@ struct MobileSettingsView: View {
                 MobileSettingsLegalSupportSection()
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
+                    if let campaignCenter {
+                        NavigationLink {
+                            CampaignWhatsNewView(center: campaignCenter)
+                        } label: {
+                            Label(
+                                CampaignWhatsNewView.title,
+                                systemImage: "sparkles"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsWhatsNewRow")
+                    }
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
                             .foregroundStyle(.secondary)
