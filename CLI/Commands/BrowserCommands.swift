@@ -64,7 +64,7 @@ struct BrowserWaitOptions: ParsableArguments {
     @Option(name: .customLong("url-contains")) var urlContains: String?
     @Option(name: .customLong("text")) var text: String?
     @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: String?
-    @Option(name: .customLong("timeout")) var timeout: Double?
+    @Option(name: .customLong("timeout")) var timeout: String?
     @Option(name: .customLong("load-state"), completion: .list(["interactive", "complete"])) var loadState: String?
     @Option(name: .customLong("function")) var function: String?
 }
@@ -356,8 +356,8 @@ struct BrowserDownloadCommand: LegacyBrowserCommand {
     @Argument(completion: .list(["wait"])) var action: String?
     @OptionGroup var target: BrowserTargetOptions
     @Option(name: .customLong("path"), completion: .file()) var path: String?
-    @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: Int?
-    @Option(name: .customLong("timeout")) var timeout: Double?
+    @Option(name: .customLong("timeout-ms")) var timeoutMilliseconds: String?
+    @Option(name: .customLong("timeout")) var timeout: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "download", helpNames: [])
 }
@@ -389,7 +389,7 @@ struct BrowserCookiesCommand: LegacyBrowserCommand {
     @Option(name: .customLong("url")) var url: String?
     @Option(name: .customLong("domain")) var domain: String?
     @Option(name: .customLong("path"), completion: .file()) var path: String?
-    @Option(name: .customLong("expires")) var expires: Int?
+    @Option(name: .customLong("expires")) var expires: String?
     @Flag(name: .customLong("secure")) var secure = false
     @Flag(name: .customLong("all")) var all = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []

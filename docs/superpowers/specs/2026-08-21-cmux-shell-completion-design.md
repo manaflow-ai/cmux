@@ -79,7 +79,10 @@ Out of scope, deferred to a separate spec:
 
 `CMUXTermMain.main()` (`CLI/cmux.swift:36777`) keeps ownership of SIGPIPE setup,
 stdio configuration, and error-to-exit-code mapping. It delegates parsing to a
-new root `CmuxCommand: AsyncParsableCommand`.
+new root `CmuxCommand: ParsableCommand`. Command declarations and their `run()`
+methods stay synchronous, matching `parseAsRoot()` and `runFacade()`'s
+synchronous flow; adopt `AsyncParsableCommand` only if the whole facade and
+`CMUXTermMain.main()` are explicitly converted to async.
 
 Each leaf command struct's `run()` constructs the same `CMUXCLI` and calls the
 runner method that handles it today. `CMUXCLI` keeps all of its behavior. Only
@@ -176,7 +179,7 @@ shell. These four are the safety-critical assertions of the whole feature.
 
 | Argument | Completion |
 | --- | --- |
-| `--workspace`, `--surface`, `--window`, `--pane`, `--tab` | live refs, with descriptions where the shell supports them |
+| `--workspace`, `--surface`, `--window`, `--pane`, `--tab` | live refs |
 | `themes set <name>` | live theme list |
 | `vm <id>`, `cloud <id>` | live VM ids |
 | `--cwd`, path arguments | `.directory()` / `.file()` |
