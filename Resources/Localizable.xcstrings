@@ -57165,6 +57165,17 @@
         }
       }
     },
+    "cli.vm.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] connection lost — reconnecting (attempt %d)…"
+          }
+        }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {

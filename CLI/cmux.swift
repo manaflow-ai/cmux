@@ -12446,6 +12446,103 @@ struct CMUXCLI {
         return url
     }
 
+    /// Runs the WebSocket PTY bridge with automatic reconnection. A clean server close
+    /// (the remote shell exited) ends the loop; any drop — network change, sandbox
+    /// standby/wake, a rotated preview URL, a consumed lease — re-mints a fresh attach
+    /// endpoint through the app socket (which server-side re-ensures the preview, the
+    /// daemon, and even resurrects dead compute) and reattaches to the same session, so
+    /// scrollback replays and the shell keeps its state. Attempts reset after any
+    /// connection that stayed up for a minute, so long sessions never exhaust the budget.
+    private func runVMPtyBridgeWithReconnect(
+        initialConfig: VMPtyWebSocketConfig,
+        vmID: String?,
+        debugEvent: ((String) -> Void)?
+    ) throws {
+        var config = initialConfig
+        var attempt = 0
+        let maxAttempts = 8
+        while true {
+            let bridge = VMPtyWebSocketBridge(config: config, debugEvent: debugEvent)
+            let startedAt = Date()
+            var bridgeError: Error?
+            do {
+                try bridge.run()
+            } catch {
+                bridgeError = error
+            }
+            if bridgeError == nil && bridge.endedCleanly {
+                return
+            }
+            guard let vmID, !vmID.isEmpty else {
+                if let bridgeError { throw bridgeError }
+                return
+            }
+            if Date().timeIntervalSince(startedAt) > 60 {
+                attempt = 0
+            }
+            attempt += 1
+            if attempt > maxAttempts {
+                if let bridgeError { throw bridgeError }
+                throw CLIError(message: "vm-pty-connect: connection lost and reconnect attempts were exhausted")
+            }
+            let reconnectingLine = String(
+                format: String(
+                    localized: "cli.vm.reconnecting",
+                    defaultValue: "[cmux] connection lost — reconnecting (attempt %d)…"
+                ),
+                attempt
+            )
+            FileHandle.standardError.write(Data("\r\n\(reconnectingLine)\r\n".utf8))
+            Thread.sleep(forTimeInterval: min(pow(2.0, Double(attempt - 1)), 15))
+            do {
+                config = try mintVMPtyReconnectConfig(
+                    vmID: vmID,
+                    sessionID: config.sessionId,
+                    attachmentID: config.attachmentId
+                )
+            } catch {
+                // Minting can fail while the backend is briefly unreachable; the next loop
+                // iteration retries the whole cycle within the attempt budget.
+                continue
+            }
+        }
+    }
+
+    /// Mints a fresh WebSocket PTY endpoint for a reconnect by asking the app over the
+    /// control socket, reusing the same daemon session and attachment identity.
+    private func mintVMPtyReconnectConfig(
+        vmID: String,
+        sessionID: String?,
+        attachmentID: String?
+    ) throws -> VMPtyWebSocketConfig {
+        let processEnv = ProcessInfo.processInfo.environment
+        let resolvedSocketPath = (try? CLISocketEnvironment.socketPath(in: processEnv))
+            ?? CLISocketPathResolver.defaultSocketPath(
+                bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
+                environment: processEnv
+            )
+        let client = SocketClient(path: resolvedSocketPath)
+        try client.connect()
+        defer { client.close() }
+        let normalizedSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAttachment = attachmentID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+            vmID: vmID,
+            usesDefaultFreestyleSSHD: false,
+            client: client,
+            sessionID: normalizedSession?.isEmpty == false ? normalizedSession : nil,
+            attachmentID: normalizedAttachment?.isEmpty == false ? normalizedAttachment : nil
+        )
+        let endpoint = try parseVMPtyWebSocketEndpoint(response)
+        return VMPtyWebSocketConfig(
+            url: endpoint.url,
+            headers: endpoint.headers,
+            token: endpoint.token,
+            sessionId: endpoint.sessionId,
+            attachmentId: endpoint.attachmentId
+        )
+    }
+
     private func runVMPtyConnect(commandArgs: [String]) throws {
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
@@ -12467,7 +12564,7 @@ struct CMUXCLI {
                 logVMTiming(stage, vmID: vmID, transport: "websocket", startedAt: startedAt)
             }
         }()
-        try VMPtyWebSocketBridge(config: config, debugEvent: debugEvent).run()
+        try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: debugEvent)
     }
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
@@ -12511,9 +12608,9 @@ struct CMUXCLI {
             sessionId: endpoint.sessionId,
             attachmentId: endpoint.attachmentId
         )
-        try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
+        try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: { stage in
             log(stage)
-        }).run()
+        })
     }
 
     private func defaultFreestyleAttachInfoWithRetryIfNeeded(
@@ -12637,8 +12734,19 @@ struct CMUXCLI {
         ) {
             lock.lock()
             closed = true
+            lastCloseCode = closeCode
             lock.unlock()
             openSemaphore.signal()
+        }
+
+        private var lastCloseCode: URLSessionWebSocketTask.CloseCode?
+
+        /// The server's close code, when a close frame arrived. A normal closure means the
+        /// remote shell ended on purpose; anything else is a drop worth reconnecting from.
+        var closeCode: URLSessionWebSocketTask.CloseCode? {
+            lock.lock()
+            defer { lock.unlock() }
+            return lastCloseCode
         }
 
         func waitForOpen(timeout: TimeInterval) -> Bool {
@@ -12661,6 +12769,9 @@ struct CMUXCLI {
         private static let keepaliveInterval: TimeInterval = 5.0
         private let config: VMPtyWebSocketConfig
         private let debugEvent: ((String) -> Void)?
+        /// Set after run() returns: true when the server sent a normal/going-away close,
+        /// i.e. the remote shell ended on purpose and reconnecting would respawn it.
+        private(set) var endedCleanly = false
         private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
         private let stopLock = NSLock()
         private var stopped = false
@@ -12712,6 +12823,12 @@ struct CMUXCLI {
             defer { stopKeepalive() }
             startInputPump()
             try receiveOutputLoop(delegate: delegate)
+            switch delegate.closeCode {
+            case .normalClosure, .goingAway:
+                endedCleanly = true
+            default:
+                endedCleanly = false
+            }
         }
 
         private func sendAuthFrame() throws {
