@@ -75,7 +75,7 @@ struct MoveSurfaceCommand: SurfaceTargetCommand {
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Option(name: [.customLong("before"), .customLong("before-surface")], completion: surface) var before: String?
     @Option(name: [.customLong("after"), .customLong("after-surface")], completion: surface) var after: String?
-    @Option(name: .customLong("index")) var index: Int?
+    @Option(name: .customLong("index")) var index: String?
     @Option(name: .customLong("focus")) var focus: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "move-surface", helpNames: [])
@@ -99,7 +99,7 @@ struct ReorderSurfaceCommand: SurfaceTargetCommand {
     @Option(name: .customLong("window"), completion: window) var windowID: String?
     @Option(name: [.customLong("before"), .customLong("before-surface")], completion: surface) var before: String?
     @Option(name: [.customLong("after"), .customLong("after-surface")], completion: surface) var after: String?
-    @Option(name: .customLong("index")) var index: Int?
+    @Option(name: .customLong("index")) var index: String?
     @Option(name: .customLong("focus")) var focus: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "reorder-surface", helpNames: [])
