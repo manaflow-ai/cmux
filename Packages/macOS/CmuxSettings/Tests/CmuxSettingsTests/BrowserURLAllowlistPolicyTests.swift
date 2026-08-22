@@ -134,13 +134,37 @@ struct BrowserURLAllowlistPolicyTests {
         #expect(arrayPolicy.patterns == stringPolicy.patterns)
     }
 
-    @Test func anAllInvalidUserListLeavesBrowsingUnrestricted() {
+    @Test func anAllInvalidUserListFailsClosed() {
         let policy = BrowserURLAllowlistPolicy(
             managedPatterns: nil,
             userPatterns: ["example.com:", "not a host"]
         )
-        #expect(policy.source == .none)
-        #expect(policy.allows(URL(string: "https://outside.example")!))
+        #expect(policy.source == .user)
+        #expect(policy.isActive)
+        #expect(!policy.allows(URL(string: "https://outside.example")!))
+    }
+
+    @Test func anExplicitlyEmptyUserValueStillClearsTheOptionalRestriction() throws {
+        let suiteName = "BrowserURLAllowlistPolicyTests.emptyUser.(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let resolver = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil)
+
+        defaults.set(["example.com:"], forKey: BrowserURLAllowlistPolicy.userDefaultsKey)
+        let invalidPolicy = BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: resolver
+        )
+        #expect(invalidPolicy.source == .user)
+        #expect(!invalidPolicy.allows(try #require(URL(string: "https://outside.example"))))
+
+        defaults.set("", forKey: BrowserURLAllowlistPolicy.userDefaultsKey)
+        let emptyPolicy = BrowserURLAllowlistPolicy(
+            defaults: defaults,
+            managedDevicePolicy: resolver
+        )
+        #expect(emptyPolicy.source == .none)
+        #expect(emptyPolicy.allows(try #require(URL(string: "https://outside.example"))))
     }
 
     @Test func forcedValueWinsOverUserValueAndReleaseFallback() throws {
