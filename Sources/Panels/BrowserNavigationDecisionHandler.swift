@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+nonisolated private let browserNavigationDecisionHandlerLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "BrowserNavigationDecision"
+)
 
 /// Guarantees that a WebKit navigation policy callback is completed at most once.
 ///
@@ -44,6 +50,8 @@ final class BrowserNavigationDecisionHandler<Policy> {
     }
 
     private func log(_ message: String) {
-        NSLog("Browser navigation decision handler (%@): %@", label, message)
+        browserNavigationDecisionHandlerLogger.error(
+            "\(message, privacy: .public) label=\(self.label, privacy: .public)"
+        )
     }
 }
