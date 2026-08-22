@@ -188,7 +188,7 @@ class TerminalController {
     /// mirror synchronously before falling back to a live command path.
     nonisolated let socketReadSnapshotStore = ControlReadSnapshotStore()
     /// Coalesced main-actor publication task for topology/read snapshots.
-    private var socketReadSnapshotRefreshTask: Task<Void, Never>? = nil
+    var socketReadSnapshotRefreshTask: Task<Void, Never>? = nil
     /// Topology notifications that invalidate the published read mirror.
     private var socketReadSnapshotObservers: [NSObjectProtocol] = []
     // Per-surface dedupe for high-frequency report_* socket telemetry.
