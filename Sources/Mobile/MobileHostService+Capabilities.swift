@@ -178,6 +178,7 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            MobileSimulatorStreamCapability.current.streamV2Identifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -241,6 +242,7 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.inputIdentifier,
                 MobileSimulatorStreamCapability.current.ownershipIdentifier,
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+                MobileSimulatorStreamCapability.current.streamV2Identifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
         }
