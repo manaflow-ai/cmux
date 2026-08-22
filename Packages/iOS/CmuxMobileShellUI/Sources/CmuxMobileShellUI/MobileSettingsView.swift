@@ -442,6 +442,15 @@ struct MobileSettingsView: View {
                 MobileSettingsLegalSupportSection()
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
+                    NavigationLink {
+                        MobileWhatsNewListView()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
+                            systemImage: "sparkles"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsWhatsNewRow")
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
                             .foregroundStyle(.secondary)
