@@ -76,6 +76,8 @@
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>A program running within cmux would like to use your microphone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running within cmux would like to use speech recognition.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
