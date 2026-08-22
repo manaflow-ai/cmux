@@ -186,6 +186,9 @@ struct CmuxCommand: ParsableCommand {
             SimulateAppActiveCommand.self,
             SimulateSidebarDragCommand.self,
             ProjectCommand.self,
+            WindowNamespaceCommand.self,
+            CanvasCommand.self,
+            LayoutCommand.self,
         ]
     )
 
