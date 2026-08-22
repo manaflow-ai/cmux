@@ -702,21 +702,6 @@ extension SurfaceResumeBindingIndex {
         )
     }
 
-    static func sshResumeBindingForTesting(
-        processName: String,
-        processPath: String?,
-        arguments: [String],
-        environment: [String: String],
-        capturedAt: TimeInterval = Date().timeIntervalSince1970
-    ) -> SurfaceResumeBindingSnapshot? {
-        TerminalSSHSessionDetector.resumeBinding(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: environment,
-            capturedAt: capturedAt
-        )
-    }
 }
 
 private struct VaultAgentSessionIDResolution {

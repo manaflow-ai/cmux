@@ -362,10 +362,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 reconnectSuspended = true
                 let pausedSuffix = String(
                     localized: "remoteDaemon.bootstrap.reconnectPaused",
-                    defaultValue: "Automatic reconnect paused after %d identical failures; repair the remote install and use Reconnect to try again."
+                    defaultValue: "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again."
                 )
                 let detail = "Remote daemon bootstrap failed: \(failureMessage). " +
-                    String(format: pausedSuffix, evaluation.consecutiveFailures)
+                    pausedSuffix
                 debugLog(
                     "remote.session.bootstrap.suspended consecutive=\(evaluation.consecutiveFailures) " +
                     "total=\(evaluation.totalFailures) fingerprint=\(evaluation.fingerprint) \(debugConfigSummary())"

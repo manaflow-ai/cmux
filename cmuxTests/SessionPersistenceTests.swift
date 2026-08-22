@@ -7109,7 +7109,7 @@ extension SessionPersistenceTests {
 
     func testPlainSSHProcessDetectedResumeBindingRerunsInteractiveCommand() throws {
         let binding = try XCTUnwrap(
-            SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+            TerminalSSHSessionDetector.resumeBinding(
                 processName: "ssh",
                 processPath: "/usr/bin/ssh",
                 arguments: [
@@ -7134,7 +7134,7 @@ extension SessionPersistenceTests {
     }
 
     func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommand() {
-        let binding = SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+        let binding = TerminalSSHSessionDetector.resumeBinding(
             processName: "ssh",
             processPath: "/usr/bin/ssh",
             arguments: ["ssh", "tinybox", "uname", "-a"],
@@ -7145,7 +7145,7 @@ extension SessionPersistenceTests {
     }
 
     func testPlainSSHProcessDetectedResumeBindingDoesNotReplaceManagedPTYBinding() {
-        let binding = SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+        let binding = TerminalSSHSessionDetector.resumeBinding(
             processName: "ssh",
             processPath: "/usr/bin/ssh",
             arguments: ["ssh", "tinybox"],
@@ -7156,7 +7156,7 @@ extension SessionPersistenceTests {
     }
 
     func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommandOption() {
-        let binding = SurfaceResumeBindingIndex.sshResumeBindingForTesting(
+        let binding = TerminalSSHSessionDetector.resumeBinding(
             processName: "ssh",
             processPath: "/usr/bin/ssh",
             arguments: ["ssh", "-o", "RemoteCommand=uname -a", "tinybox"],
