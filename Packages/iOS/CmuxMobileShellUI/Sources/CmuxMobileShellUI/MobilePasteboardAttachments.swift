@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDiagnostics
 import Foundation
 import UIKit
 import UniformTypeIdentifiers
@@ -33,17 +34,33 @@ struct MobilePastedAttachment: Sendable {
 /// ONLY through providers, and a provider's file must be copied out inside its
 /// load completion while the temporary security scope is valid.
 struct MobilePasteboardReader: Sendable {
+    /// How one pasteboard item should be staged, resolved from the provider's
+    /// registered type identifiers ONLY (metadata, never content):
+    /// - an image flavor stages as an image;
+    /// - a `public.file-url` flavor stages as a file loaded through the URL;
+    /// - a concrete document payload (pdf, zip, movie, …) with NO text or
+    ///   web-URL flavor stages as a file loaded through that type — Files.app
+    ///   exposes copied documents this way, registering the file's own content
+    ///   type rather than `public.file-url`;
+    /// - anything carrying a text or web-URL flavor is NOT attachment content,
+    ///   so rich text, plain text, and links keep native text paste.
+    enum ItemClassification {
+        case image(loadAs: UTType)
+        case file(loadAs: UTType)
+    }
+
     /// Whether the pasteboard holds anything the composers stage as an
-    /// attachment: an image, or a file-URL-backed item. Plain text and web
-    /// URLs are NOT attachment content; they fall through to native paste.
+    /// attachment. Metadata-only; logs the per-item type identifiers to the
+    /// debug log so a miss is diagnosable from a dogfood device.
     func hasAttachmentContent(in pasteboard: UIPasteboard) -> Bool {
-        if pasteboard.hasImages { return true }
-        return pasteboard.itemProviders.contains { provider in
-            provider.registeredTypeIdentifiers.contains { identifier in
-                identifier == UTType.fileURL.identifier
-                    || UTType(identifier)?.conforms(to: .image) == true
-            }
-        }
+        let providers = pasteboard.itemProviders
+        let matched = pasteboard.hasImages
+            || providers.contains { classification(of: $0) != nil }
+            // Some sources register a file URL at the pasteboard level without
+            // mirroring it into the item provider's registered types.
+            || pasteboard.contains(pasteboardTypes: [UTType.fileURL.identifier])
+        logClassification(of: providers, pasteboard: pasteboard, matched: matched)
+        return matched
     }
 
     /// Materialize every image and file item on the pasteboard into app-owned
@@ -55,18 +72,23 @@ struct MobilePasteboardReader: Sendable {
         var results: [MobilePastedAttachment] = []
         let providers = pasteboard.itemProviders
         for provider in providers {
-            if let imageType = registeredImageType(of: provider) {
+            switch classification(of: provider) {
+            case .image(let contentType):
                 if let attachment = await materializeImage(
                     provider,
-                    contentType: imageType
+                    contentType: contentType
                 ) {
                     results.append(attachment)
                 }
-            } else if provider.registeredTypeIdentifiers
-                .contains(UTType.fileURL.identifier) {
-                if let attachment = await materializeFile(provider) {
+            case .file(let contentType):
+                if let attachment = await materializeFile(
+                    provider,
+                    contentType: contentType
+                ) {
                     results.append(attachment)
                 }
+            case nil:
+                continue
             }
         }
         // Some sources put an image on the pasteboard without a matching item
@@ -79,6 +101,29 @@ struct MobilePasteboardReader: Sendable {
                 url: url,
                 displayName: "pasted-image.png"
             ))
+        }
+        // Last resort for sources that register a file URL at the pasteboard
+        // level without a provider representation: copy the URLs directly.
+        // This is a content read, which is fine here — materialization only
+        // runs for a user-invoked paste.
+        if results.isEmpty,
+           pasteboard.contains(pasteboardTypes: [UTType.fileURL.identifier]) {
+            for url in pasteboard.urls ?? [] where url.isFileURL {
+                let hasScope = url.startAccessingSecurityScopedResource()
+                defer {
+                    if hasScope { url.stopAccessingSecurityScopedResource() }
+                }
+                if let copied = copyIntoTemporaryStorage(
+                    url,
+                    name: url.lastPathComponent
+                ) {
+                    results.append(MobilePastedAttachment(
+                        kind: .file,
+                        url: copied,
+                        displayName: copied.lastPathComponent
+                    ))
+                }
+            }
         }
         return results
     }
@@ -98,12 +143,57 @@ struct MobilePasteboardReader: Sendable {
 
     private static let wrapperPrefix = "cmux-pasted-attachment-"
 
-    /// The most specific registered raster type, so the copied file keeps a
-    /// faithful extension (`png`/`jpeg`/`heic`) for the image preparer.
-    private func registeredImageType(of provider: NSItemProvider) -> UTType? {
-        provider.registeredTypeIdentifiers
-            .compactMap { UTType($0) }
-            .first { $0.conforms(to: .image) }
+    func classification(of provider: NSItemProvider) -> ItemClassification? {
+        classification(ofRegisteredTypeIdentifiers: provider.registeredTypeIdentifiers)
+    }
+
+    /// Pure classification over registered type identifiers, ordered
+    /// most-specific-first as NSItemProvider reports them.
+    func classification(
+        ofRegisteredTypeIdentifiers identifiers: [String]
+    ) -> ItemClassification? {
+        let types = identifiers.compactMap { UTType($0) }
+        if let imageType = types.first(where: { $0.conforms(to: .image) }) {
+            return .image(loadAs: imageType)
+        }
+        if identifiers.contains(UTType.fileURL.identifier) {
+            return .file(loadAs: .fileURL)
+        }
+        // A text or web-URL flavor anywhere on the item means the user copied
+        // something meant to paste AS text (rich text, a link with a title),
+        // even when a data flavor (web archive, RTFD) rides along.
+        let hasTextFlavor = types.contains {
+            $0.conforms(to: .text) || $0 == .url
+        }
+        guard !hasTextFlavor else { return nil }
+        if let dataType = types.first(where: {
+            $0.conforms(to: .data) && !$0.conforms(to: .url)
+        }) {
+            return .file(loadAs: dataType)
+        }
+        return nil
+    }
+
+    /// One privacy-acceptable debug line per probe: type identifiers only
+    /// (never content), so a Files.app copy that fails to classify on a
+    /// dogfood device can be diagnosed from the copied-off debug log.
+    private func logClassification(
+        of providers: [NSItemProvider],
+        pasteboard: UIPasteboard,
+        matched: Bool
+    ) {
+        #if DEBUG
+        let items = providers
+            .map { provider in
+                "[" + provider.registeredTypeIdentifiers.joined(separator: "|") + "]"
+            }
+            .joined(separator: ",")
+        MobileDebugLog.shared.append(
+            "paste.probe matched=\(matched ? 1 : 0) hasImages=\(pasteboard.hasImages ? 1 : 0) "
+                + "hasStrings=\(pasteboard.hasStrings ? 1 : 0) hasURLs=\(pasteboard.hasURLs ? 1 : 0) "
+                + "items=\(items.isEmpty ? "none" : items)"
+        )
+        #endif
     }
 
     private func materializeImage(
@@ -117,10 +207,11 @@ struct MobilePasteboardReader: Sendable {
             ) { loaded, _ in
                 // Copy inside the completion, while the provider-scoped temp
                 // file is still valid.
-                let name = imageFileName(
+                let name = pastedFileName(
                     suggested: suggestedName,
                     loaded: loaded,
-                    contentType: contentType
+                    contentType: contentType,
+                    fallbackStem: "pasted-image"
                 )
                 continuation.resume(
                     returning: loaded.flatMap {
@@ -138,15 +229,29 @@ struct MobilePasteboardReader: Sendable {
     }
 
     private func materializeFile(
-        _ provider: NSItemProvider
+        _ provider: NSItemProvider,
+        contentType: UTType
     ) async -> MobilePastedAttachment? {
+        let suggestedName = provider.suggestedName
         let url: URL? = await withCheckedContinuation { continuation in
             provider.loadFileRepresentation(
-                forTypeIdentifier: UTType.fileURL.identifier
+                forTypeIdentifier: contentType.identifier
             ) { loaded, _ in
+                let name: String
+                if contentType == .fileURL {
+                    // A URL-backed load lands with the real file's own name.
+                    name = loaded?.lastPathComponent ?? UUID().uuidString
+                } else {
+                    name = pastedFileName(
+                        suggested: suggestedName,
+                        loaded: loaded,
+                        contentType: contentType,
+                        fallbackStem: "pasted-file"
+                    )
+                }
                 continuation.resume(
                     returning: loaded.flatMap {
-                        copyIntoTemporaryStorage($0, name: $0.lastPathComponent)
+                        copyIntoTemporaryStorage($0, name: name)
                     }
                 )
             }
@@ -159,27 +264,28 @@ struct MobilePasteboardReader: Sendable {
         )
     }
 
-    /// A user-presentable image file name whose extension matches the loaded
+    /// A user-presentable file name whose extension matches the loaded
     /// representation: the provider's suggested name when present, else the
-    /// loaded file's own name, else a `pasted-image` fallback.
-    private func imageFileName(
+    /// loaded file's own name, else the given fallback stem.
+    private func pastedFileName(
         suggested: String?,
         loaded: URL?,
-        contentType: UTType
+        contentType: UTType,
+        fallbackStem: String
     ) -> String {
         let ext = loaded?.pathExtension.isEmpty == false
             ? loaded!.pathExtension
-            : (contentType.preferredFilenameExtension ?? "png")
-        let stem: String
+            : (contentType.preferredFilenameExtension ?? "bin")
         if let suggested, !suggested.isEmpty {
-            stem = (suggested as NSString).deletingPathExtension
-        } else if let loadedName = loaded?.deletingPathExtension().lastPathComponent,
-                  !loadedName.isEmpty {
-            stem = loadedName
-        } else {
-            stem = "pasted-image"
+            let stem = (suggested as NSString).deletingPathExtension
+            let suggestedExt = (suggested as NSString).pathExtension
+            return suggestedExt.isEmpty ? "\(stem).\(ext)" : suggested
         }
-        return "\(stem).\(ext)"
+        if let loadedName = loaded?.deletingPathExtension().lastPathComponent,
+           !loadedName.isEmpty {
+            return "\(loadedName).\(ext)"
+        }
+        return "\(fallbackStem).\(ext)"
     }
 
     /// Copy one provider-scoped file into `tmp/<unique wrapper>/<name>` so the
