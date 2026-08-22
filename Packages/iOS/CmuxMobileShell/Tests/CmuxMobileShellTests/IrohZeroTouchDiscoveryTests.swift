@@ -283,10 +283,7 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
-            buildCompatibilityPolicy: .development(
-                expectedInstanceTag: "phand1",
-                additionalInstanceTags: ["phand2", "phand3"]
-            ),
+            buildCompatibilityPolicy: .development,
             personalIrohDiscovery: ScriptedIrohDiscovery(
                 snapshots: [candidates]
             ),
@@ -328,6 +325,89 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(Set(factory.attemptedRouteIDs()) == [
             "iroh-phand1", "iroh-phand2", "iroh-phand3",
         ])
+    }
+
+    @Test
+    func zeroTouchAdmissionStillRunsWhenWorkspaceAggregationWasPreviouslyDisabled() async throws {
+        let candidates = [
+            try candidate(
+                deviceID: "shared-mac",
+                endpointByte: "a",
+                instanceTag: "phand1",
+                routeID: "iroh-phand1"
+            ),
+            try candidate(
+                deviceID: "shared-mac",
+                endpointByte: "b",
+                instanceTag: "phand2",
+                routeID: "iroh-phand2"
+            ),
+        ]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routers: [String: LivenessHostRouter] = [:]
+        for candidate in candidates {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag,
+                displayName: candidate.displayName
+            )
+            routers[candidate.routes[0].id] = router
+        }
+        let defaults = UserDefaults(
+            suiteName: "iroh-disabled-aggregation-discovery-\(UUID().uuidString)"
+        )!
+        defaults.set(false, forKey: "multiMacAggregation")
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: RoutedZeroTouchFactory(routers: routers),
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            buildCompatibilityPolicy: .development,
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: defaults,
+            multiMacAggregationDefaults: defaults
+        )
+        defer {
+            for (_, subscription) in shell.secondaryMacSubscriptions {
+                subscription.cancel()
+            }
+            Task { await shell.remoteClient?.disconnect() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        try await store.upsert(
+            macDeviceID: candidates[0].deviceID,
+            displayName: candidates[0].displayName,
+            routes: candidates[0].routes,
+            instanceTag: candidates[0].instanceTag,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: candidates[0].lastSeenAt
+        )
+        await shell.loadPairedMacs()
+
+        #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil {
+            shell.pairedMacs.count == 2
+                && shell.liveMacConnections.count == 2
+        })
     }
 
     @Test
@@ -392,10 +472,7 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
-            buildCompatibilityPolicy: .development(
-                expectedInstanceTag: "phand1",
-                additionalInstanceTags: ["phand2", "phand3"]
-            ),
+            buildCompatibilityPolicy: .development,
             personalIrohDiscovery: ScriptedIrohDiscovery(
                 snapshots: [candidates]
             ),
