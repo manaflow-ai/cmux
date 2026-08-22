@@ -35558,13 +35558,121 @@
     "cli.browser.designMode.help": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
@@ -35988,7 +36096,49 @@
     "cli.browser.profile.option": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "[--profile <name|uuid>]"
@@ -35998,6 +36148,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "[--profile <名前|UUID>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
           }
         }
       }
@@ -38392,16 +38608,124 @@
     "cli.error.dismissNotificationSelector": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب dismiss-notification واحدًا فقط من --id أو --all-read"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification zahtijeva tačno jedan od --id ili --all-read"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification kræver præcis én af --id eller --all-read"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification erfordert genau eines von --id oder --all-read"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "dismiss-notification requires exactly one of --id or --all-read"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification requiere exactamente uno de --id o --all-read"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification nécessite exactement un de --id ou --all-read"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification richiede esattamente uno tra --id o --all-read"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification ត្រូវការតែមួយក្នុងចំណោម --id ឬ --all-read"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification에는 --id 또는 --all-read 중 정확히 하나가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification krever nøyaktig én av --id eller --all-read"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification wymaga dokładnie jednej z opcji --id lub --all-read"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification requer exatamente um de --id ou --all-read"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification требует ровно одного из --id или --all-read"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification ต้องการ --id หรือ --all-read เพียงอย่างใดอย่างหนึ่งเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification, --id veya --all-read seçeneklerinden tam olarak birini gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification вимагає рівно одного з --id або --all-read"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification 需要 --id 或 --all-read 中的恰好一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification 需要 --id 或 --all-read 中的恰好一個"
           }
         }
       }
@@ -38460,10 +38784,52 @@
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب mark-notification-read محددًا واحدًا فقط: --id أو --workspace أو --all"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read zahtijeva tačno jedan selektor: --id, --workspace ili --all"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read kræver præcis én vælger: --id, --workspace eller --all"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read erfordert genau einen Selektor: --id, --workspace oder --all"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read requiere exactamente un selector: --id, --workspace o --all"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read nécessite exactement un sélecteur : --id, --workspace ou --all"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read richiede esattamente un selettore: --id, --workspace o --all"
           }
         },
         "ja": {
@@ -38471,22 +38837,196 @@
             "state": "translated",
             "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read ត្រូវការឧបករណ៍ជ្រើសរើសតែមួយ៖ --id, --workspace ឬ --all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read에는 정확히 하나의 선택자가 필요합니다: --id, --workspace 또는 --all"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read krever nøyaktig én velger: --id, --workspace eller --all"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read wymaga dokładnie jednego selektora: --id, --workspace lub --all"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read requer exatamente um seletor: --id, --workspace ou --all"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read требует ровно одного селектора: --id, --workspace или --all"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read ต้องการตัวเลือกเพียงหนึ่งเดียว: --id, --workspace หรือ --all"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read tam olarak bir seçici gerektirir: --id, --workspace veya --all"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read вимагає рівно одного селектора: --id, --workspace або --all"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read 需要恰好一个选择器：--id、--workspace 或 --all"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read 需要恰好一個選擇器：--id、--workspace 或 --all"
+          }
         }
       }
     },
     "cli.error.markNotificationReadSurfaceRequiresWorkspace": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --surface وجود --workspace"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface zahtijeva --workspace"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface kræver --workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface erfordert --workspace"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "--surface requires --workspace"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface requiere --workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface nécessite --workspace"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface richiede --workspace"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "--surface には --workspace が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ត្រូវការ --workspace"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface에는 --workspace가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface krever --workspace"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface wymaga --workspace"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface requer --workspace"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface требует --workspace"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ต้องการ --workspace"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface, --workspace gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface вимагає --workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要 --workspace"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要 --workspace"
           }
         }
       }
@@ -39207,13 +39747,121 @@
     "cli.help.ios": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
@@ -40078,13 +40726,121 @@
     "cli.help.simulator": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
