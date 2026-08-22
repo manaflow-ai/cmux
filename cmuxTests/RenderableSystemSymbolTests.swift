@@ -109,12 +109,16 @@ struct RenderableSystemSymbolTests {
         ))
 
         #expect(image.isTemplate)
-        #expect(image.representations.count == 1)
-        #expect(image.representations.first is NSBitmapImageRep)
+        #expect(image.representations.count == 2)
+        #expect(image.representations.allSatisfy { $0 is NSBitmapImageRep })
         #expect(image.tiffRepresentation != nil)
     }
 
-    @Test @MainActor func configuredAppKitImageMatchesDirectAppKitRasterGeometryAtTwoX() throws {
+    @MainActor
+    @Test(arguments: [CGFloat(1), CGFloat(2)])
+    func configuredAppKitImageMatchesDirectAppKitRasterGeometryAtBackingScale(
+        pixelScale: CGFloat
+    ) throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
 
         let systemName = "plus"
@@ -130,14 +134,22 @@ struct RenderableSystemSymbolTests {
         ))
         #expect(materializedImage.size == directImage.size)
 
-        let actualBitmap = try #require(Self.renderedBitmap(materializedImage, size: directImage.size))
-        let expectedBitmap = try #require(Self.renderedBitmap(directImage, size: directImage.size))
+        let actualBitmap = try #require(Self.renderedBitmap(
+            materializedImage,
+            size: directImage.size,
+            pixelScale: pixelScale
+        ))
+        let expectedBitmap = try #require(Self.renderedBitmap(
+            directImage,
+            size: directImage.size,
+            pixelScale: pixelScale
+        ))
         let actual = try #require(PixelFootprint(bitmap: actualBitmap))
         let expected = try #require(PixelFootprint(bitmap: expectedBitmap))
 
-        // The returned image is displayed at 2x, so its alpha footprint should match
-        // AppKit's own direct draw within a pixel. Creating the graphics context before
-        // assigning the bitmap's point size shifts and shrinks the glyph dramatically.
+        // The returned image should match AppKit's own direct draw within a pixel at
+        // each native backing scale. Creating the graphics context before assigning
+        // the bitmap's point size shifts and shrinks the glyph dramatically.
         let centroidTolerance = 1.0
         #expect(abs(actual.centroidX - expected.centroidX) <= centroidTolerance)
         #expect(abs(actual.centroidY - expected.centroidY) <= centroidTolerance)
@@ -221,8 +233,11 @@ struct RenderableSystemSymbolTests {
     }
 
     @MainActor
-    private static func renderedBitmap(_ image: NSImage, size: NSSize) -> NSBitmapImageRep? {
-        let pixelScale: CGFloat = 2
+    private static func renderedBitmap(
+        _ image: NSImage,
+        size: NSSize,
+        pixelScale: CGFloat
+    ) -> NSBitmapImageRep? {
         guard let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: max(1, Int(ceil(size.width * pixelScale))),
