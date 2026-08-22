@@ -3,7 +3,7 @@ name: cmux-cua
 description: "Drive real macOS apps from a cmux agent session via the bundled computer-use engine (accessibility tree + screenshot perception, click/type/scroll/drag, branded agent cursor). Use when an agent should see and operate GUI apps on the local Mac, when computer-use tools are missing or failing, or when explaining how to grant permissions, brand the cursor, or focus the driving session."
 ---
 
-# cmux Computer Use
+# cmux-cua
 
 cmux bundles a local computer-use engine (packaged as `cmux Computer Use` with
 the MCP proxy named `cmux-computer-use-client`, from a pinned build of
