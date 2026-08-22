@@ -4,8 +4,9 @@ import SwiftUI
 
 /// One-time "what's new" sheet for the per-Computer connection-method update,
 /// shown on first launch after updating for users who already have Computers
-/// (fresh installs learn the same things in onboarding). Duolingo-style: a
-/// gradient hero, a ribbon, bold feature rows, one big capsule CTA.
+/// (fresh installs learn the same things in onboarding). Follows the system
+/// What's New template: plain background, centered title, accent-tinted
+/// symbol rows, one prominent Continue button.
 struct MobileConnectionsUpdateSheet: View {
     /// Defaults key marking the notice as acknowledged on this device.
     static let acknowledgedKey = "dev.cmux.mobile.connectionsUpdateNotice.v1"
@@ -13,33 +14,28 @@ struct MobileConnectionsUpdateSheet: View {
     let dismiss: () -> Void
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.blue.opacity(0.85), Color.cyan.opacity(0.55), Color(.systemBackground)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 0) {
             ScrollView {
-                VStack(spacing: 24) {
-                    ribbon
-                    Text(L10n.string(
-                        "mobile.connectionsUpdate.title",
-                        defaultValue: "Every computer, its own connection"
-                    ))
-                    .font(.system(.largeTitle, design: .rounded).bold())
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
+                VStack(spacing: 32) {
+                    VStack(spacing: 6) {
+                        Text(L10n.string(
+                            "mobile.connectionsUpdate.ribbon",
+                            defaultValue: "What's New"
+                        ))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        Text(L10n.string(
+                            "mobile.connectionsUpdate.title",
+                            defaultValue: "Every computer, its own connection"
+                        ))
+                        .font(.largeTitle.bold())
+                        .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 48)
                     .padding(.horizontal, 24)
-                    Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                        .font(.system(size: 72, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.vertical, 8)
-                        .accessibilityHidden(true)
-                    VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 24) {
                         featureRow(
                             symbol: "desktopcomputer.and.macbook",
-                            tint: .blue,
                             title: L10n.string(
                                 "mobile.connectionsUpdate.perComputer.title",
                                 defaultValue: "Per-computer methods"
@@ -50,8 +46,7 @@ struct MobileConnectionsUpdateSheet: View {
                             )
                         )
                         featureRow(
-                            symbol: "bolt.horizontal.circle.fill",
-                            tint: .purple,
+                            symbol: "bolt.horizontal",
                             title: L10n.string(
                                 "mobile.connectionsUpdate.iroh.title",
                                 defaultValue: "Auto-Connect is now Iroh"
@@ -63,7 +58,6 @@ struct MobileConnectionsUpdateSheet: View {
                         )
                         featureRow(
                             symbol: "network",
-                            tint: .green,
                             title: L10n.string(
                                 "mobile.connectionsUpdate.direct.title",
                                 defaultValue: "New: Direct addresses"
@@ -75,7 +69,6 @@ struct MobileConnectionsUpdateSheet: View {
                         )
                         featureRow(
                             symbol: "qrcode.viewfinder",
-                            tint: .orange,
                             title: L10n.string(
                                 "mobile.connectionsUpdate.tailscale.title",
                                 defaultValue: "Tailscale, on your terms"
@@ -86,61 +79,43 @@ struct MobileConnectionsUpdateSheet: View {
                             )
                         )
                     }
-                    .padding(.horizontal, 20)
-                    Button(action: dismiss) {
-                        Text(L10n.string(
-                            "mobile.connectionsUpdate.cta",
-                            defaultValue: "Got It"
-                        ))
-                        .font(.system(.headline, design: .rounded).bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.yellow, in: Capsule())
-                        .foregroundStyle(Color.black.opacity(0.85))
-                    }
-                    .accessibilityIdentifier("MobileConnectionsUpdateGotIt")
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-                    .padding(.bottom, 32)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 24)
                 }
-                .padding(.top, 28)
             }
+            Button(action: dismiss) {
+                Text(L10n.string(
+                    "mobile.connectionsUpdate.cta",
+                    defaultValue: "Continue"
+                ))
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.blue)
+            .accessibilityIdentifier("MobileConnectionsUpdateGotIt")
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
         }
+        .background(PlatformPalette.systemBackground)
         .accessibilityIdentifier("MobileConnectionsUpdateSheet")
     }
 
-    private var ribbon: some View {
-        Text(L10n.string(
-            "mobile.connectionsUpdate.ribbon",
-            defaultValue: "WHAT'S NEW"
-        ))
-        .font(.system(.subheadline, design: .rounded).bold())
-        .tracking(2)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .background(Color.yellow, in: RoundedRectangle(cornerRadius: 8))
-        .foregroundStyle(Color.black.opacity(0.85))
-    }
-
-    private func featureRow(symbol: String, tint: Color, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+    private func featureRow(symbol: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
             Image(systemName: symbol)
-                .font(.title2.bold())
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(tint.gradient, in: RoundedRectangle(cornerRadius: 12))
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(width: 40)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(.headline, design: .rounded))
+                    .font(.headline)
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(.background.opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 #endif
