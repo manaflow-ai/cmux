@@ -1009,14 +1009,14 @@
         },
         "terminal": {
           "newSurfaceWorkingDirectory": {
-            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
-            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
-            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+            "description": "普通新本機窗格、選項卡、分割和工作區的工作目錄預設值。顯式工作目錄、遠端命令和復原的表面始終優先。",
+            "policy": "選擇新的本機曲面是繼承活動窗格目錄、使用建立工作區時所擷取的目錄或使用配置的固定路徑。",
+            "path": "固定路徑使用的路徑。使用絕對路徑或以波浪號開頭的路徑。如果路徑遺失或不是目錄，cmux 會安全地回退到工作區根目錄。"
           },
           "shellStartup": {
-            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
-            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
-            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+            "description": "普通新本地表面的預設 shell 啟動行為。顯式命令和輸入、遠端會話、恢復的表面和手動 tmux 映像不會變更。",
+            "mode": "將使用者的 shell 以互動式登入 shell 或互動式非登入 shell 啟動。",
+            "command": "在普通的新本地 shell 啟動後作為啟動輸入發送的可選命令。當表面已經具有明確啟動工作時，不應用它。"
           },
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",

@@ -22,6 +22,8 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let jsonStore: JSONConfigStore
     /// App-scoped owner for synchronous declarative terminal snapshots.
     public let declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache
+    /// Runtime-owned presence-preserving terminal settings model.
+    public let declarativeTerminalConfigurationModel: DeclarativeTerminalConfigurationModel
     /// Secret-file-backed settings store.
     public let secretStore: SecretFileStore
     /// Rolling settings error log displayed as alerts.
@@ -62,6 +64,12 @@ public struct SettingsRuntime: @unchecked Sendable {
         self.declarativeTerminalConfigurationCache = declarativeTerminalConfigurationCache
         self.secretStore = secretStore
         self.errorLog = errorLog
+        self.declarativeTerminalConfigurationModel = DeclarativeTerminalConfigurationModel(
+            jsonStore: jsonStore,
+            userDefaultsStore: userDefaultsStore,
+            catalog: catalog,
+            errorLog: errorLog
+        )
         self.accountFlow = accountFlow
         self.hostActions = hostActions
     }

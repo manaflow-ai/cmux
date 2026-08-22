@@ -1,14 +1,13 @@
 import CmuxSettings
-import CmuxFoundation
 import SwiftUI
 
 /// Settings-card controls for the declarative defaults used by new local
 /// terminal surfaces.
 ///
-/// The controls deliberately use ``LiveSetting`` rather than a second draft
-/// store. Reads therefore follow the JSON file watcher and writes go through
-/// the same `cmux.json` actor used by file edits, so a dotfiles change and a
-/// Settings edit converge on one value.
+/// The card consumes one runtime-owned, presence-preserving model. Only the
+/// two text drafts remain local because they must not be replaced while a
+/// user is typing; committed values and external edits reconcile through the
+/// model's single observation and mutation path.
 @MainActor
 public struct DeclarativeTerminalConfigurationCard: View {
     private enum FocusedField: Hashable {
@@ -16,25 +15,9 @@ public struct DeclarativeTerminalConfigurationCard: View {
         case startupCommand
     }
 
-    @LiveSetting(\.terminal.newSurfaceWorkingDirectoryPolicy)
-    private var workingDirectoryPolicy
-    @LiveSetting(\.terminal.newSurfaceWorkingDirectoryPath)
-    private var workingDirectoryPath
-    @LiveSetting(\.terminal.shellStartupMode)
-    private var shellStartupMode
-    @LiveSetting(\.terminal.shellStartupCommand)
-    private var shellStartupCommand
-
     @State private var workingDirectoryPathDraft = ""
     @State private var shellStartupCommandDraft = ""
-    @State private var commitTasks = MainActorTaskStore<String>()
-    /// `@LiveSetting` intentionally applies the JSON key's declared default
-    /// when a path is absent. The working-directory policy still has a legacy
-    /// UserDefaults fallback, so keep presence and the fallback separate from
-    /// the defaulting binding. This lets a dotfiles edit that removes or
-    /// invalidates the new key immediately converge the UI with runtime.
-    @State private var workingDirectoryPolicyIfPresent: NewSurfaceWorkingDirectoryPolicy?
-    @State private var legacyWorkingDirectoryPolicy = NewSurfaceWorkingDirectoryPolicy.inheritActivePane
+    @State private var fallbackSnapshot = DeclarativeTerminalConfigurationModel.Snapshot()
     @FocusState private var focusedField: FocusedField?
     @Environment(\.settingsRuntime) private var runtime
 
@@ -53,18 +36,12 @@ public struct DeclarativeTerminalConfigurationCard: View {
             shellStartupCommandRow
         }
         .task {
-            synchronizeDrafts()
+            configurationModel?.startObserving()
+            synchronizeDrafts(currentSnapshot)
         }
-        .task {
-            await observeWorkingDirectoryPolicy()
-        }
-        .onChange(of: workingDirectoryPath) { _, newValue in
-            guard focusedField != .workingDirectoryPath else { return }
-            workingDirectoryPathDraft = newValue
-        }
-        .onChange(of: shellStartupCommand) { _, newValue in
-            guard focusedField != .startupCommand else { return }
-            shellStartupCommandDraft = newValue
+        .onChange(of: configurationModel?.snapshot) { _, newValue in
+            guard let newValue else { return }
+            synchronizeDrafts(newValue)
         }
         .onChange(of: focusedField) { oldValue, newValue in
             commitDraft(for: oldValue, whenMovingTo: newValue)
@@ -169,7 +146,7 @@ public struct DeclarativeTerminalConfigurationCard: View {
                     localized: "settings.terminal.shellStartup.mode",
                     defaultValue: "Shell Startup Mode"
                 ),
-                selection: $shellStartupMode
+                selection: shellStartupModeBinding
             ) {
                 Text(String(
                     localized: "settings.terminal.shellStartup.mode.login",
@@ -216,12 +193,12 @@ public struct DeclarativeTerminalConfigurationCard: View {
         }
     }
 
-    private func synchronizeDrafts() {
+    private func synchronizeDrafts(_ snapshot: DeclarativeTerminalConfigurationModel.Snapshot) {
         if focusedField != .workingDirectoryPath {
-            workingDirectoryPathDraft = workingDirectoryPath
+            workingDirectoryPathDraft = snapshot.workingDirectoryPath
         }
         if focusedField != .startupCommand {
-            shellStartupCommandDraft = shellStartupCommand
+            shellStartupCommandDraft = snapshot.shellStartupCommand
         }
     }
 
@@ -229,64 +206,41 @@ public struct DeclarativeTerminalConfigurationCard: View {
     /// the declarative key is absent or invalid. Once the JSON key is present,
     /// the file is the sole source of truth.
     private var effectiveWorkingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy {
-        workingDirectoryPolicyIfPresent ?? legacyWorkingDirectoryPolicy
+        currentSnapshot.effectiveWorkingDirectoryPolicy
     }
 
     private var workingDirectoryPolicyBinding: Binding<NewSurfaceWorkingDirectoryPolicy> {
         Binding(
             get: { effectiveWorkingDirectoryPolicy },
             set: { newValue in
-                workingDirectoryPolicy = newValue
+                if let configurationModel {
+                    configurationModel.setWorkingDirectoryPolicy(newValue)
+                } else {
+                    fallbackSnapshot.workingDirectoryPolicy = newValue
+                }
             }
         )
     }
 
-    /// Observes both sides of the legacy compatibility boundary. Separate
-    /// streams are event-driven (no polling/sleeps), and the JSON presence
-    /// stream means an external dotfiles edit cannot leave the picker showing
-    /// a value that runtime no longer uses.
-    private func observeWorkingDirectoryPolicy() async {
-        guard let runtime else { return }
-        let catalog = SettingCatalog()
-        let policyKey = catalog.terminal.newSurfaceWorkingDirectoryPolicy
-        let legacyKey = catalog.app.workspaceInheritWorkingDirectory
-
-        workingDirectoryPolicyIfPresent = await runtime.jsonStore.valueIfPresent(for: policyKey)
-        legacyWorkingDirectoryPolicy = (await runtime.userDefaultsStore.value(for: legacyKey))
-            ? .inheritActivePane
-            : .workspaceRoot
-
-        async let jsonObservation: Void = observeJSONWorkingDirectoryPolicy(
-            store: runtime.jsonStore,
-            key: policyKey
+    private var shellStartupModeBinding: Binding<ShellStartupMode> {
+        Binding(
+            get: { currentSnapshot.shellStartupMode },
+            set: { newValue in
+                if let configurationModel {
+                    configurationModel.setShellStartupMode(newValue)
+                } else {
+                    fallbackSnapshot.shellStartupMode = newValue
+                }
+            }
         )
-        async let legacyObservation: Void = observeLegacyWorkingDirectoryPolicy(
-            store: runtime.userDefaultsStore,
-            key: legacyKey
-        )
-        _ = await (jsonObservation, legacyObservation)
     }
 
-    private func observeJSONWorkingDirectoryPolicy(
-        store: JSONConfigStore,
-        key: JSONKey<NewSurfaceWorkingDirectoryPolicy>
-    ) async {
-        for await value in store.valuesIfPresent(for: key) {
-            if Task.isCancelled { return }
-            workingDirectoryPolicyIfPresent = value
-        }
+    private var configurationModel: DeclarativeTerminalConfigurationModel? {
+        runtime?.declarativeTerminalConfigurationModel
     }
 
-    private func observeLegacyWorkingDirectoryPolicy(
-        store: UserDefaultsSettingsStore,
-        key: DefaultsKey<Bool>
-    ) async {
-        for await value in store.values(for: key) {
-            if Task.isCancelled { return }
-            legacyWorkingDirectoryPolicy = value
-                ? .inheritActivePane
-                : .workspaceRoot
-        }
+    private var currentSnapshot: DeclarativeTerminalConfigurationModel.Snapshot {
+        configurationModel?.snapshot ?? fallbackSnapshot
     }
 
     private func commitDraft(for oldValue: FocusedField?, whenMovingTo newValue: FocusedField?) {
@@ -303,49 +257,25 @@ public struct DeclarativeTerminalConfigurationCard: View {
 
     /// Persists and then re-reads the committed value. The explicit
     /// reconciliation keeps a rejected write from leaving the unfocused draft
-    /// ahead of the file, while the live-setting stream remains the source for
-    /// successful writes and external dotfiles edits.
+    /// ahead of the file; the runtime-owned model performs the write and
+    /// presence-preserving reconciliation.
     private func commitWorkingDirectoryPathDraft() {
         let draft = workingDirectoryPathDraft
-        guard let runtime else {
-            workingDirectoryPathDraft = workingDirectoryPath
+        guard let configurationModel else {
+            workingDirectoryPathDraft = currentSnapshot.workingDirectoryPath
             return
         }
-        let key = SettingCatalog().terminal.newSurfaceWorkingDirectoryPath
-        commitTasks.replaceOnMainActor("workingDirectoryPath") {
-            do {
-                try await runtime.jsonStore.set(draft, for: key)
-            } catch {
-                runtime.errorLog.recordSaveFailure(keyID: key.id)
-            }
-            guard !Task.isCancelled else { return }
-            let committed = await runtime.jsonStore.value(for: key)
-            if !Task.isCancelled, focusedField != .workingDirectoryPath {
-                workingDirectoryPathDraft = committed
-            }
-        }
+        configurationModel.setWorkingDirectoryPath(draft)
     }
 
     /// Persists and reconciles the shell-command draft through the same actor
     /// and error surface as every other JSON-backed setting.
     private func commitShellStartupCommandDraft() {
         let draft = shellStartupCommandDraft
-        guard let runtime else {
-            shellStartupCommandDraft = shellStartupCommand
+        guard let configurationModel else {
+            shellStartupCommandDraft = currentSnapshot.shellStartupCommand
             return
         }
-        let key = SettingCatalog().terminal.shellStartupCommand
-        commitTasks.replaceOnMainActor("shellStartupCommand") {
-            do {
-                try await runtime.jsonStore.set(draft, for: key)
-            } catch {
-                runtime.errorLog.recordSaveFailure(keyID: key.id)
-            }
-            guard !Task.isCancelled else { return }
-            let committed = await runtime.jsonStore.value(for: key)
-            if !Task.isCancelled, focusedField != .startupCommand {
-                shellStartupCommandDraft = committed
-            }
-        }
+        configurationModel.setShellStartupCommand(draft)
     }
 }

@@ -1009,14 +1009,14 @@
         },
         "terminal": {
           "newSurfaceWorkingDirectory": {
-            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
-            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
-            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+            "description": "Zadane postavke radnog direktorija za obična nova lokalna okna, kartice, podjele i radne prostore. Eksplicitni radni direktoriji, udaljene komande i vraćene površine uvijek imaju prednost.",
+            "policy": "Odaberite hoće li nove lokalne površine naslijediti direktorij aktivnog okna, koristiti direktorij snimljen kada je radni prostor kreiran ili koristiti konfiguriranu fiksnu stazu.",
+            "path": "Putanja koju koristi fixedPath. Koristite apsolutnu putanju ili put koji počinje tildom. Ako putanja nedostaje ili nije direktorij, cmux se sigurno vraća u korijen radnog prostora."
           },
           "shellStartup": {
-            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
-            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
-            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+            "description": "Zadano ponašanje pri pokretanju ljuske za obične nove lokalne površine. Eksplicitne komande i ulazi, udaljene sesije, obnovljene površine i ručni tmux ogledala se ne mijenjaju.",
+            "mode": "Pokrenite ljusku korisnika kao interaktivnu ljusku za prijavu ili interaktivnu ljusku bez prijave.",
+            "command": "Opciona naredba se šalje kao početni ulaz nakon što se pokrene obična nova lokalna ljuska. Ne primjenjuje se kada površina već ima eksplicitno pokretanje."
           },
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",

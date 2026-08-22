@@ -1009,14 +1009,14 @@
         },
         "terminal": {
           "newSurfaceWorkingDirectory": {
-            "description": "Working-directory defaults for ordinary new local panes, tabs, splits, and workspaces. Explicit working directories, remote commands, and restored surfaces always take precedence.",
-            "policy": "Choose whether new local surfaces inherit the active pane directory, use the directory captured when the workspace was created, or use the configured fixed path.",
-            "path": "Path used by fixedPath. Use an absolute path or one beginning with a tilde. If the path is missing or is not a directory, cmux safely falls back to the workspace root."
+            "description": "일반적인 새 로컬 창, 탭, 분할 및 작업 공간에 대한 작업 디렉터리 기본값입니다. 명시적 작업 디렉터리, 원격 명령 및 복원된 표면이 항상 우선적으로 적용됩니다.",
+            "policy": "새 로컬 표면이 활성 창 디렉토리를 상속할지, 작업공간이 생성될 때 캡처된 디렉토리를 사용할지, 구성된 고정 경로를 사용할지 선택합니다.",
+            "path": "fixedPath에서 사용되는 경로입니다. 절대 경로나 물결표로 시작하는 경로를 사용하세요. 경로가 없거나 디렉터리가 아닌 경우 cmux는 안전하게 작업 공간 루트로 돌아갑니다."
           },
           "shellStartup": {
-            "description": "Default shell startup behavior for ordinary new local surfaces. Explicit commands and inputs, remote sessions, restored surfaces, and manual tmux mirrors are not changed.",
-            "mode": "Start the user's shell as an interactive login shell or an interactive non-login shell.",
-            "command": "Optional command sent as startup input after an ordinary new local shell starts. It is not applied when a surface already has explicit startup work."
+            "description": "일반적인 새 로컬 표면에 대한 기본 셸 시작 동작입니다. 명시적 명령 및 입력, 원격 세션, 복원된 표면 및 수동 tmux 미러는 변경되지 않습니다.",
+            "mode": "대화형 로그인 쉘 또는 대화형 비로그인 쉘로 사용자 쉘을 시작합니다.",
+            "command": "일반 새 로컬 셸이 시작된 후 시작 입력으로 전송되는 선택적 명령입니다. 표면에 이미 명시적인 시작 작업이 있는 경우에는 적용되지 않습니다."
           },
           "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",
           "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
