@@ -1518,6 +1518,38 @@
       "recoveryReset": "Reset: explicitly create a new Base generation. cmux keeps the old generation retained; permanent deletion should be a separate confirmation step.",
       "recoverySupport": "Feedback: include the VM id, elapsed time, and last non-secret error so support can tell whether the failure is auth, service readiness, terminal endpoint, or local client state."
     },
+    "managedPolicies": {
+      "title": "Managed Device Policies (MDM)",
+      "metaTitle": "Managed device policies (MDM)",
+      "metaDescription": "Deploy MDM-enforceable policies for cmux on managed Macs: disable the embedded browser and iOS remote control with a configuration profile targeting com.cmuxterm.app.",
+      "intro": "cmux supports MDM-enforceable policies for managed Macs. Administrators deliver them as forced preference values through a macOS configuration profile (a Custom Settings payload). Forced values are tier 0: they win over environment variables, user settings, ~/.config/cmux/cmux.json imports, and built-in defaults.",
+      "lockSummary": "Forced values cannot be changed from inside the app: the Settings UI shows the control as “Managed by your organization”, the command palette hides the matching commands, and the cmux CLI refuses with a managed-policy error.",
+      "domainTitle": "Payload domain",
+      "domainDesc": "Target the preference domain of the release app:",
+      "domainChannels": "Channel builds (debug, nightly, staging) run under their own bundle identifiers but also honor profiles targeting com.cmuxterm.app, so one profile governs every channel. A value forced in the app's own domain wins over the release-domain fallback.",
+      "keysTitle": "Policy keys",
+      "keyHeader": "Key",
+      "typeHeader": "Type",
+      "defaultHeader": "Default",
+      "behaviorHeader": "Behavior when forced to true",
+      "booleanType": "Boolean",
+      "browserKeyDesc": "Disables every embedded-browser surface: browser panes and tabs, terminal-link interception, browser creation from automation, layouts, and session restore. Live browser panes are closed when the policy activates; links open in the system default browser instead. WebKit-based local viewers riding the same gate (the diff viewer, agent-chat pane, in-app upgrade pages) are also unavailable, and the Mac stops advertising browser capabilities to the iOS app.",
+      "remoteKeyDesc": "Disables the Mac acting as a remote view/control host for the cmux iOS app: the Iroh host runtime (including its local-network advertisement), the legacy TCP pairing listener, connection admission, and device pairing. Live phone connections are closed when the policy activates, and the pairing trust broker refuses to mint new pair grants. Outbound-only notification forwarding, app updates, the local automation socket, and Mac-as-client SSH remain unaffected.",
+      "noteBoolean": "Values must be Boolean. A key forced to false (or to a non-Boolean value) does not enforce the policy, but the key still counts as managed for write-locking purposes.",
+      "noteForcedOnly": "Only forced (profile-delivered) values are honored as policy. A plain defaults write of these keys has no effect.",
+      "noteTiming": "Policies apply at app launch, on preference changes, on app activation, and on a periodic re-check (about once a minute) while cmux runs — a profile pushed mid-session takes effect within roughly a minute even if the user never leaves the app.",
+      "lockTitle": "Lockability",
+      "lockDesc": "Configuration-profile forced values are locked by macOS itself: no user-level write (including Reset All Settings) can change the effective value, and removing the profile restores normal behavior. cmux additionally suppresses its own writers: the cmux.json importer skips every profile-forced key, and for the browser and remote-control controls the Settings UI shows the managed state, the command palette hides the matching commands, and the CLI refuses with a managed-policy error — including when an administrator forces the user-level browserDisabledOverride key directly.",
+      "supportTitle": "Supported platforms and versions",
+      "supportMacos": "macOS 14 (Sonoma) and later, matching the cmux system requirements.",
+      "supportVersions": "cmux for macOS builds that include this feature (see the changelog entry that shipped it). All release channels honor the release payload domain.",
+      "supportIos": "These are macOS-side controls. The iOS app needs no separate policy: a Mac with DisableRemoteControl enforced refuses admission and pairing, so the phone cannot attach to it.",
+      "sampleTitle": "Sample configuration profile",
+      "sampleDesc": "Deploy via your MDM as a Custom Settings payload for com.cmuxterm.app, or install the profile below manually for testing (System Settings → General → Device Management).",
+      "verifyTitle": "Verifying on a managed Mac",
+      "verifyDesc": "Read the effective forced values and the CLI's managed state:",
+      "verifyUi": "In cmux, Settings → Browser shows the enable toggle disabled with “Managed by your organization”, and Settings → Mobile shows “Remote control from the iOS app is disabled by your organization.”"
+    },
     "remoteTmux": {
       "title": "Remote tmux",
       "metaTitle": "Remote tmux (beta)",
@@ -1891,7 +1923,8 @@
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
           "defaultZoomLevel": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page.",
-          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads.",
+          "urlAllowlist": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
@@ -2724,6 +2757,7 @@
       "skills": "Skills",
       "notifications": "Notifications",
       "ssh": "SSH",
+      "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
@@ -3186,6 +3220,10 @@
       "metaDescription": "Guides comparing cmux with other macOS terminals, how it is built on Ghostty, and how to run Claude Code, Codex, and OpenCode in cmux.",
       "title": "Guides",
       "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
+    },
+    "managedPolicies": {
+      "title": "Managed Device Policies (MDM)",
+      "metaDescription": "MDM-enforceable policies for cmux on managed Macs: disable the embedded browser and iOS remote control with a configuration profile."
     },
     "remoteTmux": {
       "title": "Remote tmux",
@@ -4708,6 +4746,7 @@
       "cursorCli": "A terminal for Cursor CLI",
       "keyboardShortcuts": "Keyboard shortcuts",
       "browserAutomation": "Browser automation",
+      "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
       "compare": "Compare cmux"
     },

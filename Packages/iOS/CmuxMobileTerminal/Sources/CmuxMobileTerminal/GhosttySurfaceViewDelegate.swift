@@ -98,6 +98,10 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The local Ghostty render pipeline was rebuilt after a stuck render/output
     /// operation. The host should replay authoritative terminal state.
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView)
+    /// The mounted output consumer exhausted its bounded restart budget. The
+    /// host should give the user an explicit retry/remount action instead of
+    /// silently leaving the terminal without a stream.
+    func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView)
 }
 
 /// Default no-op implementations for the optional delegate requirements, so
@@ -155,5 +159,8 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal-output replay can ignore renderer resets.
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without terminal-output recovery chrome can
+    /// ignore an exhausted stream.
+    func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView) {}
 }
 #endif

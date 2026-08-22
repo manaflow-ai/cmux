@@ -763,6 +763,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(bootstrapMessage.contains("pty.write.notification"))
     }
 
+    func testRemoteDaemonBootstrapErrorsDoNotExposeUpstreamDetails() {
+        let rawError = NSError(domain: "cmux.remote.daemon", code: 41, userInfo: [
+            NSLocalizedDescriptionKey: "provider=/private/home/austin/.cmuxd path=/secret/token raw stderr",
+        ])
+
+        let message = RemoteSessionCoordinator.userFacingRemoteDaemonBootstrapErrorMessage(
+            rawError,
+            strings: .appLocalized
+        )
+
+        XCTAssertEqual(message, "Could not confirm that the remote daemon is ready")
+        XCTAssertFalse(message.contains("/private/home"))
+        XCTAssertFalse(message.contains("/secret/token"))
+        XCTAssertFalse(message.contains("raw stderr"))
+    }
+
     @MainActor
     func testWebSocketVMWithDaemonEndpointStartsProxyCapableConnection() {
         let workspace = Workspace()

@@ -25,6 +25,9 @@ struct TaskComposerLayout: View {
     let isModelLoading: Bool
     let isSubmitting: Bool
     let isSubmitEnabled: Bool
+    /// Rendered as a non-blocking orange banner when no Mac connection is
+    /// live; `nil` while at least one Mac is connected.
+    let connectionWarningText: String?
     let failureTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
@@ -116,6 +119,11 @@ struct TaskComposerLayout: View {
 
     private var accessoryBar: some View {
         VStack(spacing: 10) {
+            if let connectionWarningText {
+                TaskComposerConnectionWarningBanner(message: connectionWarningText)
+                    .padding(.horizontal, 16)
+            }
+
             if failureText != nil || completedOperationRecovery != nil {
                 TaskComposerFailureRecoveryContent(
                     isSubmitting: isSubmitting,
