@@ -200,6 +200,9 @@ struct SimulatorStreamV2Pane: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        // Neutral chrome: the hardware-button icons read as controls, not
+        // links, so they must not pick up the app accent color.
+        .tint(.primary)
         .mobileGlassPill()
         .clipShape(Capsule())
         .padding(.horizontal, 12)
