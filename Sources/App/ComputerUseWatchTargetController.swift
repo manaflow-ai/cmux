@@ -637,7 +637,8 @@ final class ComputerUseWatchTargetController {
                 activity.state.targetWindowID
             presentationController.proxySessionDidBecomeKnown(
                 driverSessionID: driverSessionID,
-                proxySessionID: proxySessionID
+                proxySessionID: proxySessionID,
+                targetWindowID: activity.state.targetWindowID
             )
         }
 
@@ -678,7 +679,8 @@ final class ComputerUseWatchTargetController {
             presentationController.reassertCallingTerminal(
                 driverSessionID: driverSessionID,
                 workspaceID: currentSession.workspaceID,
-                surfaceID: currentSession.surfaceID
+                surfaceID: currentSession.surfaceID,
+                targetWindowID: activity.state.targetWindowID
             )
             advanceWatermark(for: activity)
             return

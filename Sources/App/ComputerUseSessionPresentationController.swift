@@ -174,15 +174,17 @@ final class ComputerUseSessionPresentationController {
     func reassertCallingTerminal(
         driverSessionID: String,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        targetWindowID: UInt32? = nil
     ) {
-        guard
-            let state = statesByDriverSessionID[driverSessionID],
+        guard var state = statesByDriverSessionID[driverSessionID],
             state.activityPhase == .active,
             state.focusMode == .callingTerminal
         else {
             return
         }
+        state.targetWindowID = targetWindowID ?? state.targetWindowID
+        statesByDriverSessionID[driverSessionID] = state
         let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
@@ -289,7 +291,8 @@ final class ComputerUseSessionPresentationController {
 
     func proxySessionDidBecomeKnown(
         driverSessionID: String,
-        proxySessionID: String
+        proxySessionID: String,
+        targetWindowID: UInt32? = nil
     ) {
         var state = statesByDriverSessionID[driverSessionID]
             ?? SessionState(
@@ -309,6 +312,7 @@ final class ComputerUseSessionPresentationController {
             return
         }
         state.proxySessionID = proxySessionID
+        state.targetWindowID = targetWindowID ?? state.targetWindowID
         state.cursorEffectProxySessionID = proxySessionID
         assignNextCursorEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
