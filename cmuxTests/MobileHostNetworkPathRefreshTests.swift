@@ -176,8 +176,8 @@ import Testing
         #expect(attempt == retryAt)
     }
 
-    @Test func activationWaitsForAnAuthoritativeReachabilitySample() {
-        #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
+    @Test func activationAllowsUnknownInitialPathButBlocksKnownOffline() {
+        #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
         #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: false))
         #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: true))
     }

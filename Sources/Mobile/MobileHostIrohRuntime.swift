@@ -120,8 +120,8 @@ final class MobileHostIrohRuntime {
     var relayPolicyRefreshTrustRoot: CmxIrohRelayPolicyTrustRoot?
     var relayPolicyRefreshRevision: UInt64?
     /// Last platform path state. `nil` means the path observer has not emitted
-    /// its first authoritative sample yet; activation and relay probes remain
-    /// parked until that sample arrives.
+    /// its first sample yet; an initial activation may proceed, while relay
+    /// policy probes remain parked until an authoritative usable-path sample.
     var relayPolicyNetworkReachable: Bool?
     var relayPolicyRefreshClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var selectedPathObservationTask: Task<Void, Never>?
@@ -357,10 +357,10 @@ final class MobileHostIrohRuntime {
     }
 
     /// Returns whether a host activation may begin with the current path state.
-    /// Unknown reachability fails closed so startup cannot create an avoidable
-    /// relay failure before ``MobileHostNetworkPathMonitor`` has sampled a path.
+    /// An unknown initial path may use cached policy for direct startup, while
+    /// an explicitly offline path waits for the reachability owner to wake it.
     nonisolated static func shouldStartIrohActivation(networkReachable: Bool?) -> Bool {
-        networkReachable == true
+        networkReachable != false
     }
 
     /// Returns whether an externally delivered connectivity signal must be
