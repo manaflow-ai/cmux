@@ -123,8 +123,26 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
         fileURL: URL = CmuxConfigLocation().userConfigFile
     ) -> Snapshot {
         let root = JSONConfigStore.snapshotRoot(fileURL: fileURL)
+        return Self.snapshot(root: root)
+    }
+
+    /// Decodes terminal settings from one immutable JSON store revision.
+    ///
+    /// - Parameters:
+    ///   - data: JSON or JSONC bytes for a complete configuration root.
+    ///   - sanitizer: Sanitizer used for JSONC comments and trailing commas.
+    /// - Returns: Safe defaults for missing or invalid values.
+    public static func snapshot(
+        data: Data,
+        sanitizer: JSONCSanitizer = JSONCSanitizer()
+    ) -> Snapshot {
+        snapshot(root: JSONConfigStore.snapshotRoot(data: data, sanitizer: sanitizer))
+    }
+
+    private static func snapshot(root: [String: Any]) -> Snapshot {
+        let configuration = DeclarativeTerminalConfiguration()
         let rawWorkingDirectoryPolicy = JSONKey<String>(
-            id: workingDirectoryPolicy.id,
+            id: configuration.workingDirectoryPolicy.id,
             defaultValue: ""
         )
         let rawPolicy = JSONConfigStore.snapshotValue(
@@ -134,15 +152,15 @@ public struct DeclarativeTerminalConfiguration: SettingCatalogSection {
         return Snapshot(
             workingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy(rawValue: rawPolicy),
             workingDirectoryPath: JSONConfigStore.snapshotValue(
-                for: workingDirectoryPath,
+                for: configuration.workingDirectoryPath,
                 in: root
             ),
             shellStartupMode: JSONConfigStore.snapshotValue(
-                for: shellStartupMode,
+                for: configuration.shellStartupMode,
                 in: root
             ),
             shellStartupCommand: JSONConfigStore.snapshotValue(
-                for: shellStartupCommand,
+                for: configuration.shellStartupCommand,
                 in: root
             ).trimmingCharacters(in: .whitespacesAndNewlines)
         )

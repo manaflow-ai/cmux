@@ -44,7 +44,22 @@ public actor JSONConfigStore {
         fileURL: URL,
         sanitizer: JSONCSanitizer = JSONCSanitizer()
     ) -> [String: Any] {
-        (try? readRootFromDisk(at: fileURL, sanitizer: sanitizer)) ?? [:]
+        guard let data = try? Data(contentsOf: fileURL) else { return [:] }
+        return snapshotRoot(data: data, sanitizer: sanitizer)
+    }
+
+    /// Parses one coherent root from immutable JSON bytes.
+    static func snapshotRoot(
+        data: Data,
+        sanitizer: JSONCSanitizer = JSONCSanitizer()
+    ) -> [String: Any] {
+        guard !data.isEmpty,
+              let sanitized = try? sanitizer.sanitize(data),
+              let object = try? JSONSerialization.jsonObject(with: sanitized),
+              let dictionary = object as? [String: Any] else {
+            return [:]
+        }
+        return dictionary
     }
 
     /// Decodes one typed key from an already-parsed snapshot root.
@@ -201,6 +216,17 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Returns one coherent JSON revision followed by each later file revision.
+    ///
+    /// Unlike independent key streams, a revision is decoded from one actor
+    /// read of the complete root. Consumers that project several related keys
+    /// can therefore publish one internally consistent snapshot per edit.
+    public nonisolated func snapshots() -> AsyncStream<JSONConfigStoreSnapshot> {
+        makeValueStream { store in
+            await store.coherentSnapshot()
+        }
+    }
+
     // MARK: - Private
 
     /// Builds the shared subscription pipeline for both defaulting and
@@ -239,6 +265,16 @@ public actor JSONConfigStore {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Reads one coherent root while isolated to the store actor.
+    public func coherentSnapshot() -> JSONConfigStoreSnapshot {
+        let root = loadedRoot()
+        let data = (try? JSONSerialization.data(
+            withJSONObject: root,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )) ?? Data("{}".utf8)
+        return JSONConfigStoreSnapshot(data: data)
     }
 
     private func addSubscriber(id: UUID, continuation: AsyncStream<Void>.Continuation) {
