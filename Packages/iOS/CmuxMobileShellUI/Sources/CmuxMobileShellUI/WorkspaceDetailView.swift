@@ -81,7 +81,12 @@ struct WorkspaceDetailView: View {
     // deletes an entry (see the onChange handlers); a layout-driven
     // disappearance (overflow into More) cannot release a reservation and
     // make the collapse sticky.
-    @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
+    @State private var trailingToolbarItemGeometry: [String: TrailingToolbarItemGeometry] = [:]
+    /// The fitted title label's leading edge, with the pane width it was
+    /// measured at; pairs with the trailing item geometry to derive the
+    /// realized title-to-trailing span.
+    @State private var titleLabelLeadingEdge: WorkspaceTitleLabelEdge?
+    @Environment(\.layoutDirection) private var layoutDirection
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -212,10 +217,10 @@ struct WorkspaceDetailView: View {
             // disappearance (overflow into More) never flips these conditions,
             // so it cannot release a reservation and make the collapse sticky.
             .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
-                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
+                if !isAvailable { trailingToolbarItemGeometry["changes"] = nil }
             }
             .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
-                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
+                if !isVisible { trailingToolbarItemGeometry["altscreen-notice"] = nil }
             }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
@@ -369,7 +374,7 @@ struct WorkspaceDetailView: View {
         AltScreenNoticeButton {
             displaySettings.showAltScreenNotice = false
         }
-        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
+        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemGeometry, contentWidth: contentWidth)
     }
 
     private var workspaceChangesToolbarContent: some View {
@@ -381,12 +386,12 @@ struct WorkspaceDetailView: View {
         // The chrome sits on the terminal theme's background, not the
         // system scheme; resolve the counts' green/red for that.
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
-        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
+        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemGeometry, contentWidth: contentWidth)
     }
 
     private var trailingClusterToolbarContent: some View {
         toolbarTrailingCluster
-            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
+            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemGeometry, contentWidth: contentWidth)
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
@@ -398,8 +403,27 @@ struct WorkspaceDetailView: View {
         return keys
     }
 
+    /// The realized distance from the title label's leading edge to the
+    /// leading-most trailing item's content, only when the title and every
+    /// structural trailing item have reported geometry at the current pane
+    /// width. Stale-width measurements (mid-rotation) and RTL (where the
+    /// global-x projection would need mirroring) return nil, falling back to
+    /// the estimate-based reserve.
+    private var measuredTitleToTrailingSpan: CGFloat? {
+        guard layoutDirection == .leftToRight,
+              let titleEdge = titleLabelLeadingEdge,
+              titleEdge.contentWidth == contentWidth else { return nil }
+        let geometries = structuralTrailingItemKeys.compactMap { trailingToolbarItemGeometry[$0] }
+        guard geometries.count == structuralTrailingItemKeys.count,
+              geometries.allSatisfy({ $0.contentWidth == contentWidth }),
+              let trailingLeadingEdge = geometries.map(\.globalMinX).min()
+        else { return nil }
+        let span = trailingLeadingEdge - titleEdge.globalMinX
+        return span > 0 ? span : nil
+    }
+
     private var workspaceTitleToolbarMenu: some View {
-        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
+        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemGeometry[$0]?.width }
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -408,6 +432,7 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
+            measuredTitleToTrailingSpan: measuredTitleToTrailingSpan,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -420,6 +445,12 @@ struct WorkspaceDetailView: View {
         )
         return WorkspaceTitleMenu(
             value: value,
+            onLabelLeadingEdgeChange: { minX in
+                titleLabelLeadingEdge = WorkspaceTitleLabelEdge(
+                    globalMinX: minX,
+                    contentWidth: contentWidth
+                )
+            },
             menuContent: {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,

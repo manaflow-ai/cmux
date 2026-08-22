@@ -107,6 +107,62 @@ import Testing
         #expect(unmeasured.cap == cap(393))
     }
 
+    @Test func realizedSpanSizesTheTitleFromActualPositions() {
+        // Dogfood on a 402pt iPhone 17: the estimate-based reserve left a
+        // ~35pt dead gap before the trailing cluster while the title
+        // truncated. With both edges of that gap measured, the cap is the
+        // span minus only the pill/capsule chrome and a back-gap-sized
+        // minimum gap, so the freed space goes to the title.
+        let measured = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2,
+            measuredTitleToTrailingSpan: 160
+        )
+
+        #expect(measured.cap == 160 - MobileLeadingToolbarTitleWidth.spanGapReserve)
+    }
+
+    @Test func realizedSpanNeverProducesANegativeCap() {
+        let cramped = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTitleToTrailingSpan: 20
+        )
+
+        #expect(cramped.cap == 0)
+    }
+
+    @Test func missingSpanFallsBackToTheEstimateReserve() {
+        let withNilSpan = MobileLeadingToolbarTitleWidth(
+            contentWidth: 393,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 150,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2,
+            measuredTitleToTrailingSpan: nil
+        )
+        let estimate = MobileLeadingToolbarTitleWidth(
+            contentWidth: 393,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: true,
+            measuredTrailingItemsWidth: 150,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
+
+        #expect(withNilSpan.cap == estimate.cap)
+    }
+
     @Test func structuralItemWithoutMeasurementStillReservesSpace() {
         // The changes chip just appeared: the cluster has measured, the chip
         // has not. The cap must not expand into the chip's space, or the

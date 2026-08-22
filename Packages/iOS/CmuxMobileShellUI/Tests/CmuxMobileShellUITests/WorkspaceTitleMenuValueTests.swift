@@ -57,6 +57,7 @@ import Testing
             measuredTrailingItemsWidth: 0,
             measuredTrailingItemCount: 0,
             trailingItemCount: 0,
+            measuredTitleToTrailingSpan: nil,
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,
