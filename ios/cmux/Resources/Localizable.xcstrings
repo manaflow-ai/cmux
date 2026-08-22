@@ -9501,13 +9501,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen. The app also controls scrolling here, so it steps by lines instead of scrolling smoothly. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
+            "value": "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen, and scrolling won't be as smooth. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "全画面モードは Mac 側ターミナルのサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。スクロールもアプリ側が制御するため、滑らかではなく行単位になります。Claude Code: `/tui default`。Codex: `codex --no-alt-screen` で再起動。"
+            "value": "全画面モードは Mac 側ターミナルのサイズをそのまま表示するため、この画面いっぱいに広がらない場合があり、スクロールも滑らかではなくなります。Claude Code: `/tui default`。Codex: `codex --no-alt-screen` で再起動。"
           }
         }
       }
