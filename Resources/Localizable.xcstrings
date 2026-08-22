@@ -36243,6 +36243,256 @@
         }
       }
     },
+    "cli.docs.completion.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        }
+      }
+    },
+    "cli.docs.usage.topics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        }
+      }
+    },
     "cli.browser.profiles.marker.lastUsed": {
       "extractionState": "manual",
       "localizations": {
