@@ -178,8 +178,10 @@ final class TerminalPanel: Panel, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache()
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil
     ) {
+        let declarativeTerminalConfigurationCache =
+            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
         let surface = TerminalSurface(
             id: id,
             tabId: workspaceId,

@@ -209,9 +209,11 @@ extension TerminalSurface {
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
-        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache = DeclarativeTerminalConfigurationCache(),
+        declarativeTerminalConfigurationCache: DeclarativeTerminalConfigurationCache? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
+        let declarativeTerminalConfigurationCache =
+            declarativeTerminalConfigurationCache ?? DeclarativeTerminalConfigurationCache()
         self.init(
             id: id,
             tabId: tabId,
