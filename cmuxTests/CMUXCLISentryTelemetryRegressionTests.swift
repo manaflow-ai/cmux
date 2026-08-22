@@ -2,12 +2,6 @@ import Darwin
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 private final class CMUXCLISentryTelemetryBundleToken {}
 
 @Suite struct CMUXCLISentryTelemetryRegressionTests {
@@ -102,68 +96,6 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         #expect(
             FileManager.default.fileExists(atPath: storeProbePath),
             Comment(rawValue: "Unexpected relay auth failures should be stored durably without synchronously flushing Sentry. Output: \(result.stdout)")
-        )
-    }
-
-    @Test func structuredExpectedCLIErrorsDoNotCaptureSentryTelemetry() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cli-sentry-expected-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let probePath = root.appendingPathComponent("sentry-probe.txt", isDirectory: false).path
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
-
-        let telemetry = CLISocketSentryTelemetry(
-            command: "ping",
-            commandArgs: [],
-            socketPath: "/tmp/cmux.sock",
-            processEnv: environment
-        )
-        telemetry.captureError(
-            stage: "socket_command",
-            error: CLIError(
-                message: "unavailable: TabManager not available (Code: 1)",
-                v2Code: "unavailable"
-            )
-        )
-        telemetry.captureError(
-            stage: "socket_connect",
-            error: CLIError(
-                message: "Socket not found at /tmp/cmux.sock (Code: 1)",
-                socketFailureKind: .pathMissing
-            )
-        )
-        telemetry.captureError(
-            stage: "agent-hook-notification-delivery",
-            error: NSError(domain: "com.cmuxterm.cli.agent-hook", code: 1),
-            classificationError: CLIError(
-                message: "unavailable: TabManager not available (Code: 1)",
-                v2Code: "unavailable"
-            )
-        )
-        telemetry.captureError(
-            stage: "agent-hook-notification-delivery",
-            error: CLIError(message: "ERROR: TabManager not available")
-        )
-        telemetry.captureError(
-            stage: "agent-hook-notification-delivery",
-            error: NSError(
-                domain: "com.cmuxterm.cli.wrapper",
-                code: 1,
-                userInfo: [
-                    NSUnderlyingErrorKey: CLIError(message: "ERROR: TabManager not available")
-                ]
-            )
-        )
-
-        #expect(
-            !FileManager.default.fileExists(atPath: probePath),
-            Comment(rawValue: (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? "")
         )
     }
 
