@@ -100,29 +100,36 @@ pub fn load_config(path: &Path) -> Option<Config> {
     Some(config)
 }
 
-/// Persist the pairing with owner-only permissions (0600 on Unix).
+/// Persist the pairing with owner-only permissions (0600 on Unix). The
+/// credential is written into a fresh 0600 temp file and renamed over the
+/// destination, so it never lands in a pre-existing file with looser
+/// permissions and a crashed write never leaves a half-written config.
 pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    let parent = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent)?;
     let body =
         format!("{}\n", serde_json::to_string_pretty(config).map_err(std::io::Error::other)?);
+    let temp = parent.join(format!(
+        ".{}.tmp-{}",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("config.json"),
+        std::process::id(),
+    ));
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.mode(0o600);
     }
-    let mut file = options.open(path)?;
-    file.write_all(body.as_bytes())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        // An existing file keeps its old mode; force 0600 like the JS relay.
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    let _ = std::fs::remove_file(&temp);
+    let mut file = options.open(&temp)?;
+    let written = file.write_all(body.as_bytes()).and_then(|()| file.sync_all());
+    drop(file);
+    let renamed = written.and_then(|()| std::fs::rename(&temp, path));
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&temp);
     }
-    Ok(())
+    renamed
 }
 
 #[cfg(test)]
@@ -180,9 +187,13 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn saved_config_is_owner_only() {
+    fn saved_config_is_owner_only_even_over_a_loose_existing_file() {
         use std::os::unix::fs::PermissionsExt as _;
         let path = scratch("perms/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // A pre-existing world-readable file must never receive the token.
+        std::fs::write(&path, "{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         let config = Config {
             device_id: "dev_p".to_owned(),
             token: "tok_p".to_owned(),
@@ -191,6 +202,7 @@ mod tests {
         save_config(&path, &config).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("dev_p"));
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 }
