@@ -1500,6 +1500,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxMobileWorkspace
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
