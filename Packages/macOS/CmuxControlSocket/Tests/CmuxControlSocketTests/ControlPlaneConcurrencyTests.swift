@@ -6,10 +6,12 @@ import Testing
 private actor PoolProbe {
     private var active = 0
     private var peak = 0
+    private var startedCount = 0
     private var completed: [Int] = []
 
     func started() {
         active += 1
+        startedCount += 1
         peak = max(peak, active)
     }
 
@@ -21,20 +23,32 @@ private actor PoolProbe {
     func snapshot() -> (active: Int, peak: Int, completed: [Int]) {
         (active, peak, completed)
     }
+
+    func hasStarted(_ count: Int) -> Bool {
+        startedCount >= count
+    }
 }
 
 private actor PoolGate {
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var permits = 0
 
     func wait() async {
+        if permits > 0 {
+            permits -= 1
+            return
+        }
         await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
     }
 
     func openNext() {
-        guard !waiters.isEmpty else { return }
-        waiters.removeFirst().resume()
+        if !waiters.isEmpty {
+            waiters.removeFirst().resume()
+        } else {
+            permits += 1
+        }
     }
 }
 
@@ -86,27 +100,38 @@ struct ControlPlaneConcurrencyTests {
         #expect(third == .queued)
         #expect(fourth == .rejected)
 
-        for _ in 0..<100 where await pool.metrics().activeJobs < 2 {
+        for _ in 0..<10_000 {
+            if await probe.hasStarted(2) { break }
             await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
+        #expect(await probe.hasStarted(2))
         #expect(await pool.metrics().activeJobs == 2)
         #expect(await pool.metrics().peakActiveJobs == 2)
 
         await gate.openNext()
         await gate.openNext()
-        for _ in 0..<100 where await pool.metrics().activeJobs != 1 {
+        for _ in 0..<10_000 {
+            if await probe.snapshot().completed.count >= 1 { break }
             await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        for _ in 0..<10_000 {
+            if await probe.hasStarted(3) { break }
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         await gate.openNext()
 
-        for _ in 0..<100 where await pool.metrics().activeJobs != 0 {
+        for _ in 0..<10_000 {
+            if await probe.snapshot().completed.count == 3 { break }
             await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         let result = await probe.snapshot()
         #expect(result.peak == 2)
         #expect(result.completed.count == 3)
-        #expect(result.completed.prefix(2).allSatisfy { $0 == 1 || $0 == 2 })
-        #expect(result.completed.last == 3)
+        #expect(Set(result.completed) == Set([1, 2, 3]))
     }
 
     @Test func pollingLimiterAllowsBurstThenAppliesPerClientBackpressure() async {
@@ -147,7 +172,8 @@ struct ControlPlaneConcurrencyTests {
         #expect(
             store.response(method: "workspace.list", params: [:]) == initial
         )
-        #expect(store.response(method: "workspace.list", params: ["all": .bool(true)]) == nil)
+        let differentParams: [String: JSONValue] = ["all": .bool(true)]
+        #expect(store.response(method: "workspace.list", params: differentParams) == nil)
 
         let replacement = ControlCallResult.ok(.object(["generation": .int(2)]))
         store.publishResponse(
@@ -157,5 +183,50 @@ struct ControlPlaneConcurrencyTests {
         )
         #expect(store.response(method: "workspace.list", params: [:]) == replacement)
         #expect(store.read().generation == 2)
+    }
+
+    @Test func readAndPollingPoliciesShareOneClassification() {
+        #expect(
+            ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(
+                method: "workspace.list"
+            )
+        )
+        #expect(
+            ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(
+                method: "surface.read_text"
+            )
+        )
+        #expect(
+            ControlCommandExecutionPolicy.pollingMethods.contains("system.top")
+        )
+        #expect(
+            !ControlCommandExecutionPolicy.pollingMethods.contains("workspace.create")
+        )
+    }
+
+    @Test func snapshotReadersRemainSafeDuringConcurrentPublications() async {
+        let store = ControlReadSnapshotStore()
+        await withTaskGroup(of: Void.self) { group in
+            for writer in 0..<2 {
+                group.addTask {
+                    for generation in 0..<200 {
+                        store.publish(
+                            ControlReadSnapshot(
+                                generation: UInt64(writer * 1_000 + generation),
+                                responses: [:]
+                            )
+                        )
+                    }
+                }
+            }
+            for _ in 0..<4 {
+                group.addTask {
+                    for _ in 0..<500 {
+                        _ = store.read().generation
+                    }
+                }
+            }
+        }
+        #expect(store.read().responses.isEmpty)
     }
 }
