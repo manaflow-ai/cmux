@@ -1738,7 +1738,7 @@ class TerminalController {
             writer.cancel()
         }
         while let line = await lineReader.nextLine(shouldContinueReading: {
-            socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
+            self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
