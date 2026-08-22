@@ -43,7 +43,7 @@ public actor SimStreamViewerEngine {
 
     private let presenter: any SimStreamFramePresenting
     private let onEvent: @Sendable (SimStreamViewerEvent) -> Void
-    private let maximumLongSidePixels: UInt16
+    private var maximumLongSidePixels: UInt16
     private let epoch: UInt64
 
     private var lane: (any MobileSimulatorStreamLaneConnection)?
@@ -95,6 +95,22 @@ public actor SimStreamViewerEngine {
             await closeLane()
             onEvent(.ended(clean: false))
         }
+    }
+
+    /// Applies a new resolution cap by re-sending `start` on the live lane.
+    /// The host treats any `start` as a fresh stream begin (new encoder
+    /// size, config, keyframe), so a quality change repaints in one frame
+    /// without touching the lane or lifecycle.
+    public func updateQuality(maximumLongSidePixels: UInt16) async {
+        guard maximumLongSidePixels != self.maximumLongSidePixels else { return }
+        self.maximumLongSidePixels = maximumLongSidePixels
+        guard let lane else { return }
+        let start = SimStreamStartRequest(
+            epoch: epoch,
+            maximumLongSidePixels: maximumLongSidePixels,
+            codecPreferences: [.hevc, .h264]
+        )
+        try? await lane.send(SimStreamWireCodec.encodeFramed(.start(start)))
     }
 
     /// Sends `stop` and closes; used for deliberate viewer-initiated stops

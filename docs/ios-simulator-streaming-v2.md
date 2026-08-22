@@ -113,6 +113,22 @@ Capability `simulator.stream.v2` is advertised by the host
 use this pipeline and gate v1 off, others keep v1. v1 host code stays until
 the capability has shipped in a release, then dies.
 
+Viewer-side quality control reuses `start`: picking a preset re-sends
+`start` on the live lane with a new `max_long_side`, and the host answers
+with a resized encoder, fresh `config`, and a keyframe, so quality switches
+repaint in one frame with no lane or lifecycle churn. Presets cap encode
+resolution only (High 2000 / Balanced 1280 / Data Saver 800 long-side
+pixels); pacing already bounds latency at any resolution, so lower presets
+trade sharpness for bandwidth and a slightly cheaper encode/decode, not for
+responsiveness.
+
+Device switching is discovery-plane, not lane-plane: capability
+`simulator.devices.v1` advertises `mobile.simulator.devices.list` and
+`mobile.simulator.device.select`. Selecting reuses the Mac pane's own
+`selectDevice` path; the running stream absorbs the switch through the same
+worker-restart flow as any capture change (status updates, replaced ring,
+new config + keyframe).
+
 ## Lifecycle
 
 One state machine on each side, event-driven:

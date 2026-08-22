@@ -1344,6 +1344,74 @@
         }
       }
     },
+    "mobile.simulatorStream.quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream Quality"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリーム画質"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.qualityBalanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バランス"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.qualityDataSaver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Saver"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データセーバー"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.qualityHigh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高画質"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.sendText": {
       "extractionState": "manual",
       "localizations": {
@@ -1425,6 +1493,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のデバイスがこのSimulatorストリームを引き継ぎました。"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.switchSimulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorを切り替え"
           }
         }
       }

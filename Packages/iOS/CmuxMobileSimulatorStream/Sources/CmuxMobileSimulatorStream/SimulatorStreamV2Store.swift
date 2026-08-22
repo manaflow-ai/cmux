@@ -42,7 +42,7 @@ public final class SimulatorStreamV2Store {
     @ObservationIgnored private var presenter: (any SimStreamFramePresenting)?
     @ObservationIgnored private let opener: SimStreamViewerEngine.LaneOpener
     @ObservationIgnored private let transportReady: @MainActor () -> Bool
-    @ObservationIgnored private let maximumLongSidePixels: UInt16
+    @ObservationIgnored private var maximumLongSidePixels: UInt16
     @ObservationIgnored private let clock: any Clock<Duration>
     /// Streaming with no presented frame for this long means the pipeline is
     /// wedged somewhere invisible; rebuild it.
@@ -128,6 +128,18 @@ public final class SimulatorStreamV2Store {
 
     public func sendButton(_ button: SimStreamHardwareButton) {
         send(.button(button))
+    }
+
+    // MARK: - Quality
+
+    /// Applies a new resolution cap: live sessions renegotiate in place
+    /// (start -> config -> keyframe on the same lane) and future attaches
+    /// use the new value.
+    public func setQuality(maximumLongSidePixels: UInt16) {
+        guard maximumLongSidePixels != self.maximumLongSidePixels else { return }
+        self.maximumLongSidePixels = maximumLongSidePixels
+        guard let engine else { return }
+        Task { await engine.updateQuality(maximumLongSidePixels: maximumLongSidePixels) }
     }
 
     // MARK: - Machine execution

@@ -98,6 +98,10 @@ extension TerminalController {
             return v2MobileSimulatorTextInput(params: params, connectionID: connectionID)
         case "mobile.simulator.input.button":
             return v2MobileSimulatorButtonInput(params: params, connectionID: connectionID)
+        case "mobile.simulator.devices.list":
+            return v2MobileSimulatorDevicesList(params: params, connectionID: connectionID)
+        case "mobile.simulator.device.select":
+            return v2MobileSimulatorDeviceSelect(params: params, connectionID: connectionID)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: ["method": method])
         }
@@ -105,6 +109,60 @@ extension TerminalController {
 
     func mobileSimulatorPanels(in workspace: Workspace) -> [SimulatorPanel] {
         orderedPanels(in: workspace).compactMap { $0 as? SimulatorPanel }
+    }
+
+    /// Installed simulators a panel can stream. No ownership gate: every
+    /// admitted connection is the same account, and the v2 stream's
+    /// last-writer-wins model already lets any of the user's devices steer.
+    private func v2MobileSimulatorDevicesList(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
+        }
+        guard let panelIDString = v2RawString(params, "panel_id"),
+              let workspaceID = v2UUID(params, "workspace_id"),
+              let resolved = mobileSimulatorPanel(id: panelIDString, workspaceID: workspaceID) else {
+            return mobileSimulatorPanelResolutionError(params: params)
+        }
+        let coordinator = resolved.panel.coordinator
+        let selectedID = coordinator.selectedDeviceID
+        let devices = coordinator.devices.map { device -> [String: Any] in
+            [
+                "udid": device.id,
+                "name": device.name,
+                "runtime_name": device.runtimeName,
+                "family": device.family.rawValue,
+                "state": device.state.rawValue,
+                "is_selected": device.id == selectedID,
+            ]
+        }
+        return .ok(["devices": devices])
+    }
+
+    /// Selects (and boots when needed) another simulator for the panel.
+    /// Fire-and-forget like the Mac pane's picker: the stream's own status
+    /// and config/keyframe flow report progress, and a cold boot can take
+    /// far longer than any sane RPC deadline.
+    private func v2MobileSimulatorDeviceSelect(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
+        }
+        guard let panelIDString = v2RawString(params, "panel_id"),
+              let workspaceID = v2UUID(params, "workspace_id"),
+              let udid = v2RawString(params, "udid"), !udid.isEmpty,
+              let resolved = mobileSimulatorPanel(id: panelIDString, workspaceID: workspaceID) else {
+            return mobileSimulatorPanelResolutionError(params: params)
+        }
+        guard resolved.panel.coordinator.devices.contains(where: { $0.id == udid }) else {
+            return .err(code: "not_found", message: "Simulator device not found", data: ["udid": udid])
+        }
+        resolved.panel.coordinator.selectDevice(id: udid)
+        return .ok(["ok": true, "panel_id": resolved.panel.id.uuidString, "udid": udid])
     }
 
     private func v2MobileSimulatorList(params: [String: Any], connectionID: UUID?) -> V2CallResult {
