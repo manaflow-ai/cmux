@@ -49,6 +49,7 @@ struct OnboardingConnectionView: View {
                 OnboardingConnectionMechanismsView(
                     method: connectionMethod,
                     density: density,
+                    condensed: true,
                     onSelect: onSelectConnectionMethod,
                     onStartTailscalePairing: onStartTailscalePairing
                 )
@@ -62,6 +63,7 @@ struct OnboardingConnectionView: View {
                     OnboardingConnectionMechanismsView(
                         method: connectionMethod,
                         density: density,
+                        condensed: false,
                         onSelect: onSelectConnectionMethod,
                         onStartTailscalePairing: onStartTailscalePairing
                     )

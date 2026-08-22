@@ -13,6 +13,10 @@ import SwiftUI
 struct OnboardingConnectionMechanismsView: View {
     let method: MobileConnectionMethod
     let density: OnboardingConnectionVisualDensity
+    /// Compact height (landscape) shows title-only rows so all three
+    /// transports stay inside the page viewport; portrait always keeps the
+    /// one-line detail, whichever density fits.
+    let condensed: Bool
     let onSelect: (MobileConnectionMethod) -> Void
     let onStartTailscalePairing: () -> Void
 
@@ -157,10 +161,7 @@ struct OnboardingConnectionMechanismsView: View {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                // Compact height (landscape) shows title-only rows so all
-                // three transports stay inside the page viewport; the detail
-                // remains available to VoiceOver via the accessibility label.
-                if density == .regular {
+                if !condensed {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
