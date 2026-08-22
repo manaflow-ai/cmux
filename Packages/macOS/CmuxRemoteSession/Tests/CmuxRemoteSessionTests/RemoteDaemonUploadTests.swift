@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CryptoKit
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
@@ -206,6 +207,66 @@ struct RemoteDaemonUploadTests {
         )
         #expect(cleanupRequest.arguments.last?.contains(temporaryPathMarker) == true)
         #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
+    }
+
+    @Test("A truncated remote payload is rejected before daemon promotion")
+    func truncatedPayloadIsRejectedBeforePromotion() throws {
+        let fileManager = FileManager.default
+        let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-integrity-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        let payload = Data("verified daemon payload".utf8)
+        try payload.write(to: localBinary)
+        defer { try? fileManager.removeItem(at: localBinary) }
+
+        let expectedHash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let runner = RecordingProcessRunner { request in
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .upload, .cleanup:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .finalize:
+                return RemoteCommandResult(
+                    status: 74,
+                    stdout: "",
+                    stderr: "cmux daemon verification failed: size mismatch expected=23 actual=0"
+                )
+            case .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
+            absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        )
+
+        do {
+            try coordinator.queue.sync {
+                try coordinator.uploadRemoteDaemonBinaryLocked(
+                    localBinary: localBinary,
+                    location: location
+                )
+            }
+            Issue.record("Expected remote integrity verification to reject the truncated payload")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.daemon")
+            #expect(nsError.code == 33)
+            #expect(nsError.localizedDescription.contains("verification"))
+            #expect(nsError.localizedDescription.contains("size mismatch"))
+        }
+
+        let finalizeRequest = try #require(
+            runner.requests.first { Self.uploadStep(for: $0) == .finalize }
+        )
+        let finalizeCommand = finalizeRequest.arguments.last ?? ""
+        #expect(finalizeCommand.contains("wc -c"))
+        #expect(finalizeCommand.contains("sha256sum"))
+        #expect(finalizeCommand.contains(expectedHash))
+        #expect(finalizeCommand.contains("mv"))
+        #expect(runner.requests.map(Self.uploadStep) == [.createDirectory, .upload, .finalize, .cleanup])
     }
 
     @Test("Upload process failures do not expose arbitrary local error text")

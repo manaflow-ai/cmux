@@ -5125,7 +5125,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(
                 retryStatuses.allSatisfy { initialCommand.contains($0) }
                     && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS")
-                    && initialCommand.contains("∞"),
+                    && !initialCommand.contains("∞")
+                    && initialCommand.contains("CMUX_SSH_RECONNECT_LIMIT"),
                 initialCommand
             )
             XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)

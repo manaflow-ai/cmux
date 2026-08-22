@@ -113,6 +113,59 @@ struct RemotePlatformProbeScriptTests {
         )
     }
 
+    @Test("A zero-byte executable is reported as not installed")
+    func zeroByteExecutableIsNotInstalled() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-platform-probe-empty-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let daemonURL = home
+            .appendingPathComponent(".cmux/bin/cmuxd-remote/test-version/linux-amd64", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try fileManager.createDirectory(at: daemonURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Data().write(to: daemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: daemonURL.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeExecutableShellFile(
+            at: bin.appendingPathComponent("uname"),
+            body: """
+            #!/bin/sh
+            case "${1:-}" in
+              -s) printf '%s\\n' Linux ;;
+              -m) printf '%s\\n' x86_64 ;;
+              *) exit 1 ;;
+            esac
+            """
+        )
+
+        let result = try Self.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                RemoteSessionCoordinator.remotePlatformProbeScript(version: "test-version"),
+            ]
+        )
+
+        let outputComment = Comment(rawValue: result.stdout + result.stderr)
+        #expect(result.status == 0, outputComment)
+        #expect(
+            result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)no"),
+            outputComment
+        )
+        #expect(
+            !result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)yes"),
+            outputComment
+        )
+    }
+
     @Test("Probe sanitizes the version before shell interpolation")
     func probeScriptSanitizesVersionBeforeShellInterpolation() throws {
         let fileManager = FileManager.default
