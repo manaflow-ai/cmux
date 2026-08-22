@@ -530,6 +530,7 @@ extension MobileShellComposite {
                     terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
                     MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
                     terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                    terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
                     terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     let replayBarrierToken = beginTerminalReplayBarrier(
                         surfaceID: surfaceID,
@@ -561,6 +562,7 @@ extension MobileShellComposite {
                 terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
                 MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
                 terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                 // Fully resolved: a seq-less raw tail leaves no delivered sequence,
                 // so the floor restore is the truthful baseline hand-back.

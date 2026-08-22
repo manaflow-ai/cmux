@@ -1423,6 +1423,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
+    /// Surfaces whose current replay barrier replaces output discarded by a
+    /// queue overload. Only these replacements require an authoritative full
+    /// render-grid frame; ordinary barrier retries keep the byte-replay
+    /// covered-drop contract.
+    var terminalReplayOverloadReplacementSurfaceIDs: Set<String>
     var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalViewportReplayBarrierPendingAckTokensBySurfaceID: [String: UUID]
@@ -1760,6 +1765,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierTokensBySurfaceID = [:]
         self.terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         self.terminalReplayBarrierDroppedOutputSurfaceIDs = []
+        self.terminalReplayOverloadReplacementSurfaceIDs = []
         self.terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         self.terminalViewportReplayBarrierPendingAckTokensBySurfaceID = [:]
@@ -10359,6 +10365,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID = [:]
         terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         terminalReplayBarrierDroppedOutputSurfaceIDs = []
+        terminalReplayOverloadReplacementSurfaceIDs = []
         terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID = [:]
@@ -12915,6 +12922,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -13247,6 +13255,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let replacementRequiresAuthoritativeGrid =
                     replayBarrierTokenForRequest != nil
                         && self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
+                        && self.terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
                 let replayHasAuthoritativeGrid = renderGrid?.full == true
                 var deliverCompatFallbackAsReplacement = false
                 if replacementRequiresAuthoritativeGrid && !replayHasAuthoritativeGrid {
