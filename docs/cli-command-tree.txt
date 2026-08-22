@@ -1083,6 +1083,7 @@ command  vm-ssh-attach  aliases=-
 command  wait-for  aliases=-
   arg  --signal  kind=flag  completion=-
   arg  --timeout  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
   arg  name  kind=argument  completion=-
 command  welcome  aliases=-
   arg  arguments  kind=argument  completion=-
