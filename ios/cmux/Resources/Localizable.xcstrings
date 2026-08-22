@@ -12484,6 +12484,91 @@
         }
       }
     },
+    "mobile.taskComposer.drafts.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drafts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書き"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.drafts.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Draft"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい下書き"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.drafts.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Other Drafts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の下書きはありません"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.drafts.empty.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave the composer with an unsent task and it is saved here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未送信のタスクを残したまま閉じると、ここに保存されます。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.drafts.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No prompt yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプト未入力"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.effort": {
       "extractionState": "manual",
       "localizations": {

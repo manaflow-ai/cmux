@@ -1,0 +1,150 @@
+#if os(iOS)
+import CmuxMobileShellModel
+import CmuxMobileSupport
+import SwiftUI
+
+/// The saved, unsent drafts a user can return to. The active composer
+/// session is not listed; resuming a row replaces that session after its
+/// content is saved as a draft of its own.
+struct TaskComposerDraftsSheet: View {
+    let drafts: [MobileTaskComposerSavedDraft]
+    let templates: [MobileTaskTemplate]
+    let resume: (UUID) -> Void
+    let startNew: () -> Void
+    let delete: (Set<UUID>) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if drafts.isEmpty {
+                    ContentUnavailableView {
+                        Label(
+                            L10n.string(
+                                "mobile.taskComposer.drafts.empty.title",
+                                defaultValue: "No Other Drafts"
+                            ),
+                            systemImage: "tray"
+                        )
+                    } description: {
+                        Text(L10n.string(
+                            "mobile.taskComposer.drafts.empty.description",
+                            defaultValue: "Leave the composer with an unsent task and it is saved here."
+                        ))
+                    }
+                } else {
+                    List {
+                        ForEach(drafts) { draft in
+                            Button {
+                                resume(draft.id)
+                            } label: {
+                                TaskComposerDraftRow(
+                                    draft: draft,
+                                    templateName: templateName(for: draft)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("MobileTaskComposerDraftRow")
+                        }
+                        .onDelete { offsets in
+                            delete(Set(offsets.map { drafts[$0].id }))
+                        }
+                    }
+                    .accessibilityIdentifier("MobileTaskComposerDraftsList")
+                }
+            }
+            .navigationTitle(L10n.string(
+                "mobile.taskComposer.drafts.title",
+                defaultValue: "Drafts"
+            ))
+            .mobileInlineNavigationTitle()
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: startNew) {
+                        Label(
+                            L10n.string(
+                                "mobile.taskComposer.drafts.new",
+                                defaultValue: "New Draft"
+                            ),
+                            systemImage: "square.and.pencil"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileTaskComposerNewDraftButton")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func templateName(for draft: MobileTaskComposerSavedDraft) -> String? {
+        draft.content.templateID.flatMap { id in
+            templates.first { $0.id == id }?.name
+        }
+    }
+}
+
+private struct TaskComposerDraftRow: View {
+    let draft: MobileTaskComposerSavedDraft
+    let templateName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                    .lineLimit(2)
+                    .foregroundStyle(hasPrompt ? Color.primary : Color.secondary)
+                Spacer(minLength: 8)
+                Text(draft.updatedAt, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .layoutPriority(1)
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var hasPrompt: Bool {
+        !draft.content.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var title: String {
+        let workspaceName = (draft.content.workspaceName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let promptLine = draft.content.prompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines)
+            .first ?? ""
+        if !promptLine.isEmpty {
+            return promptLine
+        }
+        if !workspaceName.isEmpty {
+            return workspaceName
+        }
+        return L10n.string(
+            "mobile.taskComposer.drafts.untitled",
+            defaultValue: "No prompt yet"
+        )
+    }
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if let templateName, !templateName.isEmpty {
+            parts.append(templateName)
+        }
+        let directory = draft.content.directory
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !directory.isEmpty {
+            parts.append(TaskComposerDirectoryDisplayPath(path: directory).name)
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+#endif

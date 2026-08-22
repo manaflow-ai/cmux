@@ -16,7 +16,7 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
     private var selectedMacDeviceID: String?
     private var directoriesByMacDeviceID: [String: String] = [:]
     private var recentsByMacDeviceID: [String: [MobileTaskRecentDirectory]] = [:]
-    private var draft: MobileTaskComposerDraft?
+    private var drafts: [MobileTaskComposerSavedDraft] = []
 
     func listTemplates() -> [MobileTaskTemplate] {
         templates
@@ -85,12 +85,17 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
         recentsByMacDeviceID[macDeviceID] = Array(recents.prefix(20))
     }
 
-    func composerDraft() -> MobileTaskComposerDraft? {
-        draft
+    func composerDrafts() -> [MobileTaskComposerSavedDraft] {
+        drafts
     }
 
-    func setComposerDraft(_ draft: MobileTaskComposerDraft?) {
-        self.draft = draft
+    func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft) {
+        drafts.removeAll { $0.id == draft.id }
+        drafts.insert(draft, at: 0)
+    }
+
+    func deleteComposerDrafts(ids: Set<UUID>) {
+        drafts.removeAll { ids.contains($0.id) }
     }
 
     func clearAllUserData() {
@@ -99,7 +104,7 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
         selectedMacDeviceID = nil
         directoriesByMacDeviceID.removeAll()
         recentsByMacDeviceID.removeAll()
-        draft = nil
+        drafts.removeAll()
     }
 }
 #endif

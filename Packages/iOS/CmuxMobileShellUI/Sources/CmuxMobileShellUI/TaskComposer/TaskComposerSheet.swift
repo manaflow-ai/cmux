@@ -56,8 +56,18 @@ struct TaskComposerSheet: View {
     /// Draft typing is sampled once per composer presentation so this bounded
     /// log records that editing occurred without one event per keystroke.
     @State var hasRecordedDraftChange = false
+    /// Saved drafts other than this session's, loaded when the list presents.
+    @State private var otherDrafts: [MobileTaskComposerSavedDraft] = []
+    @State private var isDraftsListPresented = false
 
     let sessionGeneration: Int
+    /// Stable identity of this session's saved-draft entry. Every leave,
+    /// retry, and submit updates or removes exactly this entry.
+    let draftID: UUID
+    /// Replaces this editing session with another draft's. `nil` hides the
+    /// drafts affordance for hosts without a session presenter (previews and
+    /// accessibility harnesses).
+    private let onSwitchDraft: ((TaskComposerLaunchIntent) -> Void)?
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
     private let availableWorkspaceGroups: [MobileWorkspaceGroupPreview]?
@@ -83,6 +93,8 @@ struct TaskComposerSheet: View {
 
     init(
         store: CMUXMobileShellStore,
+        launchIntent: TaskComposerLaunchIntent = .automatic,
+        onSwitchDraft: ((TaskComposerLaunchIntent) -> Void)? = nil,
         availableMachines: [MobilePairedMac]? = nil,
         availableWorkspaceGroups: [MobileWorkspaceGroupPreview]? = nil,
         taskAttachmentsCapabilityOverride: Bool? = nil,
@@ -126,9 +138,13 @@ struct TaskComposerSheet: View {
                 willStartCreate: willStartCreate
             )
         }
+        self.onSwitchDraft = onSwitchDraft
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
-        let draft = store.taskTemplateStore?.composerDraft()
+        let savedDrafts = store.taskTemplateStore?.composerDrafts() ?? []
+        let resumedDraft = launchIntent.resolveDraft(in: savedDrafts)
+        let draft = resumedDraft?.content
+        self.draftID = resumedDraft?.id ?? UUID()
         self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
@@ -342,6 +358,15 @@ struct TaskComposerSheet: View {
                     refresh: refreshTemplates
                 )
             }
+            .sheet(isPresented: $isDraftsListPresented) {
+                TaskComposerDraftsSheet(
+                    drafts: otherDrafts,
+                    templates: templates,
+                    resume: resumeDraft,
+                    startNew: startNewDraft,
+                    delete: deleteDrafts
+                )
+            }
             .onDisappear {
                 store.recordAppEvent(
                     .taskComposerClosed,
@@ -481,6 +506,7 @@ struct TaskComposerSheet: View {
             attachments: attachments,
             showsAttachmentButton: showsAttachmentButton,
             optionsSheet: { optionsSheet },
+            openDrafts: openDraftsAction,
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectTemplate: selectTemplateFromPicker,
             selectModel: selectModel,
@@ -835,8 +861,46 @@ struct TaskComposerSheet: View {
         )
         submitTask?.cancel()
         shouldPersistDraftOnDisappear = false
-        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
+        store.deleteTaskComposerDrafts(
+            ids: [draftID],
+            ifSessionGeneration: sessionGeneration
+        )
         dismiss()
+    }
+
+    /// The drafts toolbar affordance; hidden for hosts without a presenter.
+    private var openDraftsAction: (() -> Void)? {
+        guard onSwitchDraft != nil else { return nil }
+        return { presentDraftsList() }
+    }
+
+    /// Opens the saved-drafts list for every session except this one.
+    private func presentDraftsList() {
+        otherDrafts = store.taskComposerSavedDrafts().filter { $0.id != draftID }
+        isDraftsListPresented = true
+    }
+
+    /// Saves the current content under this session's identity, then hands
+    /// the presenter another draft to rebuild the composer from.
+    private func resumeDraft(_ id: UUID) {
+        guard let onSwitchDraft else { return }
+        persistDraft()
+        onSwitchDraft(.resume(id))
+    }
+
+    /// Saves the current content as its own draft and starts a fresh one.
+    private func startNewDraft() {
+        guard let onSwitchDraft else { return }
+        persistDraft()
+        onSwitchDraft(.new)
+    }
+
+    private func deleteDrafts(_ ids: Set<UUID>) {
+        guard store.deleteTaskComposerDrafts(
+            ids: ids,
+            ifSessionGeneration: sessionGeneration
+        ) else { return }
+        otherDrafts.removeAll { ids.contains($0.id) }
     }
 
     private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {
@@ -911,6 +975,7 @@ struct TaskComposerSheet: View {
               let snapshot = submissionSnapshot() else { return }
         guard store.persistTaskComposerDraft(
             snapshot.draft,
+            draftID: draftID,
             ifSessionGeneration: sessionGeneration
         ) else {
             failureTitleStyle = .launchFailed
@@ -933,6 +998,7 @@ struct TaskComposerSheet: View {
             restoreSubmittedDraft(snapshot)
             _ = store.persistTaskComposerDraft(
                 snapshot.draft,
+                draftID: draftID,
                 ifSessionGeneration: sessionGeneration
             )
             submissionPhase = .retryReady
@@ -978,11 +1044,13 @@ struct TaskComposerSheet: View {
                 submissionIdentity.rotate()
                 _ = store.persistTaskComposerDraft(
                     draftSnapshot(),
+                    draftID: draftID,
                     ifSessionGeneration: sessionGeneration
                 )
             } else {
                 _ = store.persistTaskComposerDraft(
                     snapshot.draft,
+                    draftID: draftID,
                     ifSessionGeneration: sessionGeneration
                 )
                 submissionPhase = .retryReady
@@ -1104,11 +1172,16 @@ struct TaskComposerSheet: View {
         if let activeSubmissionSnapshot {
             store.persistTaskComposerDraft(
                 activeSubmissionSnapshot.draft,
+                draftID: draftID,
                 ifSessionGeneration: sessionGeneration
             )
             return
         }
-        store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
+        store.persistTaskComposerDraft(
+            draftSnapshot(),
+            draftID: draftID,
+            ifSessionGeneration: sessionGeneration
+        )
     }
 
     private func validWorkspaceGroupID(

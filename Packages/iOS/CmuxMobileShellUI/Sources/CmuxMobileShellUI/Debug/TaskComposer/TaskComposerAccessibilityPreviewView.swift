@@ -60,25 +60,31 @@ public struct TaskComposerAccessibilityPreviewView: View {
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
         if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
-            templateStore.setComposerDraft(MobileTaskComposerDraft(
-                prompt: Self.longPrompt,
-                templateID: templateStore.listTemplates().first?.id,
-                macDeviceID: Self.previewMac.macDeviceID,
-                macInstanceTag: Self.previewMac.instanceTag,
-                directory: "~",
-                didEditDirectory: false
+            templateStore.saveComposerDraft(MobileTaskComposerSavedDraft(
+                updatedAt: Date(),
+                content: MobileTaskComposerDraft(
+                    prompt: Self.longPrompt,
+                    templateID: templateStore.listTemplates().first?.id,
+                    macDeviceID: Self.previewMac.macDeviceID,
+                    macInstanceTag: Self.previewMac.instanceTag,
+                    directory: "~",
+                    didEditDirectory: false
+                )
             ))
         }
         if environment["CMUX_UITEST_TASK_COMPOSER_RESTORED_MODEL_DRAFT"] == "1" {
-            templateStore.setComposerDraft(MobileTaskComposerDraft(
-                prompt: "Retry the persisted model",
-                modelID: "persisted-agent-model",
-                templateID: templateStore.listTemplates().first?.id,
-                macDeviceID: Self.previewMac.macDeviceID,
-                macInstanceTag: Self.previewMac.instanceTag,
-                directory: "~",
-                didEditDirectory: false,
-                operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
+            templateStore.saveComposerDraft(MobileTaskComposerSavedDraft(
+                updatedAt: Date(),
+                content: MobileTaskComposerDraft(
+                    prompt: "Retry the persisted model",
+                    modelID: "persisted-agent-model",
+                    templateID: templateStore.listTemplates().first?.id,
+                    macDeviceID: Self.previewMac.macDeviceID,
+                    macInstanceTag: Self.previewMac.instanceTag,
+                    directory: "~",
+                    didEditDirectory: false,
+                    operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
+                )
             ))
         }
         if presentsOpenDirectory {
@@ -159,7 +165,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                 }
             }
-            .taskComposerPresentation(isPresented: $isPresented) {
+            .taskComposerPresentation(isPresented: $isPresented) { launch, switchDraft in
                 if presentsTemplateForm {
                     TaskTemplateFormView(template: nil, onSave: { _ in })
                 } else if presentsDirectoryPicker {
@@ -173,6 +179,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 } else {
                     TaskComposerSheet(
                         store: store,
+                        launchIntent: launch.intent,
+                        onSwitchDraft: switchDraft,
                         availableMachines: [
                             Self.previewMac,
                             Self.stablePreviewMac,
@@ -190,7 +198,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                 operationID: spec.operationID?.uuidString ?? "<nil>",
                                 prompt: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>"
                             ))
-                            draftWasPersistedAtSubmit = store.taskTemplateStore?.composerDraft() != nil
+                            draftWasPersistedAtSubmit =
+                                store.taskTemplateStore?.composerDrafts().isEmpty == false
                             if holdsSubmissionInPreparation {
                                 do {
                                     try await Task.sleep(for: .seconds(30))

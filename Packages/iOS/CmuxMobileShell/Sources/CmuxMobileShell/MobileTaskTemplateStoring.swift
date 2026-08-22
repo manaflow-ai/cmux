@@ -28,10 +28,13 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func recentDirectories(macDeviceID: String) -> [MobileTaskRecentDirectory]
     /// Promotes one successful directory in the per-Mac history.
     func recordRecentDirectory(_ directory: String, macDeviceID: String, at date: Date)
-    /// Returns the unsent task-composer draft, if one was saved.
-    func composerDraft() -> MobileTaskComposerDraft?
-    /// Stores or clears the unsent task-composer draft.
-    func setComposerDraft(_ draft: MobileTaskComposerDraft?)
+    /// Returns every unsent task-composer draft, newest first.
+    func composerDrafts() -> [MobileTaskComposerSavedDraft]
+    /// Inserts or replaces one draft by its stable id and promotes it to the
+    /// front of the collection.
+    func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft)
+    /// Deletes the drafts with the provided ids in one persistence update.
+    func deleteComposerDrafts(ids: Set<UUID>)
     /// Removes all templates and composer state owned by the signed-out user.
     func clearAllUserData()
 }
@@ -40,5 +43,10 @@ public extension MobileTaskTemplateStoring {
     /// Deletes one template.
     func deleteTemplate(id: MobileTaskTemplate.ID) {
         deleteTemplates(ids: [id])
+    }
+
+    /// Returns the saved draft with this id, if it still exists.
+    func composerDraft(id: UUID) -> MobileTaskComposerSavedDraft? {
+        composerDrafts().first { $0.id == id }
     }
 }
