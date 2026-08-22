@@ -107,10 +107,16 @@ public final class SimulatorStreamV2Store {
         guard let engine else { return }
         // One chained task per event: independent Tasks hopping to the same
         // actor are not ordered, and a reordered began/moved/ended would
-        // corrupt the injected touch sequence.
+        // corrupt the injected touch sequence. Each link re-verifies the
+        // engine is still current before forwarding, so events already in
+        // the chain when teardown starts can never race a superseded
+        // engine's stop.
         let previous = inputRelayTask
-        inputRelayTask = Task {
+        inputRelayTask = Task { [weak self] in
             await previous?.value
+            guard let self, await MainActor.run(body: { self.engine === engine }) else {
+                return
+            }
             await engine.send(event)
         }
     }

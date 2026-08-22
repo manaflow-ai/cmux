@@ -112,6 +112,9 @@ public actor SimStreamHostPump {
         lastCopiedSourceSequence = nil
         started = true
         streamStartedAt = now()
+        // A prior stream's frame timestamp must not bypass the fresh
+        // startup grace in isStalled.
+        lastFrameSentAt = nil
         if drainTask == nil {
             drainTask = Task { [weak self] in
                 guard let self else { return }
