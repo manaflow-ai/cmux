@@ -122475,6 +122475,397 @@
         }
       }
     },
+    "machines.activity.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動中"
+          }
+        }
+      }
+    },
+    "machines.activity.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用可能"
+          }
+        }
+      }
+    },
+    "machines.delete.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "machines.delete.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This permanently deletes the machine and everything stored on it. This cannot be undone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンと保存されているすべてのデータが完全に削除されます。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "machines.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete machine “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン“%@”を削除しますか？"
+          }
+        }
+      }
+    },
+    "machines.empty.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいマシン"
+          }
+        }
+      }
+    },
+    "machines.empty.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A machine is a persistent cloud computer. It keeps your files forever and costs nothing while it sleeps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンは永続的なクラウドコンピュータです。ファイルはずっと保持され、スリープ中は料金がかかりません。"
+          }
+        }
+      }
+    },
+    "machines.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No machines yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンはまだありません"
+          }
+        }
+      }
+    },
+    "machines.kind.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベース"
+          }
+        }
+      }
+    },
+    "machines.kind.desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ"
+          }
+        }
+      }
+    },
+    "machines.menu.checkpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checkpoint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックポイント"
+          }
+        }
+      }
+    },
+    "machines.menu.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除…"
+          }
+        }
+      }
+    },
+    "machines.menu.fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーク"
+          }
+        }
+      }
+    },
+    "machines.menu.openDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップを開く"
+          }
+        }
+      }
+    },
+    "machines.menu.openShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Shell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルを開く"
+          }
+        }
+      }
+    },
+    "machines.menu.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス"
+          }
+        }
+      }
+    },
+    "machines.meter.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of %2$d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$d / %2$d"
+          }
+        }
+      }
+    },
+    "machines.meter.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines on your plan. Sleeping machines cost nothing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランのマシン数です。スリープ中のマシンは無料です。"
+          }
+        }
+      }
+    },
+    "machines.meter.help.atLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes %d machines. Upgrade to create more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランでは %d 台まで作成できます。追加するにはアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "machines.meter.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade for more"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードで追加"
+          }
+        }
+      }
+    },
+    "machines.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいマシン"
+          }
+        }
+      }
+    },
+    "machines.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを再読み込み"
+          }
+        }
+      }
+    },
+    "machines.row.openShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Shell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルを開く"
+          }
+        }
+      }
+    },
     "markdown.copyConfirm.html": {
       "extractionState": "manual",
       "localizations": {
@@ -150052,6 +150443,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "検索"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.machines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン"
           }
         }
       }
@@ -177634,6 +178042,176 @@
         }
       }
     },
+    "settings.cloudMachines.panel.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを開く"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.panel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers. Files survive forever; sleeping machines cost nothing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永続的なクラウドコンピュータです。ファイルはずっと保持され、スリープ中は料金がかかりません。"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.panel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン一覧"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中…"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理…"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$d of %3$d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · マシン %2$d / %3$d"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラン"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to see your plan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランを表示するにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.plan.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード…"
+          }
+        }
+      }
+    },
     "settings.common.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -186656,6 +187234,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "chrome safari firefox brave edge arc bookmarks history cookies profiles 匯入 移轉 書籤 瀏覽記錄 Cookie 個人檔案"
+          }
+        }
+      }
+    },
+    "settings.search.alias.section.cloudMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet blaxel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド マシン 仮想マシン 永続 コンピュータ プラン アップグレード"
           }
         }
       }
@@ -199453,6 +200048,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "瀏覽器"
+          }
+        }
+      }
+    },
+    "settings.section.cloudMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
           }
         }
       }
@@ -218293,6 +218905,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーの検索を表示"
+          }
+        }
+      }
+    },
+    "shortcut.switchRightSidebarToMachines.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのマシンを表示"
           }
         }
       }

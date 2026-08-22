@@ -259,6 +259,18 @@ struct VMSummary {
     let base: VMBaseSummary?
 }
 
+/// Plan context served alongside the machine list: how many active VMs the
+/// caller's plan allows, and which plan sets that ceiling.
+struct VMPlanLimits {
+    let maxActiveVms: Int
+    let planId: String
+}
+
+struct VMListPage {
+    let vms: [VMSummary]
+    let limits: VMPlanLimits?
+}
+
 struct VMBaseSummary {
     let id: String
     let name: String
@@ -377,13 +389,23 @@ actor VMClient {
     }
 
     func list() async throws -> [VMSummary] {
+        try await listPage().vms
+    }
+
+    func listPage() async throws -> VMListPage {
         let (data, http) = try await request("GET", path: "/api/vm")
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
         guard let items = obj["vms"] as? [[String: Any]] else {
             throw VMClientError.malformedResponse("missing `vms` array")
         }
-        return try items.enumerated().map { index, dict -> VMSummary in
+        var limits: VMPlanLimits?
+        if let rawLimits = obj["limits"] as? [String: Any],
+           let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue,
+           let planId = rawLimits["planId"] as? String {
+            limits = VMPlanLimits(maxActiveVms: maxActiveVms, planId: planId)
+        }
+        let vms = try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {
                 throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
@@ -399,6 +421,7 @@ actor VMClient {
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
             return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
         }
+        return VMListPage(vms: vms, limits: limits)
     }
 
     func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, idempotencyKey: String) async throws -> VMSummary {

@@ -19,6 +19,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case machines
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -28,6 +29,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Machines")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -39,6 +41,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .machines: return "server.rack"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -50,6 +53,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .machines: return .switchRightSidebarToMachines
         case .customSidebar: return nil
         }
     }
@@ -75,7 +79,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .customSidebar:
             return false
         }
     }
@@ -145,7 +149,11 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled
+        )
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -412,6 +420,10 @@ struct RightSidebarPanelView: View {
                 )
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
+            case .machines:
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
             case .customSidebar:
                 EmptyView()
             }

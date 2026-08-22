@@ -61,6 +61,7 @@ export async function GET(request: Request): Promise<Response> {
     "/api/vm GET failed",
     async ({ user, span }) => {
       let billingTeamId: string | null = null;
+      let listEntitlements: ReturnType<typeof resolveVmEntitlements> | null = null;
       const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
       try {
         if (requestedBillingTeamId || user.billingCustomerType === "team") {
@@ -68,6 +69,7 @@ export async function GET(request: Request): Promise<Response> {
             requestedBillingTeamId,
             requireTeam: false,
           });
+          listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
           setSpanAttributes(span, {
             "cmux.billing.team_id_set": !!billingTeamId,
@@ -94,7 +96,20 @@ export async function GET(request: Request): Promise<Response> {
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
       }));
-      return jsonResponse({ vms });
+      // Plan context for machine-fleet UIs: how many active VMs this caller may
+      // hold and which plan sets that ceiling. Personal accounts skip the team
+      // resolution above, so resolve lazily here.
+      if (!listEntitlements) {
+        try {
+          listEntitlements = resolveVmEntitlements(user, process.env, { requireTeam: false });
+        } catch {
+          listEntitlements = null;
+        }
+      }
+      const limits = listEntitlements
+        ? { maxActiveVms: listEntitlements.maxActiveVms, planId: listEntitlements.planId }
+        : undefined;
+      return jsonResponse({ vms, limits });
     },
   );
 }
