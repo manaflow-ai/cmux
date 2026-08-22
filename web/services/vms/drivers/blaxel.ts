@@ -711,10 +711,25 @@ export class BlaxelProvider implements VMProvider {
       // The preview exists but is public; drop it and recreate private below.
       await blaxelFetch("DELETE", `${base}/${previewName}`);
     }
-    const created = await blaxelFetch<BlaxelPreview>("POST", base, {
-      metadata: { name: previewName },
-      spec: { port, public: false },
-    });
+    // Branded subdomains: Blaxel renders prefixUrl as https://<prefix>-<workspace>.preview.bl.run,
+    // so with the cmux workspace the daemon preview reads noble-wren-cmux.preview.bl.run and a
+    // port preview noble-wren-3000-cmux.preview.bl.run — the machine's name is its address. A
+    // rejected prefix (collision, length, validation) falls back to the opaque hash URL rather
+    // than failing the attach.
+    const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
+    let created: BlaxelPreview | null = null;
+    if (prefixUrl) {
+      created = await blaxelFetch<BlaxelPreview>("POST", base, {
+        metadata: { name: previewName },
+        spec: { port, public: false, prefixUrl },
+      }).catch(() => null);
+    }
+    if (!created) {
+      created = await blaxelFetch<BlaxelPreview>("POST", base, {
+        metadata: { name: previewName },
+        spec: { port, public: false },
+      });
+    }
     const url = usablePrivatePreviewUrl(created);
     if (!url) {
       throw new ProviderError("blaxel", `preview create for ${vmId} returned no url or came back public`);
@@ -757,6 +772,16 @@ export class BlaxelProvider implements VMProvider {
       },
     );
   }
+}
+
+// Preview subdomain prefix: the machine name for the daemon preview, machine-port for port
+// previews. Only lowercase alphanumerics and hyphens survive; anything else (or an
+// over-long result) disables branding for that preview rather than risking a failed create.
+function brandedPreviewPrefix(vmId: string, previewName: string, port: number): string | null {
+  const machine = vmId.toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(machine)) return null;
+  const prefix = previewName === CMUXD_PREVIEW_NAME ? machine : `${machine}-${port}`;
+  return prefix.length <= 48 ? prefix : null;
 }
 
 function mapStatus(sandbox: BlaxelSandbox): VMStatus {
