@@ -3171,30 +3171,33 @@ final class cmuxUITests: XCTestCase {
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Workspaces list did not return after popping the detail")
         }
-        // Popping the detail finishes the search round on the Workspaces tab
-        // with the query cleared and the bottom search control collapsed.
+        // Popping the detail lands back on the still-filtered search results
+        // with the keyboard down and the bottom search control collapsed, so
+        // the user can open the next match without re-typing the query.
         guard waitForKeyboardDismissal(in: app) else {
             return XCTFail("Keyboard stayed up after popping back from the search detail")
         }
         guard workspacesTab.waitForExistence(timeout: 3) else {
             return XCTFail("Workspaces tab pill missing after popping the search detail")
         }
-        XCTAssertTrue(
+        XCTAssertFalse(
             workspacesTab.isSelected,
-            "Popping the search-opened workspace must land on the Workspaces tab"
+            "Popping the search-opened workspace must stay in the search round, not kick to the Workspaces tab"
         )
         guard minimizedSearch.waitForExistence(timeout: 3) else {
-            return XCTFail("Minimized search control missing after finishing the search round")
+            return XCTFail("Minimized search control missing after popping the search detail")
         }
         guard waitForHittable(docsRow, timeout: 3) else {
-            return XCTFail("Workspaces list missing rows after finishing the search round")
+            return XCTFail("Filtered search results missing after popping the search detail")
         }
-        guard waitForHittable(mainRow, timeout: 3) else {
-            return XCTFail("Query must be cleared after finishing the search round")
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("The committed query must keep filtering the results after popping")
         }
 
         // An explicit submit still commits the query as the Workspaces filter;
-        // that committed filter must survive a list refresh.
+        // the reactivated field keeps the preserved query, so submitting it
+        // as-is must carry the committed filter to the Workspaces tab and
+        // survive a list refresh.
         tap(minimizedSearch, in: app)
         guard waitForHittable(searchField, timeout: 3) else {
             return XCTFail("Search field missing when reactivating search for submit")
@@ -3202,7 +3205,10 @@ final class cmuxUITests: XCTestCase {
         guard focusTextInput(searchField, in: app) else {
             return XCTFail("Could not focus the search field for submit")
         }
-        searchField.typeText("Docs\n")
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Preserved query filter not applied when search reactivates")
+        }
+        searchField.typeText("\n")
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Workspaces root list missing after submitting the query")
         }
@@ -3677,6 +3683,12 @@ final class cmuxUITests: XCTestCase {
     /// The old flow deactivated search, transitioned to the Workspaces tab, and
     /// pushed onto that off-window stack mid search-dismissal, which could
     /// record the push without performing it.
+    ///
+    /// Also pins the search round-trip contract: popping the detail lands on
+    /// the still-filtered results with the query intact, so a user stepping
+    /// through matching workspaces one by one never re-types the query or
+    /// re-finds their place. Kicking back to the Workspaces tab (which wiped
+    /// the committed query) is the regression.
     @MainActor
     func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
         guard #available(iOS 26.0, *) else {
@@ -3725,22 +3737,22 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
 
-        // Popping back finishes the search round on the Workspaces tab: the
-        // full unfiltered list, no query left silently applied, and no
-        // selected (tinted) search control suggesting a search is still live.
+        // Popping back lands on the still-filtered search results: same
+        // search round, query intact, so the user can open the next matching
+        // workspace without re-typing the query or re-finding their place.
         let workspacesTab = app.tabBars.buttons["Workspaces"]
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
-        XCTAssertTrue(
+        XCTAssertFalse(
             workspacesTab.isSelected,
-            "Popping the search-opened workspace must land on the Workspaces tab"
+            "Popping the search-opened workspace must stay in the search round, not kick to the Workspaces tab"
         )
         XCTAssertTrue(
             waitForHittable(docsRow, timeout: 3),
-            "Workspaces list missing rows after finishing the search round"
+            "Filtered search results missing after popping the search-opened workspace"
         )
         XCTAssertTrue(
-            waitForHittable(mainRow, timeout: 3),
-            "Query must be cleared after finishing the search round, not left filtering the list"
+            waitForNotHittable(mainRow, timeout: 3),
+            "The committed query must keep filtering the results after popping, not reset to the full list"
         )
 
         // Any visible search affordance belongs to the bottom edge (the
