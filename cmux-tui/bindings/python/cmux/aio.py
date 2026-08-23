@@ -64,6 +64,11 @@ async def _await_cleanup(awaitable: Any) -> Any:
             result = await asyncio.shield(task)
             break
         except asyncio.CancelledError:
+            # A cancellation from the wrapped task itself must be propagated.
+            # Retrying a completed cancelled task would otherwise spin.
+            if task.done():
+                result = task.result()
+                break
             cancelled = True
             continue
     if cancelled:
