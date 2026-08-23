@@ -701,7 +701,7 @@
       "variant": "ToggleSidebar",
       "key": "toggle-sidebar",
       "classification": "presentation-only",
-      "route": "frontend action adapter"
+      "route": "frontend machine provider menu"
     },
     {
       "variant": "ToggleSidebarCompact",

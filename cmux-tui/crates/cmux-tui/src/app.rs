@@ -17458,14 +17458,15 @@ impl App {
         true
     }
 
-    /// Scope-switch entries for the provider rail menu. Empty when only one
-    /// scope exists (nothing to switch to).
+    /// Scope entries for the provider rail menu. Keep the sole scope visible
+    /// when actions are present so the menu opens on a harmless selection;
+    /// otherwise Enter would invoke the first provider action implicitly.
     fn provider_scope_menu_items(&self) -> Vec<MenuItem> {
         let messages = &localization::catalog().sidebar;
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
             return Vec::new();
         };
-        if provider.scopes.len() < 2 {
+        if provider.scopes.is_empty() {
             return Vec::new();
         }
         provider
@@ -38621,6 +38622,23 @@ mod tests {
             })
         );
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn provider_menu_with_one_scope_starts_on_scope_selection() {
+        let mux = Mux::new("provider-single-scope-menu-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_controls_ui();
+        let provider = ui.provider.as_mut().expect("provider presentation");
+        provider.scopes.truncate(1);
+        provider.selected_scope_id = "personal".into();
+        app.machine_ui = Some(ui);
+
+        assert!(app.open_provider_rail_menu(1, 2));
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::SelectProviderScope(0))
+        );
     }
 
     #[test]
