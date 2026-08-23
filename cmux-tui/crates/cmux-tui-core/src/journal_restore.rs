@@ -23,6 +23,7 @@ use crate::workspace_registry::{JournalContentRef, WorkspaceRegistry};
 pub(crate) const RESTORE_TAIL_MAX_BYTES: u64 = crate::surface::VT_REPLAY_MAX_BYTES as u64;
 
 const RESTORE_SCAN_PAGE: usize = 1024;
+const MAX_RESTORE_TAIL_RESIZE_EVENTS: u64 = 10_000;
 
 /// One replayable event of the post-checkpoint tail, in commit order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,8 +109,8 @@ pub(crate) fn restored_terminal_content(
                                 replay: Vec::new(),
                                 kitty_image_aliases: Vec::new(),
                                 kitty_state: KittyReplayState::disabled(),
-                                cols: fallback_grid.0,
-                                rows: fallback_grid.1,
+                                cols: fallback_grid.0.max(1),
+                                rows: fallback_grid.1.max(1),
                                 tail: Vec::new(),
                                 tail_output_bytes: 0,
                                 tail_resize_events: 0,
@@ -309,7 +310,18 @@ impl TerminalTailFold {
         let rows = geometry_field(&record.payload, "rows")?;
         let cell_width = geometry_field(&record.payload, "cell_width")?;
         let cell_height = geometry_field(&record.payload, "cell_height")?;
-        anyhow::ensure!(cols > 0 && rows > 0, "terminal resize grid must be non-zero");
+        anyhow::ensure!(
+            (1..=10_000).contains(&cols)
+                && (1..=10_000).contains(&rows)
+                && (1..=10_000).contains(&cell_width)
+                && (1..=10_000).contains(&cell_height)
+                && u64::from(cols).saturating_mul(u64::from(rows)) <= 4_000_000,
+            "terminal resize geometry is invalid"
+        );
+        anyhow::ensure!(
+            self.resize_events < MAX_RESTORE_TAIL_RESIZE_EVENTS,
+            "terminal resize tail exceeds the bounded replay budget"
+        );
         self.resize_events += 1;
         self.events.push(RestoredTailEvent::Resize {
             cols: u16::try_from(cols).context("terminal resize cols overflow")?,

@@ -2290,7 +2290,7 @@ impl Mux {
             expected_incarnation,
             registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation),
         ) {
-            anyhow::ensure!(expected == stored, "terminal_incarnation_mismatch");
+            anyhow::ensure!(stored == expected, "terminal_incarnation_mismatch");
         }
         let target = state.placements_of_content(&content_id).first().copied();
         let mut plan = self.resource_close_plan_locked(
