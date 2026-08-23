@@ -403,7 +403,7 @@ fn write_utf8_no_follow(
     // untrusted directory tree first can mutate paths outside the allowed
     // roots, even when the final file check rejects the write.
     enforce_canonical_roots(parent, roots).map_err(HostError::Refusal)?;
-    std::fs::create_dir_all(parent)?;
+    create_parent_dirs_no_symlink(parent)?;
     let canonical_parent = std::fs::canonicalize(parent)?;
     let file_name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
     let canonical = canonical_parent.join(file_name);
@@ -417,6 +417,34 @@ fn write_utf8_no_follow(
         }
     })?;
     file.write_all(content.as_bytes())?;
+    Ok(())
+}
+
+fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
+    let mut current = if path.is_absolute() {
+        PathBuf::from(std::path::MAIN_SEPARATOR.to_string())
+    } else {
+        PathBuf::new()
+    };
+    for component in path.components() {
+        match component {
+            Component::RootDir => continue,
+            Component::CurDir => continue,
+            Component::Normal(name) => current.push(name),
+            _ => return Err(HostError::Refusal("invalid parent path".to_owned())),
+        }
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(HostError::Refusal(format!("path {} is a symlink", current.display())))
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(HostError::Refusal(format!("path {} is not a directory", current.display())))
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(&current)?,
+            Err(error) => return Err(HostError::Io(error)),
+        }
+    }
     Ok(())
 }
 
@@ -615,8 +643,18 @@ async fn run_spec(
     use tokio::io::AsyncReadExt as _;
     let mut command = match &spec {
         RunSpec::Shell { command } => {
-            let mut shell = tokio::process::Command::new("/bin/sh");
-            shell.arg("-c").arg(command);
+            #[cfg(windows)]
+            let mut shell = {
+                let mut command_line = tokio::process::Command::new("cmd.exe");
+                command_line.args(["/D", "/S", "/C", command]);
+                command_line
+            };
+            #[cfg(not(windows))]
+            let mut shell = {
+                let mut command_line = tokio::process::Command::new("/bin/sh");
+                command_line.arg("-c").arg(command);
+                command_line
+            };
             shell
         }
         RunSpec::Argv { file, args } => {
