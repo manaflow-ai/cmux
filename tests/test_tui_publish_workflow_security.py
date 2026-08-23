@@ -86,6 +86,16 @@ def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     assert "cmux = cmux_tui._main:main" in tui_pypi
 
 
+def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    releasing = (ROOT / "cmux-tui" / "bindings" / "RELEASING.md").read_text()
+    assert artifacts.count('"architecture":') >= 4
+    assert artifacts.count('"libc": "none"') >= 4
+    assert '"arch":' not in artifacts
+    assert "architecture: x86_64" in releasing
+    assert "libc: none" in releasing
+
+
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
     preflight = workflow("sdk-publish-npm.yml")
     release = workflow("sdk-release-cut.yml")

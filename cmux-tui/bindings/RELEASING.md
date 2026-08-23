@@ -36,7 +36,8 @@ the `runtimeByBinary` manifest. Do not infer compatibility from a package-wide
 Linux claim. Every file entry records its operating system, architecture, and
 libc explicitly, for example `os: linux`, `architecture: x86_64`, and
 `libc: glibc` or `libc: musl`. macOS entries use `os: macos` and their actual
-architecture; Windows entries use `os: windows` and `libc: none`.
+architecture and `libc: none`; Windows entries use `os: windows`, their actual
+architecture, and `libc: none`.
 
 The runtime matcher accepts compatibility aliases at the manifest boundary:
 `amd64` and `x64` map to `x86_64`, `arm64` maps to `aarch64`, and Linux
