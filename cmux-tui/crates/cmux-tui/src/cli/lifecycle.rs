@@ -38,7 +38,17 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         global.session = Some(session);
     }
     let expected_session = global.session.clone();
-    let socket = super::wire::resolve_socket(&global);
+    let socket = match super::wire::resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(_) => {
+            return local_error(
+                "server.unavailable",
+                crate::localization::catalog().local_server.connect_failed,
+                global.output,
+                3,
+            );
+        }
+    };
     let socket_output = socket.to_string_lossy().into_owned();
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
