@@ -410,6 +410,124 @@ struct VerifiedTerminalReplayStateMachineTests {
         ) == .rejectUnverified)
     }
 
+    @Test("a replay sized by stale daemon state holds the last verified pixels and renegotiates")
+    func staleGridReplayHoldsAndRenegotiates() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
+        commit(lastGood, to: machine)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+
+        let staleGrid = try frame(renderRevision: 2, stateSeq: 2, columns: 41, text: "stale grid")
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleGrid) else {
+            Issue.record("a pre-acknowledgement mismatched grid must hold and renegotiate")
+            return
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good")
+        #expect(machine.isFrozen)
+
+        // Later stale captures keep holding without re-sending the report.
+        let nextStale = try frame(renderRevision: 3, stateSeq: 3, columns: 41, text: "still stale")
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: nextStale) else {
+            Issue.record("subsequent stale-grid frames must hold without renegotiating again")
+            return
+        }
+
+        // The report acknowledgement floors the stale captures; the fresh
+        // frame at the settled grid then verifies and reveals.
+        machine.acknowledgeViewport(renderEpoch: "epoch-default", renderRevisionFloor: 3)
+        let settled = try frame(renderRevision: 4, stateSeq: 4, columns: 80, text: "settled grid")
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: settled)))
+        #expect(machine.complete(transactionID: transaction.id, observedFrame: settled) == .reveal)
+        #expect(machine.visibleSnapshot?.columns == 80)
+        #expect(!machine.isFrozen)
+    }
+
+    @Test("an acknowledged smaller grant applies letterboxed instead of holding")
+    func acknowledgedSmallerGrantApplies() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
+        commit(lastGood, to: machine)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+
+        let staleGrid = try frame(renderRevision: 2, stateSeq: 2, columns: 41, text: "stale grid")
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleGrid) else {
+            Issue.record("a pre-acknowledgement mismatched grid must hold and renegotiate")
+            return
+        }
+
+        // The daemon answers the report but another viewer constrains the
+        // shared PTY: the settled grant is genuinely smaller. Post-floor
+        // frames at that grant verify normally (the surface letterboxes at
+        // the user's font); holding here would freeze the terminal forever.
+        machine.acknowledgeViewport(renderEpoch: "epoch-default", renderRevisionFloor: 2)
+        let constrained = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 41,
+            text: "constrained grant"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: constrained)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: constrained) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.columns == 41)
+    }
+
+    @Test("the stale-grid hold budget is bounded when no acknowledgement ever lands")
+    func staleGridHoldBudgetIsBounded() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let lastGood = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
+        commit(lastGood, to: machine)
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+
+        var revision: UInt64 = 2
+        for held in 0..<VerifiedTerminalReplayStateMachine.maxRenegotiationHeldFramesPerEpoch {
+            let stale = try frame(
+                renderRevision: revision,
+                stateSeq: revision,
+                columns: 41,
+                text: "stale \(revision)"
+            )
+            switch machine.begin(frame: stale) {
+            case .renegotiateViewportAndKeepFrozen:
+                #expect(held == 0, "only the first hold renegotiates")
+            case .keepFrozenAndRequestReplay:
+                #expect(held > 0, "the first hold must renegotiate")
+            case .apply:
+                Issue.record("frame \(held) must hold within the budget")
+            }
+            revision += 1
+        }
+
+        // The report was lost (no acknowledgement). Once the budget is
+        // spent, the mismatched frame verifies and renders letterboxed
+        // rather than freezing on the last verified pixels forever.
+        let fallback = try frame(
+            renderRevision: revision,
+            stateSeq: revision,
+            columns: 41,
+            text: "fallback"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: fallback)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: fallback) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.columns == 41)
+    }
+
+    @Test("a mismatched grid never holds without last verified pixels")
+    func mismatchedGridWithoutSnapshotApplies() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        machine.updateExpectedViewportDimensions(columns: 80, rows: 3)
+
+        let coldMount = try frame(renderRevision: 1, stateSeq: 1, columns: 41, text: "cold mount")
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: coldMount)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: coldMount) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.columns == 41)
+    }
+
     private func commit(
         _ frame: MobileTerminalRenderGridFrame,
         to machine: VerifiedTerminalReplayStateMachine

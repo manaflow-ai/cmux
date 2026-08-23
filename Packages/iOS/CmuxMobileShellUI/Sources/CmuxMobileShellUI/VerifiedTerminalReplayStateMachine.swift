@@ -22,6 +22,16 @@ final class VerifiedTerminalReplayStateMachine {
     private var lastVerifiedRenderRevision: UInt64 = 0
     private var lastVerifiedStateSeq: UInt64 = 0
     private var viewportRenderRevisionFloors: [String: UInt64] = [:]
+    /// This phone's current base-font capacity, fed from every prepared or
+    /// sent viewport report. Nil until the first report.
+    private var expectedViewportDimensions: Dimensions?
+    /// Frames held per epoch while waiting for the daemon to acknowledge a
+    /// renegotiated viewport (see `begin`). Bounded so a lost report can
+    /// never freeze the terminal on the last verified pixels: once the
+    /// budget is spent, mismatched frames verify normally and render
+    /// letterboxed at the user's font.
+    private var renegotiationHeldFramesByEpoch: [String: Int] = [:]
+    static let maxRenegotiationHeldFramesPerEpoch = 4
 
     private(set) var visibleSnapshot: MobileTerminalRenderGridVisualSnapshot?
 
@@ -53,6 +63,9 @@ final class VerifiedTerminalReplayStateMachine {
         if let floor = viewportRenderRevisionFloors[frame.renderEpoch],
            frame.renderRevision <= floor {
             return rejectFrame()
+        }
+        if let hold = holdForViewportRenegotiation(frame: frame) {
+            return hold
         }
 
         let startsNewEpoch = activeRenderEpoch != frame.renderEpoch
@@ -101,6 +114,45 @@ final class VerifiedTerminalReplayStateMachine {
         phase = .recovering
         activeTransaction = nil
         return .keepFrozenAndRequestReplay
+    }
+
+    /// Holds a frame sized for a grid that does not match this phone's
+    /// capacity when the daemon has not yet acknowledged any viewport report
+    /// for the frame's epoch — the shape of a reconnect replay captured
+    /// before the phone's post-reconnect capacity report landed. The caller
+    /// keeps the last verified pixels visible and (on the first hold)
+    /// re-sends the capacity report; the acknowledgement then both ends the
+    /// hold and floors stale captures, so the next accepted frame is sized
+    /// by the settled negotiation. Nil means the frame proceeds normally.
+    ///
+    /// Never holds without last verified pixels to show, and never holds
+    /// more than ``maxRenegotiationHeldFramesPerEpoch`` frames per epoch: a
+    /// genuinely smaller settled grant (another viewer constrains the shared
+    /// PTY) then verifies normally and renders letterboxed at the user's
+    /// font instead of freezing.
+    private func holdForViewportRenegotiation(
+        frame: MobileTerminalRenderGridFrame
+    ) -> BeginDecision? {
+        guard let expected = expectedViewportDimensions,
+              visibleSnapshot != nil,
+              viewportRenderRevisionFloors[frame.renderEpoch] == nil,
+              frame.columns != expected.columns || frame.rows != expected.rows else {
+            return nil
+        }
+        let held = renegotiationHeldFramesByEpoch[frame.renderEpoch] ?? 0
+        guard held < Self.maxRenegotiationHeldFramesPerEpoch else { return nil }
+        renegotiationHeldFramesByEpoch[frame.renderEpoch] = held + 1
+        phase = .recovering
+        activeTransaction = nil
+        return held == 0 ? .renegotiateViewportAndKeepFrozen : .keepFrozenAndRequestReplay
+    }
+
+    /// Records the phone's current base-font capacity so `begin` can
+    /// recognize frames sized by stale daemon state. Fed from every prepared
+    /// or sent viewport report.
+    func updateExpectedViewportDimensions(columns: Int, rows: Int) {
+        guard columns > 0, rows > 0 else { return }
+        expectedViewportDimensions = Dimensions(columns: columns, rows: rows)
     }
 
     func complete(
@@ -181,6 +233,7 @@ final class VerifiedTerminalReplayStateMachine {
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
         viewportRenderRevisionFloors.removeAll()
+        renegotiationHeldFramesByEpoch.removeAll()
         lastVerifiedRenderRevision = 0
         lastVerifiedStateSeq = 0
     }

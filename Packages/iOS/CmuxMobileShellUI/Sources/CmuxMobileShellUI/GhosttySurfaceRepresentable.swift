@@ -390,6 +390,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    // The replay state machine compares incoming frame grids
+                    // against the capacity this phone last told the daemon,
+                    // so it can hold frames sized by stale daemon state (a
+                    // reconnect replay captured before this report landed).
+                    self.verifiedReplayState.updateExpectedViewportDimensions(
+                        columns: report.columns,
+                        rows: report.rows
+                    )
                     if let preparation = self.preparedViewportReportsByReportID.removeValue(
                         forKey: report.id
                     ) {
@@ -973,7 +981,30 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
-            guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
+            let transaction: VerifiedTerminalReplayTransaction
+            switch verifiedReplayState.begin(frame: frame) {
+            case .apply(let began):
+                transaction = began
+            case .renegotiateViewportAndKeepFrozen:
+                // The frame is sized by stale daemon state (its grid does not
+                // match the capacity this phone last reported, and no report
+                // for its epoch has been acknowledged). Keep the last
+                // verified pixels on screen and re-send the capacity report;
+                // the acknowledged negotiation floors these stale captures
+                // and the replay barrier requests a fresh frame at the
+                // settled grid.
+                MobileDebugLog.anchormux(
+                    "verified_replay.hold_stale_grid surface=\(surfaceID) "
+                        + "grid=\(frame.columns)x\(frame.rows) epoch=\(frame.renderEpoch)"
+                )
+                surfaceView.reassertViewportCapacityReport()
+                _ = await surfaceView.freezeVerifiedReplayPresentation(
+                    transactionID: frame.renderRevision
+                )
+                guard !Task.isCancelled else { return false }
+                requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
+                return false
+            case .keepFrozenAndRequestReplay:
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision
                 )
