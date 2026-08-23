@@ -1621,6 +1621,7 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1677,6 +1678,7 @@ pub(crate) enum ActionExecution {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1901,6 +1903,7 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
     UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
@@ -2053,7 +2056,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 66] = [
+    static DEFINITIONS: [&ActionDefinition; 67] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2099,6 +2102,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
         &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
@@ -2310,6 +2314,12 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::FocusSidebar,
             ),
+            Action::ProviderMenu => ActionMetadata::new(
+                "provider-menu",
+                ActionClassification::PresentationOnly,
+                "frontend machine provider menu",
+                ActionExecution::ProviderMenu,
+            ),
             Action::NewPaneRight => ActionMetadata::new(
                 "new-pane-right",
                 ActionClassification::Direct,
@@ -2476,6 +2486,7 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
             Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
@@ -2640,6 +2651,7 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    pub(crate) provider_menu_overridden: bool,
 }
 
 impl Default for Keys {
@@ -2727,6 +2739,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            provider_menu_overridden: false,
         }
     }
 }
@@ -2896,8 +2909,14 @@ impl Keys {
             }) {
                 Some(definition) => {
                     self.bindings.retain(|(_, action)| *action != definition.action);
+                    let mut provider_menu_override_valid = definition.action
+                        == Action::ProviderMenu
+                        && matches!(value, Value::Array(values) if values.is_empty());
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
+                            if definition.action == Action::ProviderMenu {
+                                provider_menu_override_valid = true;
+                            }
                             continue;
                         }
                         let Some(chord) = parse_chord(raw_chord) else {
@@ -2914,8 +2933,14 @@ impl Keys {
                             );
                             continue;
                         }
+                        if definition.action == Action::ProviderMenu {
+                            provider_menu_override_valid = true;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, definition.action));
+                    }
+                    if definition.action == Action::ProviderMenu {
+                        self.provider_menu_overridden = provider_menu_override_valid;
                     }
                 }
                 None => crate::client_log::stderr_log!(
@@ -7967,6 +7992,7 @@ mod tests {
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
+            ("provider-menu", Action::ProviderMenu),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
@@ -7985,6 +8011,23 @@ mod tests {
                 Some(action),
                 "{name} did not parse"
             );
+        }
+    }
+
+    #[test]
+    fn provider_menu_override_requires_a_valid_chord_or_none() {
+        let cases = [
+            (Value::String("not a chord".to_string()), false),
+            (Value::String("ctrl+b".to_string()), false),
+            (Value::String("none".to_string()), true),
+            (Value::Array(vec![]), true),
+            (Value::String("x".to_string()), true),
+            (Value::Bool(true), false),
+        ];
+        for (value, expected) in cases {
+            let mut keys = Keys::default();
+            keys.apply(&HashMap::from([("provider-menu".to_string(), value)]));
+            assert_eq!(keys.provider_menu_overridden, expected);
         }
     }
 

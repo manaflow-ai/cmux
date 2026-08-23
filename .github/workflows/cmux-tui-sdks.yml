@@ -7,7 +7,10 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -24,11 +27,16 @@ on:
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
   pull_request:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -45,6 +53,8 @@ on:
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
   workflow_dispatch:
 
 concurrency:
@@ -110,6 +120,12 @@ jobs:
 
       - name: Test SDK publishing workflow guards
         run: python3 tests/test_tui_publish_workflow_security.py -v
+
+      - name: Test TUI package artifact contract
+        run: python3 tests/test_tui_package_contract.py
+
+      - name: Test TUI npm artifact transfer contract
+        run: python3 tests/test_tui_npm_package_artifact.py
 
       - name: Check package versions
         run: python3 cmux-tui/bindings/check-versions.py --published-only
