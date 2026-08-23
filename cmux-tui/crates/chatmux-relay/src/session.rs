@@ -215,14 +215,28 @@ async fn relay_session(
     let workspace_runtime = Arc::clone(&runtime.workspace);
     let (workspace_tx, mut workspace_rx) = mpsc::unbounded_channel::<String>();
     let workspace = crate::workspace::Connection::new(workspace_runtime, workspace_tx);
-    let workspace_out = out_tx.clone();
+    // Keep a bounded staging queue between workspace producers and the shared
+    // socket writer. The workspace API still has synchronous producers, so its
+    // legacy unbounded sender is drained promptly into this backpressured queue.
+    let (workspace_frame_tx, mut workspace_frame_rx) = mpsc::channel::<Value>(MAX_OUTBOUND_FRAMES);
+    let workspace_out = workspace_frame_tx.clone();
     let mut connection_tasks = JoinSet::new();
     connection_tasks.spawn(async move {
         while let Some(text) = workspace_rx.recv().await {
             if let Ok(frame) = serde_json::from_str::<Value>(&text) {
                 // Workspace replies are request/response traffic. Await the bounded queue
-                // instead of dropping them; only synchronous PTY event producers may drop.
-                let _ = workspace_out.send(frame).await;
+                // instead of dropping them, so cancellation closes the sender naturally.
+                if workspace_out.send(frame).await.is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let socket_out = out_tx.clone();
+    connection_tasks.spawn(async move {
+        while let Some(frame) = workspace_frame_rx.recv().await {
+            if socket_out.send(frame).await.is_err() {
+                break;
             }
         }
     });
