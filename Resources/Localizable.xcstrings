@@ -267554,11 +267554,53 @@
     },
     "settings.app.fileEditorSyntaxHighlighting": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمييز بناء الجملة في محرر الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isticanje sintakse u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syntaksfremhævning i fileditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syntaxhervorhebung im Dateieditor"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Syntax Highlighting"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resaltado de sintaxis del editor de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coloration syntaxique de l’éditeur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidenziazione della sintassi nell’editor di file"
           }
         },
         "ja": {
@@ -267566,16 +267608,124 @@
             "state": "translated",
             "value": "ファイルエディタのシンタックスハイライト"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបន្លិចវាក្យសម្ព័ន្ធក្នុងកម្មវិធីកែឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 구문 강조"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syntaksutheving i fileditor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podświetlanie składni w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Realce de sintaxe do editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсветка синтаксиса в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเน้นไวยากรณ์ในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyicide sözdizimi vurgulama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсвічування синтаксису в редакторі файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器语法高亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器語法醒目提示"
+          }
         }
       }
     },
     "settings.app.fileEditorSyntaxHighlighting.subtitle": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوّن الكلمات المفتاحية والسلاسل والرموز الأخرى في محرر الملفات المدمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oboji ključne riječi, stringove i ostale tokene u ugrađenom uređivaču datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farvelæg nøgleord, strenge og andre tokens i den indbyggede fileditor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Färbt Schlüsselwörter, Zeichenfolgen und andere Token im integrierten Dateieditor ein."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Color keywords, strings, and other tokens in the built-in file editor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colorea palabras clave, cadenas y otros tokens en el editor de archivos integrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colorie les mots-clés, chaînes et autres jetons dans l’éditeur de fichiers intégré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colora parole chiave, stringhe e altri token nell’editor di file integrato."
           }
         },
         "ja": {
@@ -267583,16 +267733,124 @@
             "state": "translated",
             "value": "組み込みファイルエディタでキーワードや文字列などのトークンに色を付けます。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាក់ពណ៌លើពាក្យគន្លឹះ ខ្សែអក្សរ និងនិមិត្តសញ្ញាផ្សេងទៀតក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 파일 편집기에서 키워드, 문자열 및 기타 토큰에 색을 입힙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farger nøkkelord, strenger og andre token i den innebygde fileditoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koloruje słowa kluczowe, ciągi i inne tokeny we wbudowanym edytorze plików."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore palavras-chave, strings e outros tokens no editor de arquivos integrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раскрашивает ключевые слова, строки и другие токены во встроенном редакторе файлов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใส่สีคำสำคัญ สตริง และโทเค็นอื่นในตัวแก้ไขไฟล์ในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerleşik dosya düzenleyicide anahtar sözcükleri, dizeleri ve diğer jetonları renklendirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розфарбовує ключові слова, рядки та інші токени у вбудованому редакторі файлів."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在内置文件编辑器中为关键字、字符串和其他标记着色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在內建檔案編輯器中為關鍵字、字串與其他標記上色。"
+          }
         }
       }
     },
     "settings.app.fileEditorLineNumbers": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرقام الأسطر في محرر الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brojevi redova u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjenumre i fileditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilennummern im Dateieditor"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Line Numbers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Números de línea del editor de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numéros de ligne de l’éditeur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numeri di riga nell’editor di file"
           }
         },
         "ja": {
@@ -267600,16 +267858,124 @@
             "state": "translated",
             "value": "ファイルエディタの行番号"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លេខជួរក្នុងកម្មវិធីកែឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 줄 번호"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjenumre i fileditor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numery wierszy w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Números de linha do editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Номера строк в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลขบรรทัดในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyici satır numaraları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Номери рядків у редакторі файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器行号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器行號"
+          }
         }
       }
     },
     "settings.app.fileEditorLineNumbers.subtitle": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض هامش أرقام الأسطر بجانب محرر الملفات المدمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži žlijeb s brojevima redova pored ugrađenog uređivača datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis en linjenummerkolonne ved siden af den indbyggede fileditor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt neben dem integrierten Dateieditor eine Zeilennummernleiste."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Show a line-number gutter beside the built-in file editor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un margen de números de línea junto al editor de archivos integrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche une gouttière de numéros de ligne à côté de l’éditeur de fichiers intégré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra una colonna dei numeri di riga accanto all’editor di file integrato."
           }
         },
         "ja": {
@@ -267617,16 +267983,124 @@
             "state": "translated",
             "value": "組み込みファイルエディタの横に行番号ガターを表示します。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញជួរលេខជួរនៅក្បែរកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 파일 편집기 옆에 줄 번호 여백을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis et linjenummerfelt ved siden av den innebygde fileditoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje rynienkę z numerami wierszy obok wbudowanego edytora plików."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra uma calha de números de linha ao lado do editor de arquivos integrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает поле с номерами строк рядом со встроенным редактором файлов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแถบเลขบรรทัดข้างตัวแก้ไขไฟล์ในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerleşik dosya düzenleyicinin yanında satır numarası oluğu gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує жолоб із номерами рядків поруч зі вбудованим редактором файлів."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在内置文件编辑器旁显示行号槽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在內建檔案編輯器旁顯示行號欄。"
+          }
         }
       }
     },
     "settings.app.fileEditorIndentGuides": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدلة المسافة البادئة في محرر الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vodiči uvlačenja u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indrykningsguider i fileditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einzugshilfslinien im Dateieditor"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Indent Guides"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guías de sangría del editor de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guides d’indentation de l’éditeur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guide di indentazione nell’editor di file"
           }
         },
         "ja": {
@@ -267634,16 +268108,124 @@
             "state": "translated",
             "value": "ファイルエディタのインデントガイド"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្សែណែនាំការចូលបន្ទាត់ក្នុងកម្មវិធីកែឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 들여쓰기 안내선"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innrykksguider i fileditor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prowadnice wcięć w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guias de recuo do editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Направляющие отступа в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นนำการเยื้องในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyici girinti kılavuzları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Напрямні відступу в редакторі файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器缩进参考线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器縮排參考線"
+          }
         }
       }
     },
     "settings.app.fileEditorIndentGuides.subtitle": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ارسم أدلة رأسية عند أعمدة المسافة البادئة في محرر الملفات المدمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crtaj okomite vodiče na stupcima uvlačenja u ugrađenom uređivaču datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegn lodrette guides ved indrykningskolonner i den indbyggede fileditor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet vertikale Hilfslinien an den Einzugsspalten im integrierten Dateieditor."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Draw vertical guides at indent columns in the built-in file editor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dibuja guías verticales en las columnas de sangría del editor de archivos integrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trace des guides verticaux aux colonnes d’indentation dans l’éditeur de fichiers intégré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disegna guide verticali alle colonne di indentazione nell’editor di file integrato."
           }
         },
         "ja": {
@@ -267651,16 +268233,124 @@
             "state": "translated",
             "value": "組み込みファイルエディタのインデント桁に縦ガイドを描画します。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គូរខ្សែណែនាំបញ្ឈរនៅជួរចូលបន្ទាត់ក្នុងកម្មវិធីកែឯកសារដែលភ្ជាប់មកជាមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 파일 편집기의 들여쓰기 열에 세로 안내선을 그립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegn loddrette guider ved innrykkskolonnene i den innebygde fileditoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rysuje pionowe prowadnice przy kolumnach wcięć we wbudowanym edytorze plików."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenha guias verticais nas colunas de recuo no editor de arquivos integrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рисует вертикальные направляющие по столбцам отступа во встроенном редакторе файлов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วาดเส้นนำแนวตั้งที่คอลัมน์เยื้องในตัวแก้ไขไฟล์ในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerleşik dosya düzenleyicide girinti sütunlarına dikey kılavuzlar çizer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Малює вертикальні напрямні на стовпцях відступу у вбудованому редакторі файлів."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在内置文件编辑器的缩进列绘制垂直参考线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在內建檔案編輯器的縮排列繪製垂直參考線。"
+          }
         }
       }
     },
     "settings.app.fileEditorCurrentLineHighlight": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر الحالي في محرر الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trenutni red u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuel linje i fileditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle Zeile im Dateieditor"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Current Line"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Línea actual del editor de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligne active de l’éditeur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riga corrente nell’editor di file"
           }
         },
         "ja": {
@@ -267668,16 +268358,124 @@
             "state": "translated",
             "value": "ファイルエディタのカレント行"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរបច្ចុប្បន្នក្នុងកម្មវិធីកែឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 현재 줄"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjeldende linje i fileditor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bieżący wiersz w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linha atual do editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текущая строка в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บรรทัดปัจจุบันในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyici geçerli satır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поточний рядок у редакторі файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器当前行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器目前行"
+          }
         }
       }
     },
     "settings.app.fileEditorCurrentLineHighlight.subtitle": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ميّز السطر الذي يحتوي على المؤشر عندما لا يوجد تحديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Istakni red koji sadrži karet kada ništa nije odabrano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fremhæv linjen med indsætningspunktet, når intet er markeret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hebt die Zeile mit der Einfügemarke hervor, wenn nichts ausgewählt ist."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Highlight the line that contains the caret when nothing is selected."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resalta la línea que contiene el cursor cuando no hay nada seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met en surbrillance la ligne du curseur lorsqu’aucune sélection n’est active."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidenzia la riga del cursore quando non c’è una selezione."
           }
         },
         "ja": {
@@ -267685,16 +268483,124 @@
             "state": "translated",
             "value": "選択がないとき、キャレットのある行をハイライトします。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្លិចជួរដែលមានសញ្ញាការពេលគ្មានការជ្រើស។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택이 없을 때 캐럿이 있는 줄을 강조합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uthev linjen med innsettingspunktet når ingenting er merket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podświetla wiersz z karetką, gdy nic nie jest zaznaczone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destaca a linha que contém o cursor quando nada está selecionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсвечивает строку с кареткой, когда ничего не выделено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เน้นบรรทัดที่มีแคร์เรตเมื่อไม่ได้เลือกข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçim yokken imlecin bulunduğu satırı vurgular."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсвічує рядок із кареткою, коли нічого не вибрано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选中内容时高亮显示插入点所在行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未選取內容時醒目提示插入點所在行。"
+          }
         }
       }
     },
     "settings.app.fileEditorTabWidth": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض علامة التبويب في محرر الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Širina taba u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabulatorbredde i fileditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabulatorbreite im Dateieditor"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Tab Width"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de tabulación del editor de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur de tabulation de l’éditeur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza tabulazione nell’editor di file"
           }
         },
         "ja": {
@@ -267702,16 +268608,124 @@
             "state": "translated",
             "value": "ファイルエディタのタブ幅"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងផ្ទាំងក្នុងកម្មវិធីកែឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabulatorbredde i fileditor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szerokość tabulacji w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura da tabulação do editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ширина табуляции в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างแท็บในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyici sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ширина табуляції в редакторі файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器制表符宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器定位點寬度"
+          }
         }
       }
     },
     "settings.app.fileEditorTabWidth.subtitle": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الأعمدة لكل علامة تبويب، وتستخدمه أدلة المسافة البادئة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broj stupaca po tabu, koriste ga vodiči uvlačenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolonner pr. tabulatorstop, bruges af indrykningsguides."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spalten pro Tabstopp, genutzt von den Einzugshilfslinien."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Columns per tab stop, used by indent guides."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columnas por tabulación; las usan las guías de sangría."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colonnes par tabulation, utilisées par les guides d’indentation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colonne per tabulazione, usate dalle guide di indentazione."
           }
         },
         "ja": {
@@ -267719,16 +268733,124 @@
             "state": "translated",
             "value": "インデントガイドで使うタブ幅（桁数）です。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនជួរក្នុងមួយផ្ទាំង ដែលខ្សែណែនាំការចូលបន្ទាត់ប្រើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 정지당 열 수이며 들여쓰기 안내선이 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolonner per tabulatorstopp, brukt av innrykksguider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczba kolumn na tabulację, używana przez prowadnice wcięć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colunas por tabulação, usadas pelas guias de recuo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Число столбцов на табуляцию; используется направляющими отступа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนคอลัมน์ต่อแท็บ เส้นนำการเยื้องใช้ค่านี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme durağındaki sütun sayısı; girinti kılavuzları bunu kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кількість стовпців на табуляцію; використовують напрямні відступу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个制表位的列数，缩进参考线会用到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個定位點的欄數，縮排參考線會用到。"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-syntax-highlighting": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting تمييز بناء جملة ألوان رموز كود"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting sintaksa isticanje boje tokeni kod"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting syntaks fremhævning farver tokens kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting syntax hervorhebung farben token code"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.syntaxHighlighting syntax highlight colors tokens code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting sintaxis resaltado colores tokens código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting syntaxe coloration couleurs jetons code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting sintassi evidenziazione colori token codice"
           }
         },
         "ja": {
@@ -267736,16 +268858,124 @@
             "state": "translated",
             "value": "fileEditor.syntaxHighlighting シンタックス ハイライト 色 トークン コード"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting វាក្យសម្ព័ន្ធ បន្លិច ពណ៌ កូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting 구문 강조 색 토큰 코드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting syntaks utheving farger token kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting składnia podświetlanie kolory tokeny kod"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting sintaxe realce cores tokens código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting синтаксис подсветка цвета токены код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting ไวยากรณ์ เน้น สี โทเค็น โค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting sözdizimi vurgu renkler jeton kod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting синтаксис підсвічування кольори токени код"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting 语法 高亮 颜色 标记 代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.syntaxHighlighting 語法 醒目提示 顏色 標記 程式碼"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-line-numbers": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers هامش أرقام أسطر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers žlijeb brojevi redova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers gutter linjenumre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers gutter zeilennummern"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.lineNumbers gutter line numbers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers margen números de línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers gouttière numéros de ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers gutter numeri di riga"
           }
         },
         "ja": {
@@ -267753,16 +268983,124 @@
             "state": "translated",
             "value": "fileEditor.lineNumbers ガター 行番号"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers លេខជួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers 여백 줄 번호"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers gutter linjenumre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers rynienka numery wierszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers calha números de linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers поле номера строк"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers แถบ เลขบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers oluk satır numaraları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers жолоб номери рядків"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers 行号槽 行号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.lineNumbers 行號欄 行號"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-indent-guides": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides أدلة مسافة بادئة أعمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides uvlačenje vodiči stupci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides indrykning guides kolonner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides einzug hilfslinien spalten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.indentGuides indent guides columns"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides sangría guías columnas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides indentation guides colonnes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides indentazione guide colonne"
           }
         },
         "ja": {
@@ -267770,16 +269108,124 @@
             "state": "translated",
             "value": "fileEditor.indentGuides インデント ガイド"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides ចូលបន្ទាត់ ខ្សែណែនាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides 들여쓰기 안내선 열"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides innrykk guider kolonner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides wcięcia prowadnice kolumny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides recuo guias colunas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides отступ направляющие столбцы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides เยื้อง เส้นนำ คอลัมน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides girinti kılavuzlar sütunlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides відступ напрямні стовпці"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides 缩进 参考线 列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.indentGuides 縮排 參考線 欄"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-current-line-highlight": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight السطر الحالي المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight trenutni red karet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight aktuel linje indsætningspunkt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight aktuelle zeile einfügemarke"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.currentLineHighlight current line caret"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight línea actual cursor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight ligne active curseur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight riga corrente cursore"
           }
         },
         "ja": {
@@ -267787,22 +269233,196 @@
             "state": "translated",
             "value": "fileEditor.currentLineHighlight カレント行 キャレット"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight ជួរបច្ចុប្បន្ន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight 현재 줄 캐럿"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight gjeldende linje innsettingspunkt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight bieżący wiersz karetka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight linha atual cursor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight текущая строка каретка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight บรรทัดปัจจุบัน แคร์เรต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight geçerli satır imleç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight поточний рядок каретка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight 当前行 插入点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.currentLineHighlight 目前行 插入點"
+          }
         }
       }
     },
     "settings.search.alias.setting.app.file-editor-tab-width": {
       "extractionState": "manual",
-      "localizations": {
+            "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth عرض التبويب مسافة بادئة أعمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth širina taba uvlačenje stupci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth tabulatorbredde indrykning kolonner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth tabulatorbreite einzug spalten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.tabWidth tab width indent columns"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth ancho tabulación sangría columnas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth largeur tabulation indentation colonnes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth larghezza tabulazione indentazione colonne"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.tabWidth タブ幅 インデント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth ទទឹងផ្ទាំង ចូលបន្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth 탭 너비 들여쓰기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth tabulatorbredde innrykk kolonner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth szerokość tabulacji wcięcia kolumny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth largura tabulação recuo colunas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth ширина табуляции отступ столбцы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth ความกว้างแท็บ เยื้อง คอลัมน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth sekme genişliği girinti sütunlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth ширина табуляції відступ стовпці"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth 制表符宽度 缩进 列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.tabWidth 定位點寬度 縮排 欄"
           }
         }
       }

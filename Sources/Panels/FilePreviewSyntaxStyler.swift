@@ -19,6 +19,10 @@ final class FilePreviewSyntaxStyler {
     private var lastHighlightedTheme: TokenTheme?
     private var lastHighlightingEnabled = true
 
+    deinit {
+        highlightTask?.cancel()
+    }
+
     func cancel() {
         highlightTask?.cancel()
     }
@@ -29,8 +33,7 @@ final class FilePreviewSyntaxStyler {
         enabled: Bool,
         defaultColor: NSColor,
         theme: TokenTheme,
-        force: Bool,
-        debounceNanoseconds: UInt64 = 0
+        force: Bool
     ) {
         let text = textView.string
         let language = catalog.language(for: URL(fileURLWithPath: filePath))
@@ -55,10 +58,9 @@ final class FilePreviewSyntaxStyler {
             return
         }
 
+        // A later `schedule` cancels this task (generation + Task.cancel).
+        // Do not debounce with Task.sleep: typing must not wait on a timer.
         highlightTask = Task { [weak self, weak textView] in
-            if debounceNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: debounceNanoseconds)
-            }
             guard !Task.isCancelled, let self else { return }
             let highlighted = await self.engine.highlight(
                 text: text,

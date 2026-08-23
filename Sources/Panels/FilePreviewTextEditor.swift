@@ -246,8 +246,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                     default: FilePreviewEditorSettings.syntaxHighlightingDefault
                 ),
                 defaultColor: textView.insertionPointColor,
-                force: true,
-                debounceNanoseconds: 180_000_000
+                force: true
             )
             if let scrollView = textView.enclosingScrollView {
                 FilePreviewTextEditor<PanelModel>.refreshChrome(on: scrollView, textView: textView)
@@ -263,8 +262,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             for textView: NSTextView,
             enabled: Bool,
             defaultColor: NSColor,
-            force: Bool,
-            debounceNanoseconds: UInt64 = 0
+            force: Bool
         ) {
             styler.schedule(
                 for: textView,
@@ -272,8 +270,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 enabled: enabled,
                 defaultColor: defaultColor,
                 theme: TokenTheme(appearance: textView.effectiveAppearance),
-                force: force,
-                debounceNanoseconds: debounceNanoseconds
+                force: force
             )
         }
     }

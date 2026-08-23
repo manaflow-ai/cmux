@@ -128,6 +128,52 @@ struct FilePreviewCodeViewTests {
         #expect(gutter?.isOpaque == true)
     }
 
+    @Test("A later schedule replaces in-flight highlighting without sleeping")
+    func laterScheduleReplacesInFlightHighlight() async {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let styler = FilePreviewSyntaxStyler()
+        textView.string = "let ignored = 1"
+        styler.schedule(
+            for: textView,
+            filePath: "/tmp/example.swift",
+            enabled: true,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+        let json = """
+        {"ok": true}
+        """
+        textView.string = json
+        styler.schedule(
+            for: textView,
+            filePath: "/tmp/example.json",
+            enabled: true,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+
+        var colors = 0
+        for _ in 0..<80 {
+            colors = distinctForegroundColors(in: textView).count
+            if colors >= 2 { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(textView.string == json)
+        #expect(colors >= 2)
+        let ns = textView.string as NSString
+        let trueRange = ns.range(of: "true")
+        #expect(trueRange.location != NSNotFound)
+        if let color = textView.textStorage?.attribute(
+            .foregroundColor,
+            at: trueRange.location,
+            effectiveRange: nil
+        ) {
+            #expect(HighlightColorRemapper.hexKey(from: color) == "0091FF")
+        }
+    }
+
     @Test("Unknown and oversized buffers stay uncolored")
     func unknownAndOversizedStayPlain() async {
         let engine = HighlightrSyntaxEngine()
