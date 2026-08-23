@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,17 +27,17 @@ def host_npm_target() -> str:
     system = platform.system().lower()
     machine = platform.machine().lower()
     if system == "linux":
-        return (
-            "cmux-tui-linux-arm64"
-            if machine in {"aarch64", "arm64"}
-            else "cmux-tui-linux-x64"
-        )
+        if machine in {"aarch64", "arm64"}:
+            return "cmux-tui-linux-arm64"
+        if machine in {"x86_64", "amd64"}:
+            return "cmux-tui-linux-x64"
+        raise RuntimeError(f"unsupported test host: {system}-{machine}")
     if system == "darwin":
-        return (
-            "cmux-tui-darwin-x64"
-            if machine in {"x86_64", "amd64"}
-            else "cmux-tui-darwin-arm64"
-        )
+        if machine in {"x86_64", "amd64"}:
+            return "cmux-tui-darwin-x64"
+        if machine in {"aarch64", "arm64"}:
+            return "cmux-tui-darwin-arm64"
+        raise RuntimeError(f"unsupported test host: {system}-{machine}")
     raise RuntimeError(f"unsupported test host: {system}-{machine}")
 
 
@@ -147,6 +148,19 @@ def test_npm_contract_packs_and_installs_matching_platform(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
+def test_host_npm_target_rejects_unknown_architecture() -> None:
+    for system in ("Linux", "Darwin"):
+        with mock.patch.object(platform, "system", return_value=system), mock.patch.object(
+            platform, "machine", return_value="riscv64"
+        ):
+            try:
+                host_npm_target()
+            except RuntimeError as error:
+                assert str(error) == f"unsupported test host: {system.lower()}-riscv64"
+            else:
+                raise AssertionError("unknown host architecture must raise RuntimeError")
+
+
 def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:
     packages = tmp_path / "npm-packages"
     make_npm_packages(packages)
@@ -233,6 +247,7 @@ def test_pypi_contract_rejects_non_executable_hook(tmp_path: Path) -> None:
 def main() -> None:
     tests = (
         test_npm_contract_packs_and_installs_matching_platform,
+        lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
         test_npm_contract_rejects_missing_hook,
         test_npm_contract_rejects_extra_file,
         test_pypi_contract_requires_all_six_wheels_and_metadata,
