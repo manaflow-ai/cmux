@@ -533,8 +533,12 @@ fn resolveSocketPathWithEnvironment(
         if (path.len == 0) return error.EmptySocketPath;
         return allocator.dupe(u8, path);
     }
-    if (tui_socket) |path| return allocator.dupe(u8, path);
-    if (mux_socket) |path| return allocator.dupe(u8, path);
+    if (tui_socket) |path| {
+        if (path.len != 0) return allocator.dupe(u8, path);
+    }
+    if (mux_socket) |path| {
+        if (path.len != 0) return allocator.dupe(u8, path);
+    }
     try validateSession(session);
 
     const base = xdg_runtime_dir orelse tmpdir orelse "/tmp";
@@ -621,6 +625,20 @@ test "long session socket path uses a bindable digest fallback" {
     defer std.testing.allocator.free(expected);
     try std.testing.expectEqualStrings(expected, path);
     _ = try std.net.Address.initUnix(path);
+}
+
+test "empty primary socket falls back to non-empty legacy socket" {
+    const path = try resolveSocketPathWithEnvironment(
+        std.testing.allocator,
+        null,
+        "main",
+        "",
+        "/tmp/legacy.sock",
+        null,
+        null,
+    );
+    defer std.testing.allocator.free(path);
+    try std.testing.expectEqualStrings("/tmp/legacy.sock", path);
 }
 
 test "non-ASCII long session paths use the shared UTF-8 SHA-256 digest" {

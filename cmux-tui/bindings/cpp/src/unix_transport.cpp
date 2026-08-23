@@ -602,9 +602,6 @@ Result<std::string> try_default_socket_path(std::string_view session) {
 }
 
 std::string default_socket_path(std::string_view session) {
-    if (session.empty()) {
-        session = "main";
-    }
     auto path = try_default_socket_path(session);
     if (path) {
         return std::move(path).value();
