@@ -145,13 +145,23 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
         package_dir = out_dir / target["package"]
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / f"cmux-relay{ext}")
-        write_json(package_dir / "package.json", {
-            "name": target["package"], "version": version,
-            "description": f"Prebuilt cmux-relay binary for {target['os']}-{target['cpu']}.",
-            "repository": {"type": "git", "url": "git+https://github.com/manaflow-ai/cmux.git", "directory": "cmux-tui/dist"},
-            "license": "MIT", "os": [target["os"]], "cpu": [target["cpu"]],
-            "files": [f"bin/cmux-relay{ext}"],
-        })
+        write_json(
+            package_dir / "package.json",
+            {
+                "name": target["package"],
+                "version": version,
+                "description": f"Prebuilt cmux-relay binary for {target['os']}-{target['cpu']}.",
+                "repository": {
+                    "type": "git",
+                    "url": "git+https://github.com/manaflow-ai/cmux.git",
+                    "directory": "cmux-tui/dist",
+                },
+                "license": "MIT",
+                "os": [target["os"]],
+                "cpu": [target["cpu"]],
+                "files": [f"bin/cmux-relay{ext}"],
+            },
+        )
 
 
 def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None:

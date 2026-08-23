@@ -39,6 +39,13 @@ Add npm Trusted Publishers for all cmux and cmux-relay package names:
 - `cmux-tui-darwin-x64`
 - `cmux-tui-linux-x64`
 - `cmux-tui-linux-arm64`
+- `cmux-relay`
+- `cmux-relay-darwin-arm64`
+- `cmux-relay-darwin-x64`
+- `cmux-relay-linux-x64`
+- `cmux-relay-linux-arm64`
+- `cmux-tui-win32-x64`
+- `cmux-relay-win32-x64`
 
 Use these npm trusted-publisher settings for each package:
 

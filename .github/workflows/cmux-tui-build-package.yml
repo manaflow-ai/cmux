@@ -702,12 +702,22 @@ jobs:
 
       - name: Smoke verify chatmux relay npm packages
         if: inputs.package_npm
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
         run: |
           python3 - <<'PY'
           import json, pathlib, stat
+          import os
           root = pathlib.Path('dist/npm-packages')
+          suffix = ['-win32-x64'] if os.environ['INCLUDE_WINDOWS'] == 'true' else []
+          expected = {
+              f'cmux-relay-{platform}'
+              for platform in ('darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64')
+          }
+          expected.update(f'cmux-relay{item}' for item in suffix)
           launcher = json.loads((root / 'cmux-relay' / 'package.json').read_text())
           assert launcher['bin']['cmux-relay'] == 'bin/cmux-relay.js'
+          assert set(launcher['optionalDependencies']) == expected
           assert (root / 'cmux-relay' / 'bin/cmux-relay.js').stat().st_mode & stat.S_IXUSR
           for name in launcher['optionalDependencies']:
               manifest = json.loads((root / name / 'package.json').read_text())
