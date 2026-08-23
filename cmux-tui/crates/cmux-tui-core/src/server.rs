@@ -41,7 +41,6 @@ use regex::Regex;
 use regex::bytes::{Regex as BytesRegex, RegexBuilder as BytesRegexBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;

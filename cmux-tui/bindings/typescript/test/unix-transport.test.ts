@@ -66,7 +66,12 @@ test("session socket helpers enforce the relaxed safe-name contract", () => {
     `legacy-${"x".repeat(200)}`,
   ]) {
     assert.doesNotThrow(() => validateSessionName(session));
-    assert.ok(defaultSocketPath(session).endsWith(`/${session}.sock`));
+    const resolved = defaultSocketPath(session);
+    if (session.length > 100) {
+      assert.match(resolved, /\/cmux-tui-\d+\/[0-9a-f]{64}\.sock$/);
+    } else {
+      assert.ok(resolved.endsWith(`/${session}.sock`));
+    }
   }
 });
 

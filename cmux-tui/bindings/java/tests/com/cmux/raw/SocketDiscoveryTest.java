@@ -100,10 +100,11 @@ public final class SocketDiscoveryTest {
         }) {
             SocketDiscovery.validateSession(value);
             Path resolved = SocketDiscovery.resolve(null, value, environment, "501");
-            check(
-                resolved.toString().endsWith("/" + value + ".sock"),
-                "legacy-safe session path " + value
-            );
+            if (value.length() > 100) {
+                check(resolved.toString().matches(".*/[0-9a-f]{64}\\.sock"), "bounded fallback");
+            } else {
+                check(resolved.toString().endsWith("/" + value + ".sock"), "legacy-safe session path " + value);
+            }
         }
     }
 

@@ -97,6 +97,12 @@ func TestHighLevelSocketPathPreservesLegacySafeNames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("session %q rejected: %v", session, err)
 		}
+		if len(session) > 100 {
+			if !strings.HasSuffix(path, "/"+sessionpath.Digest(session)+".sock") {
+				t.Fatalf("session %q path = %q, want bounded digest suffix", session, path)
+			}
+			continue
+		}
 		if !strings.HasSuffix(path, "/"+session+".sock") {
 			t.Fatalf("session %q path = %q, want suffix %q", session, path, "/"+session+".sock")
 		}
