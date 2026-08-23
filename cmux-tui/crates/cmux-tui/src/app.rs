@@ -8563,6 +8563,19 @@ pub fn run_with_machine_updates(
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
+    run_with_machine_updates_and_chrome_colors(session, session_label, default_colors, None, surface_only, owner_mux, machine_ui, machine_controller)
+}
+
+pub fn run_with_machine_updates_and_chrome_colors(
+    session: Session,
+    session_label: String,
+    default_colors: cmux_tui_core::DefaultColors,
+    chrome_colors: Option<cmux_tui_core::DefaultColors>,
+    surface_only: Option<SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
+    machine_ui: Option<MachineUiState>,
+    machine_controller: Option<Box<dyn MachineController>>,
+) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
     let previous_panic_hook_for_threads = previous_panic_hook.clone();
@@ -8581,6 +8594,7 @@ pub fn run_with_machine_updates(
             session,
             session_label,
             default_colors,
+            chrome_colors,
             surface_only,
             owner_mux,
             machine_ui,
@@ -8605,13 +8619,14 @@ fn run_with_machine_updates_inner(
     session: Session,
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
+    chrome_colors: Option<cmux_tui_core::DefaultColors>,
     surface_only: Option<SurfaceId>,
     owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
     let mut config = crate::config::load();
-    let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
+    let chrome = ChromeTheme::for_defaults(config.chrome, chrome_colors.unwrap_or(default_colors));
     config.apply_chrome_defaults(chrome);
     let session_available = machine_ui.as_ref().is_none_or(|machine| machine.session_available);
     // First workspace before the terminal switches modes, so a spawn

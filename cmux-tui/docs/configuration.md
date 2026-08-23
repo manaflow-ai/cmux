@@ -8,7 +8,7 @@ Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
 Selection colors are resolved in this order: explicit cmux-tui config, Ghostty config keys `selection-background` and `selection-foreground`, then built-in defaults. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
 
-`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11 and falls back to dark when no reply is available. `light` and `dark` select a fixed chrome theme. Host OSC 10/11 replies are local compatibility input for the attaching frontend; they do not replace shared session or application-authored terminal defaults.
+`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11 and falls back to dark when no reply is available. `light` and `dark` select a fixed chrome theme. The OSC 11 reply is local input for the attaching frontend; it does not replace shared session or application-authored terminal defaults.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |

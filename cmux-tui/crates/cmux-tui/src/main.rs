@@ -2422,17 +2422,8 @@ fn initial_provider_connection_notice(
 }
 
 fn frontend_default_colors(
-    mut configured: cmux_tui_core::DefaultColors,
-    host: cmux_tui_core::DefaultColors,
+    configured: cmux_tui_core::DefaultColors,
 ) -> cmux_tui_core::DefaultColors {
-    // Host OSC 10/11 replies describe this frontend. They may select
-    // compatible local chrome, but never become shared session defaults.
-    if host.fg.is_some() {
-        configured.fg = host.fg;
-    }
-    if host.bg.is_some() {
-        configured.bg = host.bg;
-    }
     configured
 }
 
@@ -2446,13 +2437,15 @@ fn run_tui_once(
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
-    let colors =
-        frontend_default_colors(config.terminal_defaults, host_colors::probe_default_colors());
+    let host = host_colors::probe_default_colors();
+    let colors = frontend_default_colors(config.terminal_defaults);
+    let chrome_colors = host.bg.map(|bg| cmux_tui_core::DefaultColors { bg: Some(bg), ..Default::default() });
     crossterm::terminal::disable_raw_mode()?;
-    app::run_with_machine_updates(
+    app::run_with_machine_updates_and_chrome_colors(
         session,
         session_label,
         colors,
+        chrome_colors,
         surface_only,
         owner_mux,
         machine_ui,
@@ -2886,12 +2879,13 @@ mod tests {
             panic!("light client did not attach");
         };
 
-        let light_projection = frontend_default_colors(dark, light);
+        let configured_projection = frontend_default_colors(dark);
         assert_eq!(
             mux.default_colors(),
             dark,
             "a second client's host colors must not mutate the shared session"
         );
+        assert_eq!(configured_projection, dark, "host OSC colors must not replace configured terminal defaults");
         let mut existing_render = ghostty_vt::RenderState::new().unwrap();
         assert_eq!(
             existing_surface.render_frame(&mut existing_render).unwrap().frame.default_colors.0,
@@ -2899,7 +2893,7 @@ mod tests {
             "the already-attached dark client must stay dark"
         );
         assert_eq!(
-            config::ChromeTheme::for_defaults(config::ChromeMode::Auto, light_projection),
+            config::ChromeTheme::for_defaults(config::ChromeMode::Auto, light),
             config::ChromeTheme::light(),
             "the light client may still project compatible local chrome"
         );
