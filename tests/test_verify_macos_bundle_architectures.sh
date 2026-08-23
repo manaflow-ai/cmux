@@ -32,7 +32,9 @@ assert_contains() {
 }
 
 USE_REAL_MACHO_TOOLS=0
-if [[ "$(uname -s)" == "Darwin" ]] && command -v clang >/dev/null 2>&1 && command -v lipo >/dev/null 2>&1; then
+if [[ "${CMUX_TEST_FORCE_FAKE_MACHO_TOOLS:-0}" != 1 ]] &&
+  [[ "$(uname -s)" == "Darwin" ]] &&
+  command -v clang >/dev/null 2>&1 && command -v lipo >/dev/null 2>&1; then
   USE_REAL_MACHO_TOOLS=1
 fi
 
@@ -74,12 +76,6 @@ if (( USE_REAL_MACHO_TOOLS )); then
   cp "$UNIVERSAL_DYLIB" "$APP_PATH/Contents/Frameworks/libuniversal.dylib"
   cp "$UNIVERSAL_EXECUTABLE" "$APP_PATH/Contents/Resources/opaque-macho"
   chmod 644 "$APP_PATH/Contents/Resources/opaque-macho"
-  cp "$ARM64_EXECUTABLE" "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
-  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
-  cp "$X86_64_DYLIB" "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
-  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
-  cp "$ARM64_EXECUTABLE" "$APP_PATH/Contents/Resources/malformed macho"
-  truncate -s 64 "$APP_PATH/Contents/Resources/malformed macho"
 else
   FILE_TOOL="$TOOLS_DIR/file"
   LIPO_TOOL="$TOOLS_DIR/lipo"
@@ -93,8 +89,8 @@ for argument in "$@"; do
 done
 first_line="$(sed -n '1p' "$target")"
 case "$first_line" in
-  FAKE-MACHO:*) printf '%s: Mach-O synthetic binary\n' "$target" ;;
-  *) printf '%s: ASCII text\n' "$target" ;;
+  FAKE-MACHO:*) printf 'Mach-O synthetic binary\n' ;;
+  *) printf 'ASCII text\n' ;;
 esac
 EOF
 
@@ -130,11 +126,6 @@ EOF
   make_fake_macho 'arm64 x86_64' "$APP_PATH/Contents/Frameworks/libuniversal.dylib"
   make_fake_macho 'arm64 x86_64' "$APP_PATH/Contents/Resources/opaque-macho"
   chmod 644 "$APP_PATH/Contents/Resources/opaque-macho"
-  make_fake_macho arm64 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
-  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
-  make_fake_macho x86_64 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
-  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
-  make_fake_macho ERROR "$APP_PATH/Contents/Resources/malformed macho"
 fi
 
 printf '#!/bin/sh\nexit 0\n' > "$APP_PATH/Contents/Resources/bin/not a Mach-O executable"
@@ -154,6 +145,21 @@ if ! initial_output="$(run_verifier "$APP_PATH" 2>&1)"; then
   fail "a bundle containing only universal Mach-Os should pass"
 fi
 assert_contains "$initial_output" "Mach-O files"
+
+if (( USE_REAL_MACHO_TOOLS )); then
+  cp "$ARM64_EXECUTABLE" "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
+  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
+  cp "$X86_64_DYLIB" "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
+  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
+  cp "$ARM64_EXECUTABLE" "$APP_PATH/Contents/Resources/malformed macho"
+  truncate -s 64 "$APP_PATH/Contents/Resources/malformed macho"
+else
+  make_fake_macho arm64 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
+  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
+  make_fake_macho x86_64 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
+  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
+  make_fake_macho ERROR "$APP_PATH/Contents/Resources/malformed macho"
+fi
 
 if failure_output="$(run_verifier "$APP_PATH" 2>&1)"; then
   fail "single-arch and malformed Mach-Os should fail the verifier"
@@ -188,7 +194,9 @@ if partial_allowlist_output="$(run_verifier --allowlist "$ALLOWLIST" "$APP_PATH"
   fail "an unallowlisted single-arch path should still fail"
 fi
 assert_contains "$partial_allowlist_output" "Contents/Resources/Single Arch/x86_64 payload.dylib"
-if [[ "$partial_allowlist_output" == *"non-universal Mach-O.*arm64 payload"* ]]; then
+if printf '%s\n' "$partial_allowlist_output" |
+  grep -F 'ERROR: non-universal Mach-O' |
+  grep -Fq 'Contents/Resources/Single Arch/arm64 payload'; then
   fail "an allowlisted path should not be reported as a failure"
 fi
 
