@@ -45,10 +45,18 @@ pub use unix::connect_control;
 #[cfg(unix)]
 mod unix {
     use super::*;
-    use tokio::io::AsyncReadExt as _;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixStream;
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-    use tokio::sync::{Notify, oneshot};
+    use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+    use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
+
+    struct OutboundLine {
+        bytes: Vec<u8>,
+        // Requests wait for this acknowledgement. Fire-and-forget sends
+        // leave it empty, but still use the same FIFO writer queue.
+        written: Option<oneshot::Sender<bool>>,
+    }
 
     struct Shared {
         pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
@@ -58,6 +66,7 @@ mod unix {
         deliberate: AtomicBool,
         paused: AtomicBool,
         resume_notify: Notify,
+        closed_notify: Notify,
     }
 
     impl Shared {
@@ -67,6 +76,7 @@ mod unix {
             }
             // Resolve every pending request with "no reply".
             self.pending.lock().expect("control pending lock").clear();
+            self.closed_notify.notify_one();
             if !self.deliberate.load(Ordering::SeqCst)
                 && let Some(handler) =
                     self.close_handler.lock().expect("control close lock").as_ref()
@@ -78,7 +88,7 @@ mod unix {
 
     pub struct UnixControl {
         shared: Arc<Shared>,
-        writer: Mutex<OwnedWriteHalf>,
+        writer_tx: UnboundedSender<OutboundLine>,
         raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
@@ -107,15 +117,61 @@ mod unix {
             deliberate: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
+            closed_notify: Notify::new(),
         });
+        // Keep one async writer for every connection. The queue makes the
+        // synchronous `send` API safe without spawning one task per input;
+        // `write_all` below waits for socket backpressure and never exposes a
+        // partial JSON line to the peer.
+        let writer = Arc::new(AsyncMutex::new(write_half));
+        let (writer_tx, writer_rx) = mpsc::unbounded_channel();
+        tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
         tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
         Ok(Arc::new(UnixControl {
             shared,
-            writer: Mutex::new(write_half),
+            writer_tx,
             raw_fd,
             next_id: AtomicU64::new(1),
             timeout_ms,
         }))
+    }
+
+    async fn write_loop(
+        writer: Arc<AsyncMutex<OwnedWriteHalf>>,
+        mut receiver: UnboundedReceiver<OutboundLine>,
+        shared: Arc<Shared>,
+    ) {
+        loop {
+            let closed = shared.closed_notify.notified();
+            if shared.closed.load(Ordering::SeqCst) {
+                break;
+            }
+            let next_line = tokio::select! {
+                line = receiver.recv() => line,
+                _ = closed => None,
+            };
+            let Some(line) = next_line else {
+                break;
+            };
+            if shared.closed.load(Ordering::SeqCst) {
+                if let Some(written) = line.written {
+                    let _ = written.send(false);
+                }
+                continue;
+            }
+            let result = {
+                let mut writer = writer.lock().await;
+                writer.write_all(&line.bytes).await
+            };
+            let succeeded = result.is_ok();
+            if let Some(written) = line.written {
+                let _ = written.send(succeeded);
+            }
+            if result.is_err() {
+                shared.settle_closed();
+                break;
+            }
+        }
     }
 
     async fn read_loop(mut reader: OwnedReadHalf, shared: Arc<Shared>) {
@@ -171,7 +227,7 @@ mod unix {
     }
 
     impl UnixControl {
-        fn write_line(&self, id: u64, cmd: &str, params: Value) -> bool {
+        fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
             let mut frame = match params {
                 Value::Object(map) => map,
                 _ => serde_json::Map::new(),
@@ -180,19 +236,22 @@ mod unix {
             frame.insert("cmd".to_owned(), Value::from(cmd));
             let mut line = Value::Object(frame).to_string();
             line.push('\n');
-            let writer = self.writer.lock().expect("control writer lock");
-            // `try_write` may accept only a prefix. Keep writing until the
-            // complete JSON line is sent, or fail on a full/closed socket;
-            // otherwise the peer can observe a permanently torn command.
-            let bytes = line.as_bytes();
-            let mut offset = 0;
-            while offset < bytes.len() {
-                match writer.try_write(&bytes[offset..]) {
-                    Ok(0) | Err(_) => return false,
-                    Ok(written) => offset += written,
-                }
-            }
-            true
+            line.into_bytes()
+        }
+
+        fn enqueue_line(
+            &self,
+            id: u64,
+            cmd: &str,
+            params: Value,
+            written: Option<oneshot::Sender<bool>>,
+        ) -> bool {
+            self.writer_tx
+                .send(OutboundLine {
+                    bytes: Self::encode_line(id, cmd, params),
+                    written,
+                })
+                .is_ok()
         }
     }
 
@@ -210,11 +269,22 @@ mod unix {
                 let id = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let (sender, receiver) = oneshot::channel();
                 self.shared.pending.lock().expect("control pending lock").insert(id, sender);
-                if !self.write_line(id, &cmd, params) {
+                let deadline =
+                    tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
+                let (written, write_result) = oneshot::channel();
+                if !self.enqueue_line(id, &cmd, params, Some(written)) {
                     self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
-                match tokio::time::timeout(Duration::from_millis(self.timeout_ms), receiver).await {
+                let write_ok = match tokio::time::timeout_at(deadline, write_result).await {
+                    Ok(Ok(true)) => true,
+                    _ => false,
+                };
+                if !write_ok {
+                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    return None;
+                }
+                match tokio::time::timeout_at(deadline, receiver).await {
                     Ok(Ok(value)) => Some(value),
                     _ => {
                         self.shared.pending.lock().expect("control pending lock").remove(&id);
@@ -229,7 +299,7 @@ mod unix {
                 return;
             }
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-            let _ = self.write_line(id, cmd, params);
+            let _ = self.enqueue_line(id, cmd, params, None);
         }
 
         fn on_event(&self, handler: EventHandler) {
@@ -260,5 +330,74 @@ mod unix {
                 libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+    use tokio::net::UnixListener;
+
+    #[tokio::test]
+    async fn writer_queue_preserves_complete_fifo_lines() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "chatmux-relay-control-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control test socket");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control test socket");
+            let (read_half, mut write_half) = stream.into_split();
+            // Hold the reader briefly while the client queues several large
+            // lines. This exercises the writer's backpressure path without
+            // relying on a platform-specific socket buffer size.
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            let mut reader = tokio::io::BufReader::new(read_half);
+            let mut lines = Vec::new();
+            for _ in 0..9 {
+                let mut line = String::new();
+                reader.read_line(&mut line).await.expect("read control line");
+                lines.push(line);
+            }
+            let request: Value =
+                serde_json::from_str(lines[8].trim_end()).expect("decode request line");
+            let id = request.get("id").and_then(Value::as_u64).expect("request id");
+            let response = format!("{{\"id\":{id},\"ok\":true}}\n");
+            write_half.write_all(response.as_bytes()).await.expect("write response line");
+            lines
+        });
+
+        let control = unix::connect_control(&socket_path, 3_000)
+            .await
+            .expect("connect control test socket");
+        let payload = "x".repeat(128 * 1024);
+        for index in 0..8 {
+            control.send("send", json!({ "index": index, "payload": payload.clone() }));
+        }
+        let response = control.request("probe", json!({})).await;
+        assert_eq!(
+            response.and_then(|value| value.get("ok").and_then(Value::as_bool)),
+            Some(true)
+        );
+
+        let lines = server.await.expect("join control test server");
+        assert!(lines.iter().all(|line| line.ends_with('\n')));
+        for (index, line) in lines.iter().take(8).enumerate() {
+            let value: Value = serde_json::from_str(line.trim_end()).expect("decode send line");
+            assert_eq!(value.get("cmd").and_then(Value::as_str), Some("send"));
+            assert_eq!(value.get("index").and_then(Value::as_u64), Some(index as u64));
+            assert_eq!(
+                value.get("payload").and_then(Value::as_str).map(str::len),
+                Some(128 * 1024)
+            );
+        }
+        let request: Value = serde_json::from_str(lines[8].trim_end()).expect("decode probe line");
+        assert_eq!(request.get("cmd").and_then(Value::as_str), Some("probe"));
+
+        control.end();
+        let _ = std::fs::remove_file(socket_path);
     }
 }
