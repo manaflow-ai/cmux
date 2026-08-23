@@ -63,6 +63,12 @@ struct TerminalComposerView: View {
     /// Failure feedback for a paste that could not stage (unreadable item,
     /// over-cap file, host without file-attachment support).
     @State private var attachmentAlertMessage: String?
+    /// Whether the attach control is expanded into its in-composer options
+    /// card (iOS 26 only; earlier OSes use a system Menu).
+    @State private var isAttachMenuExpanded = false
+    /// Shared glass identity between the attach circle and its expanded
+    /// options card, so the Liquid Glass morphs one into the other.
+    @Namespace private var attachMenuNamespace
     /// The staged attachment currently open in the Quick Look preview sheet
     /// (a chip's primary tap), mirroring the task composer's chip behavior.
     @State private var previewedAttachment: MobilePendingAttachment?
@@ -220,6 +226,11 @@ struct TerminalComposerView: View {
         .onChange(of: pendingAttachments.map(\.id), initial: true) { _, _ in
             warmThumbnailCache()
         }
+        // The expanded attach card is band content, so its appearance and
+        // collapse change the composer's ideal height.
+        .onChange(of: isAttachMenuExpanded) { _, _ in
+            requestHeightRemeasure()
+        }
         .onChange(of: sendStatus) { _, _ in
             requestHeightRemeasure()
         }
@@ -263,6 +274,11 @@ struct TerminalComposerView: View {
             dictation.cancel()
         }
         .onChange(of: isFieldFocused) { _, focused in
+            // Typing into the field dismisses the expanded attach card the
+            // way tapping elsewhere dismisses a menu.
+            if focused {
+                setAttachMenuExpanded(false)
+            }
             inputFocusChanged(focused)
             // Mirror the field's focus into the store so a terminal switch knows
             // whether the user was mid-compose (and should keep the keyboard up
@@ -327,6 +343,15 @@ struct TerminalComposerView: View {
             // keeps its compact one-line height (and the host's measurement).
             if !pendingAttachments.isEmpty {
                 attachmentChipRow
+            }
+
+            // The attach circle's expanded options card. Real content (not an
+            // overlay) so the band's height measurement includes it — the
+            // composer band grows to host it, exactly like the chip row.
+            if isAttachMenuExpanded {
+                if #available(iOS 26.0, *) {
+                    attachOptionsCard
+                }
             }
 
             if sendStatus == .failed {
@@ -572,42 +597,126 @@ struct TerminalComposerView: View {
 
     /// The attach control offers the same sources as the task composer's
     /// menu: Photo Library, Choose Files (when the paired Mac supports file
-    /// uploads), and Paste. On iOS 26 the control is the SYSTEM glass button
-    /// style: the glass look stays, and because the system owns the glass it
-    /// can morph the control into the presented menu — a custom
-    /// `glassEffect` label is composited separately and only overlays.
-    /// Earlier OSes keep the shared material circle with a plain
-    /// presentation.
+    /// uploads), and Paste. On iOS 26 the circle MORPHS into an in-composer
+    /// options card: circle and card share a `glassEffectID` inside the
+    /// composer's `GlassEffectContainer`, so swapping which one is present
+    /// animates the Liquid Glass from one shape into the other (a system
+    /// `Menu` presents in a detached overlay layer the glass cannot morph
+    /// into). Earlier OSes keep a system Menu.
     @ViewBuilder
     private var attachMenuButton: some View {
         if #available(iOS 26.0, *) {
-            attachMenu {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    )
-                    .frame(width: 22, height: 22)
+            if isAttachMenuExpanded {
+                // The circle's glass is morphing into the card above; hold
+                // the slot so the mic and field do not shift while expanded.
+                Color.clear
+                    .frame(width: controlHeight, height: controlHeight)
+            } else {
+                Button {
+                    setAttachMenuExpanded(true)
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(
+                            store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                        )
+                        .frame(width: controlHeight, height: controlHeight)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .glassEffectID(Self.attachGlassID, in: attachMenuNamespace)
+                .accessibilityIdentifier("MobileComposerAttach")
+                .accessibilityLabel(L10n.string(
+                    "mobile.composer.attach.add",
+                    defaultValue: "Add Attachment"
+                ))
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
         } else {
-            attachMenu {
-                MobileComposerIconLabel(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    ),
-                    size: controlHeight
-                )
-            }
-            .buttonStyle(.plain)
+            legacyAttachMenu
         }
     }
 
-    private func attachMenu(
-        @ViewBuilder label: () -> some View
+    /// The expanded options the attach circle morphs into.
+    @available(iOS 26.0, *)
+    private var attachOptionsCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            attachOption(
+                systemImage: "photo.on.rectangle",
+                title: L10n.string(
+                    "mobile.composer.attach.photoLibrary",
+                    defaultValue: "Photo Library"
+                )
+            ) {
+                presentPhotoPicker()
+            }
+            if store.supportsComposerFileAttachments {
+                attachOption(
+                    systemImage: "folder",
+                    title: L10n.string(
+                        "mobile.composer.attach.chooseFiles",
+                        defaultValue: "Choose Files"
+                    )
+                ) {
+                    presentFileImporter()
+                }
+            }
+            attachOption(
+                systemImage: "doc.on.clipboard",
+                title: L10n.string(
+                    "mobile.composer.attach.paste",
+                    defaultValue: "Paste"
+                )
+            ) {
+                _ = pasteComposerAttachments()
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 250, alignment: .leading)
+        .glassEffect(
+            .regular,
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+        .glassEffectID(Self.attachGlassID, in: attachMenuNamespace)
+        .accessibilityIdentifier("MobileComposerAttachOptions")
+    }
+
+    private func attachOption(
+        systemImage: String,
+        title: String,
+        action: @escaping () -> Void
     ) -> some View {
+        Button {
+            setAttachMenuExpanded(false)
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .frame(width: 24)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .font(.body)
+            .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Toggle the expanded card inside one animation so the shared-ID glass
+    /// morph and the band's height change ride the same transaction.
+    private func setAttachMenuExpanded(_ expanded: Bool) {
+        guard isAttachMenuExpanded != expanded else { return }
+        withAnimation(.smooth(duration: 0.35)) {
+            isAttachMenuExpanded = expanded
+        }
+    }
+
+    /// Pre-iOS-26 attach control: the shared material circle with a system
+    /// menu presentation (no glass to morph on those OSes).
+    private var legacyAttachMenu: some View {
         Menu {
             Button {
                 presentPhotoPicker()
@@ -645,14 +754,23 @@ struct TerminalComposerView: View {
                 )
             }
         } label: {
-            label()
+            MobileComposerIconLabel(
+                systemImage: "paperclip",
+                foregroundStyle: AnyShapeStyle(
+                    store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                ),
+                size: controlHeight
+            )
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("MobileComposerAttach")
         .accessibilityLabel(L10n.string(
             "mobile.composer.attach.add",
             defaultValue: "Add Attachment"
         ))
     }
+
+    private static let attachGlassID = "composer-attach"
 
     /// Record the modal boundary before changing the PhotosPicker binding. The
     /// surface input session synchronously resigns its actual terminal/composer
@@ -785,6 +903,7 @@ struct TerminalComposerView: View {
     private func send() {
         // Allowed with empty text as long as an attachment is staged.
         guard canSend else { return }
+        setAttachMenuExpanded(false)
         // Hard-cancel dictation before sending, NOT the graceful async stop. Every
         // partial already wrote into `terminalInputText`, so the field holds the
         // latest spoken words at send time. `cancel()` immediately tears down the
