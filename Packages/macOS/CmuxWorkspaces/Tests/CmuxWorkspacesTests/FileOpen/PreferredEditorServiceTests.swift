@@ -22,6 +22,16 @@ private struct FixedEditor: PreferredEditorReading {
 @Suite("PreferredEditorService")
 @MainActor
 struct PreferredEditorServiceTests {
+    @Test(arguments: ["nvim", "/opt/homebrew/bin/nvim", "env nvim", "vim --clean"])
+    func terminalEditorsAreDetected(command: String) {
+        #expect(PreferredEditorService.isTerminalEditorCommand(command))
+    }
+
+    @Test(arguments: ["code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper"])
+    func graphicalEditorsAreNotDetected(command: String) {
+        #expect(!PreferredEditorService.isTerminalEditorCommand(command))
+    }
+
     private func makeScratchDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-open-\(UUID().uuidString)", isDirectory: true)
@@ -53,6 +63,20 @@ struct PreferredEditorServiceTests {
         let opener = RecordingSystemOpener()
         let service = PreferredEditorService(
             editor: FixedEditor(resolvedCommand: nil),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener
+        )
+        let url = URL(fileURLWithPath: "/tmp/plain.txt")
+
+        service.open(url)
+
+        #expect(opener.openedURLs == [url])
+    }
+
+    @Test func terminalEditorFallsBackWithoutSpawning() {
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: "nvim"),
             capture: UITestCaptureSink(environment: [:]),
             systemOpener: opener
         )

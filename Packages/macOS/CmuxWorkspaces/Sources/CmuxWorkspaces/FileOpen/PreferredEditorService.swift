@@ -25,6 +25,23 @@ public import CmuxTestSupport
 /// `DispatchQueue.main.async` fallback.
 @MainActor
 public struct PreferredEditorService: FileOpening {
+    /// Commands that require a terminal cannot be presented by the GUI
+    /// process. Starting one with null stdio leaves it detached forever.
+    static let terminalEditorNames: Set<String> = [
+        "vi", "vim", "nvim", "nano", "emacs", "hx", "helix", "kak", "less"
+    ]
+
+    static func isTerminalEditorCommand(_ command: String) -> Bool {
+        let tokens = command.split { $0 == " " || $0 == "\t" }
+        guard var executable = tokens.first else { return false }
+        if executable == "env", tokens.count > 1 {
+            executable = tokens[1]
+        }
+        return terminalEditorNames.contains(
+            URL(fileURLWithPath: String(executable)).lastPathComponent
+        )
+    }
+
     private let editor: any PreferredEditorReading
     private let capture: any TestCaptureWriting
     private let systemOpener: any SystemFileOpening
@@ -65,6 +82,14 @@ public struct PreferredEditorService: FileOpening {
         }
 
         guard let command = editor.resolvedCommand else {
+            systemOpener.openWithSystemDefault(url)
+            return
+        }
+
+        // A TUI editor has no usable UI when launched from cmux's GUI process.
+        // Reject it before spawning, rather than leaking the editor and its
+        // plugin children with stdin/stdout/stderr attached to /dev/null.
+        guard !Self.isTerminalEditorCommand(command) else {
             systemOpener.openWithSystemDefault(url)
             return
         }
