@@ -594,7 +594,11 @@ async fn run_peer<S>(
             shared.target_connected.store(false, Ordering::Relaxed);
         }
     }
+    // Abort then await the writer so its socket and channel resources are
+    // fully dropped before this peer task exits. Dropping a JoinHandle would
+    // detach the task and allow it to outlive the peer.
     writer.abort();
+    let _ = writer.await;
 }
 
 // ---------------------------------------------------------------------------
