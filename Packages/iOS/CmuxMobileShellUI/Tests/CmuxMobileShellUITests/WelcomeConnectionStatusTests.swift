@@ -44,5 +44,23 @@ import Testing
         )
         #expect(status == .stalled)
     }
+
+    @Test func blankMacNamesNormalizeToNil() {
+        let status = WelcomeConnectionStatus(
+            isConnected: true,
+            macName: "  \n",
+            isSearching: false,
+            didFinishSearch: true
+        )
+        #expect(status == .linked(macName: nil))
+
+        let trimmed = WelcomeConnectionStatus(
+            isConnected: true,
+            macName: " Studio ",
+            isSearching: false,
+            didFinishSearch: true
+        )
+        #expect(trimmed == .linked(macName: "Studio"))
+    }
 }
 #endif

@@ -30,6 +30,21 @@ import Testing
         #expect(defaults.object(forKey: MobileConnectionMethodStore.methodKey) == nil)
     }
 
+    @Test func completedPriorOnboardingDesignStillQualifiesAsExistingInstall() {
+        // An install that finished the retired onboarding design has no value
+        // under the welcome tour's fresh key; the one-time introduction must
+        // still recognize it as an existing user, not a fresh install.
+        let defaults = makeDefaults()
+        defaults.set(
+            MobileOnboardingProgress.complete.rawValue,
+            forKey: "dev.cmux.mobile.onboarding.redesign.progress.v1"
+        )
+
+        let store = MobileAutoConnectMigrationStore(defaults: defaults)
+
+        #expect(store.resolution == .pending)
+    }
+
     @Test(arguments: [nil, "welcome", "connect", "unknown"] as [String?])
     func incompleteOrMissingRawOnboardingIsIneligible(_ rawProgress: String?) {
         let defaults = makeDefaults()

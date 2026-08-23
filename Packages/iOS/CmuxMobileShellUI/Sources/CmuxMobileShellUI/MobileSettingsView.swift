@@ -506,7 +506,9 @@ struct MobileSettingsView: View {
                         isConnected: store?.connectionState == .connected,
                         macName: store?.connectedHostName,
                         isSearching: store?.isReconnectingStoredMac == true,
-                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
+                        // A nil store (previews) must not report an eternal
+                        // search; the stalled state keeps guidance visible.
+                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt != false
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     accountEmail: authManager.currentUser?.primaryEmail,

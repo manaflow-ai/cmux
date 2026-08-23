@@ -220,6 +220,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(primaryButton.label.contains("Search Again"))
         XCTAssertTrue(primaryButton.isHittable)
         capture("welcome-09-connect-compact-height")
+
+        // Finish through the footer so the durable progress key ends this
+        // test at `complete` instead of leaking `.connect` into later tests.
+        secondaryButton.tap()
     }
 
     /// Signed out, the welcome tour embeds sign-in as its third stage instead
