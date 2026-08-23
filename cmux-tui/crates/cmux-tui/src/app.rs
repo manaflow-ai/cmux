@@ -4239,7 +4239,7 @@ impl MenuAction {
             MenuAction::RenameManagedWorkspace(_) => {
                 localization::catalog().sidebar.rename_workspace
             }
-            MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
+            MenuAction::CopyWorkspaceId(_) => menu.copy_workspace_id,
             MenuAction::CloseWorkspace(_) => {
                 localization::catalog().action_label(Action::CloseWorkspace)
             }
@@ -4264,8 +4264,8 @@ impl MenuAction {
             MenuAction::BrowserEditUrl(_) => {
                 localization::catalog().action_label(Action::BrowserEditUrl)
             }
-            MenuAction::BrowserCopyUrl(_) => "Copy URL",
-            MenuAction::BrowserActivate(_) => "Show in Chrome",
+            MenuAction::BrowserCopyUrl(_) => menu.copy_url,
+            MenuAction::BrowserActivate(_) => menu.show_in_chrome,
             MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
                 localization::catalog().action_label(Action::RenameTab)
             }
@@ -5003,9 +5003,17 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
         let identity = client.kind.as_deref().or(client.name.as_deref()).unwrap_or("client");
         let size = reported_size
             .map(|(cols, rows)| format!("{cols}×{rows}"))
-            .unwrap_or_else(|| "no grid".to_string());
-        let self_label = if client.is_self { " · this client" } else { "" };
-        let sizing_label = if size_participating { "" } else { " · excluded" };
+            .unwrap_or_else(|| localization::catalog().menu.no_grid.to_string());
+        let self_label = if client.is_self {
+            format!(" · {}", localization::catalog().menu.this_client)
+        } else {
+            String::new()
+        };
+        let sizing_label = if size_participating {
+            String::new()
+        } else {
+            format!(" · {}", localization::catalog().menu.excluded)
+        };
         let label = format!("#{} {identity} · {size}{self_label}{sizing_label}", client.client);
         let mut actions = Vec::new();
         if reported_size.is_some() {
@@ -5026,7 +5034,10 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
         }
         items.push(MenuItem::Submenu { label, items: actions });
     }
-    Some(MenuItem::Submenu { label: format!("Connected clients ({})", clients.len()), items })
+    Some(MenuItem::Submenu {
+        label: format!("{} ({})", localization::catalog().menu.connected_clients, clients.len()),
+        items,
+    })
 }
 
 /// What a committed rename prompt applies to.
@@ -17373,7 +17384,7 @@ impl App {
         };
         let error = error.clone();
         self.copy_text_to_clipboard(&error);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
@@ -18726,7 +18737,7 @@ impl App {
             return;
         };
         self.copy_text_to_clipboard(&url);
-        self.show_toast("Copied URL".to_string());
+        self.show_toast(localization::catalog().menu.copied_url.to_string());
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
@@ -21468,7 +21479,7 @@ impl App {
             local.set_selection_text(Some(text.clone()));
         }
         self.copy_text_to_clipboard(&text);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn copy_status_message_selection(&mut self) {
@@ -21481,13 +21492,13 @@ impl App {
             return;
         };
         self.copy_text_to_clipboard(&text);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn copy_status_message(&mut self) {
         let Some(message) = self.status_message.clone() else { return };
         self.copy_text_to_clipboard(&message);
-        self.show_toast("Copied".to_string());
+        self.show_toast(localization::catalog().menu.copied.to_string());
     }
 
     fn copy_text_to_clipboard(&self, text: &str) {
